@@ -1,0 +1,33 @@
+PROPRIETARY SOURCE-AVAILABLE LICENSE
+
+Copyright (c) 2026
+All rights reserved.
+
+This repository and all files contained within it (the “Software”) are made
+publicly visible for viewing and reference purposes only.
+
+NO RIGHTS ARE GRANTED to use, execute, copy, reproduce, modify, merge,
+publish, distribute, sublicense, sell, commercialize, or create derivative
+works from the Software, in whole or in part.
+
+Explicitly prohibited actions include, but are not limited to:
+- Running or deploying the Software
+- Copying code or assets into other projects
+- Modifying or adapting the Software
+- Redistributing the Software or any portion of it
+- Using the Software for commercial or non-commercial purposes
+- Creating derivative works based on the Software
+
+Viewing the source code on GitHub does NOT imply permission to use or execute it.
+
+Any use of the Software requires prior **explicit written permission** from the
+copyright holder.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE,
+ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
