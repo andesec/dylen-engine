@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
-
 import re
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
@@ -56,8 +55,8 @@ class FlipWidget(WidgetBase):
     type: Literal["flip"]
     front: StrictStr = Field(min_length=1, max_length=120)
     back: StrictStr = Field(min_length=1, max_length=160)
-    front_hint: Optional[StrictStr] = None
-    back_hint: Optional[StrictStr] = None
+    front_hint: StrictStr | None = None
+    back_hint: StrictStr | None = None
 
 
 class TranslationWidget(WidgetBase):
@@ -96,18 +95,18 @@ class ListWidget(WidgetBase):
     """Ordered or unordered list widget."""
 
     type: Literal["ul", "ol"]
-    items: List[StrictStr]
+    items: list[StrictStr]
 
 
 class TableWidget(WidgetBase):
     """Tabular data widget."""
 
     type: Literal["table"]
-    rows: List[List[StrictStr]]
+    rows: list[list[StrictStr]]
 
     @field_validator("rows")
     @classmethod
-    def validate_rows(cls, value: List[List[StrictStr]]) -> List[List[StrictStr]]:
+    def validate_rows(cls, value: list[list[StrictStr]]) -> list[list[StrictStr]]:
         if not value:
             raise ValueError("table requires at least one row")
         for row in value:
@@ -120,11 +119,11 @@ class CompareWidget(WidgetBase):
     """Two-column comparison widget."""
 
     type: Literal["compare"]
-    rows: List[List[StrictStr]]
+    rows: list[list[StrictStr]]
 
     @field_validator("rows")
     @classmethod
-    def validate_rows(cls, value: List[List[StrictStr]]) -> List[List[StrictStr]]:
+    def validate_rows(cls, value: list[list[StrictStr]]) -> list[list[StrictStr]]:
         if not value:
             raise ValueError("compare requires at least one row")
         for row in value:
@@ -146,12 +145,12 @@ class SwipeWidget(WidgetBase):
 
     type: Literal["swipe"]
     title: StrictStr = Field(min_length=1)
-    buckets: List[StrictStr]
-    cards: List[SwipeCard]
+    buckets: list[StrictStr]
+    cards: list[SwipeCard]
 
     @field_validator("buckets")
     @classmethod
-    def validate_buckets(cls, value: List[StrictStr]) -> List[StrictStr]:
+    def validate_buckets(cls, value: list[StrictStr]) -> list[StrictStr]:
         if len(value) != 2:
             raise ValueError("swipe buckets must contain exactly two labels")
         if any(not label for label in value):
@@ -160,7 +159,7 @@ class SwipeWidget(WidgetBase):
 
     @field_validator("cards")
     @classmethod
-    def validate_cards(cls, value: List[SwipeCard]) -> List[SwipeCard]:
+    def validate_cards(cls, value: list[SwipeCard]) -> list[SwipeCard]:
         if not value:
             raise ValueError("swipe requires at least one card")
         return value
@@ -171,11 +170,11 @@ class FreeTextWidget(WidgetBase):
 
     type: Literal["freeText"]
     prompt: StrictStr = Field(min_length=1)
-    seed_locked: Optional[StrictStr] = None
+    seed_locked: StrictStr | None = None
     text: StrictStr
-    lang: Optional[StrictStr] = Field(default="en")
-    wordlist_csv: Optional[StrictStr] = None
-    mode: Optional[Literal["single", "multi"]] = Field(default="multi")
+    lang: StrictStr | None = Field(default="en")
+    wordlist_csv: StrictStr | None = None
+    mode: Literal["single", "multi"] | None = Field(default="multi")
 
 
 FlowNode = Union[StrictStr, "StepFlowBranch"]
@@ -185,17 +184,17 @@ class StepFlowOption(LessonBaseModel):
     """Branch option for step flow."""
 
     label: StrictStr = Field(min_length=1)
-    steps: List[FlowNode]
+    steps: list[FlowNode]
 
 
 class StepFlowBranch(LessonBaseModel):
     """Branching node in a step flow."""
 
-    options: List[StepFlowOption]
+    options: list[StepFlowOption]
 
     @field_validator("options")
     @classmethod
-    def validate_options(cls, value: List[StepFlowOption]) -> List[StepFlowOption]:
+    def validate_options(cls, value: list[StepFlowOption]) -> list[StepFlowOption]:
         if not value:
             raise ValueError("stepFlow branch must include at least one option")
         return value
@@ -206,19 +205,19 @@ class StepFlowWidget(WidgetBase):
 
     type: Literal["stepFlow"]
     lead: StrictStr = Field(min_length=1)
-    flow: List[FlowNode]
+    flow: list[FlowNode]
 
     @field_validator("flow")
     @classmethod
-    def validate_flow(cls, value: List[FlowNode]) -> List[FlowNode]:
+    def validate_flow(cls, value: list[FlowNode]) -> list[FlowNode]:
         if not value:
             raise ValueError("stepFlow requires at least one flow entry")
         return value
 
     @field_validator("flow")
     @classmethod
-    def validate_branching_depth(cls, value: List[FlowNode]) -> List[FlowNode]:
-        def max_branch_depth(nodes: List[FlowNode], depth: int = 1) -> int:
+    def validate_branching_depth(cls, value: list[FlowNode]) -> list[FlowNode]:
+        def max_branch_depth(nodes: list[FlowNode], depth: int = 1) -> int:
             max_depth = depth
             for node in nodes:
                 if isinstance(node, StepFlowBranch):
@@ -246,11 +245,11 @@ class ChecklistGroup(LessonBaseModel):
     """Nested checklist group."""
 
     title: StrictStr = Field(min_length=1)
-    children: List[ChecklistNode]
+    children: list[ChecklistNode]
 
     @field_validator("children")
     @classmethod
-    def validate_children(cls, value: List[ChecklistNode]) -> List[ChecklistNode]:
+    def validate_children(cls, value: list[ChecklistNode]) -> list[ChecklistNode]:
         if not value:
             raise ValueError("checklist group must include children")
         return value
@@ -261,19 +260,19 @@ class ChecklistWidget(WidgetBase):
 
     type: Literal["checklist"]
     lead: StrictStr = Field(min_length=1)
-    tree: List[ChecklistNode]
+    tree: list[ChecklistNode]
 
     @field_validator("tree")
     @classmethod
-    def validate_tree(cls, value: List[ChecklistNode]) -> List[ChecklistNode]:
+    def validate_tree(cls, value: list[ChecklistNode]) -> list[ChecklistNode]:
         if not value:
             raise ValueError("checklist requires at least one node")
         return value
 
     @field_validator("tree")
     @classmethod
-    def validate_nesting_depth(cls, value: List[ChecklistNode]) -> List[ChecklistNode]:
-        def max_depth(nodes: List[ChecklistNode], depth: int = 1) -> int:
+    def validate_nesting_depth(cls, value: list[ChecklistNode]) -> list[ChecklistNode]:
+        def max_depth(nodes: list[ChecklistNode], depth: int = 1) -> int:
             max_seen = depth
             for node in nodes:
                 if isinstance(node, ChecklistGroup):
@@ -314,12 +313,12 @@ class ConsoleWidget(WidgetBase):
     type: Literal["console"]
     lead: StrictStr
     mode: Literal[0, 1]
-    rules_or_script: List[Union[ConsoleDemoEntry, ConsoleInteractiveRule]]
-    guided: Optional[List[ConsoleGuidedStep]] = None
+    rules_or_script: list[ConsoleDemoEntry | ConsoleInteractiveRule]
+    guided: list[ConsoleGuidedStep] | None = None
 
     @field_validator("rules_or_script")
     @classmethod
-    def validate_rules(cls, value: List[Union[ConsoleDemoEntry, ConsoleInteractiveRule]], values):
+    def validate_rules(cls, value: list[ConsoleDemoEntry | ConsoleInteractiveRule], values):
         if V2:
             mode = values.data.get("mode") if hasattr(values, "data") else None  # type: ignore
         else:
@@ -344,30 +343,30 @@ class CodeViewerWidget(WidgetBase):
     code: Any
     language: StrictStr = Field(min_length=1)
     editable: StrictBool = False
-    textarea_id: Optional[StrictStr] = None
+    textarea_id: StrictStr | None = None
 
 
 class TreeViewWidget(WidgetBase):
     """Lesson structure viewer widget."""
 
     type: Literal["treeview"]
-    lesson: Union[Dict[str, Any], StrictStr]
-    title: Optional[StrictStr] = None
-    textarea_id: Optional[StrictStr] = None
-    editor_id: Optional[StrictStr] = None
+    lesson: dict[str, Any] | StrictStr
+    title: StrictStr | None = None
+    textarea_id: StrictStr | None = None
+    editor_id: StrictStr | None = None
 
 
 class QuizQuestion(LessonBaseModel):
     """Quiz question model."""
 
     prompt: StrictStr = Field(..., alias="q", min_length=1)
-    choices: List[StrictStr] = Field(..., alias="c")
+    choices: list[StrictStr] = Field(..., alias="c")
     answer_index: StrictInt = Field(..., alias="a")
     explanation: StrictStr = Field(..., alias="e", min_length=1)
 
     @field_validator("choices")
     @classmethod
-    def validate_choices(cls, value: List[StrictStr]) -> List[StrictStr]:
+    def validate_choices(cls, value: list[StrictStr]) -> list[StrictStr]:
         if len(value) < 2:
             raise ValueError("quiz choices must include at least two options")
         if any(not choice for choice in value):
@@ -376,7 +375,7 @@ class QuizQuestion(LessonBaseModel):
 
     if V2:
         @model_validator(mode="after")
-        def validate_answer_index(self) -> "QuizQuestion":
+        def validate_answer_index(self) -> QuizQuestion:
             if not 0 <= self.answer_index < len(self.choices):
                 raise ValueError("quiz answer index must be within choices range")
             return self
@@ -396,36 +395,18 @@ class QuizWidget(WidgetBase):
 
     type: Literal["quiz"]
     title: StrictStr = Field(min_length=1)
-    questions: List[QuizQuestion]
+    questions: list[QuizQuestion]
 
     @field_validator("questions")
     @classmethod
-    def validate_questions(cls, value: List[QuizQuestion]) -> List[QuizQuestion]:
+    def validate_questions(cls, value: list[QuizQuestion]) -> list[QuizQuestion]:
         if not value:
             raise ValueError("quiz requires at least one question")
         return value
 
 
 Widget = Annotated[
-    Union[
-        ParagraphWidget,
-        CalloutWidget,
-        FlipWidget,
-        TranslationWidget,
-        BlankWidget,
-        ListWidget,
-        TableWidget,
-        CompareWidget,
-        SwipeWidget,
-        FreeTextWidget,
-        StepFlowWidget,
-        AsciiDiagramWidget,
-        ChecklistWidget,
-        ConsoleWidget,
-        CodeViewerWidget,
-        TreeViewWidget,
-        QuizWidget,
-    ],
+    ParagraphWidget | CalloutWidget | FlipWidget | TranslationWidget | BlankWidget | ListWidget | TableWidget | CompareWidget | SwipeWidget | FreeTextWidget | StepFlowWidget | AsciiDiagramWidget | ChecklistWidget | ConsoleWidget | CodeViewerWidget | TreeViewWidget | QuizWidget,
     Field(discriminator="type"),
 ]
 
@@ -434,8 +415,8 @@ class SectionBlock(LessonBaseModel):
     """Primary section block containing content widgets."""
 
     section: StrictStr = Field(min_length=1)
-    items: List[Widget]
-    subsections: Optional[List["SectionBlock"]] = None
+    items: list[Widget]
+    subsections: list[SectionBlock] | None = None
 
     if V2:
         @model_validator(mode="before")
@@ -464,22 +445,22 @@ class LessonDocument(LessonBaseModel):
 
     version: Literal["1.0"] = Field(default="1.0")
     title: StrictStr = Field(min_length=1)
-    blocks: List[SectionBlock]
+    blocks: list[SectionBlock]
 
 
-def _normalize_callout(value: Any, widget_type: str) -> Dict[str, Any]:
+def _normalize_callout(value: Any, widget_type: str) -> dict[str, Any]:
     if not isinstance(value, str):
         raise ValueError(f"{widget_type} widget expects a string message")
     return {"type": widget_type, "text": value}
 
 
-def _normalize_list(value: Any, widget_type: str) -> Dict[str, Any]:
+def _normalize_list(value: Any, widget_type: str) -> dict[str, Any]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"{widget_type} widget expects a list of strings")
     return {"type": widget_type, "items": value}
 
 
-def _normalize_flip(value: Any) -> Dict[str, Any]:
+def _normalize_flip(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) < 2:
         raise ValueError("flip widget expects at least front and back text")
     front, back = value[0], value[1]
@@ -496,13 +477,13 @@ def _normalize_flip(value: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_tr(value: Any) -> Dict[str, Any]:
+def _normalize_tr(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) != 2 or not all(isinstance(item, str) for item in value):
         raise ValueError("tr widget expects two translation strings")
     return {"type": "tr", "source": value[0], "target": value[1]}
 
 
-def _normalize_blank(value: Any) -> Dict[str, Any]:
+def _normalize_blank(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) != 4 or not all(isinstance(item, str) for item in value):
         raise ValueError("blank widget expects four strings: prompt, answer, hint, explanation")
     prompt, answer, hint, explanation = value
@@ -515,7 +496,7 @@ def _normalize_blank(value: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_table(value: Any, widget_type: str) -> Dict[str, Any]:
+def _normalize_table(value: Any, widget_type: str) -> dict[str, Any]:
     if not isinstance(value, list) or not all(isinstance(row, list) for row in value):
         raise ValueError(f"{widget_type} widget expects a list of rows")
     for row in value:
@@ -525,7 +506,7 @@ def _normalize_table(value: Any, widget_type: str) -> Dict[str, Any]:
     return {"type": widget_type, field_name: value}
 
 
-def _normalize_swipe(value: Any) -> Dict[str, Any]:
+def _normalize_swipe(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) < 3:
         raise ValueError("swipe widget expects [title, buckets, cards]")
     title, buckets, cards = value[0], value[1], value[2]
@@ -535,7 +516,7 @@ def _normalize_swipe(value: Any) -> Dict[str, Any]:
         raise ValueError("swipe buckets must be a list of two strings")
     if not isinstance(cards, list):
         raise ValueError("swipe cards must be a list")
-    normalized_cards: List[Dict[str, Any]] = []
+    normalized_cards: list[dict[str, Any]] = []
     for entry in cards:
         if not (isinstance(entry, list) and len(entry) >= 3):
             raise ValueError("each swipe card must be [text, correctBucket, feedback]")
@@ -548,7 +529,7 @@ def _normalize_swipe(value: Any) -> Dict[str, Any]:
     return {"type": "swipe", "title": title, "buckets": buckets, "cards": normalized_cards}
 
 
-def _normalize_free_text(value: Any) -> Dict[str, Any]:
+def _normalize_free_text(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) < 1:
         raise ValueError("freeText widget expects at least a prompt entry")
     prompt = value[0]
@@ -570,7 +551,7 @@ def _normalize_free_text(value: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_step_flow(value: Any) -> Dict[str, Any]:
+def _normalize_step_flow(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) < 2:
         raise ValueError("stepFlow widget expects [lead, flow]")
     lead, flow = value[0], value[1]
@@ -579,11 +560,11 @@ def _normalize_step_flow(value: Any) -> Dict[str, Any]:
     if not isinstance(flow, list):
         raise ValueError("stepFlow flow must be a list")
 
-    def normalize_node(node: Any) -> Union[StrictStr, Dict[str, Any]]:
+    def normalize_node(node: Any) -> StrictStr | dict[str, Any]:
         if isinstance(node, str):
             return node
         if isinstance(node, list):
-            options: List[Dict[str, Any]] = []
+            options: list[dict[str, Any]] = []
             for opt in node:
                 if not (isinstance(opt, list) and len(opt) == 2):
                     raise ValueError("stepFlow branch option must be [label, steps]")
@@ -598,7 +579,7 @@ def _normalize_step_flow(value: Any) -> Dict[str, Any]:
     return {"type": "stepFlow", "lead": lead, "flow": normalized_flow}
 
 
-def _normalize_ascii_diagram(value: Any) -> Dict[str, Any]:
+def _normalize_ascii_diagram(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) != 2:
         raise ValueError("asciiDiagram widget expects [lead, diagram]")
     lead, diagram = value
@@ -607,14 +588,14 @@ def _normalize_ascii_diagram(value: Any) -> Dict[str, Any]:
     return {"type": "asciiDiagram", "lead": lead, "diagram": diagram}
 
 
-def _normalize_checklist(value: Any) -> Dict[str, Any]:
+def _normalize_checklist(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) != 2:
         raise ValueError("checklist widget expects [lead, tree]")
     lead, tree = value
     if not isinstance(lead, str) or not isinstance(tree, list):
         raise ValueError("checklist requires a string lead and list tree")
 
-    def normalize_node(node: Any) -> Union[StrictStr, Dict[str, Any]]:
+    def normalize_node(node: Any) -> StrictStr | dict[str, Any]:
         if isinstance(node, str):
             return node
         if isinstance(node, list) and len(node) == 2:
@@ -628,7 +609,7 @@ def _normalize_checklist(value: Any) -> Dict[str, Any]:
     return {"type": "checklist", "lead": lead, "tree": normalized_tree}
 
 
-def _normalize_console(value: Any) -> Dict[str, Any]:
+def _normalize_console(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) < 3:
         raise ValueError("console widget expects [lead, mode, rulesOrScript, guided?]")
     lead, mode, rules_or_script = value[0], value[1], value[2]
@@ -640,7 +621,7 @@ def _normalize_console(value: Any) -> Dict[str, Any]:
     if not isinstance(rules_or_script, list):
         raise ValueError("console rulesOrScript must be a list")
 
-    normalized_entries: List[Dict[str, Any]] = []
+    normalized_entries: list[dict[str, Any]] = []
     if mode == 0:
         for entry in rules_or_script:
             if not (isinstance(entry, list) and len(entry) == 3):
@@ -658,7 +639,7 @@ def _normalize_console(value: Any) -> Dict[str, Any]:
                 raise ValueError("console interactive rule types must be [str, str, str]")
             normalized_entries.append({"pattern": pattern, "level": level, "output": output})
 
-    normalized_guided: Optional[List[Dict[str, Any]]] = None
+    normalized_guided: list[dict[str, Any]] | None = None
     if guided is not None:
         if not isinstance(guided, list):
             raise ValueError("console guided steps must be a list")
@@ -680,7 +661,7 @@ def _normalize_console(value: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_codeviewer(value: Any) -> Dict[str, Any]:
+def _normalize_codeviewer(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) < 2:
         raise ValueError("codeviewer widget expects [code, language, editable?, textareaId?]")
     code, language = value[0], value[1]
@@ -701,7 +682,7 @@ def _normalize_codeviewer(value: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_treeview(value: Any) -> Dict[str, Any]:
+def _normalize_treeview(value: Any) -> dict[str, Any]:
     if not isinstance(value, list) or len(value) < 1:
         raise ValueError("treeview widget expects [lesson, title?, textareaId?, editorId?]")
     lesson = value[0]
@@ -723,14 +704,14 @@ def _normalize_treeview(value: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_quiz(value: Any) -> Dict[str, Any]:
+def _normalize_quiz(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("quiz widget expects an object with title and questions")
     title = value.get("title")
     questions = value.get("questions")
     if not isinstance(title, str) or not isinstance(questions, list):
         raise ValueError("quiz widget requires string title and list of questions")
-    normalized_questions: List[Dict[str, Any]] = []
+    normalized_questions: list[dict[str, Any]] = []
     for question in questions:
         if not isinstance(question, dict):
             raise ValueError("quiz questions must be objects")
@@ -764,7 +745,7 @@ _NORMALIZERS = {
 }
 
 
-def normalize_widget(entry: Any) -> Dict[str, Any]:
+def normalize_widget(entry: Any) -> dict[str, Any]:
     """Normalize shorthand widget syntax into discriminated form."""
 
     if isinstance(entry, str):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from .lesson_models import (
     AsciiDiagramWidget,
@@ -32,14 +32,14 @@ from .lesson_models import (
 )
 
 
-def _dump_model(model: Any, *, by_alias: bool = False) -> Dict[str, Any]:
+def _dump_model(model: Any, *, by_alias: bool = False) -> dict[str, Any]:
     dump = getattr(model, "model_dump", None)
     if callable(dump):
         return dump(by_alias=by_alias)
     return model.dict(by_alias=by_alias)
 
 
-def _trim_trailing(values: List[Any], default_map: Dict[int, Any] | None = None) -> List[Any]:
+def _trim_trailing(values: list[Any], default_map: dict[int, Any] | None = None) -> list[Any]:
     trimmed = list(values)
     while trimmed:
         idx = len(trimmed) - 1
@@ -70,7 +70,7 @@ def _checklist_node_to_shorthand(node: Any) -> Any:
     return node
 
 
-def _quiz_question_to_shorthand(question: QuizQuestion) -> Dict[str, Any]:
+def _quiz_question_to_shorthand(question: QuizQuestion) -> dict[str, Any]:
     return _dump_model(question, by_alias=True)
 
 
@@ -80,7 +80,7 @@ def _widget_to_shorthand(widget: Widget) -> Any:
     if isinstance(widget, CalloutWidget):
         return {widget.type: widget.text}
     if isinstance(widget, FlipWidget):
-        items: List[Any] = [widget.front, widget.back]
+        items: list[Any] = [widget.front, widget.back]
         if widget.front_hint is not None or widget.back_hint is not None:
             items.append(widget.front_hint)
         if widget.back_hint is not None:
@@ -100,7 +100,7 @@ def _widget_to_shorthand(widget: Widget) -> Any:
         cards = [[card.text, card.correct_bucket, card.feedback] for card in widget.cards]
         return {"swipe": [widget.title, list(widget.buckets), cards]}
     if isinstance(widget, FreeTextWidget):
-        values: List[Any] = [
+        values: list[Any] = [
             widget.prompt,
             widget.seed_locked,
             widget.text,
@@ -122,7 +122,7 @@ def _widget_to_shorthand(widget: Widget) -> Any:
             entries = [[entry.command, entry.delay_ms, entry.output] for entry in widget.rules_or_script]
         else:
             entries = [[entry.pattern, entry.level, entry.output] for entry in widget.rules_or_script]
-        values: List[Any] = [widget.lead, widget.mode, entries]
+        values: list[Any] = [widget.lead, widget.mode, entries]
         if widget.guided is not None:
             values.append([[step.task, step.solution] for step in widget.guided])
         return {"console": _trim_trailing(values)}
@@ -138,8 +138,8 @@ def _widget_to_shorthand(widget: Widget) -> Any:
     return _dump_model(widget)
 
 
-def _section_to_shorthand(section: SectionBlock) -> Dict[str, Any]:
-    data: Dict[str, Any] = {
+def _section_to_shorthand(section: SectionBlock) -> dict[str, Any]:
+    data: dict[str, Any] = {
         "section": section.section,
         "items": [_widget_to_shorthand(widget) for widget in section.items],
     }
@@ -148,10 +148,10 @@ def _section_to_shorthand(section: SectionBlock) -> Dict[str, Any]:
     return data
 
 
-def lesson_to_shorthand(lesson: LessonDocument) -> Dict[str, Any]:
+def lesson_to_shorthand(lesson: LessonDocument) -> dict[str, Any]:
     """Serialize a validated lesson into the shorthand widget format."""
 
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "title": lesson.title,
         "blocks": [_section_to_shorthand(section) for section in lesson.blocks],
     }

@@ -12,6 +12,7 @@ class GeminiModel(AIModel):
 
     def __init__(self, name: str) -> None:
         self.name: str = name
+        self.supports_structured_output = False
 
     async def generate(self, prompt: str) -> ModelResponse:
         """Return placeholder content until Gemini SDK is integrated."""

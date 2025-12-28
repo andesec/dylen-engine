@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,7 @@ class WidgetDefinition:
 class WidgetRegistry:
     """Registry of widget definitions parsed from documentation."""
 
-    def __init__(self, definitions: Dict[str, WidgetDefinition]) -> None:
+    def __init__(self, definitions: dict[str, WidgetDefinition]) -> None:
         self._definitions = definitions
 
     def is_known(self, widget_type: str) -> bool:
@@ -31,20 +31,20 @@ class WidgetRegistry:
 
         return self._definitions[widget_type].description
 
-    def available_types(self) -> List[str]:
+    def available_types(self) -> list[str]:
         """List all available widget identifiers."""
 
         return sorted(self._definitions)
 
 
-def _iter_widget_sections(lines: Iterable[str]) -> Dict[str, str]:
-    sections: Dict[str, List[str]] = {}
-    current_names: List[str] = []
+def _iter_widget_sections(lines: Iterable[str]) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current_names: list[str] = []
     for raw_line in lines:
         line = raw_line.strip()
         if line.startswith("### "):
             header = line[4:].strip()
-            names: List[str] = []
+            names: list[str] = []
             if header.startswith("`") and "`" in header[1:]:
                 for part in header.split("/"):
                     segment = part.strip()

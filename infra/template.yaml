@@ -11,6 +11,18 @@ Parameters:
     Type: String
     Default: info
     Description: Log level for application runtime.
+  AllowedOrigins:
+    Type: CommaDelimitedList
+    Default: https://example.com
+    Description: Comma-delimited list of allowed origins.
+  DgsDevKey:
+    Type: String
+    NoEcho: true
+    Description: Shared secret for Phase 1 dev key access.
+  LessonsTableName:
+    Type: String
+    Default: Lessons
+    Description: DynamoDB table name for lesson storage.
 
 Globals:
   Function:
@@ -25,12 +37,44 @@ Resources:
       FunctionName: DgsApiFunction
       CodeUri: ../dgs-backend
       Handler: lambda_handler.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LessonsTable
       FunctionUrlConfig:
         AuthType: AWS_IAM
       Environment:
         Variables:
           STAGE: !Ref Stage
           LOG_LEVEL: !Ref LogLevel
+          DGS_DEV_KEY: !Ref DgsDevKey
+          DGS_ALLOWED_ORIGINS: !Join [",", !Ref AllowedOrigins]
+          DGS_DDB_TABLE: !Ref LessonsTableName
+
+  LessonsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref LessonsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: lesson_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: lesson_id_index
+          KeySchema:
+            - AttributeName: lesson_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
 
 Outputs:
   FunctionUrl:

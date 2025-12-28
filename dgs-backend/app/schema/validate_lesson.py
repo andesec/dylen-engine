@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -27,7 +28,7 @@ def _iter_widgets(blocks: Iterable[Any]) -> Iterable[Any]:
             yield from _iter_widgets(block.subsections)
 
 
-def validate_lesson(payload: Any) -> Tuple[bool, List[str], Optional[LessonDocument]]:
+def validate_lesson(payload: Any) -> tuple[bool, list[str], LessonDocument | None]:
     """
     Validate a lesson payload against the versioned schema and known widgets.
 
@@ -38,7 +39,7 @@ def validate_lesson(payload: Any) -> Tuple[bool, List[str], Optional[LessonDocum
         - model: parsed LessonDocument when validation passes, otherwise None.
     """
 
-    errors: List[str] = []
+    errors: list[str] = []
 
     model_validator = getattr(LessonDocument, "model_validate", None)
     parse_obj = getattr(LessonDocument, "parse_obj", None)

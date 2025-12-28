@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class ModelResponse(Protocol):
@@ -24,10 +24,15 @@ class AIModel(ABC):
     """Abstract base class for AI models."""
 
     name: str
+    supports_structured_output: bool = False
 
     @abstractmethod
     async def generate(self, prompt: str) -> ModelResponse:
         """Generate a response for the given prompt."""
+
+    async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
+        """Generate structured output that conforms to the provided JSON schema."""
+        raise RuntimeError("Structured output is not supported by this model.")
 
 
 class Provider(ABC):

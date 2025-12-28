@@ -1,6 +1,86 @@
 {
   "components": {
     "schemas": {
+      "GenerateLessonRequest": {
+        "properties": {
+          "constraints": {
+            "$ref": "#/components/schemas/LessonConstraints"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fast",
+                  "balanced",
+                  "best"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "balanced",
+            "title": "Mode"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          },
+          "topic": {
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic"
+        ],
+        "title": "GenerateLessonRequest",
+        "type": "object"
+      },
+      "GenerateLessonResponse": {
+        "description": "Response payload for lesson generation.",
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "lesson_json": {
+            "additionalProperties": true,
+            "title": "Lesson Json",
+            "type": "object"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LessonMeta"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "lesson_json",
+          "meta"
+        ],
+        "title": "GenerateLessonResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -12,6 +92,139 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LessonConstraints": {
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "learnerLevel": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Newbie",
+                  "Beginner",
+                  "Intermediate",
+                  "Expert"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learnerlevel"
+          },
+          "length": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Highlights",
+                  "Detailed",
+                  "Training"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length"
+          }
+        },
+        "title": "LessonConstraints",
+        "type": "object"
+      },
+      "LessonMeta": {
+        "description": "Metadata about the lesson generation process.",
+        "properties": {
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "model_a": {
+            "title": "Model A",
+            "type": "string"
+          },
+          "model_b": {
+            "title": "Model B",
+            "type": "string"
+          },
+          "provider_a": {
+            "title": "Provider A",
+            "type": "string"
+          },
+          "provider_b": {
+            "title": "Provider B",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_a",
+          "model_a",
+          "provider_b",
+          "model_b",
+          "latency_ms"
+        ],
+        "title": "LessonMeta",
+        "type": "object"
+      },
+      "LessonRecordResponse": {
+        "description": "Response payload for lesson retrieval.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "lesson_json": {
+            "additionalProperties": true,
+            "title": "Lesson Json",
+            "type": "object"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LessonMeta"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "topic",
+          "title",
+          "created_at",
+          "schema_version",
+          "prompt_version",
+          "lesson_json",
+          "meta"
+        ],
+        "title": "LessonRecordResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -99,6 +312,45 @@
         "summary": "Health"
       }
     },
+    "/v1/lessons/generate": {
+      "post": {
+        "description": "Generate a lesson from a topic using the two-step pipeline.",
+        "operationId": "generate_lesson_v1_lessons_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateLessonResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Lesson"
+      }
+    },
     "/v1/lessons/validate": {
       "post": {
         "description": "Validate a lesson payload against schema + widget registry.",
@@ -138,6 +390,46 @@
           }
         },
         "summary": "Validate Endpoint"
+      }
+    },
+    "/v1/lessons/{lesson_id}": {
+      "get": {
+        "description": "Fetch a stored lesson by identifier.",
+        "operationId": "get_lesson_v1_lessons__lesson_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
+            "schema": {
+              "title": "Lesson Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonRecordResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Lesson"
       }
     }
   }

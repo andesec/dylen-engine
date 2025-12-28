@@ -1,0 +1,83 @@
+"""DynamoDB-backed lesson repository implementation."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import boto3
+from boto3.dynamodb.conditions import Key
+
+from app.storage.lessons_repo import LessonRecord, LessonsRepository
+
+
+class DynamoLessonsRepository(LessonsRepository):
+    """Store and retrieve lesson records in DynamoDB."""
+
+    def __init__(
+        self,
+        *,
+        table_name: str,
+        region: str,
+        endpoint_url: str | None = None,
+        tenant_key: str,
+        lesson_id_index: str,
+    ) -> None:
+        self._table_name = table_name
+        self._tenant_key = tenant_key
+        self._lesson_id_index = lesson_id_index
+        resource = boto3.resource("dynamodb", region_name=region, endpoint_url=endpoint_url)
+        self._table = resource.Table(table_name)
+
+    def create_lesson(self, record: LessonRecord) -> None:
+        """Persist a lesson record."""
+        item: dict[str, Any] = {
+            "pk": self._tenant_key,
+            "sk": f"LESSON#{record.created_at}#{record.lesson_id}",
+            "lesson_id": record.lesson_id,
+            "topic": record.topic,
+            "title": record.title,
+            "created_at": record.created_at,
+            "schema_version": record.schema_version,
+            "prompt_version": record.prompt_version,
+            "provider_a": record.provider_a,
+            "model_a": record.model_a,
+            "provider_b": record.provider_b,
+            "model_b": record.model_b,
+            "lesson_json": record.lesson_json,
+            "status": record.status,
+            "latency_ms": record.latency_ms,
+        }
+        if record.idempotency_key:
+            item["idempotency_key"] = record.idempotency_key
+        if record.tags:
+            item["tags"] = record.tags
+        self._table.put_item(Item=item)
+
+    def get_lesson(self, lesson_id: str) -> LessonRecord | None:
+        """Fetch a lesson record by lesson identifier."""
+        response = self._table.query(
+            IndexName=self._lesson_id_index,
+            KeyConditionExpression=Key("lesson_id").eq(lesson_id),
+            Limit=1,
+        )
+        items = response.get("Items", [])
+        if not items:
+            return None
+        item = items[0]
+        return LessonRecord(
+            lesson_id=item["lesson_id"],
+            topic=item["topic"],
+            title=item["title"],
+            created_at=item["created_at"],
+            schema_version=item["schema_version"],
+            prompt_version=item["prompt_version"],
+            provider_a=item["provider_a"],
+            model_a=item["model_a"],
+            provider_b=item["provider_b"],
+            model_b=item["model_b"],
+            lesson_json=item["lesson_json"],
+            status=item["status"],
+            latency_ms=int(item.get("latency_ms", 0)),
+            idempotency_key=item.get("idempotency_key"),
+            tags=set(item["tags"]) if "tags" in item else None,
+        )
