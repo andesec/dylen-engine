@@ -64,3 +64,27 @@ make sam-local
 ```
 
 This uses the settings from `.env` to set the stage, log level, and port for the local API Gateway emulator.
+
+For templates that use the Function URL, you can also start the local emulator directly:
+
+```bash
+sam local start-api \
+  --template infra/sam-template.yaml \
+  --parameter-overrides Stage=local LogLevel=debug AllowedOrigins=http://localhost:3000 OpenRouterApiKey=dev-openrouter GeminiApiKey=dev-gemini \
+  --port 8000
+```
+
+## Deploying with AWS SAM
+
+Use the dedicated template for deploying the FastAPI Lambda with a Function URL:
+
+```bash
+sam build --template-file infra/sam-template.yaml
+sam deploy \
+  --template-file infra/sam-template.yaml \
+  --stack-name dgs-fastapi \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides Stage=prod LogLevel=info AllowedOrigins=https://example.com OpenRouterApiKey=your-openrouter-key GeminiApiKey=your-gemini-key
+```
+
+The `AllowedOrigins` parameter accepts a comma-delimited list; avoid permissive values such as `*` to keep CORS strict. SAM will provision a Function URL secured by the specified origins while retaining the API Gateway-style event for local emulation.
