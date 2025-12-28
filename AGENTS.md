@@ -12,3 +12,4 @@
 
 - Before opening a PR, run: `make format lint typecheck test`.
 - Keep AWS-specific code confined to `infra/` or `lambda_handler.py`.
+- Keep `openapi.json` updated whenever API endpoints change.

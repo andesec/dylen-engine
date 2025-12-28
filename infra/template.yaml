@@ -25,18 +25,17 @@ Resources:
       FunctionName: DgsApiFunction
       CodeUri: ../dgs-backend
       Handler: lambda_handler.handler
-      Events:
-        ApiGatewayProxy:
-          Type: Api
-          Properties:
-            Path: /{proxy+}
-            Method: ANY
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
       Environment:
         Variables:
           STAGE: !Ref Stage
           LOG_LEVEL: !Ref LogLevel
 
 Outputs:
-  ApiUrl:
-    Description: Invoke URL for the locally emulated API Gateway.
-    Value: !Sub "http://127.0.0.1:8000/"
+  FunctionUrl:
+    Description: Function URL endpoint for the Lambda.
+    Value: !GetAtt DgsApiFunctionUrl.FunctionUrl
+  FunctionUrlArn:
+    Description: ARN for the Lambda Function URL.
+    Value: !GetAtt DgsApiFunctionUrl.FunctionUrlArn

@@ -23,6 +23,7 @@ from .lesson_models import (
     TreeViewWidget,
     Widget,
 )
+from .serialize_lesson import lesson_to_shorthand
 from .validate_lesson import validate_lesson
 from .widgets_loader import WidgetDefinition, WidgetRegistry, load_widget_registry
 
@@ -48,6 +49,7 @@ __all__ = [
     "TranslationWidget",
     "TreeViewWidget",
     "Widget",
+    "lesson_to_shorthand",
     "validate_lesson",
     "WidgetDefinition",
     "WidgetRegistry",

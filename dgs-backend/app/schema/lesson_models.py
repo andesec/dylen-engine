@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr, ValidationError
+import re
+
+from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
 try:  # Pydantic v2
     from pydantic import ConfigDict, field_validator, model_validator
@@ -52,8 +54,8 @@ class FlipWidget(WidgetBase):
     """Flipcard widget with optional hints."""
 
     type: Literal["flip"]
-    front: StrictStr
-    back: StrictStr
+    front: StrictStr = Field(min_length=1, max_length=120)
+    back: StrictStr = Field(min_length=1, max_length=160)
     front_hint: Optional[StrictStr] = None
     back_hint: Optional[StrictStr] = None
 
@@ -62,18 +64,32 @@ class TranslationWidget(WidgetBase):
     """Translation pair widget."""
 
     type: Literal["tr"]
-    source: StrictStr
-    target: StrictStr
+    source: StrictStr = Field(min_length=1)
+    target: StrictStr = Field(min_length=1)
+
+    @field_validator("source", "target")
+    @classmethod
+    def validate_language_prefix(cls, value: StrictStr) -> StrictStr:
+        if not re.match(r"^[A-Za-z]{2,3}[:-]", value):
+            raise ValueError("translation entries must start with a language code (e.g. EN:)")
+        return value
 
 
 class BlankWidget(WidgetBase):
     """Fill-in-the-blank widget."""
 
     type: Literal["blank"]
-    prompt: StrictStr
-    answer: StrictStr
-    hint: StrictStr
-    explanation: StrictStr
+    prompt: StrictStr = Field(min_length=1)
+    answer: StrictStr = Field(min_length=1)
+    hint: StrictStr = Field(min_length=1)
+    explanation: StrictStr = Field(min_length=1)
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt_placeholder(cls, value: StrictStr) -> StrictStr:
+        if "___" not in value:
+            raise ValueError("blank prompt must include ___ placeholder")
+        return value
 
 
 class ListWidget(WidgetBase):
@@ -120,16 +136,16 @@ class CompareWidget(WidgetBase):
 class SwipeCard(LessonBaseModel):
     """Card entry for swipe widget."""
 
-    text: StrictStr
+    text: StrictStr = Field(min_length=1, max_length=120)
     correct_bucket: Literal[0, 1]
-    feedback: StrictStr
+    feedback: StrictStr = Field(min_length=1, max_length=150)
 
 
 class SwipeWidget(WidgetBase):
     """Binary swipe drill widget."""
 
     type: Literal["swipe"]
-    title: StrictStr
+    title: StrictStr = Field(min_length=1)
     buckets: List[StrictStr]
     cards: List[SwipeCard]
 
@@ -138,6 +154,8 @@ class SwipeWidget(WidgetBase):
     def validate_buckets(cls, value: List[StrictStr]) -> List[StrictStr]:
         if len(value) != 2:
             raise ValueError("swipe buckets must contain exactly two labels")
+        if any(not label for label in value):
+            raise ValueError("swipe bucket labels must be non-empty")
         return value
 
     @field_validator("cards")
@@ -152,7 +170,7 @@ class FreeTextWidget(WidgetBase):
     """Free text editor widget."""
 
     type: Literal["freeText"]
-    prompt: StrictStr
+    prompt: StrictStr = Field(min_length=1)
     seed_locked: Optional[StrictStr] = None
     text: StrictStr
     lang: Optional[StrictStr] = Field(default="en")
@@ -166,7 +184,7 @@ FlowNode = Union[StrictStr, "StepFlowBranch"]
 class StepFlowOption(LessonBaseModel):
     """Branch option for step flow."""
 
-    label: StrictStr
+    label: StrictStr = Field(min_length=1)
     steps: List[FlowNode]
 
 
@@ -187,7 +205,7 @@ class StepFlowWidget(WidgetBase):
     """Step-by-step flow widget with optional branching."""
 
     type: Literal["stepFlow"]
-    lead: StrictStr
+    lead: StrictStr = Field(min_length=1)
     flow: List[FlowNode]
 
     @field_validator("flow")
@@ -195,6 +213,21 @@ class StepFlowWidget(WidgetBase):
     def validate_flow(cls, value: List[FlowNode]) -> List[FlowNode]:
         if not value:
             raise ValueError("stepFlow requires at least one flow entry")
+        return value
+
+    @field_validator("flow")
+    @classmethod
+    def validate_branching_depth(cls, value: List[FlowNode]) -> List[FlowNode]:
+        def max_branch_depth(nodes: List[FlowNode], depth: int = 1) -> int:
+            max_depth = depth
+            for node in nodes:
+                if isinstance(node, StepFlowBranch):
+                    for option in node.options:
+                        max_depth = max(max_depth, max_branch_depth(option.steps, depth + 1))
+            return max_depth
+
+        if max_branch_depth(value) > 5:
+            raise ValueError("stepFlow branching depth must be 5 or less")
         return value
 
 
@@ -212,7 +245,7 @@ ChecklistNode = Union[StrictStr, "ChecklistGroup"]
 class ChecklistGroup(LessonBaseModel):
     """Nested checklist group."""
 
-    title: StrictStr
+    title: StrictStr = Field(min_length=1)
     children: List[ChecklistNode]
 
     @field_validator("children")
@@ -227,7 +260,7 @@ class ChecklistWidget(WidgetBase):
     """Nested checklist widget."""
 
     type: Literal["checklist"]
-    lead: StrictStr
+    lead: StrictStr = Field(min_length=1)
     tree: List[ChecklistNode]
 
     @field_validator("tree")
@@ -235,6 +268,20 @@ class ChecklistWidget(WidgetBase):
     def validate_tree(cls, value: List[ChecklistNode]) -> List[ChecklistNode]:
         if not value:
             raise ValueError("checklist requires at least one node")
+        return value
+
+    @field_validator("tree")
+    @classmethod
+    def validate_nesting_depth(cls, value: List[ChecklistNode]) -> List[ChecklistNode]:
+        def max_depth(nodes: List[ChecklistNode], depth: int = 1) -> int:
+            max_seen = depth
+            for node in nodes:
+                if isinstance(node, ChecklistGroup):
+                    max_seen = max(max_seen, max_depth(node.children, depth + 1))
+            return max_seen
+
+        if max_depth(value) > 3:
+            raise ValueError("checklist nesting depth must be 3 or less")
         return value
 
 
@@ -295,7 +342,7 @@ class CodeViewerWidget(WidgetBase):
 
     type: Literal["codeviewer"]
     code: Any
-    language: StrictStr
+    language: StrictStr = Field(min_length=1)
     editable: StrictBool = False
     textarea_id: Optional[StrictStr] = None
 
@@ -313,24 +360,42 @@ class TreeViewWidget(WidgetBase):
 class QuizQuestion(LessonBaseModel):
     """Quiz question model."""
 
-    prompt: StrictStr = Field(..., alias="q")
+    prompt: StrictStr = Field(..., alias="q", min_length=1)
     choices: List[StrictStr] = Field(..., alias="c")
     answer_index: StrictInt = Field(..., alias="a")
-    explanation: StrictStr = Field(..., alias="e")
+    explanation: StrictStr = Field(..., alias="e", min_length=1)
 
     @field_validator("choices")
     @classmethod
     def validate_choices(cls, value: List[StrictStr]) -> List[StrictStr]:
         if len(value) < 2:
             raise ValueError("quiz choices must include at least two options")
+        if any(not choice for choice in value):
+            raise ValueError("quiz choices must be non-empty strings")
         return value
+
+    if V2:
+        @model_validator(mode="after")
+        def validate_answer_index(self) -> "QuizQuestion":
+            if not 0 <= self.answer_index < len(self.choices):
+                raise ValueError("quiz answer index must be within choices range")
+            return self
+    else:  # pragma: no cover - pydantic v1 compatibility
+        @model_validator
+        @classmethod
+        def validate_answer_index(cls, values):
+            choices = values.get("choices") or []
+            answer_index = values.get("answer_index")
+            if isinstance(answer_index, int) and not 0 <= answer_index < len(choices):
+                raise ValueError("quiz answer index must be within choices range")
+            return values
 
 
 class QuizWidget(WidgetBase):
     """Multiple-choice quiz widget."""
 
     type: Literal["quiz"]
-    title: StrictStr
+    title: StrictStr = Field(min_length=1)
     questions: List[QuizQuestion]
 
     @field_validator("questions")
@@ -368,7 +433,7 @@ Widget = Annotated[
 class SectionBlock(LessonBaseModel):
     """Primary section block containing content widgets."""
 
-    section: StrictStr
+    section: StrictStr = Field(min_length=1)
     items: List[Widget]
     subsections: Optional[List["SectionBlock"]] = None
 
@@ -398,7 +463,7 @@ class LessonDocument(LessonBaseModel):
     """Versioned root lesson document."""
 
     version: Literal["1.0"] = Field(default="1.0")
-    title: StrictStr
+    title: StrictStr = Field(min_length=1)
     blocks: List[SectionBlock]
 
 
@@ -706,35 +771,22 @@ def normalize_widget(entry: Any) -> Dict[str, Any]:
         return {"type": "p", "text": entry}
 
     if not isinstance(entry, dict):
-        raise ValidationError([{"loc": ("items",), "msg": "widget must be string or object", "type": "type_error"}], WidgetBase)
+        raise ValueError("widget must be a string or object")
 
     if "type" in entry:
         return entry
 
     if len(entry) != 1:
-        raise ValidationError(
-            [
-                {
-                    "loc": ("items",),
-                    "msg": "widget objects must include exactly one key",
-                    "type": "value_error",
-                }
-            ],
-            WidgetBase,
-        )
+        raise ValueError("widget objects must include exactly one key")
 
     key, value = next(iter(entry.items()))
     normalizer = _NORMALIZERS.get(str(key))
     if normalizer is None:
-        raise ValidationError([
-            {"loc": ("items", key), "msg": f"unsupported widget type: {key}", "type": "value_error"}
-        ], WidgetBase)
+        raise ValueError(f"unsupported widget type: {key}")
 
     normalized = normalizer(value)
     if normalized is None:
-        raise ValidationError([
-            {"loc": ("items", key), "msg": f"invalid widget payload for {key}", "type": "value_error"}
-        ], WidgetBase)
+        raise ValueError(f"invalid widget payload for {key}")
     return normalized
 
 
