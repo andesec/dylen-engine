@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: DGS FastAPI Lambda deployment
+
+Parameters:
+  Stage:
+    Type: String
+    Default: local
+    Description: Deployment stage identifier.
+  LogLevel:
+    Type: String
+    Default: info
+    Description: Log level for application runtime.
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+
+Resources:
+  DgsApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: DgsApiFunction
+      CodeUri: ../dgs-backend
+      Handler: lambda_handler.handler
+      Events:
+        ApiGatewayProxy:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          LOG_LEVEL: !Ref LogLevel
+
+Outputs:
+  ApiUrl:
+    Description: Invoke URL for the locally emulated API Gateway.
+    Value: !Sub "http://127.0.0.1:8000/"
