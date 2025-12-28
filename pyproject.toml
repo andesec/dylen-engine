@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dgs-backend"
+version = "0.1.0"
+description = "Data Generation Service backend for DLE."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "DGS Team" }]
+dependencies = [
+    "fastapi>=0.112.0,<0.115.0",
+    "pydantic>=2.7.0,<3.0.0",
+    "mangum>=0.17.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=24.4.2",
+    "ruff>=0.5.6",
+    "mypy>=1.10.0",
+    "pytest>=8.2.0",
+    "uvicorn>=0.30.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "dgs-backend"}
+packages = ["app"]
+py-modules = ["lambda_handler"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["dgs-backend"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "N", "UP"]
+ignore = ["B905"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+pretty = true
+show_error_codes = true
+mypy_path = ["dgs-backend"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

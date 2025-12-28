@@ -1,0 +1,57 @@
+"""Schema utilities for lesson validation and widget metadata."""
+
+from .lesson_models import (
+    AsciiDiagramWidget,
+    BlankWidget,
+    CalloutWidget,
+    ChecklistGroup,
+    ChecklistWidget,
+    CodeViewerWidget,
+    CompareWidget,
+    ConsoleWidget,
+    FlipWidget,
+    FreeTextWidget,
+    LessonDocument,
+    ListWidget,
+    ParagraphWidget,
+    QuizWidget,
+    SectionBlock,
+    StepFlowWidget,
+    SwipeWidget,
+    TableWidget,
+    TranslationWidget,
+    TreeViewWidget,
+    Widget,
+)
+from .serialize_lesson import lesson_to_shorthand
+from .validate_lesson import validate_lesson
+from .widgets_loader import WidgetDefinition, WidgetRegistry, load_widget_registry
+
+__all__ = [
+    "AsciiDiagramWidget",
+    "BlankWidget",
+    "CalloutWidget",
+    "ChecklistGroup",
+    "ChecklistWidget",
+    "CodeViewerWidget",
+    "CompareWidget",
+    "ConsoleWidget",
+    "FlipWidget",
+    "FreeTextWidget",
+    "LessonDocument",
+    "ListWidget",
+    "ParagraphWidget",
+    "QuizWidget",
+    "SectionBlock",
+    "StepFlowWidget",
+    "SwipeWidget",
+    "TableWidget",
+    "TranslationWidget",
+    "TreeViewWidget",
+    "Widget",
+    "lesson_to_shorthand",
+    "validate_lesson",
+    "WidgetDefinition",
+    "WidgetRegistry",
+    "load_widget_registry",
+]
