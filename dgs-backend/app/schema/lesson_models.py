@@ -172,9 +172,9 @@ class FreeTextWidget(WidgetBase):
     prompt: StrictStr = Field(min_length=1)
     seed_locked: StrictStr | None = None
     text: StrictStr
-    lang: StrictStr | None = Field(default="en")
+    lang: StrictStr = "en"
     wordlist_csv: StrictStr | None = None
-    mode: Literal["single", "multi"] | None = Field(default="multi")
+    mode: Literal["single", "multi"] = "multi"
 
 
 FlowNode = Union[StrictStr, "StepFlowBranch"]
@@ -314,7 +314,7 @@ class ConsoleWidget(WidgetBase):
     lead: StrictStr
     mode: Literal[0, 1]
     rules_or_script: list[ConsoleDemoEntry | ConsoleInteractiveRule]
-    guided: list[ConsoleGuidedStep] | None = None
+    guided: list[ConsoleGuidedStep] = Field(default_factory=list)
 
     @field_validator("rules_or_script")
     @classmethod
@@ -340,7 +340,7 @@ class CodeViewerWidget(WidgetBase):
     """Code viewer/editor widget."""
 
     type: Literal["codeviewer"]
-    code: Any
+    code: StrictStr
     language: StrictStr = Field(min_length=1)
     editable: StrictBool = False
     textarea_id: StrictStr | None = None
@@ -350,7 +350,7 @@ class TreeViewWidget(WidgetBase):
     """Lesson structure viewer widget."""
 
     type: Literal["treeview"]
-    lesson: dict[str, Any] | StrictStr
+    lesson: StrictStr
     title: StrictStr | None = None
     textarea_id: StrictStr | None = None
     editor_id: StrictStr | None = None

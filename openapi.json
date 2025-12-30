@@ -2,9 +2,18 @@
   "components": {
     "schemas": {
       "GenerateLessonRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for lesson generation.",
         "properties": {
           "constraints": {
-            "$ref": "#/components/schemas/LessonConstraints"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LessonConstraints"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "idempotency_key": {
             "anyOf": [
@@ -49,6 +58,17 @@
             "minLength": 1,
             "title": "Topic",
             "type": "string"
+          },
+          "topic_details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Details"
           }
         },
         "required": [
@@ -69,6 +89,13 @@
             "title": "Lesson Json",
             "type": "object"
           },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
           "meta": {
             "$ref": "#/components/schemas/LessonMeta"
           }
@@ -76,7 +103,8 @@
         "required": [
           "lesson_id",
           "lesson_json",
-          "meta"
+          "meta",
+          "logs"
         ],
         "title": "GenerateLessonResponse",
         "type": "object"
@@ -95,6 +123,8 @@
         "type": "object"
       },
       "LessonConstraints": {
+        "additionalProperties": false,
+        "description": "Optional constraints for lesson generation.",
         "properties": {
           "language": {
             "anyOf": [
@@ -316,6 +346,17 @@
       "post": {
         "description": "Generate a lesson from a topic using the two-step pipeline.",
         "operationId": "generate_lesson_v1_lessons_generate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -355,6 +396,17 @@
       "post": {
         "description": "Validate a lesson payload against schema + widget registry.",
         "operationId": "validate_endpoint_v1_lessons_validate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -403,6 +455,15 @@
             "required": true,
             "schema": {
               "title": "Lesson Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
               "type": "string"
             }
           }

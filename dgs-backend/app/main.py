@@ -4,7 +4,8 @@ import json
 import time
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from starlette.concurrency import run_in_threadpool
@@ -17,7 +18,100 @@ from app.storage.dynamodb_repo import DynamoLessonsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.utils.ids import generate_lesson_id
 
+settings = get_settings()
+
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
+    expose_headers=["content-length"],
+)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Global exception handler to catch unhandled errors."""
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    logger.error(f"Global exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal Server Error", "error": str(exc)},
+    )
+
+
+# Configure logging
+import logging
+import sys
+from pathlib import Path
+
+# Create logs directory if it doesn't exist
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+
+# Generate log filename with timestamp
+log_file = log_dir / f"dgs_app_{time.strftime('%Y%m%d_%H%M%S')}.log"
+
+# Define formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
+
+class TruncatedFormatter(logging.Formatter):
+    """Formatter that truncates the stack trace to the last few lines."""
+    def formatException(self, ei):
+        import traceback
+        lines = traceback.format_exception(*ei)
+        # Keep header + last 5 lines of traceback
+        if len(lines) > 6:
+            return "".join(lines[:1] + ["    ...\n"] + lines[-5:])
+        return "".join(lines)
+
+# Configure Root Logger explicitly (safety against uvicorn hijacking)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+
+# Stream Handler (Console) - Truncated
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(TruncatedFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
+root_logger.addHandler(stream_handler)
+
+# File Handler
+file_handler = logging.FileHandler(log_file)
+file_handler.setFormatter(formatter)
+root_logger.addHandler(file_handler)
+
+# Silence noisy libraries
+logging.getLogger("botocore").setLevel(logging.ERROR)
+logging.getLogger("boto3").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.ERROR)
+
+logger = logging.getLogger("app.main")
+logger.info(f"Logging initialized. Writing to {log_file}")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests and outgoing responses."""
+    start_time = time.time()
+    logger.info(f"Incoming request: {request.method} {request.url}")
+    
+    try:
+        if request.headers.get("content-type") == "application/json":
+            body = await request.body()
+            if body:
+                logger.debug(f"Request Body: {body.decode('utf-8')}")
+    except Exception:
+        pass  # Don't fail if body logging fails
+
+    response = await call_next(request)
+    
+    process_time = (time.time() - start_time) * 1000
+    logger.info(f"Response: {response.status_code} (took {process_time:.2f}ms)")
+    return response
+
 
 
 class ValidationResponse(BaseModel):
@@ -42,6 +136,7 @@ class GenerateLessonRequest(BaseModel):
     """Request payload for lesson generation."""
 
     topic: StrictStr = Field(min_length=1)
+    topic_details: StrictStr | None = None
     constraints: LessonConstraints | None = None
     schema_version: StrictStr | None = None
     idempotency_key: StrictStr | None = None
@@ -65,6 +160,7 @@ class GenerateLessonResponse(BaseModel):
     lesson_id: StrictStr
     lesson_json: dict[str, Any]
     meta: LessonMeta
+    logs: list[StrictStr]  # New field for orchestration logs
 
 
 class LessonRecordResponse(BaseModel):
@@ -86,6 +182,8 @@ def _get_orchestrator(settings: Settings) -> DgsOrchestrator:
         gatherer_model=settings.gatherer_model,
         structurer_provider=settings.structurer_provider,
         structurer_model=settings.structurer_model,
+        repair_provider=settings.repair_provider,
+        repair_model=settings.repair_model,
         schema_version=settings.schema_version,
     )
 
@@ -116,17 +214,18 @@ def _require_dev_key(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid dev key.")
 
 
-@app.on_event("startup")
-async def _configure_cors() -> None:
-    settings = get_settings()
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.allowed_origins,
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-        allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
-        expose_headers=["content-length"],
-    )
+settings = get_settings()
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
+    expose_headers=["content-length"],
+)
 
 
 @app.get("/health")
@@ -166,6 +265,7 @@ async def generate_lesson(
     orchestrator = _get_orchestrator(settings)
     result = await orchestrator.generate_lesson(
         topic=request.topic,
+        topic_details=request.topic_details,
         constraints=request.constraints.model_dump(by_alias=True) if request.constraints else None,
         schema_version=request.schema_version or settings.schema_version,
         structurer_model=_resolve_structurer_model(settings, request.mode),
@@ -214,6 +314,7 @@ async def generate_lesson(
             model_b=result.model_b,
             latency_ms=latency_ms,
         ),
+        logs=result.logs,  # Include logs from orchestrator
     )
 
 
@@ -254,4 +355,4 @@ async def get_lesson(
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True)

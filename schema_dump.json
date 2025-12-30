@@ -1,0 +1,1035 @@
+{
+  "$defs": {
+    "AsciiDiagramWidget": {
+      "additionalProperties": false,
+      "description": "ASCII diagram widget.",
+      "properties": {
+        "type": {
+          "const": "asciiDiagram",
+          "title": "Type",
+          "type": "string"
+        },
+        "lead": {
+          "title": "Lead",
+          "type": "string"
+        },
+        "diagram": {
+          "title": "Diagram",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "lead",
+        "diagram"
+      ],
+      "title": "AsciiDiagramWidget",
+      "type": "object"
+    },
+    "BlankWidget": {
+      "additionalProperties": false,
+      "description": "Fill-in-the-blank widget.",
+      "properties": {
+        "type": {
+          "const": "blank",
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "answer": {
+          "minLength": 1,
+          "title": "Answer",
+          "type": "string"
+        },
+        "hint": {
+          "minLength": 1,
+          "title": "Hint",
+          "type": "string"
+        },
+        "explanation": {
+          "minLength": 1,
+          "title": "Explanation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "prompt",
+        "answer",
+        "hint",
+        "explanation"
+      ],
+      "title": "BlankWidget",
+      "type": "object"
+    },
+    "CalloutWidget": {
+      "additionalProperties": false,
+      "description": "Callout variants for inline emphasis.",
+      "properties": {
+        "type": {
+          "enum": [
+            "info",
+            "tip",
+            "warn",
+            "err",
+            "success"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "title": "CalloutWidget",
+      "type": "object"
+    },
+    "ChecklistGroup": {
+      "additionalProperties": false,
+      "description": "Nested checklist group.",
+      "properties": {
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "children": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/ChecklistGroup"
+              }
+            ]
+          },
+          "title": "Children",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "children"
+      ],
+      "title": "ChecklistGroup",
+      "type": "object"
+    },
+    "ChecklistWidget": {
+      "additionalProperties": false,
+      "description": "Nested checklist widget.",
+      "properties": {
+        "type": {
+          "const": "checklist",
+          "title": "Type",
+          "type": "string"
+        },
+        "lead": {
+          "minLength": 1,
+          "title": "Lead",
+          "type": "string"
+        },
+        "tree": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/ChecklistGroup"
+              }
+            ]
+          },
+          "title": "Tree",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "lead",
+        "tree"
+      ],
+      "title": "ChecklistWidget",
+      "type": "object"
+    },
+    "CodeViewerWidget": {
+      "additionalProperties": false,
+      "description": "Code viewer/editor widget.",
+      "properties": {
+        "type": {
+          "const": "codeviewer",
+          "title": "Type",
+          "type": "string"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "language": {
+          "minLength": 1,
+          "title": "Language",
+          "type": "string"
+        },
+        "editable": {
+          "default": false,
+          "title": "Editable",
+          "type": "boolean"
+        },
+        "textarea_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Textarea Id"
+        }
+      },
+      "required": [
+        "type",
+        "code",
+        "language"
+      ],
+      "title": "CodeViewerWidget",
+      "type": "object"
+    },
+    "CompareWidget": {
+      "additionalProperties": false,
+      "description": "Two-column comparison widget.",
+      "properties": {
+        "type": {
+          "const": "compare",
+          "title": "Type",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "rows"
+      ],
+      "title": "CompareWidget",
+      "type": "object"
+    },
+    "ConsoleDemoEntry": {
+      "additionalProperties": false,
+      "description": "Scripted console entry for demo mode.",
+      "properties": {
+        "command": {
+          "title": "Command",
+          "type": "string"
+        },
+        "delay_ms": {
+          "title": "Delay Ms",
+          "type": "integer"
+        },
+        "output": {
+          "title": "Output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "delay_ms",
+        "output"
+      ],
+      "title": "ConsoleDemoEntry",
+      "type": "object"
+    },
+    "ConsoleGuidedStep": {
+      "additionalProperties": false,
+      "description": "Guided step for interactive console.",
+      "properties": {
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "solution": {
+          "title": "Solution",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task",
+        "solution"
+      ],
+      "title": "ConsoleGuidedStep",
+      "type": "object"
+    },
+    "ConsoleInteractiveRule": {
+      "additionalProperties": false,
+      "description": "Interactive console rule for validation.",
+      "properties": {
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "level": {
+          "title": "Level",
+          "type": "string"
+        },
+        "output": {
+          "title": "Output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern",
+        "level",
+        "output"
+      ],
+      "title": "ConsoleInteractiveRule",
+      "type": "object"
+    },
+    "ConsoleWidget": {
+      "additionalProperties": false,
+      "description": "Terminal simulator widget.",
+      "properties": {
+        "type": {
+          "const": "console",
+          "title": "Type",
+          "type": "string"
+        },
+        "lead": {
+          "title": "Lead",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Mode",
+          "type": "integer"
+        },
+        "rules_or_script": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ConsoleDemoEntry"
+              },
+              {
+                "$ref": "#/$defs/ConsoleInteractiveRule"
+              }
+            ]
+          },
+          "title": "Rules Or Script",
+          "type": "array"
+        },
+        "guided": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ConsoleGuidedStep"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guided"
+        }
+      },
+      "required": [
+        "type",
+        "lead",
+        "mode",
+        "rules_or_script"
+      ],
+      "title": "ConsoleWidget",
+      "type": "object"
+    },
+    "FlipWidget": {
+      "additionalProperties": false,
+      "description": "Flipcard widget with optional hints.",
+      "properties": {
+        "type": {
+          "const": "flip",
+          "title": "Type",
+          "type": "string"
+        },
+        "front": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Front",
+          "type": "string"
+        },
+        "back": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Back",
+          "type": "string"
+        },
+        "front_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Front Hint"
+        },
+        "back_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Back Hint"
+        }
+      },
+      "required": [
+        "type",
+        "front",
+        "back"
+      ],
+      "title": "FlipWidget",
+      "type": "object"
+    },
+    "FreeTextWidget": {
+      "additionalProperties": false,
+      "description": "Free text editor widget.",
+      "properties": {
+        "type": {
+          "const": "freeText",
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "seed_locked": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed Locked"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "lang": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "en",
+          "title": "Lang"
+        },
+        "wordlist_csv": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wordlist Csv"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "single",
+                "multi"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "multi",
+          "title": "Mode"
+        }
+      },
+      "required": [
+        "type",
+        "prompt",
+        "text"
+      ],
+      "title": "FreeTextWidget",
+      "type": "object"
+    },
+    "ListWidget": {
+      "additionalProperties": false,
+      "description": "Ordered or unordered list widget.",
+      "properties": {
+        "type": {
+          "enum": [
+            "ul",
+            "ol"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "items"
+      ],
+      "title": "ListWidget",
+      "type": "object"
+    },
+    "ParagraphWidget": {
+      "additionalProperties": false,
+      "description": "Paragraph content widget.",
+      "properties": {
+        "type": {
+          "const": "p",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "title": "ParagraphWidget",
+      "type": "object"
+    },
+    "QuizQuestion": {
+      "additionalProperties": false,
+      "description": "Quiz question model.",
+      "properties": {
+        "q": {
+          "minLength": 1,
+          "title": "Q",
+          "type": "string"
+        },
+        "c": {
+          "items": {
+            "type": "string"
+          },
+          "title": "C",
+          "type": "array"
+        },
+        "a": {
+          "title": "A",
+          "type": "integer"
+        },
+        "e": {
+          "minLength": 1,
+          "title": "E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "q",
+        "c",
+        "a",
+        "e"
+      ],
+      "title": "QuizQuestion",
+      "type": "object"
+    },
+    "QuizWidget": {
+      "additionalProperties": false,
+      "description": "Multiple-choice quiz widget.",
+      "properties": {
+        "type": {
+          "const": "quiz",
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "questions": {
+          "items": {
+            "$ref": "#/$defs/QuizQuestion"
+          },
+          "title": "Questions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "questions"
+      ],
+      "title": "QuizWidget",
+      "type": "object"
+    },
+    "SectionBlock": {
+      "additionalProperties": false,
+      "description": "Primary section block containing content widgets.",
+      "properties": {
+        "section": {
+          "minLength": 1,
+          "title": "Section",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "asciiDiagram": "#/$defs/AsciiDiagramWidget",
+                "blank": "#/$defs/BlankWidget",
+                "checklist": "#/$defs/ChecklistWidget",
+                "codeviewer": "#/$defs/CodeViewerWidget",
+                "compare": "#/$defs/CompareWidget",
+                "console": "#/$defs/ConsoleWidget",
+                "err": "#/$defs/CalloutWidget",
+                "flip": "#/$defs/FlipWidget",
+                "freeText": "#/$defs/FreeTextWidget",
+                "info": "#/$defs/CalloutWidget",
+                "ol": "#/$defs/ListWidget",
+                "p": "#/$defs/ParagraphWidget",
+                "quiz": "#/$defs/QuizWidget",
+                "stepFlow": "#/$defs/StepFlowWidget",
+                "success": "#/$defs/CalloutWidget",
+                "swipe": "#/$defs/SwipeWidget",
+                "table": "#/$defs/TableWidget",
+                "tip": "#/$defs/CalloutWidget",
+                "tr": "#/$defs/TranslationWidget",
+                "treeview": "#/$defs/TreeViewWidget",
+                "ul": "#/$defs/ListWidget",
+                "warn": "#/$defs/CalloutWidget"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ParagraphWidget"
+              },
+              {
+                "$ref": "#/$defs/CalloutWidget"
+              },
+              {
+                "$ref": "#/$defs/FlipWidget"
+              },
+              {
+                "$ref": "#/$defs/TranslationWidget"
+              },
+              {
+                "$ref": "#/$defs/BlankWidget"
+              },
+              {
+                "$ref": "#/$defs/ListWidget"
+              },
+              {
+                "$ref": "#/$defs/TableWidget"
+              },
+              {
+                "$ref": "#/$defs/CompareWidget"
+              },
+              {
+                "$ref": "#/$defs/SwipeWidget"
+              },
+              {
+                "$ref": "#/$defs/FreeTextWidget"
+              },
+              {
+                "$ref": "#/$defs/StepFlowWidget"
+              },
+              {
+                "$ref": "#/$defs/AsciiDiagramWidget"
+              },
+              {
+                "$ref": "#/$defs/ChecklistWidget"
+              },
+              {
+                "$ref": "#/$defs/ConsoleWidget"
+              },
+              {
+                "$ref": "#/$defs/CodeViewerWidget"
+              },
+              {
+                "$ref": "#/$defs/TreeViewWidget"
+              },
+              {
+                "$ref": "#/$defs/QuizWidget"
+              }
+            ]
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "subsections": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SectionBlock"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subsections"
+        }
+      },
+      "required": [
+        "section",
+        "items"
+      ],
+      "title": "SectionBlock",
+      "type": "object"
+    },
+    "StepFlowBranch": {
+      "additionalProperties": false,
+      "description": "Branching node in a step flow.",
+      "properties": {
+        "options": {
+          "items": {
+            "$ref": "#/$defs/StepFlowOption"
+          },
+          "title": "Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "options"
+      ],
+      "title": "StepFlowBranch",
+      "type": "object"
+    },
+    "StepFlowOption": {
+      "additionalProperties": false,
+      "description": "Branch option for step flow.",
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/StepFlowBranch"
+              }
+            ]
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "steps"
+      ],
+      "title": "StepFlowOption",
+      "type": "object"
+    },
+    "StepFlowWidget": {
+      "additionalProperties": false,
+      "description": "Step-by-step flow widget with optional branching.",
+      "properties": {
+        "type": {
+          "const": "stepFlow",
+          "title": "Type",
+          "type": "string"
+        },
+        "lead": {
+          "minLength": 1,
+          "title": "Lead",
+          "type": "string"
+        },
+        "flow": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/StepFlowBranch"
+              }
+            ]
+          },
+          "title": "Flow",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "lead",
+        "flow"
+      ],
+      "title": "StepFlowWidget",
+      "type": "object"
+    },
+    "SwipeCard": {
+      "additionalProperties": false,
+      "description": "Card entry for swipe widget.",
+      "properties": {
+        "text": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "correct_bucket": {
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Correct Bucket",
+          "type": "integer"
+        },
+        "feedback": {
+          "maxLength": 150,
+          "minLength": 1,
+          "title": "Feedback",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "correct_bucket",
+        "feedback"
+      ],
+      "title": "SwipeCard",
+      "type": "object"
+    },
+    "SwipeWidget": {
+      "additionalProperties": false,
+      "description": "Binary swipe drill widget.",
+      "properties": {
+        "type": {
+          "const": "swipe",
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "buckets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Buckets",
+          "type": "array"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/SwipeCard"
+          },
+          "title": "Cards",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "buckets",
+        "cards"
+      ],
+      "title": "SwipeWidget",
+      "type": "object"
+    },
+    "TableWidget": {
+      "additionalProperties": false,
+      "description": "Tabular data widget.",
+      "properties": {
+        "type": {
+          "const": "table",
+          "title": "Type",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "rows"
+      ],
+      "title": "TableWidget",
+      "type": "object"
+    },
+    "TranslationWidget": {
+      "additionalProperties": false,
+      "description": "Translation pair widget.",
+      "properties": {
+        "type": {
+          "const": "tr",
+          "title": "Type",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source",
+        "target"
+      ],
+      "title": "TranslationWidget",
+      "type": "object"
+    },
+    "TreeViewWidget": {
+      "additionalProperties": false,
+      "description": "Lesson structure viewer widget.",
+      "properties": {
+        "type": {
+          "const": "treeview",
+          "title": "Type",
+          "type": "string"
+        },
+        "lesson": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Lesson"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "textarea_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Textarea Id"
+        },
+        "editor_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Editor Id"
+        }
+      },
+      "required": [
+        "type",
+        "lesson"
+      ],
+      "title": "TreeViewWidget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned root lesson document.",
+  "properties": {
+    "version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version",
+      "type": "string"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "blocks": {
+      "items": {
+        "$ref": "#/$defs/SectionBlock"
+      },
+      "title": "Blocks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "blocks"
+  ],
+  "title": "LessonDocument",
+  "type": "object"
+}

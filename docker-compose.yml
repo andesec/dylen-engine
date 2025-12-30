@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: dgs-dynamodb-local
+    ports:
+      - "8000:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /data"
+    volumes:
+      - ./dynamodb-data:/data
+    working_dir: /home/dynamodblocal
+    networks:
+      - dgs-network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl http://localhost:8000 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  dynamodb-init:
+    image: amazon/aws-cli:latest
+    container_name: dgs-dynamodb-init
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+    volumes:
+      - ./scripts/init-dynamodb.sh:/init-dynamodb.sh:ro
+    environment:
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
+      - AWS_DEFAULT_REGION=us-east-1
+    networks:
+      - dgs-network
+    entrypoint: [ "/bin/bash", "/init-dynamodb.sh" ]
+    restart: "no"
+
+networks:
+  dgs-network:
+    driver: bridge

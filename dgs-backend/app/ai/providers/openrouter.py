@@ -1,73 +1,84 @@
-"""OpenRouter provider stubs."""
+"""OpenRouter provider implementation using openai SDK."""
 
 from __future__ import annotations
 
-import re
+import json
+import os
 from typing import Any, Final
+
+from openai import AsyncOpenAI
 
 from app.ai.providers.base import AIModel, ModelResponse, Provider, SimpleModelResponse
 
 
 class OpenRouterModel(AIModel):
-    """Stubbed OpenRouter model client."""
+    """OpenRouter model client with structured output support."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, api_key: str | None = None, base_url: str | None = None) -> None:
         self.name: str = name
         self.supports_structured_output = True
-
-    async def generate(self, prompt: str) -> ModelResponse:
-        """Return placeholder content until OpenRouter SDK is integrated."""
-        return SimpleModelResponse(
-            content=f"[OpenRouter:{self.name}] Placeholder response to: {prompt}"
+        
+        # Configure OpenRouter client
+        api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is required")
+        
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url or "https://openrouter.ai/api/v1",
         )
 
+    async def generate(self, prompt: str) -> ModelResponse:
+        """Generate text response from OpenRouter."""
+        response = await self._client.chat.completions.create(
+            model=self.name,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = response.choices[0].message.content or ""
+        return SimpleModelResponse(content=content)
+
     async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
-        """Return a deterministic lesson skeleton that matches the schema."""
-        topic = _extract_topic(prompt) or "Lesson"
-        return _build_lesson_payload(topic)
+        """Generate structured JSON output using OpenAI's JSON mode."""
+        response = await self._client.chat.completions.create(
+            model=self.name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that outputs valid JSON. Always respond with valid JSON only, no markdown formatting.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        
+        content = response.choices[0].message.content or "{}"
+        
+        # Parse the JSON response
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"OpenRouter returned invalid JSON: {e}") from e
 
 
 class OpenRouterProvider(Provider):
-    """Stubbed OpenRouter provider."""
+    """OpenRouter provider."""
 
-    _DEFAULT_MODEL: Final[str] = "openrouter/gpt-4.1"
-    _AVAILABLE_MODELS: Final[set[str]] = {_DEFAULT_MODEL, "openrouter/claude-3-opus"}
+    _DEFAULT_MODEL: Final[str] = "openai/gpt-4o-mini"
+    _AVAILABLE_MODELS: Final[set[str]] = {
+        "openai/gpt-4o-mini",
+        "openai/gpt-4o",
+        "anthropic/claude-3.5-sonnet",
+        "google/gemini-2.0-flash-exp:free",
+    }
 
-    def __init__(self) -> None:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
         self.name: str = "openrouter"
+        self._api_key = api_key
+        self._base_url = base_url
 
     def get_model(self, model: str | None = None) -> AIModel:
-        """Return a stubbed OpenRouter model client."""
+        """Return an OpenRouter model client."""
         model_name = model or self._DEFAULT_MODEL
         if model_name not in self._AVAILABLE_MODELS:
             raise ValueError(f"Unsupported OpenRouter model '{model_name}'.")
-        return OpenRouterModel(model_name)
-
-
-def _extract_topic(prompt: str) -> str | None:
-    match = re.search(r"Topic:\s*(.+)", prompt)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
-def _build_lesson_payload(topic: str) -> dict[str, Any]:
-    return {
-        "title": topic,
-        "blocks": [
-            {
-                "section": "Overview",
-                "items": [
-                    f"Welcome to {topic}.",
-                    {"tip": "Start by defining the key terms."},
-                ],
-            },
-            {
-                "section": "Practice",
-                "items": [
-                    {"ul": [f"Identify a core concept in {topic}.", "Sketch a simple example."]},
-                    {"flip": [f"What is {topic}?", "A concise definition goes here."]},
-                ],
-            },
-        ],
-    }
+        return OpenRouterModel(model_name, api_key=self._api_key, base_url=self._base_url)

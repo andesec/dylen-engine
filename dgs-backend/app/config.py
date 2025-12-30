@@ -24,6 +24,8 @@ class Settings:
     structurer_model_fast: str | None
     structurer_model_balanced: str | None
     structurer_model_best: str | None
+    repair_provider: str
+    repair_model: str | None
     prompt_version: str
     schema_version: str
     tenant_key: str
@@ -67,6 +69,8 @@ def get_settings() -> Settings:
         structurer_model_fast=os.getenv("DGS_STRUCTURER_MODEL_FAST"),
         structurer_model_balanced=os.getenv("DGS_STRUCTURER_MODEL_BALANCED"),
         structurer_model_best=os.getenv("DGS_STRUCTURER_MODEL_BEST"),
+        repair_provider=os.getenv("DGS_REPAIR_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "gemini")),
+        repair_model=os.getenv("DGS_REPAIR_MODEL"),
         prompt_version=os.getenv("DGS_PROMPT_VERSION", "v1"),
         schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
         tenant_key=os.getenv("DGS_TENANT_KEY", "TENANT#default"),

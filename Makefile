@@ -3,7 +3,7 @@ VENV_DIR := .venv
 VENV_PYTHON := $(VENV_DIR)/bin/python
 VENV_MARKER := $(VENV_DIR)/.deps_installed
 APP_DIR := dgs-backend
-PORT ?= 8000
+PORT ?= 8080
 
 .PHONY: install dev lint format typecheck test sam-local openapi run
 
@@ -36,7 +36,8 @@ sam-local:
 	sam local start-api --template infra/template.yaml --parameter-overrides Stage=$$STAGE LogLevel=$$LOG_LEVEL --port $$PORT
 
 openapi:
-	@$(PYTHON) -c "import json, os, sys; repo_root=os.path.abspath(os.getcwd()); app_dir=os.path.join(repo_root, 'dgs-backend'); sys.path.insert(0, app_dir); from app.main import app; openapi=app.openapi(); f=open(os.path.join(repo_root, 'openapi.json'), 'w', encoding='utf-8'); json.dump(openapi, f, indent=2, sort_keys=True); f.write('\\n'); f.close()"
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	$(PYTHON) -c "import json, os, sys; repo_root=os.path.abspath(os.getcwd()); app_dir=os.path.join(repo_root, 'dgs-backend'); sys.path.insert(0, app_dir); from app.main import app; openapi=app.openapi(); f=open(os.path.join(repo_root, 'openapi.json'), 'w', encoding='utf-8'); json.dump(openapi, f, indent=2, sort_keys=True); f.write('\\n'); f.close()"
 
 run:
 	@if [ ! -d "$(VENV_DIR)" ]; then \
