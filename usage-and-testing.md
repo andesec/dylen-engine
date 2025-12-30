@@ -141,13 +141,15 @@ curl -X POST http://localhost:8080/v1/lessons/generate \
   -H "X-DGS-Dev-Key: local-dev-secret-key" \
   -d '{
     "topic": "Introduction to Python",
-    "topic_details": "Focus on lists and loops",
-    "constraints": {
-      "learnerLevel": "Beginner",
-      "language": "English",
-      "length": "Highlights"
-    },
-    "mode": "balanced"
+    "prompt": "Focus on lists and loops",
+    "config": {
+      "model": "openai/gpt-4o-mini",
+      "temperature": 0.4,
+      "max_output_tokens": 4096,
+      "validation_level": "strict",
+      "structured_output": true,
+      "language": "en"
+    }
   }'
 ```
 
@@ -167,6 +169,37 @@ curl -X POST http://localhost:8080/v1/lessons/validate \
   -H "Content-Type: application/json" \
   -H "X-DGS-Dev-Key: local-dev-secret-key" \
   -d @path/to/lesson.json
+```
+
+### Start and Manage Async Jobs
+
+Start a job:
+
+```bash
+curl -X POST http://localhost:8080/v1/jobs \
+  -H "Content-Type: application/json" \
+  -H "X-DGS-Dev-Key: local-dev-secret-key" \
+  -d '{
+    "topic": "Space exploration basics",
+    "prompt": "Highlight safety considerations for students",
+    "config": {
+      "language": "en"
+    }
+  }'
+```
+
+Check status:
+
+```bash
+curl http://localhost:8080/v1/jobs/{jobId} \
+  -H "X-DGS-Dev-Key: local-dev-secret-key"
+```
+
+Cancel a running job:
+
+```bash
+curl -X POST http://localhost:8080/v1/jobs/{jobId}/cancel \
+  -H "X-DGS-Dev-Key: local-dev-secret-key"
 ```
 
 ## Running Tests

@@ -5,30 +5,22 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
-
-try:  # Pydantic v2
-    from pydantic import ConfigDict, field_validator, model_validator
-
-    V2 = True
-except ImportError:  # pragma: no cover - fallback for Pydantic v1
-    from pydantic import root_validator as model_validator
-    from pydantic import validator as field_validator
-
-    ConfigDict = None
-    V2 = False
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
 
 
 class LessonBaseModel(BaseModel):
     """Base model enforcing strict field handling."""
 
-    if ConfigDict:
-        model_config = ConfigDict(extra="forbid", populate_by_name=True)
-    else:  # pragma: no cover - fallback for Pydantic v1
-
-        class Config:
-            extra = "forbid"
-            allow_population_by_field_name = True
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class WidgetBase(LessonBaseModel):
@@ -381,24 +373,11 @@ class QuizQuestion(LessonBaseModel):
             raise ValueError("quiz choices must be non-empty strings")
         return value
 
-    if V2:
-
-        @model_validator(mode="after")
-        def validate_answer_index(self) -> QuizQuestion:
-            if not 0 <= self.answer_index < len(self.choices):
-                raise ValueError("quiz answer index must be within choices range")
-            return self
-
-    else:  # pragma: no cover - pydantic v1 compatibility
-
-        @model_validator
-        @classmethod
-        def validate_answer_index(cls, values: dict[str, Any]) -> dict[str, Any]:
-            choices = values.get("choices") or []
-            answer_index = values.get("answer_index")
-            if isinstance(answer_index, int) and not 0 <= answer_index < len(choices):
-                raise ValueError("quiz answer index must be within choices range")
-            return values
+    @model_validator(mode="after")
+    def validate_answer_index(self) -> QuizQuestion:
+        if not 0 <= self.answer_index < len(self.choices):
+            raise ValueError("quiz answer index must be within choices range")
+        return self
 
 
 class QuizWidget(WidgetBase):
@@ -445,29 +424,15 @@ class SectionBlock(LessonBaseModel):
     items: list[Widget]
     subsections: list[SectionBlock] | None = None
 
-    if V2:
-
-        @model_validator(mode="before")
-        @classmethod
-        def normalize_items(cls, data: Any) -> Any:
-            raw_items = data.get("items") if isinstance(data, dict) else None
-            if raw_items is None:
-                return data
-            data = dict(data)
-            data["items"] = [normalize_widget(item) for item in raw_items]
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_items(cls, data: Any) -> Any:
+        raw_items = data.get("items") if isinstance(data, dict) else None
+        if raw_items is None:
             return data
-
-    else:  # pragma: no cover - pydantic v1 compatibility
-
-        @model_validator(pre=True)
-        @classmethod
-        def normalize_items(cls, data: Any) -> Any:
-            raw_items = data.get("items") if isinstance(data, dict) else None
-            if raw_items is None:
-                return data
-            data = dict(data)
-            data["items"] = [normalize_widget(item) for item in raw_items]
-            return data
+        data = dict(data)
+        data["items"] = [normalize_widget(item) for item in raw_items]
+        return data
 
 
 class LessonDocument(LessonBaseModel):

@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.ai.providers.base import AIModel
 from app.ai.router import get_model_for_mode
@@ -52,11 +52,13 @@ class DgsOrchestrator:
         self,
         *,
         topic: str,
-        topic_details: str | None = None,
+        prompt: str | None = None,
         constraints: dict[str, Any] | None = None,
         schema_version: str | None = None,
         structurer_model: str | None = None,
         gatherer_model: str | None = None,
+        structured_output: bool = True,
+        language: str | None = None,
         enable_repair: bool = True,
     ) -> OrchestrationResult:
         """Run the gatherer and structurer steps and return lesson JSON."""
@@ -78,11 +80,12 @@ class DgsOrchestrator:
         logger.info(log_msg)
 
         # Step 1: Gatherer
-        gatherer_model_instance = get_model_for_mode(
-            self._gatherer_provider, gatherer_model_name
-        )
+        gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name)
         gatherer_prompt = _render_gatherer_prompt(
-            topic=topic, topic_details=topic_details, constraints=constraints
+            topic=topic,
+            prompt=prompt,
+            constraints=constraints,
+            language=language,
         )
 
         log_msg = "Running gatherer agent..."
@@ -109,14 +112,13 @@ class DgsOrchestrator:
         structurer_model_instance = get_model_for_mode(
             self._structurer_provider, structurer_model_name
         )
-        if not structurer_model_instance.supports_structured_output:
-            raise RuntimeError("Structured output is not available for the configured structurer.")
-
         structurer_prompt = _render_structurer_prompt(
             topic=topic,
+            prompt=prompt,
             constraints=constraints,
             schema_version=schema_version or self._schema_version,
             idm=gatherer_response.content,
+            language=language,
         )
         lesson_schema = _lesson_json_schema()
 
@@ -128,18 +130,12 @@ class DgsOrchestrator:
         logger.info(log_msg)
         logger.debug(f"Structurer Prompt (Structured):\n{structurer_prompt}")
 
-        try:
-            lesson_json = await structurer_model_instance.generate_structured(
-                structurer_prompt, sanitized_schema
-            )
-        except Exception as e:
-            logger.warning(
-                (
-                    "Structurer structured generation failed: %s. Falling back to raw JSON "
-                    "generation."
-                ),
-                e,
-            )
+        async def _generate_unstructured() -> dict[str, Any]:
+            """Generate lesson JSON using the raw text fallback path."""
+            log_msg = "Using raw JSON generation path."
+            logs.append(log_msg)
+            logger.info(log_msg)
+
             # Fallback: Generate raw text and parse
             # Ensure the full schema is in the prompt for the fallback path
             schema_str = json.dumps(lesson_schema, indent=2)
@@ -172,7 +168,7 @@ class DgsOrchestrator:
                 ).strip()
 
             try:
-                lesson_json = json.loads(cleaned_json)
+                return cast(dict[str, Any], json.loads(cleaned_json))
             except json.JSONDecodeError as json_err:
                 logger.error(
                     "Fallback JSON parsing failed: %s. Raw content: %s...",
@@ -180,7 +176,33 @@ class DgsOrchestrator:
                     raw_response.content[:200],
                     exc_info=True,
                 )
-                raise RuntimeError(f"Structurer failed to generate valid JSON: {json_err}") from e
+                raise RuntimeError(
+                    f"Structurer failed to generate valid JSON: {json_err}"
+                ) from json_err
+
+        use_structured_output = (
+            structured_output and structurer_model_instance.supports_structured_output
+        )
+        if use_structured_output:
+            try:
+                lesson_json = await structurer_model_instance.generate_structured(
+                    structurer_prompt, sanitized_schema
+                )
+            except Exception as e:
+                logger.warning(
+                    (
+                        "Structurer structured generation failed: %s. Falling back to raw JSON "
+                        "generation."
+                    ),
+                    e,
+                )
+                lesson_json = await _generate_unstructured()
+        else:
+            if not structurer_model_instance.supports_structured_output:
+                logger.info("Structured output unavailable for model; using raw generation.")
+            else:
+                logger.info("Structured output disabled by config; using raw generation.")
+            lesson_json = await _generate_unstructured()
 
         log_msg = "Structurer completed, validating..."
         logs.append(log_msg)
@@ -235,6 +257,7 @@ class DgsOrchestrator:
 
                 repair_prompt = _render_repair_prompt(
                     topic=topic,
+                    prompt=prompt,
                     constraints=constraints,
                     invalid_json=repaired_json,
                     errors=errors_after_deterministic,
@@ -299,12 +322,18 @@ def _model_name(model: AIModel) -> str:
 
 
 def _render_gatherer_prompt(
-    *, topic: str, topic_details: str | None, constraints: dict[str, Any] | None
+    *,
+    topic: str,
+    prompt: str | None,
+    constraints: dict[str, Any] | None,
+    language: str | None,
 ) -> str:
-    prompt = _load_prompt("gatherer.md")
-    parts = [prompt, f"Topic: {topic}"]
-    if topic_details:
-        parts.append(f"Additional Details: {topic_details}")
+    prompt_template = _load_prompt("gatherer.md")
+    parts = [prompt_template, f"Topic: {topic}"]
+    if prompt:
+        parts.append(f"User Prompt: {prompt}")
+    if language:
+        parts.append(f"Language: {language}")
     parts.append(f"Constraints: {constraints or {}}")
     return "\n".join(parts)
 
@@ -312,16 +341,20 @@ def _render_gatherer_prompt(
 def _render_structurer_prompt(
     *,
     topic: str,
+    prompt: str | None,
     constraints: dict[str, Any] | None,
     schema_version: str,
     idm: str,
+    language: str | None,
 ) -> str:
-    prompt = _load_prompt("structurer.md")
+    prompt_template = _load_prompt("structurer.md")
     # Note: We rely on the JSON schema passed to the API or fallback prompt for widget definitions
     return "\n".join(
         [
-            prompt,
+            prompt_template,
             f"Topic: {topic}",
+            f"User Prompt: {prompt or ''}",
+            f"Language: {language or ''}",
             f"Constraints: {constraints or {}}",
             f"Schema Version: {schema_version}",
             "IDM:",
@@ -333,6 +366,7 @@ def _render_structurer_prompt(
 def _render_repair_prompt(
     *,
     topic: str,
+    prompt: str | None,
     constraints: dict[str, Any] | None,
     invalid_json: dict[str, Any],
     errors: list[str],
@@ -341,11 +375,12 @@ def _render_repair_prompt(
     """Render the repair agent prompt with validation errors."""
     import json
 
-    prompt = _load_prompt("repair.md")
+    prompt_template = _load_prompt("repair.md")
     return "\n".join(
         [
-            prompt,
+            prompt_template,
             f"Topic: {topic}",
+            f"User Prompt: {prompt or ''}",
             f"Constraints: {constraints or {}}",
             "Widgets:",
             widgets_text,
