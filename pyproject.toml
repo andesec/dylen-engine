@@ -55,6 +55,7 @@ no_implicit_optional = true
 pretty = true
 show_error_codes = true
 mypy_path = ["dgs-backend"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

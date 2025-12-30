@@ -15,6 +15,7 @@ class Settings:
     allowed_origins: list[str]
     max_topic_length: int
     ddb_table: str
+    jobs_table: str
     ddb_region: str
     ddb_endpoint_url: str | None
     gatherer_provider: str
@@ -30,6 +31,9 @@ class Settings:
     schema_version: str
     tenant_key: str
     lesson_id_index_name: str
+    jobs_all_jobs_index_name: str | None
+    jobs_idempotency_index_name: str | None
+    jobs_ttl_seconds: int | None
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -60,6 +64,7 @@ def get_settings() -> Settings:
         allowed_origins=_parse_origins(os.getenv("DGS_ALLOWED_ORIGINS")),
         max_topic_length=max_topic_length,
         ddb_table=os.getenv("DGS_DDB_TABLE", "Lessons"),
+        jobs_table=os.getenv("DGS_JOBS_TABLE", "dgs_jobs"),
         ddb_region=os.getenv("AWS_REGION", "us-east-1"),
         ddb_endpoint_url=os.getenv("DGS_DDB_ENDPOINT_URL"),
         gatherer_provider=os.getenv("DGS_GATHERER_PROVIDER", "gemini"),
@@ -69,10 +74,24 @@ def get_settings() -> Settings:
         structurer_model_fast=os.getenv("DGS_STRUCTURER_MODEL_FAST"),
         structurer_model_balanced=os.getenv("DGS_STRUCTURER_MODEL_BALANCED"),
         structurer_model_best=os.getenv("DGS_STRUCTURER_MODEL_BEST"),
-        repair_provider=os.getenv("DGS_REPAIR_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "gemini")),
+        repair_provider=os.getenv(
+            "DGS_REPAIR_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "gemini")
+        ),
         repair_model=os.getenv("DGS_REPAIR_MODEL"),
         prompt_version=os.getenv("DGS_PROMPT_VERSION", "v1"),
         schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
         tenant_key=os.getenv("DGS_TENANT_KEY", "TENANT#default"),
         lesson_id_index_name=os.getenv("DGS_LESSON_ID_INDEX", "lesson_id_index"),
+        jobs_all_jobs_index_name=os.getenv("DGS_JOBS_ALL_JOBS_INDEX", "jobs_all_jobs"),
+        jobs_idempotency_index_name=os.getenv("DGS_JOBS_IDEMPOTENCY_INDEX", "jobs_idempotency"),
+        jobs_ttl_seconds=_parse_optional_int(os.getenv("DGS_JOBS_TTL_SECONDS")),
     )
+
+
+def _parse_optional_int(raw: str | None) -> int | None:
+    if raw is None or raw.strip() == "":
+        return None
+    value = int(raw)
+    if value <= 0:
+        raise ValueError("Optional TTL seconds must be positive when provided.")
+    return value

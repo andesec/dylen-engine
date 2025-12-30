@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from google import genai
 from google.genai import types
@@ -18,20 +18,17 @@ class GeminiModel(AIModel):
     def __init__(self, name: str, api_key: str | None = None) -> None:
         self.name: str = name
         self.supports_structured_output = True
-        
+
         # Configure Gemini API
         api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable is required")
-        
+
         self._client = genai.Client(api_key=api_key)
 
     async def generate(self, prompt: str) -> ModelResponse:
         """Generate text response from Gemini."""
-        response = self._client.models.generate_content(
-            model=self.name,
-            contents=prompt
-        )
+        response = self._client.models.generate_content(model=self.name, contents=prompt)
         return SimpleModelResponse(content=response.text)
 
     async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
@@ -41,16 +38,16 @@ class GeminiModel(AIModel):
             response_mime_type="application/json",
             response_schema=schema,
         )
-        
+
         response = self._client.models.generate_content(
             model=self.name,
             contents=prompt,
             config=config,
         )
-        
+
         # Parse the JSON response
         try:
-            return json.loads(response.text)
+            return cast(dict[str, Any], json.loads(response.text))
         except json.JSONDecodeError as e:
             raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
 

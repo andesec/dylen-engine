@@ -122,6 +122,20 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "JobCreateResponse": {
+        "description": "Response payload for job creation.",
+        "properties": {
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobId"
+        ],
+        "title": "JobCreateResponse",
+        "type": "object"
+      },
       "LessonConstraints": {
         "additionalProperties": false,
         "description": "Optional constraints for lesson generation.",
@@ -342,6 +356,56 @@
         "summary": "Health"
       }
     },
+    "/v1/jobs": {
+      "post": {
+        "description": "Create a background lesson generation job.",
+        "operationId": "create_job_v1_jobs_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Job"
+      }
+    },
     "/v1/lessons/generate": {
       "post": {
         "description": "Generate a lesson from a topic using the two-step pipeline.",
@@ -390,6 +454,56 @@
           }
         },
         "summary": "Generate Lesson"
+      }
+    },
+    "/v1/lessons/jobs": {
+      "post": {
+        "description": "Alias route for creating a background lesson generation job.",
+        "operationId": "create_lesson_job_v1_lessons_jobs_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Lesson Job"
       }
     },
     "/v1/lessons/validate": {

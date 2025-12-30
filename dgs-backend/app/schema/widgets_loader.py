@@ -79,10 +79,12 @@ def _iter_widget_sections(lines: Iterable[str]) -> dict[str, str]:
     return {name: "\n".join(content).strip() for name, content in sections.items()}
 
 
-def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[WidgetFieldInfo], bool, dict[int, str]]:
+def _parse_widget_fields(
+    section_text: str, widget_name: str
+) -> tuple[list[WidgetFieldInfo], bool, dict[int, str]]:
     """
     Parse field information from a widget section.
-    
+
     Returns:
         - list of WidgetFieldInfo
         - is_shorthand (True if array-based shorthand)
@@ -91,11 +93,11 @@ def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[Widg
     fields: list[WidgetFieldInfo] = []
     is_shorthand = False
     shorthand_positions: dict[int, str] = {}
-    
+
     # Check if this widget uses array-based shorthand
     # Look for patterns like: { "widget": ["field1", "field2", ...] }
     # or numbered positions like "1. `field` (type):"
-    
+
     # Look for "Schema (array positions):" pattern
     if "Schema (array positions):" in section_text or "array positions" in section_text.lower():
         is_shorthand = True
@@ -107,20 +109,27 @@ def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[Widg
                 pos_str, field_name, field_type_hint, description = match.groups()
                 position = int(pos_str) - 1  # Convert to 0-indexed
                 shorthand_positions[position] = field_name
-                
+
                 required = "optional" not in (description or "").lower()
                 field_type = "string"  # Default
                 if field_type_hint:
                     field_type = field_type_hint.strip().split(",")[0].strip().lower()
-                
-                fields.append(WidgetFieldInfo(
-                    name=field_name,
-                    required=required,
-                    field_type=field_type
-                ))
-    
+
+                fields.append(
+                    WidgetFieldInfo(name=field_name, required=required, field_type=field_type)
+                )
+
+    if not is_shorthand:
+        shorthand_json_match = re.search(
+            r"{\s*\"[^\"]+\"\s*:\s*\[[^\]]+]", section_text, re.DOTALL | re.MULTILINE
+        )
+        if shorthand_json_match:
+            is_shorthand = True
+
     # Also look for "Constraints:" section to find required fields
-    constraints_match = re.search(r"Constraints?:(.+?)(?=\n\n|\Z)", section_text, re.DOTALL | re.IGNORECASE)
+    constraints_match = re.search(
+        r"Constraints?:(.+?)(?=\n\n|\Z)", section_text, re.DOTALL | re.IGNORECASE
+    )
     if constraints_match and not is_shorthand:
         constraints_section = constraints_match.group(1)
         # Look for "- `field` must be ..." or "- field (type, required)"
@@ -129,7 +138,7 @@ def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[Widg
             field_name = match.group(1)
             if not any(f.name == field_name for f in fields):
                 fields.append(WidgetFieldInfo(name=field_name, required=True))
-    
+
     return fields, is_shorthand, shorthand_positions
 
 
@@ -141,7 +150,7 @@ def load_widget_registry(path: Path) -> WidgetRegistry:
     content = path.read_text(encoding="utf-8").splitlines()
     sections = _iter_widget_sections(content)
     definitions = {}
-    
+
     for name, section_text in sections.items():
         fields, is_shorthand, shorthand_positions = _parse_widget_fields(section_text, name)
         definitions[name] = WidgetDefinition(
@@ -151,5 +160,5 @@ def load_widget_registry(path: Path) -> WidgetRegistry:
             is_shorthand=is_shorthand,
             shorthand_positions=shorthand_positions,
         )
-    
+
     return WidgetRegistry(definitions)

@@ -29,16 +29,14 @@ class DynamoLessonsRepository(LessonsRepository):
         aws_kw = {}
         if endpoint_url and ("localhost" in endpoint_url or "127.0.0.1" in endpoint_url):
             import os
+
             # If running locally and no credentials exist, provide dummies to satisfy Boto3
             if not os.getenv("AWS_ACCESS_KEY_ID"):
                 aws_kw["aws_access_key_id"] = "test"
                 aws_kw["aws_secret_access_key"] = "test"
 
         resource = boto3.resource(
-            "dynamodb",
-            region_name=region,
-            endpoint_url=endpoint_url,
-            **aws_kw
+            "dynamodb", region_name=region, endpoint_url=endpoint_url, **aws_kw
         )
         self._table = resource.Table(table_name)
 
