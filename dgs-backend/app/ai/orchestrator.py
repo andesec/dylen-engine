@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -60,6 +61,7 @@ class DgsOrchestrator:
         structured_output: bool = True,
         language: str | None = None,
         enable_repair: bool = True,
+        progress_callback: Callable[[str, list[str] | None], None] | None = None,
     ) -> OrchestrationResult:
         """Run the gatherer and structurer steps and return lesson JSON."""
         import logging
@@ -88,6 +90,10 @@ class DgsOrchestrator:
             language=language,
         )
 
+        def _report_progress(phase: str, message: str) -> None:
+            if progress_callback:
+                progress_callback(phase, [message])
+
         log_msg = "Running gatherer agent..."
         logs.append(log_msg)
         logger.info(log_msg)
@@ -103,6 +109,7 @@ class DgsOrchestrator:
         logs.append(log_msg)
         logger.info(log_msg)
         logger.debug(f"Gatherer Response:\n{gatherer_response.content}")
+        _report_progress("collect", log_msg)
 
         # Step 2: Structurer
         log_msg = f"Structurer: {self._structurer_provider}/{structurer_model_name or 'default'}"
@@ -207,6 +214,7 @@ class DgsOrchestrator:
         log_msg = "Structurer completed, validating..."
         logs.append(log_msg)
         logger.info(log_msg)
+        _report_progress("transform", log_msg)
 
         # Import validation and repair utilities
         from app.ai.deterministic_repair import attempt_deterministic_repair, is_worth_ai_repair
