@@ -4,9 +4,10 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Awaitable, Callable, Literal
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -66,10 +67,11 @@ formatter = logging.Formatter(
 class TruncatedFormatter(logging.Formatter):
     """Formatter that truncates the stack trace to the last few lines."""
 
+    # ruff: noqa: N802
     def formatException(
         self,
         ei: tuple[type[BaseException] | None, BaseException | None, TracebackType | None],
-    ) -> str:  # noqa: N802
+    ) -> str:
         import traceback
 
         lines = traceback.format_exception(*ei)
@@ -81,19 +83,21 @@ class TruncatedFormatter(logging.Formatter):
 
 # Configure Root Logger explicitly (safety against uvicorn hijacking)
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)
-
 # Stream Handler (Console) - Truncated
 stream_handler = logging.StreamHandler(sys.stdout)
 stream_handler.setFormatter(
     TruncatedFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S")
 )
-root_logger.addHandler(stream_handler)
 
 # File Handler
 file_handler = logging.FileHandler(log_file)
 file_handler.setFormatter(formatter)
-root_logger.addHandler(file_handler)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    handlers=[stream_handler, file_handler],
+    force=True,
+)
 
 # Silence noisy libraries
 logging.getLogger("botocore").setLevel(logging.ERROR)
@@ -142,6 +146,7 @@ class LessonConstraints(BaseModel):
     )
     language: StrictStr | None = None
     length: Literal["Highlights", "Detailed", "Training"] | None = None
+    sections: StrictInt | None = Field(default=None, ge=1, le=10)
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
@@ -259,6 +264,15 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Request payload is too large for persistence.",
         )
+    constraints = (
+        request.constraints.model_dump(mode="python", by_alias=True) if request.constraints else {}
+    )
+    try:
+        from app.jobs.progress import build_call_plan  # Local import to avoid circular deps
+
+        build_call_plan({"constraints": constraints})
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 def _compute_job_ttl(settings: Settings) -> int | None:
