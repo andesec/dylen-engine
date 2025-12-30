@@ -1,19 +1,13 @@
 {
   "components": {
     "schemas": {
-      "GenerateLessonRequest": {
+      "GenerateLessonRequest-Input": {
         "additionalProperties": false,
         "description": "Request payload for lesson generation.",
         "properties": {
-          "constraints": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LessonConstraints"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "config": {
+            "$ref": "#/components/schemas/GenerationConfig",
+            "description": "Configurable generation parameters."
           },
           "idempotency_key": {
             "anyOf": [
@@ -24,24 +18,15 @@
                 "type": "null"
               }
             ],
+            "description": "Idempotency key to prevent duplicate lesson generation.",
             "title": "Idempotency Key"
           },
-          "mode": {
-            "anyOf": [
-              {
-                "enum": [
-                  "fast",
-                  "balanced",
-                  "best"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": "balanced",
-            "title": "Mode"
+          "prompt": {
+            "description": "User-supplied guidance or context for lesson creation.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
           },
           "schema_version": {
             "anyOf": [
@@ -52,14 +37,32 @@
                 "type": "null"
               }
             ],
+            "description": "Optional schema version to pin the lesson output to.",
             "title": "Schema Version"
           },
           "topic": {
+            "description": "Topic to generate a lesson for.",
             "minLength": 1,
             "title": "Topic",
             "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "prompt"
+        ],
+        "title": "GenerateLessonRequest",
+        "type": "object"
+      },
+      "GenerateLessonRequest-Output": {
+        "additionalProperties": false,
+        "description": "Request payload for lesson generation.",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/GenerationConfig",
+            "description": "Configurable generation parameters."
           },
-          "topic_details": {
+          "idempotency_key": {
             "anyOf": [
               {
                 "type": "string"
@@ -68,11 +71,38 @@
                 "type": "null"
               }
             ],
-            "title": "Topic Details"
+            "description": "Idempotency key to prevent duplicate lesson generation.",
+            "title": "Idempotency Key"
+          },
+          "prompt": {
+            "description": "User-supplied guidance or context for lesson creation.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional schema version to pin the lesson output to.",
+            "title": "Schema Version"
+          },
+          "topic": {
+            "description": "Topic to generate a lesson for.",
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
           }
         },
         "required": [
-          "topic"
+          "topic",
+          "prompt"
         ],
         "title": "GenerateLessonRequest",
         "type": "object"
@@ -109,6 +139,71 @@
         "title": "GenerateLessonResponse",
         "type": "object"
       },
+      "GenerationConfig": {
+        "additionalProperties": false,
+        "description": "Tunable configuration for lesson generation.",
+        "properties": {
+          "language": {
+            "default": "en",
+            "description": "Preferred language for the resulting lesson content.",
+            "maxLength": 8,
+            "minLength": 2,
+            "title": "Language",
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "default": 4096,
+            "description": "Upper bound on tokens produced during structured generation.",
+            "maximum": 65536.0,
+            "minimum": 256.0,
+            "title": "Max Output Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "$ref": "#/components/schemas/GenerationModel",
+            "default": "openai/gpt-4o-mini",
+            "description": "Model used for lesson structuring."
+          },
+          "structured_output": {
+            "default": true,
+            "description": "If false, fall back to raw JSON generation instead of structured mode.",
+            "title": "Structured Output",
+            "type": "boolean"
+          },
+          "temperature": {
+            "default": 0.4,
+            "description": "Sampling temperature for the generation pipeline.",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "type": "number"
+          },
+          "validation_level": {
+            "$ref": "#/components/schemas/ValidationLevel",
+            "default": "strict",
+            "description": "Level of validation applied to the generated lesson."
+          }
+        },
+        "title": "GenerationConfig",
+        "type": "object"
+      },
+      "GenerationModel": {
+        "description": "Supported model identifiers exposed to clients.",
+        "enum": [
+          "gemini-2.5-pro",
+          "gemini-2.5-flash",
+          "gemini-2.0-flash",
+          "gemini-2.0-flash-exp",
+          "gemini-pro-latest",
+          "gemini-flash-latest",
+          "openai/gpt-4o-mini",
+          "openai/gpt-4o",
+          "anthropic/claude-3.5-sonnet",
+          "google/gemini-2.0-flash-exp:free"
+        ],
+        "title": "GenerationModel",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -136,11 +231,10 @@
         "title": "JobCreateResponse",
         "type": "object"
       },
-      "LessonConstraints": {
-        "additionalProperties": false,
-        "description": "Optional constraints for lesson generation.",
+      "JobStatusResponse": {
+        "description": "Status payload for an asynchronous lesson generation job.",
         "properties": {
-          "language": {
+          "completedAt": {
             "anyOf": [
               {
                 "type": "string"
@@ -149,43 +243,120 @@
                 "type": "null"
               }
             ],
-            "title": "Language"
+            "title": "Completedat"
           },
-          "learnerLevel": {
+          "cost": {
             "anyOf": [
               {
-                "enum": [
-                  "Newbie",
-                  "Beginner",
-                  "Intermediate",
-                  "Expert"
-                ],
-                "type": "string"
+                "additionalProperties": true,
+                "type": "object"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Learnerlevel"
+            "title": "Cost"
           },
-          "length": {
+          "createdAt": {
+            "title": "Createdat",
+            "type": "string"
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
+          "phase": {
             "anyOf": [
               {
-                "enum": [
-                  "Highlights",
-                  "Detailed",
-                  "Training"
-                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Length"
+            "title": "Phase"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Normalized progress indicator when available.",
+            "title": "Progress"
+          },
+          "request": {
+            "$ref": "#/components/schemas/GenerateLessonRequest-Output"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "error",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subphase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subphase"
+          },
+          "updatedAt": {
+            "title": "Updatedat",
+            "type": "string"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "title": "LessonConstraints",
+        "required": [
+          "jobId",
+          "status",
+          "request",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "JobStatusResponse",
         "type": "object"
       },
       "LessonMeta": {
@@ -304,6 +475,15 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "ValidationLevel": {
+        "description": "Supported validation strictness levels.",
+        "enum": [
+          "basic",
+          "strict"
+        ],
+        "title": "ValidationLevel",
+        "type": "string"
+      },
       "ValidationResponse": {
         "description": "Response model for lesson validation results.",
         "properties": {
@@ -375,7 +555,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenerateLessonRequest"
+                "$ref": "#/components/schemas/GenerateLessonRequest-Input"
               }
             }
           },
@@ -406,6 +586,104 @@
         "summary": "Create Job"
       }
     },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "description": "Fetch the status and result of a background job.",
+        "operationId": "get_job_status_v1_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Status"
+      }
+    },
+    "/v1/jobs/{job_id}/cancel": {
+      "post": {
+        "description": "Request cancellation of a running background job.",
+        "operationId": "cancel_job_v1_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Job"
+      }
+    },
     "/v1/lessons/generate": {
       "post": {
         "description": "Generate a lesson from a topic using the two-step pipeline.",
@@ -425,7 +703,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenerateLessonRequest"
+                "$ref": "#/components/schemas/GenerateLessonRequest-Input"
               }
             }
           },
@@ -475,7 +753,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenerateLessonRequest"
+                "$ref": "#/components/schemas/GenerateLessonRequest-Input"
               }
             }
           },
@@ -508,7 +786,7 @@
     },
     "/v1/lessons/validate": {
       "post": {
-        "description": "Validate a lesson payload against schema + widget registry.",
+        "description": "Validate a lesson payload (e.g., from stored lessons or job results) against schema + widget registry.",
         "operationId": "validate_endpoint_v1_lessons_validate_post",
         "parameters": [
           {
@@ -560,7 +838,7 @@
     },
     "/v1/lessons/{lesson_id}": {
       "get": {
-        "description": "Fetch a stored lesson by identifier.",
+        "description": "Fetch a stored lesson by identifier, consistent with async job persistence.",
         "operationId": "get_lesson_v1_lessons__lesson_id__get",
         "parameters": [
           {

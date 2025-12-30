@@ -5,20 +5,29 @@ import logging
 import sys
 import time
 from collections.abc import Awaitable, Callable
+from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+)
 from starlette.concurrency import run_in_threadpool
 
 from app.ai.orchestrator import DgsOrchestrator
 from app.config import Settings, get_settings
 from app.jobs.guardrails import MAX_ITEM_BYTES, estimate_bytes
-from app.jobs.models import JobRecord
+from app.jobs.models import JobRecord, JobStatus
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.storage.dynamodb_jobs_repo import DynamoJobsRepository
@@ -138,27 +147,86 @@ class ValidationResponse(BaseModel):
     errors: list[str]
 
 
-class LessonConstraints(BaseModel):
-    """Optional constraints for lesson generation."""
+class ValidationLevel(str, Enum):
+    """Supported validation strictness levels."""
 
-    learner_level: Literal["Newbie", "Beginner", "Intermediate", "Expert"] | None = Field(
-        default=None, alias="learnerLevel"
+    BASIC = "basic"
+    STRICT = "strict"
+
+
+class GenerationModel(str, Enum):
+    """Supported model identifiers exposed to clients."""
+
+    GEMINI_25_PRO = "gemini-2.5-pro"
+    GEMINI_25_FLASH = "gemini-2.5-flash"
+    GEMINI_20_FLASH = "gemini-2.0-flash"
+    GEMINI_20_FLASH_EXP = "gemini-2.0-flash-exp"
+    GEMINI_PRO_LATEST = "gemini-pro-latest"
+    GEMINI_FLASH_LATEST = "gemini-flash-latest"
+    GPT4O_MINI = "openai/gpt-4o-mini"
+    GPT4O = "openai/gpt-4o"
+    CLAUDE_35_SONNET = "anthropic/claude-3.5-sonnet"
+    GEMINI_FLASH_FREE = "google/gemini-2.0-flash-exp:free"
+
+
+class GenerationConfig(BaseModel):
+    """Tunable configuration for lesson generation."""
+
+    model: GenerationModel = Field(
+        default=GenerationModel.GPT4O_MINI,
+        description="Model used for lesson structuring.",
     )
-    language: StrictStr | None = None
+    temperature: StrictFloat = Field(
+        default=0.4,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature for the generation pipeline.",
+    )
+    max_output_tokens: StrictInt = Field(
+        default=4096,
+        ge=256,
+        le=65536,
+        description="Upper bound on tokens produced during structured generation.",
+    )
+    validation_level: ValidationLevel = Field(
+        default=ValidationLevel.STRICT,
+        description="Level of validation applied to the generated lesson.",
+    )
+    structured_output: bool = Field(
+        default=True,
+        description="If false, fall back to raw JSON generation instead of structured mode.",
+    )
+    language: StrictStr = Field(
+        default="en",
+        min_length=2,
+        max_length=8,
+        description="Preferred language for the resulting lesson content.",
+    )
+    model_config = ConfigDict(extra="forbid")
     length: Literal["Highlights", "Detailed", "Training"] | None = None
     sections: StrictInt | None = Field(default=None, ge=1, le=10)
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class GenerateLessonRequest(BaseModel):
     """Request payload for lesson generation."""
 
-    topic: StrictStr = Field(min_length=1)
-    topic_details: StrictStr | None = None
-    constraints: LessonConstraints | None = None
-    schema_version: StrictStr | None = None
-    idempotency_key: StrictStr | None = None
-    mode: Literal["fast", "balanced", "best"] | None = Field(default="balanced")
+    topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.")
+    prompt: StrictStr = Field(
+        min_length=1,
+        max_length=500,
+        description="User-supplied guidance or context for lesson creation.",
+    )
+    config: GenerationConfig = Field(
+        default_factory=GenerationConfig, description="Configurable generation parameters."
+    )
+    schema_version: StrictStr | None = Field(
+        default=None, description="Optional schema version to pin the lesson output to."
+    )
+    idempotency_key: StrictStr | None = Field(
+        default=None,
+        description="Idempotency key to prevent duplicate lesson generation.",
+        alias="idempotency_key",
+    )
     model_config = ConfigDict(extra="forbid")
 
 
@@ -201,15 +269,48 @@ class JobCreateResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class JobStatusResponse(BaseModel):
+    """Status payload for an asynchronous lesson generation job."""
+
+    job_id: StrictStr = Field(serialization_alias="jobId", validation_alias="jobId")
+    status: JobStatus
+    phase: StrictStr | None = None
+    subphase: StrictStr | None = None
+    progress: StrictFloat | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Normalized progress indicator when available.",
+    )
+    logs: list[StrictStr] = Field(default_factory=list)
+    request: GenerateLessonRequest
+    result: dict[str, Any] | None = None
+    validation: ValidationResponse | None = None
+    cost: dict[str, Any] | None = None
+    created_at: StrictStr = Field(serialization_alias="createdAt", validation_alias="createdAt")
+    updated_at: StrictStr = Field(serialization_alias="updatedAt", validation_alias="updatedAt")
+    completed_at: StrictStr | None = Field(
+        default=None, serialization_alias="completedAt", validation_alias="completedAt"
+    )
+    model_config = ConfigDict(populate_by_name=True)
+
+
 MAX_REQUEST_BYTES = MAX_ITEM_BYTES // 2
 
 
-def _get_orchestrator(settings: Settings) -> DgsOrchestrator:
+def _get_orchestrator(
+    settings: Settings,
+    *,
+    gatherer_provider: str | None = None,
+    gatherer_model: str | None = None,
+    structurer_provider: str | None = None,
+    structurer_model: str | None = None,
+) -> DgsOrchestrator:
     return DgsOrchestrator(
-        gatherer_provider=settings.gatherer_provider,
-        gatherer_model=settings.gatherer_model,
-        structurer_provider=settings.structurer_provider,
-        structurer_model=settings.structurer_model,
+        gatherer_provider=gatherer_provider or settings.gatherer_provider,
+        gatherer_model=gatherer_model or settings.gatherer_model,
+        structurer_provider=structurer_provider or settings.structurer_provider,
+        structurer_model=structurer_model or settings.structurer_model,
         repair_provider=settings.repair_provider,
         repair_model=settings.repair_model,
         schema_version=settings.schema_version,
@@ -236,12 +337,40 @@ def _get_jobs_repo(settings: Settings) -> DynamoJobsRepository:
     )
 
 
-def _resolve_structurer_model(settings: Settings, mode: str | None) -> str | None:
-    if mode == "fast":
-        return settings.structurer_model_fast or settings.structurer_model
-    if mode == "best":
-        return settings.structurer_model_best or settings.structurer_model
-    return settings.structurer_model_balanced or settings.structurer_model
+_GEMINI_STRUCTURER_MODELS = {
+    GenerationModel.GEMINI_20_FLASH_EXP,
+    GenerationModel.GEMINI_20_FLASH,
+    GenerationModel.GEMINI_25_FLASH,
+    GenerationModel.GEMINI_25_PRO,
+    GenerationModel.GEMINI_FLASH_LATEST,
+    GenerationModel.GEMINI_PRO_LATEST,
+}
+
+_OPENROUTER_STRUCTURER_MODELS = {
+    GenerationModel.GPT4O_MINI,
+    GenerationModel.GPT4O,
+    GenerationModel.CLAUDE_35_SONNET,
+    GenerationModel.GEMINI_FLASH_FREE,
+}
+
+
+def _resolve_structurer_selection(
+    settings: Settings, config: GenerationConfig | None
+) -> tuple[str, str | None]:
+    """
+    Derive the structurer provider + model based on the user config.
+
+    Falls back to environment defaults when no config is provided.
+    """
+    if config is None:
+        return settings.structurer_provider, settings.structurer_model
+
+    if config.model in _GEMINI_STRUCTURER_MODELS:
+        return "gemini", config.model.value
+    if config.model in _OPENROUTER_STRUCTURER_MODELS:
+        return "openrouter", config.model.value
+    # Default to settings if we cannot infer a provider
+    return settings.structurer_provider, config.model.value
 
 
 def _require_dev_key(  # noqa: B008
@@ -275,10 +404,48 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+def _build_constraints(config: GenerationConfig | None) -> dict[str, Any] | None:
+    """Translate user config into orchestration constraints."""
+    if config is None or not config.language:
+        return None
+    return {"language": config.language}
+
+
 def _compute_job_ttl(settings: Settings) -> int | None:
     if settings.jobs_ttl_seconds is None:
         return None
     return int(time.time()) + settings.jobs_ttl_seconds
+
+
+def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
+    """Convert a persisted job record into an API response payload."""
+    try:
+        request = GenerateLessonRequest.model_validate(record.request)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored job request failed validation.",
+        ) from exc
+
+    validation = None
+    if record.validation is not None:
+        validation = ValidationResponse.model_validate(record.validation)
+
+    return JobStatusResponse(
+        job_id=record.job_id,
+        status=record.status,
+        phase=record.phase,
+        subphase=record.subphase,
+        progress=record.progress,
+        logs=record.logs or [],
+        request=request,
+        result=record.result_json,
+        validation=validation,
+        cost=record.cost,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        completed_at=record.completed_at,
+    )
 
 
 @app.get("/health")
@@ -292,7 +459,7 @@ async def health() -> dict[str, str]:
     dependencies=[Depends(_require_dev_key)],
 )
 async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
-    """Validate a lesson payload against schema + widget registry."""
+    """Validate lesson payloads from stored lessons or job results against schema and widgets."""
 
     ok, errors, _model = validate_lesson(payload)
     return ValidationResponse(ok=ok, errors=errors)
@@ -311,13 +478,21 @@ async def generate_lesson(  # noqa: B008
     _validate_generate_request(request, settings)
 
     start = time.monotonic()
-    orchestrator = _get_orchestrator(settings)
+    structurer_provider, structurer_model = _resolve_structurer_selection(settings, request.config)
+    orchestrator = _get_orchestrator(
+        settings,
+        structurer_provider=structurer_provider,
+        structurer_model=structurer_model,
+    )
+    constraints = _build_constraints(request.config)
     result = await orchestrator.generate_lesson(
         topic=request.topic,
-        topic_details=request.topic_details,
-        constraints=request.constraints.model_dump(by_alias=True) if request.constraints else None,
+        prompt=request.prompt,
+        constraints=constraints,
         schema_version=request.schema_version or settings.schema_version,
-        structurer_model=_resolve_structurer_model(settings, request.mode),
+        structurer_model=structurer_model,
+        structured_output=request.config.structured_output,
+        language=request.config.language,
     )
 
     ok, errors, lesson_model = validate_lesson(result.lesson_json)
@@ -428,6 +603,57 @@ async def create_lesson_job(  # noqa: B008
 
 
 @app.get(
+    "/v1/jobs/{job_id}",
+    response_model=JobStatusResponse,
+    dependencies=[Depends(_require_dev_key)],
+)
+async def get_job_status(  # noqa: B008
+    job_id: str,
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> JobStatusResponse:
+    """Fetch the status and result of a background job."""
+    repo = _get_jobs_repo(settings)
+    record = await run_in_threadpool(repo.get_job, job_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    return _job_status_from_record(record)
+
+
+@app.post(
+    "/v1/jobs/{job_id}/cancel",
+    response_model=JobStatusResponse,
+    dependencies=[Depends(_require_dev_key)],
+)
+async def cancel_job(  # noqa: B008
+    job_id: str,
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> JobStatusResponse:
+    """Request cancellation of a running background job."""
+    repo = _get_jobs_repo(settings)
+    record = await run_in_threadpool(repo.get_job, job_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    if record.status in ("done", "error", "canceled"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job is already finalized and cannot be canceled.",
+        )
+    updated = await run_in_threadpool(
+        repo.update_job,
+        job_id,
+        status="canceled",
+        phase="canceled",
+        subphase=None,
+        progress=1.0,
+        logs=record.logs + ["Job cancellation requested by client."],
+        completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    return _job_status_from_record(updated)
+
+
+@app.get(
     "/v1/lessons/{lesson_id}",
     response_model=LessonRecordResponse,
     dependencies=[Depends(_require_dev_key)],
@@ -436,7 +662,7 @@ async def get_lesson(  # noqa: B008
     lesson_id: str,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> LessonRecordResponse:
-    """Fetch a stored lesson by identifier."""
+    """Fetch a stored lesson by identifier, consistent with async job persistence."""
     repo = _get_repo(settings)
     record = await run_in_threadpool(repo.get_lesson, lesson_id)
     if record is None:

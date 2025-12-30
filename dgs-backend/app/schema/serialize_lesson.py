@@ -12,6 +12,8 @@ from .lesson_models import (
     ChecklistWidget,
     CodeViewerWidget,
     CompareWidget,
+    ConsoleDemoEntry,
+    ConsoleInteractiveRule,
     ConsoleWidget,
     FlipWidget,
     FreeTextWidget,
@@ -122,13 +124,11 @@ def _widget_to_shorthand(widget: Widget) -> Any:
         return {"checklist": [widget.lead, tree]}
     if isinstance(widget, ConsoleWidget):
         if widget.mode == 0:
-            entries = [
-                [entry.command, entry.delay_ms, entry.output] for entry in widget.rules_or_script
-            ]
+            script_entries = cast(list[ConsoleDemoEntry], widget.rules_or_script)
+            entries = [[entry.command, entry.delay_ms, entry.output] for entry in script_entries]
         else:
-            entries = [
-                [entry.pattern, entry.level, entry.output] for entry in widget.rules_or_script
-            ]
+            interactive_entries = cast(list[ConsoleInteractiveRule], widget.rules_or_script)
+            entries = [[entry.pattern, entry.level, entry.output] for entry in interactive_entries]
         console_values = [widget.lead, widget.mode, entries]
         if widget.guided is not None:
             console_values.append([[step.task, step.solution] for step in widget.guided])

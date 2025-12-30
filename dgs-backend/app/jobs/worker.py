@@ -7,11 +7,17 @@ import time
 from collections.abc import Iterable
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.ai.orchestrator import DgsOrchestrator, OrchestrationResult
 from app.config import Settings
 from app.jobs.models import JobRecord
-from app.jobs.progress import MAX_TRACKED_LOGS, JobProgressTracker, build_call_plan
-from app.main import _resolve_structurer_model
+from app.main import (
+    GenerateLessonRequest,
+    _build_constraints,
+    _get_orchestrator,
+    _resolve_structurer_selection,
+)
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.storage.jobs_repo import JobsRepository
@@ -144,23 +150,34 @@ class JobProcessor:
         tracker: JobProgressTracker | None = None,
     ) -> OrchestrationResult:
         """Execute the orchestration pipeline with guarded parameters."""
-        topic: str = request["topic"]
-        topic_details: str | None = request.get("topic_details")
-        constraints = request.get("constraints")
-        schema_version = request.get("schema_version") or self._settings.schema_version
-        mode = request.get("mode")
-
+        try:
+            request_model = GenerateLessonRequest.model_validate(request)
+        except ValidationError as exc:
+            raise ValueError("Stored job request is invalid.") from exc
+        topic = request_model.topic
         if len(topic) > self._settings.max_topic_length:
             raise ValueError(f"Topic exceeds max length of {self._settings.max_topic_length}.")
 
-        structurer_model = _resolve_structurer_model(self._settings, mode)
+        structurer_provider, structurer_model = _resolve_structurer_selection(
+            self._settings, request_model.config
+        )
+        constraints = _build_constraints(request_model.config)
+        schema_version = request_model.schema_version or self._settings.schema_version
+
+        orchestrator = _get_orchestrator(
+            self._settings,
+            structurer_provider=structurer_provider,
+            structurer_model=structurer_model,
+        )
 
         logs: list[str] = [
             f"Starting job {job_id}",
             f"Topic: {topic[:80]}{'...' if len(topic) > 80 else ''}",
+            f"Structurer provider: {structurer_provider}",
             f"Structurer model: {structurer_model or 'default'}",
         ]
 
+        result = await orchestrator.generate_lesson(
         def _progress_callback(phase: str, messages: list[str] | None = None) -> None:
             if tracker is None:
                 return
@@ -169,10 +186,12 @@ class JobProcessor:
 
         result = await self._orchestrator.generate_lesson(
             topic=topic,
-            topic_details=topic_details,
+            prompt=request_model.prompt,
             constraints=constraints,
             schema_version=schema_version,
             structurer_model=structurer_model,
+            structured_output=request_model.config.structured_output,
+            language=request_model.config.language,
             progress_callback=_progress_callback,
         )
 
