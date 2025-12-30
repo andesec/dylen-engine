@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from openai import AsyncOpenAI
 
@@ -17,12 +17,12 @@ class OpenRouterModel(AIModel):
     def __init__(self, name: str, api_key: str | None = None, base_url: str | None = None) -> None:
         self.name: str = name
         self.supports_structured_output = True
-        
+
         # Configure OpenRouter client
         api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is required")
-        
+
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or "https://openrouter.ai/api/v1",
@@ -44,18 +44,21 @@ class OpenRouterModel(AIModel):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that outputs valid JSON. Always respond with valid JSON only, no markdown formatting.",
+                    "content": (
+                        "You are a helpful assistant that outputs valid JSON. Always respond with "
+                        "valid JSON only, no markdown formatting."
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
         )
-        
+
         content = response.choices[0].message.content or "{}"
-        
+
         # Parse the JSON response
         try:
-            return json.loads(content)
+            return cast(dict[str, Any], json.loads(content))
         except json.JSONDecodeError as e:
             raise RuntimeError(f"OpenRouter returned invalid JSON: {e}") from e
 

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
 try:  # Pydantic v2
     from pydantic import ConfigDict, field_validator, model_validator
+
     V2 = True
 except ImportError:  # pragma: no cover - fallback for Pydantic v1
     from pydantic import root_validator as model_validator
@@ -24,6 +25,7 @@ class LessonBaseModel(BaseModel):
     if ConfigDict:
         model_config = ConfigDict(extra="forbid", populate_by_name=True)
     else:  # pragma: no cover - fallback for Pydantic v1
+
         class Config:
             extra = "forbid"
             allow_population_by_field_name = True
@@ -318,11 +320,17 @@ class ConsoleWidget(WidgetBase):
 
     @field_validator("rules_or_script")
     @classmethod
-    def validate_rules(cls, value: list[ConsoleDemoEntry | ConsoleInteractiveRule], values):
-        if V2:
-            mode = values.data.get("mode") if hasattr(values, "data") else None  # type: ignore
-        else:
-            mode = values.get("mode")  # type: ignore
+    def validate_rules(
+        cls,
+        value: list[ConsoleDemoEntry | ConsoleInteractiveRule],
+        values: dict[str, Any] | Any,
+    ) -> list[ConsoleDemoEntry | ConsoleInteractiveRule]:
+        mode: int | None = None
+        if hasattr(values, "data"):
+            data = getattr(values, "data", {}) or {}
+            mode = data.get("mode")
+        elif isinstance(values, dict):
+            mode = values.get("mode")
         if mode == 0:
             if not all(isinstance(item, ConsoleDemoEntry) for item in value):
                 raise ValueError("console mode 0 requires demo script entries")
@@ -374,15 +382,18 @@ class QuizQuestion(LessonBaseModel):
         return value
 
     if V2:
+
         @model_validator(mode="after")
         def validate_answer_index(self) -> QuizQuestion:
             if not 0 <= self.answer_index < len(self.choices):
                 raise ValueError("quiz answer index must be within choices range")
             return self
+
     else:  # pragma: no cover - pydantic v1 compatibility
+
         @model_validator
         @classmethod
-        def validate_answer_index(cls, values):
+        def validate_answer_index(cls, values: dict[str, Any]) -> dict[str, Any]:
             choices = values.get("choices") or []
             answer_index = values.get("answer_index")
             if isinstance(answer_index, int) and not 0 <= answer_index < len(choices):
@@ -406,7 +417,23 @@ class QuizWidget(WidgetBase):
 
 
 Widget = Annotated[
-    ParagraphWidget | CalloutWidget | FlipWidget | TranslationWidget | BlankWidget | ListWidget | TableWidget | CompareWidget | SwipeWidget | FreeTextWidget | StepFlowWidget | AsciiDiagramWidget | ChecklistWidget | ConsoleWidget | CodeViewerWidget | TreeViewWidget | QuizWidget,
+    ParagraphWidget
+    | CalloutWidget
+    | FlipWidget
+    | TranslationWidget
+    | BlankWidget
+    | ListWidget
+    | TableWidget
+    | CompareWidget
+    | SwipeWidget
+    | FreeTextWidget
+    | StepFlowWidget
+    | AsciiDiagramWidget
+    | ChecklistWidget
+    | ConsoleWidget
+    | CodeViewerWidget
+    | TreeViewWidget
+    | QuizWidget,
     Field(discriminator="type"),
 ]
 
@@ -419,19 +446,22 @@ class SectionBlock(LessonBaseModel):
     subsections: list[SectionBlock] | None = None
 
     if V2:
+
         @model_validator(mode="before")
         @classmethod
-        def normalize_items(cls, data: Any):
+        def normalize_items(cls, data: Any) -> Any:
             raw_items = data.get("items") if isinstance(data, dict) else None
             if raw_items is None:
                 return data
             data = dict(data)
             data["items"] = [normalize_widget(item) for item in raw_items]
             return data
+
     else:  # pragma: no cover - pydantic v1 compatibility
+
         @model_validator(pre=True)
         @classmethod
-        def normalize_items(cls, data: Any):
+        def normalize_items(cls, data: Any) -> Any:
             raw_items = data.get("items") if isinstance(data, dict) else None
             if raw_items is None:
                 return data
@@ -478,13 +508,21 @@ def _normalize_flip(value: Any) -> dict[str, Any]:
 
 
 def _normalize_tr(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) != 2 or not all(isinstance(item, str) for item in value):
+    if (
+        not isinstance(value, list)
+        or len(value) != 2
+        or not all(isinstance(item, str) for item in value)
+    ):
         raise ValueError("tr widget expects two translation strings")
     return {"type": "tr", "source": value[0], "target": value[1]}
 
 
 def _normalize_blank(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) != 4 or not all(isinstance(item, str) for item in value):
+    if (
+        not isinstance(value, list)
+        or len(value) != 4
+        or not all(isinstance(item, str) for item in value)
+    ):
         raise ValueError("blank widget expects four strings: prompt, answer, hint, explanation")
     prompt, answer, hint, explanation = value
     return {
@@ -512,7 +550,11 @@ def _normalize_swipe(value: Any) -> dict[str, Any]:
     title, buckets, cards = value[0], value[1], value[2]
     if not isinstance(title, str):
         raise ValueError("swipe title must be a string")
-    if not isinstance(buckets, list) or len(buckets) != 2 or not all(isinstance(b, str) for b in buckets):
+    if (
+        not isinstance(buckets, list)
+        or len(buckets) != 2
+        or not all(isinstance(b, str) for b in buckets)
+    ):
         raise ValueError("swipe buckets must be a list of two strings")
     if not isinstance(cards, list):
         raise ValueError("swipe cards must be a list")
@@ -521,7 +563,11 @@ def _normalize_swipe(value: Any) -> dict[str, Any]:
         if not (isinstance(entry, list) and len(entry) >= 3):
             raise ValueError("each swipe card must be [text, correctBucket, feedback]")
         text, correct_bucket, feedback = entry[0], entry[1], entry[2]
-        if not isinstance(text, str) or not isinstance(correct_bucket, int) or not isinstance(feedback, str):
+        if (
+            not isinstance(text, str)
+            or not isinstance(correct_bucket, int)
+            or not isinstance(feedback, str)
+        ):
             raise ValueError("swipe card values must be [str, int, str]")
         normalized_cards.append(
             {"text": text, "correct_bucket": int(correct_bucket), "feedback": feedback}
@@ -627,7 +673,11 @@ def _normalize_console(value: Any) -> dict[str, Any]:
             if not (isinstance(entry, list) and len(entry) == 3):
                 raise ValueError("console demo entries must be [command, delayMs, output]")
             command, delay_ms, output = entry
-            if not isinstance(command, str) or not isinstance(delay_ms, int) or not isinstance(output, str):
+            if (
+                not isinstance(command, str)
+                or not isinstance(delay_ms, int)
+                or not isinstance(output, str)
+            ):
                 raise ValueError("console demo entry types must be [str, int, str]")
             normalized_entries.append({"command": command, "delay_ms": delay_ms, "output": output})
     else:
@@ -635,7 +685,11 @@ def _normalize_console(value: Any) -> dict[str, Any]:
             if not (isinstance(entry, list) and len(entry) == 3):
                 raise ValueError("console interactive rules must be [regex, level, output]")
             pattern, level, output = entry
-            if not isinstance(pattern, str) or not isinstance(level, str) or not isinstance(output, str):
+            if (
+                not isinstance(pattern, str)
+                or not isinstance(level, str)
+                or not isinstance(output, str)
+            ):
                 raise ValueError("console interactive rule types must be [str, str, str]")
             normalized_entries.append({"pattern": pattern, "level": level, "output": output})
 

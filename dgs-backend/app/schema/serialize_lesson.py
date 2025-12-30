@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from .lesson_models import (
     AsciiDiagramWidget,
@@ -35,8 +35,8 @@ from .lesson_models import (
 def _dump_model(model: Any, *, by_alias: bool = False) -> dict[str, Any]:
     dump = getattr(model, "model_dump", None)
     if callable(dump):
-        return dump(by_alias=by_alias)
-    return model.dict(by_alias=by_alias)
+        return cast(dict[str, Any], dump(by_alias=by_alias))
+    return cast(dict[str, Any], model.dict(by_alias=by_alias))
 
 
 def _trim_trailing(values: list[Any], default_map: dict[int, Any] | None = None) -> list[Any]:
@@ -54,7 +54,10 @@ def _trim_trailing(values: list[Any], default_map: dict[int, Any] | None = None)
 
 def _step_flow_node_to_shorthand(node: Any) -> Any:
     if isinstance(node, StepFlowBranch):
-        return [[option.label, [_step_flow_node_to_shorthand(s) for s in option.steps]] for option in node.options]
+        return [
+            [option.label, [_step_flow_node_to_shorthand(s) for s in option.steps]]
+            for option in node.options
+        ]
     if isinstance(node, str):
         return node
     if isinstance(node, StepFlowOption):
@@ -119,13 +122,17 @@ def _widget_to_shorthand(widget: Widget) -> Any:
         return {"checklist": [widget.lead, tree]}
     if isinstance(widget, ConsoleWidget):
         if widget.mode == 0:
-            entries = [[entry.command, entry.delay_ms, entry.output] for entry in widget.rules_or_script]
+            entries = [
+                [entry.command, entry.delay_ms, entry.output] for entry in widget.rules_or_script
+            ]
         else:
-            entries = [[entry.pattern, entry.level, entry.output] for entry in widget.rules_or_script]
-        values: list[Any] = [widget.lead, widget.mode, entries]
+            entries = [
+                [entry.pattern, entry.level, entry.output] for entry in widget.rules_or_script
+            ]
+        console_values = [widget.lead, widget.mode, entries]
         if widget.guided is not None:
-            values.append([[step.task, step.solution] for step in widget.guided])
-        return {"console": _trim_trailing(values)}
+            console_values.append([[step.task, step.solution] for step in widget.guided])
+        return {"console": _trim_trailing(console_values)}
     if isinstance(widget, CodeViewerWidget):
         values = [widget.code, widget.language, widget.editable, widget.textarea_id]
         return {"codeviewer": _trim_trailing(values, default_map={2: False})}

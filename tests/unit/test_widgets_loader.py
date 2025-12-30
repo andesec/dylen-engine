@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from dgs_backend.app.schema.widgets_loader import load_widget_registry
+from app.schema.widgets_loader import load_widget_registry
 
 
 def test_load_widget_registry() -> None:

@@ -50,6 +50,22 @@ Parameters:
     Type: String
     Default: Lessons
     Description: DynamoDB table name for lesson storage.
+  JobsTableName:
+    Type: String
+    Default: dgs_jobs
+    Description: DynamoDB table name for job storage.
+  JobsAllJobsIndexName:
+    Type: String
+    Default: jobs_all_jobs
+    Description: GSI name for listing jobs.
+  JobsIdempotencyIndexName:
+    Type: String
+    Default: jobs_idempotency
+    Description: GSI name for idempotent lookups.
+  JobsTtlSeconds:
+    Type: Number
+    Default: 604800
+    Description: Optional TTL for job expiration in seconds.
 
 Globals:
   Function:
@@ -67,6 +83,10 @@ Globals:
         DGS_DEV_KEY: !Ref DgsDevKey
         DGS_ALLOWED_ORIGINS: !Join [",", !Ref AllowedOrigins]
         DGS_DDB_TABLE: !Ref LessonsTableName
+        DGS_JOBS_TABLE: !Ref JobsTableName
+        DGS_JOBS_ALL_JOBS_INDEX: !Ref JobsAllJobsIndexName
+        DGS_JOBS_IDEMPOTENCY_INDEX: !Ref JobsIdempotencyIndexName
+        DGS_JOBS_TTL_SECONDS: !Ref JobsTtlSeconds
 
 Resources:
   DgsFastApiFunction:
@@ -80,6 +100,8 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
             TableName: !Ref LessonsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobsTable
       Events:
         HttpApiProxy:
           Type: HttpApi
@@ -133,6 +155,73 @@ Resources:
               KeyType: HASH
           Projection:
             ProjectionType: ALL
+
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref JobsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsi1_pk
+          AttributeType: S
+        - AttributeName: gsi1_sk
+          AttributeType: S
+        - AttributeName: gsi2_pk
+          AttributeType: S
+        - AttributeName: gsi2_sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: !Ref JobsAllJobsIndexName
+          KeySchema:
+            - AttributeName: gsi1_pk
+              KeyType: HASH
+            - AttributeName: gsi1_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: !Ref JobsIdempotencyIndexName
+          KeySchema:
+            - AttributeName: gsi2_pk
+              KeyType: HASH
+            - AttributeName: gsi2_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  JobsWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: DgsJobsWorker
+      Description: Background processor for queued lesson generation jobs.
+      CodeUri: ../dgs-backend
+      Handler: lambda_handler.process_jobs_handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobsTable
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          LOG_LEVEL: !Ref LogLevel
+          DGS_DEV_KEY: !Ref DgsDevKey
+          DGS_ALLOWED_ORIGINS: !Join [",", !Ref AllowedOrigins]
+          DGS_DDB_TABLE: !Ref LessonsTableName
+          DGS_JOBS_TABLE: !Ref JobsTableName
+          DGS_JOBS_ALL_JOBS_INDEX: !Ref JobsAllJobsIndexName
+          DGS_JOBS_IDEMPOTENCY_INDEX: !Ref JobsIdempotencyIndexName
+          DGS_JOBS_TTL_SECONDS: !Ref JobsTtlSeconds
 
 Outputs:
   FunctionUrl:

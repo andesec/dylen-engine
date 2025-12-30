@@ -22,8 +22,7 @@ def _collect_registry(path: Path = DEFAULT_WIDGETS_PATH) -> WidgetRegistry:
 
 def _iter_widgets(blocks: Iterable[Any]) -> Iterable[Any]:
     for block in blocks:
-        for widget in block.items:
-            yield widget
+        yield from block.items
         if block.subsections:
             yield from _iter_widgets(block.subsections)
 
@@ -49,12 +48,9 @@ def validate_lesson(payload: Any) -> tuple[bool, list[str], LessonDocument | Non
         raise RuntimeError("LessonDocument does not expose a validation entrypoint.")
 
     try:
-        lesson_model = parse_method(payload)  # type: ignore[arg-type]
+        lesson_model = parse_method(payload)
     except ValidationError as exc:
-        errors.extend(
-            f"{err['loc']}: {err['msg']}"
-            for err in exc.errors()
-        )
+        errors.extend(f"{err['loc']}: {err['msg']}" for err in exc.errors())
         return False, errors, None
 
     registry = _collect_registry()

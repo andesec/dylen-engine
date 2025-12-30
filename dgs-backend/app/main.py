@@ -1,22 +1,29 @@
 from __future__ import annotations
 
 import json
+import logging
+import sys
 import time
-from typing import Any, Literal
+from pathlib import Path
+from types import TracebackType
+from typing import Any, Awaitable, Callable, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from starlette.concurrency import run_in_threadpool
 
 from app.ai.orchestrator import DgsOrchestrator
 from app.config import Settings, get_settings
+from app.jobs.guardrails import MAX_ITEM_BYTES, estimate_bytes
+from app.jobs.models import JobRecord
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
+from app.storage.dynamodb_jobs_repo import DynamoJobsRepository
 from app.storage.dynamodb_repo import DynamoLessonsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
-from app.utils.ids import generate_lesson_id
+from app.utils.ids import generate_job_id, generate_lesson_id
 
 settings = get_settings()
 
@@ -35,7 +42,6 @@ app.add_middleware(
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Global exception handler to catch unhandled errors."""
-    import logging
     logger = logging.getLogger("uvicorn.error")
     logger.error(f"Global exception: {exc}", exc_info=True)
     return JSONResponse(
@@ -43,11 +49,6 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         content={"detail": "Internal Server Error", "error": str(exc)},
     )
 
-
-# Configure logging
-import logging
-import sys
-from pathlib import Path
 
 # Create logs directory if it doesn't exist
 log_dir = Path("logs")
@@ -57,17 +58,26 @@ log_dir.mkdir(exist_ok=True)
 log_file = log_dir / f"dgs_app_{time.strftime('%Y%m%d_%H%M%S')}.log"
 
 # Define formatter
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
+formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
+)
+
 
 class TruncatedFormatter(logging.Formatter):
     """Formatter that truncates the stack trace to the last few lines."""
-    def formatException(self, ei):
+
+    def formatException(
+        self,
+        ei: tuple[type[BaseException] | None, BaseException | None, TracebackType | None],
+    ) -> str:  # noqa: N802
         import traceback
+
         lines = traceback.format_exception(*ei)
         # Keep header + last 5 lines of traceback
         if len(lines) > 6:
             return "".join(lines[:1] + ["    ...\n"] + lines[-5:])
         return "".join(lines)
+
 
 # Configure Root Logger explicitly (safety against uvicorn hijacking)
 root_logger = logging.getLogger()
@@ -75,7 +85,9 @@ root_logger.setLevel(logging.DEBUG)
 
 # Stream Handler (Console) - Truncated
 stream_handler = logging.StreamHandler(sys.stdout)
-stream_handler.setFormatter(TruncatedFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
+stream_handler.setFormatter(
+    TruncatedFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S")
+)
 root_logger.addHandler(stream_handler)
 
 # File Handler
@@ -93,11 +105,13 @@ logger.info(f"Logging initialized. Writing to {log_file}")
 
 
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
+async def log_requests(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Log all incoming requests and outgoing responses."""
     start_time = time.time()
     logger.info(f"Incoming request: {request.method} {request.url}")
-    
+
     try:
         if request.headers.get("content-type") == "application/json":
             body = await request.body()
@@ -107,11 +121,10 @@ async def log_requests(request: Request, call_next):
         pass  # Don't fail if body logging fails
 
     response = await call_next(request)
-    
+
     process_time = (time.time() - start_time) * 1000
     logger.info(f"Response: {response.status_code} (took {process_time:.2f}ms)")
     return response
-
 
 
 class ValidationResponse(BaseModel):
@@ -176,6 +189,16 @@ class LessonRecordResponse(BaseModel):
     meta: LessonMeta
 
 
+class JobCreateResponse(BaseModel):
+    """Response payload for job creation."""
+
+    job_id: StrictStr = Field(serialization_alias="jobId", validation_alias="jobId")
+    model_config = ConfigDict(populate_by_name=True)
+
+
+MAX_REQUEST_BYTES = MAX_ITEM_BYTES // 2
+
+
 def _get_orchestrator(settings: Settings) -> DgsOrchestrator:
     return DgsOrchestrator(
         gatherer_provider=settings.gatherer_provider,
@@ -198,6 +221,16 @@ def _get_repo(settings: Settings) -> LessonsRepository:
     )
 
 
+def _get_jobs_repo(settings: Settings) -> DynamoJobsRepository:
+    return DynamoJobsRepository(
+        table_name=settings.jobs_table,
+        region=settings.ddb_region,
+        endpoint_url=settings.ddb_endpoint_url,
+        all_jobs_index=settings.jobs_all_jobs_index_name,
+        idempotency_index=settings.jobs_idempotency_index_name,
+    )
+
+
 def _resolve_structurer_model(settings: Settings, mode: str | None) -> str | None:
     if mode == "fast":
         return settings.structurer_model_fast or settings.structurer_model
@@ -206,26 +239,32 @@ def _resolve_structurer_model(settings: Settings, mode: str | None) -> str | Non
     return settings.structurer_model_balanced or settings.structurer_model
 
 
-def _require_dev_key(
+def _require_dev_key(  # noqa: B008
     x_dgs_dev_key: str = Header(..., alias="X-DGS-Dev-Key"),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> None:
     if x_dgs_dev_key != settings.dev_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid dev key.")
 
 
-settings = get_settings()
+def _validate_generate_request(request: GenerateLessonRequest, settings: Settings) -> None:
+    """Enforce topic length and persistence size constraints."""
+    if len(request.topic) > settings.max_topic_length:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Topic exceeds max length of {settings.max_topic_length}.",
+        )
+    if estimate_bytes(request.model_dump(mode="python", by_alias=True)) > MAX_REQUEST_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request payload is too large for persistence.",
+        )
 
-app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-    allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
-    expose_headers=["content-length"],
-)
+def _compute_job_ttl(settings: Settings) -> int | None:
+    if settings.jobs_ttl_seconds is None:
+        return None
+    return int(time.time()) + settings.jobs_ttl_seconds
 
 
 @app.get("/health")
@@ -250,16 +289,12 @@ async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
     response_model=GenerateLessonResponse,
     dependencies=[Depends(_require_dev_key)],
 )
-async def generate_lesson(
+async def generate_lesson(  # noqa: B008
     request: GenerateLessonRequest,
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> GenerateLessonResponse:
     """Generate a lesson from a topic using the two-step pipeline."""
-    if len(request.topic) > settings.max_topic_length:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Topic exceeds max length of {settings.max_topic_length}.",
-        )
+    _validate_generate_request(request, settings)
 
     start = time.monotonic()
     orchestrator = _get_orchestrator(settings)
@@ -318,14 +353,74 @@ async def generate_lesson(
     )
 
 
+async def _create_job_record(
+    request: GenerateLessonRequest, settings: Settings
+) -> JobCreateResponse:
+    _validate_generate_request(request, settings)
+    repo = _get_jobs_repo(settings)
+    if request.idempotency_key:
+        existing = await run_in_threadpool(repo.find_by_idempotency_key, request.idempotency_key)
+        if existing:
+            return JobCreateResponse(job_id=existing.job_id)
+
+    job_id = generate_job_id()
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    request_payload = request.model_dump(mode="python", by_alias=True)
+    record = JobRecord(
+        job_id=job_id,
+        request=request_payload,
+        status="queued",
+        phase="queued",
+        subphase=None,
+        progress=0.0,
+        logs=[],
+        result_json=None,
+        validation=None,
+        cost=None,
+        created_at=timestamp,
+        updated_at=timestamp,
+        completed_at=None,
+        ttl=_compute_job_ttl(settings),
+        idempotency_key=request.idempotency_key,
+    )
+    await run_in_threadpool(repo.create_job, record)
+    return JobCreateResponse(job_id=job_id)
+
+
+@app.post(
+    "/v1/jobs",
+    response_model=JobCreateResponse,
+    dependencies=[Depends(_require_dev_key)],
+)
+async def create_job(  # noqa: B008
+    request: GenerateLessonRequest,
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> JobCreateResponse:
+    """Create a background lesson generation job."""
+    return await _create_job_record(request, settings)
+
+
+@app.post(
+    "/v1/lessons/jobs",
+    response_model=JobCreateResponse,
+    dependencies=[Depends(_require_dev_key)],
+)
+async def create_lesson_job(  # noqa: B008
+    request: GenerateLessonRequest,
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> JobCreateResponse:
+    """Alias route for creating a background lesson generation job."""
+    return await _create_job_record(request, settings)
+
+
 @app.get(
     "/v1/lessons/{lesson_id}",
     response_model=LessonRecordResponse,
     dependencies=[Depends(_require_dev_key)],
 )
-async def get_lesson(
+async def get_lesson(  # noqa: B008
     lesson_id: str,
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> LessonRecordResponse:
     """Fetch a stored lesson by identifier."""
     repo = _get_repo(settings)
