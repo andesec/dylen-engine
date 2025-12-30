@@ -8,6 +8,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
+from app.storage.utils import ensure_table_exists
 
 
 class DynamoLessonsRepository(LessonsRepository):
@@ -38,6 +39,30 @@ class DynamoLessonsRepository(LessonsRepository):
         resource = boto3.resource(
             "dynamodb", region_name=region, endpoint_url=endpoint_url, **aws_kw
         )
+        
+        # Ensure table exists
+        ensure_table_exists(
+            resource=resource,
+            table_name=table_name,
+            key_schema=[
+                {"AttributeName": "pk", "KeyType": "HASH"},
+                {"AttributeName": "sk", "KeyType": "RANGE"},
+            ],
+            attribute_definitions=[
+                {"AttributeName": "pk", "AttributeType": "S"},
+                {"AttributeName": "sk", "AttributeType": "S"},
+                {"AttributeName": "lesson_id", "AttributeType": "S"},
+            ],
+            global_secondary_indexes=[
+                {
+                    "IndexName": lesson_id_index,
+                    "KeySchema": [{"AttributeName": "lesson_id", "KeyType": "HASH"}],
+                    "Projection": {"ProjectionType": "ALL"},
+                    "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+                }
+            ],
+        )
+
         self._table = resource.Table(table_name)
 
     def create_lesson(self, record: LessonRecord) -> None:

@@ -9,7 +9,13 @@ from typing import Any, Final, cast
 from google import genai
 from google.genai import types
 
-from app.ai.providers.base import AIModel, ModelResponse, Provider, SimpleModelResponse
+from app.ai.providers.base import (
+    AIModel,
+    ModelResponse,
+    Provider,
+    SimpleModelResponse,
+    StructuredModelResponse,
+)
 
 
 class GeminiModel(AIModel):
@@ -29,9 +35,18 @@ class GeminiModel(AIModel):
     async def generate(self, prompt: str) -> ModelResponse:
         """Generate text response from Gemini."""
         response = self._client.models.generate_content(model=self.name, contents=prompt)
-        return SimpleModelResponse(content=response.text)
+        usage = None
+        if response.usage_metadata:
+            usage = {
+                "prompt_tokens": response.usage_metadata.prompt_token_count,
+                "completion_tokens": response.usage_metadata.candidates_token_count,
+                "total_tokens": response.usage_metadata.total_token_count,
+            }
+        return SimpleModelResponse(content=response.text, usage=usage)
 
-    async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
+    async def generate_structured(
+        self, prompt: str, schema: dict[str, Any]
+    ) -> StructuredModelResponse:
         """Generate structured JSON output using Gemini's JSON mode."""
         # Using the new google-genai config structure
         config = types.GenerateContentConfig(
@@ -45,9 +60,18 @@ class GeminiModel(AIModel):
             config=config,
         )
 
+        usage = None
+        if response.usage_metadata:
+            usage = {
+                "prompt_tokens": response.usage_metadata.prompt_token_count,
+                "completion_tokens": response.usage_metadata.candidates_token_count,
+                "total_tokens": response.usage_metadata.total_token_count,
+            }
+
         # Parse the JSON response
         try:
-            return cast(dict[str, Any], json.loads(response.text))
+            content = cast(dict[str, Any], json.loads(response.text))
+            return StructuredModelResponse(content=content, usage=usage)
         except json.JSONDecodeError as e:
             raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
 

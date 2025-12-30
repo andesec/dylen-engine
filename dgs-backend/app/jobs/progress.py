@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +11,10 @@ from app.jobs.models import JobRecord, JobStatus
 from app.storage.jobs_repo import JobsRepository
 
 MAX_TRACKED_LOGS = 100
+
+
+class JobCanceledError(Exception):
+    """Exception raised when a job is canceled by the user."""
 
 
 @dataclass(frozen=True)
@@ -130,13 +135,24 @@ class JobProgressTracker:
     def _update_job(
         self, *, status: JobStatus, phase: str, subphase: str | None = None
     ) -> JobRecord | None:
-        return self._jobs_repo.update_job(
+        record = self._jobs_repo.update_job(
             self._job_id,
             status=status,
             phase=phase,
             subphase=subphase,
             progress=self._progress_percent(),
             logs=self._logs,
+        )
+        if record and record.status == "canceled":
+            raise JobCanceledError(f"Job {self._job_id} was canceled.")
+        return record
+
+    def set_cost(self, usage: list[dict[str, Any]], total: float) -> JobRecord | None:
+        """Update the job's cost metrics."""
+        return self._jobs_repo.update_job(
+            self._job_id,
+            cost={"total": total, "calls": usage},
+            updated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         )
 
     def set_phase(self, *, phase: str, subphase: str | None = None) -> JobRecord | None:

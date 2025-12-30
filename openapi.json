@@ -9,6 +9,17 @@
             "$ref": "#/components/schemas/GenerationConfig",
             "description": "Configurable generation parameters."
           },
+          "constraints": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationConstraints"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Domain-specific generation constraints."
+          },
           "idempotency_key": {
             "anyOf": [
               {
@@ -22,8 +33,7 @@
             "title": "Idempotency Key"
           },
           "prompt": {
-            "description": "User-supplied guidance or context for lesson creation.",
-            "maxLength": 500,
+            "description": "User-supplied guidance (max 250 words).",
             "minLength": 1,
             "title": "Prompt",
             "type": "string"
@@ -62,6 +72,17 @@
             "$ref": "#/components/schemas/GenerationConfig",
             "description": "Configurable generation parameters."
           },
+          "constraints": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationConstraints"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Domain-specific generation constraints."
+          },
           "idempotency_key": {
             "anyOf": [
               {
@@ -75,8 +96,7 @@
             "title": "Idempotency Key"
           },
           "prompt": {
-            "description": "User-supplied guidance or context for lesson creation.",
-            "maxLength": 500,
+            "description": "User-supplied guidance (max 250 words).",
             "minLength": 1,
             "title": "Prompt",
             "type": "string"
@@ -185,6 +205,64 @@
           }
         },
         "title": "GenerationConfig",
+        "type": "object"
+      },
+      "GenerationConstraints": {
+        "description": "Specific constraints for lesson content generation.",
+        "properties": {
+          "learnerLevel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learnerlevel"
+          },
+          "length": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Highlights",
+                  "Detailed",
+                  "Training"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length"
+          },
+          "primaryLanguage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primarylanguage"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections"
+          }
+        },
+        "title": "GenerationConstraints",
         "type": "object"
       },
       "GenerationModel": {
@@ -505,6 +583,30 @@
         ],
         "title": "ValidationResponse",
         "type": "object"
+      },
+      "WritingCheckRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for response evaluation.",
+        "properties": {
+          "criteria": {
+            "additionalProperties": true,
+            "description": "The evaluation criteria from the lesson.",
+            "title": "Criteria",
+            "type": "object"
+          },
+          "text": {
+            "description": "The user-written response to check (max 300 words).",
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "criteria"
+        ],
+        "title": "WritingCheckRequest",
+        "type": "object"
       }
     }
   },
@@ -786,7 +888,7 @@
     },
     "/v1/lessons/validate": {
       "post": {
-        "description": "Validate a lesson payload (e.g., from stored lessons or job results) against schema + widget registry.",
+        "description": "Validate lesson payloads from stored lessons or job results against schema and widgets.",
         "operationId": "validate_endpoint_v1_lessons_validate_post",
         "parameters": [
           {
@@ -883,6 +985,56 @@
           }
         },
         "summary": "Get Lesson"
+      }
+    },
+    "/v1/writing/check": {
+      "post": {
+        "description": "Create a background job to check a writing task response.",
+        "operationId": "create_writing_check_v1_writing_check_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WritingCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Writing Check"
       }
     }
   }

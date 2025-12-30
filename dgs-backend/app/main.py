@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,11 +102,27 @@ stream_handler.setFormatter(
 file_handler = logging.FileHandler(log_file)
 file_handler.setFormatter(formatter)
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=[stream_handler, file_handler],
-    force=True,
-)
+def setup_logging():
+    """Ensure all loggers use our handlers and propagate to root."""
+    # Capture uvicorn loggers
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
+        l = logging.getLogger(logger_name)
+        l.handlers = [stream_handler, file_handler]
+        l.propagate = False
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        handlers=[stream_handler, file_handler],
+        force=True,
+    )
+    # Re-apply to root just in case
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    if not root.handlers:
+        root.addHandler(stream_handler)
+        root.addHandler(file_handler)
+
+setup_logging()
 
 # Silence noisy libraries
 logging.getLogger("botocore").setLevel(logging.ERROR)
@@ -169,6 +185,19 @@ class GenerationModel(str, Enum):
     GEMINI_FLASH_FREE = "google/gemini-2.0-flash-exp:free"
 
 
+class GenerationConstraints(BaseModel):
+    """Specific constraints for lesson content generation."""
+
+    primaryLanguage: str | None = Field(default=None, alias="primaryLanguage")
+    learnerLevel: str | None = Field(default=None, alias="learnerLevel")
+    length: Literal["Highlights", "Detailed", "Training"] | None = Field(
+        default=None, alias="length"
+    )
+    sections: StrictInt | None = Field(default=None, ge=1, le=10, alias="sections")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class GenerationConfig(BaseModel):
     """Tunable configuration for lesson generation."""
 
@@ -203,8 +232,6 @@ class GenerationConfig(BaseModel):
         description="Preferred language for the resulting lesson content.",
     )
     model_config = ConfigDict(extra="forbid")
-    length: Literal["Highlights", "Detailed", "Training"] | None = None
-    sections: StrictInt | None = Field(default=None, ge=1, le=10)
 
 
 class GenerateLessonRequest(BaseModel):
@@ -213,8 +240,7 @@ class GenerateLessonRequest(BaseModel):
     topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.")
     prompt: StrictStr = Field(
         min_length=1,
-        max_length=500,
-        description="User-supplied guidance or context for lesson creation.",
+        description="User-supplied guidance (max 250 words).",
     )
     config: GenerationConfig = Field(
         default_factory=GenerationConfig, description="Configurable generation parameters."
@@ -226,6 +252,9 @@ class GenerateLessonRequest(BaseModel):
         default=None,
         description="Idempotency key to prevent duplicate lesson generation.",
         alias="idempotency_key",
+    )
+    constraints: GenerationConstraints | None = Field(
+        default=None, description="Domain-specific generation constraints."
     )
     model_config = ConfigDict(extra="forbid")
 
@@ -260,6 +289,14 @@ class LessonRecordResponse(BaseModel):
     prompt_version: StrictStr
     lesson_json: dict[str, Any]
     meta: LessonMeta
+
+
+class WritingCheckRequest(BaseModel):
+    """Request payload for response evaluation."""
+
+    text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
+    criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
+    model_config = ConfigDict(extra="forbid")
 
 
 class JobCreateResponse(BaseModel):
@@ -381,18 +418,39 @@ def _require_dev_key(  # noqa: B008
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid dev key.")
 
 
+def _count_words(text: str) -> int:
+    """Approximate word count by splitting on whitespace."""
+    return len(text.split())
+
+
 def _validate_generate_request(request: GenerateLessonRequest, settings: Settings) -> None:
-    """Enforce topic length and persistence size constraints."""
+    """Enforce topic/prompt length and persistence size constraints."""
     if len(request.topic) > settings.max_topic_length:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Topic exceeds max length of {settings.max_topic_length}.",
+            detail=f"Topic exceeds max length of {settings.max_topic_length} chars.",
         )
+    if request.prompt:
+        word_count = _count_words(request.prompt)
+        if word_count > 250:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"User prompt is too long ({word_count} words). Max 250 words.",
+            )
     if estimate_bytes(request.model_dump(mode="python", by_alias=True)) > MAX_REQUEST_BYTES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Request payload is too large for persistence.",
         )
+    
+    # Model validation ...
+    if request.config and request.config.model:
+        model_val = request.config.model
+        if not any(model_val in group for group in (_GEMINI_STRUCTURER_MODELS, _OPENROUTER_STRUCTURER_MODELS)):
+            # If not in our enum, it might be a raw string if we allow it, 
+            # but if it's an enum we already validated at Pydantic level.
+            pass
+
     constraints = (
         request.constraints.model_dump(mode="python", by_alias=True) if request.constraints else {}
     )
@@ -404,11 +462,38 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-def _build_constraints(config: GenerationConfig | None) -> dict[str, Any] | None:
+def _validate_writing_request(request: WritingCheckRequest) -> None:
+    """Validate writing check inputs."""
+    word_count = _count_words(request.text)
+    if word_count > 300:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User text is too long ({word_count} words). Max 300 words.",
+        )
+    if not request.criteria:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Evaluation criteria are required.",
+        )
+    if estimate_bytes(request.model_dump(mode="python")) > MAX_REQUEST_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request payload is too large for persistence.",
+        )
+
+
+def _build_constraints(
+    config: GenerationConfig | None, constraints: GenerationConstraints | None = None
+) -> dict[str, Any] | None:
     """Translate user config into orchestration constraints."""
-    if config is None or not config.language:
-        return None
-    return {"language": config.language}
+    out: dict[str, Any] = {}
+    if config and config.language:
+        out["language"] = config.language
+
+    if constraints:
+        out.update(constraints.model_dump(mode="python", by_alias=True, exclude_none=True))
+
+    return out or None
 
 
 def _compute_job_ttl(settings: Settings) -> int | None:
@@ -448,6 +533,13 @@ def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
     )
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Ensure logging is correctly set up after uvicorn starts."""
+    setup_logging()
+    logger.info("Startup complete - logging verified.")
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -484,7 +576,7 @@ async def generate_lesson(  # noqa: B008
         structurer_provider=structurer_provider,
         structurer_model=structurer_model,
     )
-    constraints = _build_constraints(request.config)
+    constraints = _build_constraints(request.config, request.constraints)
     result = await orchestrator.generate_lesson(
         topic=request.topic,
         prompt=request.prompt,
@@ -600,6 +692,35 @@ async def create_lesson_job(  # noqa: B008
 ) -> JobCreateResponse:
     """Alias route for creating a background lesson generation job."""
     return await _create_job_record(request, settings)
+
+
+@app.post(
+    "/v1/writing/check",
+    response_model=JobCreateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(_require_dev_key)],
+)
+async def create_writing_check(  # noqa: B008
+    request: WritingCheckRequest,
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> JobCreateResponse:
+    """Create a background job to check a writing task response."""
+    _validate_writing_request(request)
+    repo = _get_jobs_repo(settings)
+    job_id = generate_job_id()
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    record = JobRecord(
+        job_id=job_id,
+        request=request.model_dump(mode="python"),
+        status="queued",
+        phase="queued",
+        created_at=timestamp,
+        updated_at=timestamp,
+        ttl=_compute_job_ttl(settings),
+    )
+    await run_in_threadpool(repo.create_job, record)
+    return JobCreateResponse(job_id=job_id)
 
 
 @app.get(

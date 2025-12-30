@@ -12,6 +12,12 @@ from pydantic import ValidationError
 from app.ai.orchestrator import DgsOrchestrator, OrchestrationResult
 from app.config import Settings
 from app.jobs.models import JobRecord
+from app.jobs.progress import (
+    MAX_TRACKED_LOGS,
+    JobCanceledError,
+    JobProgressTracker,
+    build_call_plan,
+)
 from app.main import (
     GenerateLessonRequest,
     _build_constraints,
@@ -21,6 +27,7 @@ from app.main import (
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.storage.jobs_repo import JobsRepository
+from app.writing.orchestrator import WritingCheckOrchestrator
 
 
 class JobProcessor:
@@ -34,9 +41,16 @@ class JobProcessor:
         self._settings = settings
 
     async def process_job(self, job: JobRecord) -> JobRecord | None:
-        """Execute a single queued job."""
+        """Execute a single queued job, routing by type."""
         if job.status != "queued":
             return job
+
+        if "text" in job.request and "criteria" in job.request:
+            return await self._process_writing_check(job)
+        return await self._process_lesson_generation(job)
+
+    async def _process_lesson_generation(self, job: JobRecord) -> JobRecord | None:
+        """Execute a single queued lesson generation job."""
 
         base_logs = job.logs + ["Job acknowledged by worker."]
         try:
@@ -106,6 +120,7 @@ class JobProcessor:
             shorthand = lesson_to_shorthand(lesson_model)
             tracker.extend_logs(orchestration_result.logs)
             tracker.complete_validation(message="Validate phase complete.", status="done")
+            tracker.set_cost(orchestration_result.usage, orchestration_result.total_cost)
             log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
             log_updates.append("Job completed successfully.")
             updated = self._jobs_repo.update_job(
@@ -117,9 +132,13 @@ class JobProcessor:
                 logs=log_updates,
                 result_json=shorthand,
                 validation=validation,
+                cost={"total": orchestration_result.total_cost, "calls": orchestration_result.usage},
                 completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
             return updated
+        except JobCanceledError:
+            # Re-fetch the record to ensure we have the final canceled state
+            return self._jobs_repo.get_job(job.job_id)
         except Exception as exc:  # noqa: BLE001
             error_log = f"Job failed: {exc}"
             tracker.fail(phase="failed", message=error_log)
@@ -130,6 +149,47 @@ class JobProcessor:
                 progress=100.0,
                 logs=tracker.logs,
             )
+            return None
+
+    async def _process_writing_check(self, job: JobRecord) -> JobRecord | None:
+        """Execute a background writing task evaluation."""
+        tracker = JobProgressTracker(
+            job_id=job.job_id,
+            jobs_repo=self._jobs_repo,
+            total_steps=1,
+            total_ai_calls=1,
+            label_prefix="check",
+            initial_logs=["Writing check acknowledged."],
+        )
+        tracker.set_phase(phase="evaluating", subphase="ai_check")
+
+        try:
+            orchestrator = WritingCheckOrchestrator(
+                provider=self._settings.structurer_provider,
+                model=self._settings.structurer_model,
+            )
+            result = await orchestrator.check_response(
+                text=job.request["text"],
+                criteria=job.request["criteria"],
+            )
+
+            tracker.extend_logs(result.logs)
+            tracker.set_cost(result.usage, result.total_cost)
+            updated = self._jobs_repo.update_job(
+                job.job_id,
+                status="done",
+                phase="complete",
+                progress=100.0,
+                logs=tracker.logs,
+                result_json={"ok": result.ok, "issues": result.issues, "feedback": result.feedback},
+                cost={"total": result.total_cost, "calls": result.usage},
+                completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+            return updated
+        except JobCanceledError:
+            return self._jobs_repo.get_job(job.job_id)
+        except Exception as exc:
+            tracker.fail(phase="failed", message=f"Writing check failed: {exc}")
             return None
 
     async def process_queue(self, limit: int = 5) -> list[JobRecord]:
@@ -177,10 +237,22 @@ class JobProcessor:
             f"Structurer model: {structurer_model or 'default'}",
         ]
 
-        result = await orchestrator.generate_lesson(
         def _progress_callback(phase: str, messages: list[str] | None = None) -> None:
             if tracker is None:
                 return
+            
+            # Active guardrail check
+            if _check_timeouts():
+                # Note: We can't easily raise an exception here that Orchestrator will catch nicely,
+                # but Orchestrator has its own try/except now. 
+                # If we raise here, Orchestrator will catch it and return partial usage.
+                raise TimeoutError("Job hit timeout during orchestration.")
+            
+            # Check for cancellation
+            record = self._jobs_repo.get_job(job_id)
+            if record and record.status == "canceled":
+                raise JobCanceledError(f"Job {job_id} was canceled during orchestration.")
+
             tracker.complete_ai_call(phase=phase, message="; ".join(messages or []))
             tracker.set_phase(phase="transform", subphase=tracker.current_ai_subphase())
 

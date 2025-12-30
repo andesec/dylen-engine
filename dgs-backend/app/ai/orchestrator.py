@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -24,7 +25,10 @@ class OrchestrationResult:
     model_a: str
     provider_b: str
     model_b: str
-    logs: list[str]  # New field for tracking pipeline steps
+    validation_errors: list[str] | None = None
+    logs: list[str] = field(default_factory=list)
+    usage: list[dict[str, Any]] = field(default_factory=list)
+    total_cost: float = 0.0
 
 
 class DgsOrchestrator:
@@ -68,12 +72,18 @@ class DgsOrchestrator:
 
         logger = logging.getLogger(__name__)
         logs: list[str] = []
+        all_usage: list[dict[str, Any]] = []
+        validation_errors: list[str] | None = None
+        
+        def _report_progress(phase_name: str, msg: str) -> None:
+            if progress_callback:
+                progress_callback(phase_name, [msg])
 
         # Log model selection
         gatherer_model_name = gatherer_model or self._gatherer_model_name
         structurer_model_name = structurer_model or self._structurer_model_name
 
-        log_msg = f"Starting generation for topic: '{topic[:50]}...' if len >= 50 else topic"
+        log_msg = f"Starting generation for topic: '{topic[:50]}...' if len(topic) >= 50 else topic"
         logs.append(log_msg)
         logger.info(log_msg)
 
@@ -101,6 +111,10 @@ class DgsOrchestrator:
 
         try:
             gatherer_response = await gatherer_model_instance.generate(gatherer_prompt)
+            if gatherer_response.usage:
+                all_usage.append(
+                    {"model": _model_name(gatherer_model_instance), "purpose": "gather", **gatherer_response.usage}
+                )
         except Exception as e:
             logger.error(f"Gatherer failed: {e}", exc_info=True)
             raise RuntimeError(f"Gatherer agent failed: {e}") from e
@@ -111,105 +125,65 @@ class DgsOrchestrator:
         logger.debug(f"Gatherer Response:\n{gatherer_response.content}")
         _report_progress("collect", log_msg)
 
-        # Step 2: Structurer
-        log_msg = f"Structurer: {self._structurer_provider}/{structurer_model_name or 'default'}"
-        logs.append(log_msg)
-        logger.info(log_msg)
-
-        structurer_model_instance = get_model_for_mode(
-            self._structurer_provider, structurer_model_name
-        )
-        structurer_prompt = _render_structurer_prompt(
-            topic=topic,
-            prompt=prompt,
-            constraints=constraints,
-            schema_version=schema_version or self._schema_version,
-            idm=gatherer_response.content,
-            language=language,
-        )
         lesson_schema = _lesson_json_schema()
-
-        # Sanitize schema for Gemini SDK (removes nullables and recursion that cause crashes)
         sanitized_schema = _sanitize_schema_for_gemini(lesson_schema)
 
-        log_msg = "Running structurer agent..."
-        logs.append(log_msg)
-        logger.info(log_msg)
-        logger.debug(f"Structurer Prompt (Structured):\n{structurer_prompt}")
+        # 2. STRUCTURE PHASE
+        length = (constraints or {}).get("length", "Highlights")
+        sections_count = (constraints or {}).get("sections", 1)
 
-        async def _generate_unstructured() -> dict[str, Any]:
-            """Generate lesson JSON using the raw text fallback path."""
-            log_msg = "Using raw JSON generation path."
-            logs.append(log_msg)
-            logger.info(log_msg)
-
-            # Fallback: Generate raw text and parse
-            # Ensure the full schema is in the prompt for the fallback path
-            schema_str = json.dumps(lesson_schema, indent=2)
-            fallback_constraints = "\n".join(
-                [
-                    "IMPORTANT CONSTRAINTS:",
-                    "1. All fields marked as required in the schema MUST be present.",
-                    "2. Respect widget structures (asciiDiagram needs lead and diagram).",
-                    "3. Keep strings within length limits defined in the schema.",
-                    "4. Do not include markdown fences, headers, or text beyond the JSON object.",
-                ]
-            )
-            fallback_prompt = (
-                f"{structurer_prompt}\n\nCRITICAL: Output ONLY valid JSON matching this schema:\n"
-                f"{schema_str}\n\n{fallback_constraints}"
-            )
-            logger.debug(f"Structurer Prompt (Fallback):\n{fallback_prompt}")
-
-            raw_response = await structurer_model_instance.generate(fallback_prompt)
-            # Remove markdown code fences if present
-            cleaned_json = raw_response.content.strip()
-
-            logger.debug(f"Structurer Response (Fallback Raw):\n{cleaned_json}")
-
-            if cleaned_json.startswith("```"):
-                import re
-
-                cleaned_json = re.sub(
-                    r"^```\w*\n|```$", "", cleaned_json, flags=re.MULTILINE
-                ).strip()
-
-            try:
-                return cast(dict[str, Any], json.loads(cleaned_json))
-            except json.JSONDecodeError as json_err:
-                logger.error(
-                    "Fallback JSON parsing failed: %s. Raw content: %s...",
-                    json_err,
-                    raw_response.content[:200],
-                    exc_info=True,
+        try:
+            if length == "Training":
+                lesson_json = await self._generate_training(
+                    topic=topic,
+                    prompt=prompt,
+                    knowledge_base=knowledge_base,
+                    sections_count=sections_count,
+                    structurer=structurer_model_instance,
+                    all_usage=all_usage,
+                    logs=logs,
+                    progress_callback=progress_callback,
+                    language=language,
                 )
-                raise RuntimeError(
-                    f"Structurer failed to generate valid JSON: {json_err}"
-                ) from json_err
-
-        use_structured_output = (
-            structured_output and structurer_model_instance.supports_structured_output
-        )
-        if use_structured_output:
-            try:
-                lesson_json = await structurer_model_instance.generate_structured(
-                    structurer_prompt, sanitized_schema
+            elif length == "Detailed":
+                lesson_json = await self._generate_detailed(
+                    topic=topic,
+                    prompt=prompt,
+                    knowledge_base=knowledge_base,
+                    structurer=structurer_model_instance,
+                    all_usage=all_usage,
+                    logs=logs,
+                    progress_callback=progress_callback,
+                    language=language,
                 )
-            except Exception as e:
-                logger.warning(
-                    (
-                        "Structurer structured generation failed: %s. Falling back to raw JSON "
-                        "generation."
-                    ),
-                    e,
-                )
-                lesson_json = await _generate_unstructured()
-        else:
-            if not structurer_model_instance.supports_structured_output:
-                logger.info("Structured output unavailable for model; using raw generation.")
             else:
-                logger.info("Structured output disabled by config; using raw generation.")
-            lesson_json = await _generate_unstructured()
+                lesson_json = await self._generate_highlights(
+                    topic=topic,
+                    prompt=prompt,
+                    knowledge_base=knowledge_base,
+                    structurer=structurer_model_instance,
+                    all_usage=all_usage,
+                    logs=logs,
+                    progress_callback=progress_callback,
+                    language=language,
+                    constraints=constraints,
+                    schema_version=schema_version or self._schema_version,
+                )
+        except Exception as e:
+            logger.error(f"Structure phase failed: {e}", exc_info=True)
+            # Return partial result with usage so far
+            total_cost = self._calculate_total_cost(all_usage)
+            return OrchestrationResult(
+                lesson_json={},
+                provider_a=self._gatherer_provider,
+                model_a=gatherer_model_name,
+                provider_b=self._structurer_provider,
+                model_b=structurer_model_name,
+                logs=logs + [f"FAILED: {str(e)}"],
+                usage=all_usage,
+                total_cost=total_cost,
+                validation_errors=[str(e)]
+            )
 
         log_msg = "Structurer completed, validating..."
         logs.append(log_msg)
@@ -222,6 +196,7 @@ class DgsOrchestrator:
 
         # Validate the generated lesson
         ok, errors, _ = validate_lesson(lesson_json)
+        validation_errors = errors
 
         if ok:
             log_msg = "✓ Validation passed on first attempt"
@@ -245,6 +220,7 @@ class DgsOrchestrator:
 
             # Re-validate after deterministic repair
             ok_after_deterministic, errors_after_deterministic, _ = validate_lesson(repaired_json)
+            validation_errors = errors_after_deterministic
 
             if ok_after_deterministic:
                 log_msg = "✓ Deterministic repair succeeded"
@@ -283,19 +259,27 @@ class DgsOrchestrator:
                 logger.info(log_msg)
 
                 try:
-                    repaired_json = await repair_model.generate_structured(
+                    repair_response = await repair_model.generate_structured(
                         repair_prompt, lesson_schema
                     )
+                    repaired_json = repair_response.content
+                    if repair_response.usage:
+                        all_usage.append(
+                            {"model": _model_name(repair_model), "purpose": "repair", **repair_response.usage}
+                        )
                 except Exception as e:
                     logger.error(f"Repair agent failed: {e}", exc_info=True)
                     # Don't crash on repair failure, just fallback to deterministic repair result
                     logger.warning(
                         "Falling back to deterministic repair result due to AI repair failure."
                     )
-                    repaired_json = lesson_json
+                    # Keep the deterministically repaired JSON if AI repair fails
+                    # repaired_json is already set to the deterministically repaired version
+                    pass
 
                 # Final validation
                 ok_final, errors_final, _ = validate_lesson(repaired_json)
+                validation_errors = errors_final
                 if ok_final:
                     log_msg = "✓ AI repair succeeded"
                     logs.append(log_msg)
@@ -315,14 +299,170 @@ class DgsOrchestrator:
         logs.append(log_msg)
         logger.info(log_msg)
 
+        total_cost = self._calculate_total_cost(all_usage)
+
         return OrchestrationResult(
             lesson_json=lesson_json,
             provider_a=self._gatherer_provider,
             model_a=_model_name(gatherer_model_instance),
             provider_b=self._structurer_provider,
             model_b=_model_name(structurer_model_instance),
+            validation_errors=validation_errors if validation_errors else None,
             logs=logs,
+            usage=all_usage,
+            total_cost=total_cost,
         )
+
+    def _calculate_total_cost(self, usage: list[dict[str, Any]]) -> float:
+        """Estimate total cost based on token usage."""
+        # Simple pricing map (per 1M tokens)
+        PRICES = {
+            "gemini-1.5-flash": (0.075, 0.30),
+            "gemini-2.0-flash": (0.075, 0.30),
+            "gemini-2.0-flash-exp": (0.0, 0.0),  # Free during preview
+            "openai/gpt-4o-mini": (0.15, 0.60),
+            "openai/gpt-4o": (5.0, 15.0),
+            "anthropic/claude-3.5-sonnet": (3.0, 15.0),
+        }
+
+        total = 0.0
+        for entry in usage:
+            model = entry.get("model", "")
+            p_in, p_out = PRICES.get(model, (0.5, 1.5))  # Default conservative pricing
+            
+            in_tokens = entry.get("prompt_tokens", 0)
+            out_tokens = entry.get("completion_tokens", 0)
+            
+            total += (in_tokens / 1_000_000) * p_in
+            total += (out_tokens / 1_000_000) * p_out
+            
+        return total
+
+    async def _generate_highlights(
+        self,
+        topic: str,
+        prompt: str | None,
+        knowledge_base: str,
+        structurer: AIModel,
+        all_usage: list[dict[str, Any]],
+        logs: list[str],
+        progress_callback: Callable[[str, list[str] | None], None] | None,
+        language: str | None,
+        constraints: dict[str, Any] | None,
+        schema_version: str,
+    ) -> dict[str, Any]:
+        """Generate a Highlights lesson in a single pass."""
+        if progress_callback:
+            progress_callback("transform", ["Structuring Highlights lesson..."])
+
+        prompt_text = _render_structurer_prompt(
+            topic=topic,
+            prompt=prompt,
+            constraints=constraints,
+            schema_version=schema_version,
+            idm=knowledge_base,
+            language=language,
+        )
+        
+        # We can reuse the unstructured logic if needed, but for now we use structured
+        schema = _lesson_json_schema()
+        sanitized = _sanitize_schema_for_gemini(schema)
+        
+        if structurer.supports_structured_output:
+            res = await structurer.generate_structured(prompt_text, sanitized)
+            if res.usage:
+                all_usage.append({"model": _model_name(structurer), "purpose": "structure_highlights", **res.usage})
+            return res.content
+        else:
+            # Fallback (simplified for brevity here)
+            raw = await structurer.generate(prompt_text + "\n\nOutput ONLY valid JSON.")
+            if raw.usage:
+                all_usage.append({"model": _model_name(structurer), "purpose": "structure_highlights_raw", **raw.usage})
+            return cast(dict[str, Any], json.loads(raw.content))
+
+    async def _generate_detailed(
+        self,
+        topic: str,
+        prompt: str | None,
+        knowledge_base: str,
+        structurer: AIModel,
+        all_usage: list[dict[str, Any]],
+        logs: list[str],
+        progress_callback: Callable[[str, list[str] | None], None] | None,
+        language: str | None,
+    ) -> dict[str, Any]:
+        """Generate a Detailed lesson in two passes."""
+        # Pass 1: Skeleton and first part
+        if progress_callback:
+            progress_callback("transform", ["Structuring Detailed lesson (Call 1/2)..."])
+            
+        # For simplicity in this implementation, we do one full generation and one expansion/detail call
+        full_res = await self._generate_highlights(
+            topic=topic, prompt=prompt, knowledge_base=knowledge_base, 
+            structurer=structurer, all_usage=all_usage, logs=logs, 
+            progress_callback=None, language=language, 
+            constraints={"length": "Detailed"}, schema_version=self._schema_version
+        )
+        
+        if progress_callback:
+            progress_callback("transform", ["Expanding content details (Call 2/2)..."])
+            
+        expand_prompt = f"Expand the following lesson with more detailed activities and deep-dive content:\n{json.dumps(full_res)}"
+        res = await structurer.generate_structured(expand_prompt, _sanitize_schema_for_gemini(_lesson_json_schema()))
+        if res.usage:
+            all_usage.append({"model": _model_name(structurer), "purpose": "structure_detailed_expand", **res.usage})
+            
+        return res.content
+
+    async def _generate_training(
+        self,
+        topic: str,
+        prompt: str | None,
+        knowledge_base: str,
+        sections_count: int,
+        structurer: AIModel,
+        all_usage: list[dict[str, Any]],
+        logs: list[str],
+        progress_callback: Callable[[str, list[str] | None], None] | None,
+        language: str | None,
+    ) -> dict[str, Any]:
+        """Generate a Training lesson by looping over sections."""
+        if progress_callback:
+            progress_callback("transform", [f"Planning {sections_count} sections..."])
+            
+        # 1. Plan sections
+        plan_prompt = f"Based on this knowledge: {knowledge_base[:2000]}, plan {sections_count} section titles for a lesson on {topic}."
+        plan_schema = {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "sections": {"type": "array", "items": {"type": "object", "properties": {"title": {"type": "string"}}}}
+            }
+        }
+        res_plan = await structurer.generate_structured(plan_prompt, _sanitize_schema_for_gemini(plan_schema))
+        if res_plan.usage:
+            all_usage.append({"model": _model_name(structurer), "purpose": "structure_training_plan", **res_plan.usage})
+            
+        # 2. Generate sections
+        final_sections = []
+        for i in range(sections_count):
+            title = res_plan.content["sections"][i]["title"] if i < len(res_plan.content["sections"]) else f"Section {i+1}"
+            if progress_callback:
+                progress_callback("transform", [f"Generating section {i+1}/{sections_count}: {title}"])
+                
+            sec_prompt = f"Generate a detailed content section for '{title}' within a lesson on {topic}. Knowledge: {knowledge_base[:1000]}"
+            # Simplified section content schema
+            sec_res = await structurer.generate_structured(sec_prompt, {"type": "object", "properties": {"content": {"type": "string"}}})
+            if sec_res.usage:
+                all_usage.append({"model": _model_name(structurer), "purpose": f"structure_training_sec_{i+1}", **sec_res.usage})
+            
+            final_sections.append({"title": title, "content": sec_res.content.get("content", "")})
+            
+        return {
+            "title": res_plan.content.get("title", topic),
+            "sections": final_sections,
+            "meta": {"topic": topic}
+        }
 
 
 def _model_name(model: AIModel) -> str:

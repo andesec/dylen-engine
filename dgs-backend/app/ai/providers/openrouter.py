@@ -8,7 +8,13 @@ from typing import Any, Final, cast
 
 from openai import AsyncOpenAI
 
-from app.ai.providers.base import AIModel, ModelResponse, Provider, SimpleModelResponse
+from app.ai.providers.base import (
+    AIModel,
+    ModelResponse,
+    Provider,
+    SimpleModelResponse,
+    StructuredModelResponse,
+)
 
 
 class OpenRouterModel(AIModel):
@@ -35,9 +41,18 @@ class OpenRouterModel(AIModel):
             messages=[{"role": "user", "content": prompt}],
         )
         content = response.choices[0].message.content or ""
-        return SimpleModelResponse(content=content)
+        usage = None
+        if response.usage:
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
+        return SimpleModelResponse(content=content, usage=usage)
 
-    async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
+    async def generate_structured(
+        self, prompt: str, schema: dict[str, Any]
+    ) -> StructuredModelResponse:
         """Generate structured JSON output using OpenAI's JSON mode."""
         response = await self._client.chat.completions.create(
             model=self.name,
@@ -55,10 +70,18 @@ class OpenRouterModel(AIModel):
         )
 
         content = response.choices[0].message.content or "{}"
+        usage = None
+        if response.usage:
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
 
         # Parse the JSON response
         try:
-            return cast(dict[str, Any], json.loads(content))
+            parsed = cast(dict[str, Any], json.loads(content))
+            return StructuredModelResponse(content=parsed, usage=usage)
         except json.JSONDecodeError as e:
             raise RuntimeError(f"OpenRouter returned invalid JSON: {e}") from e
 

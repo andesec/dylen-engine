@@ -18,6 +18,7 @@ from app.jobs.guardrails import (
 )
 from app.jobs.models import JobRecord, JobStatus
 from app.storage.jobs_repo import JobsRepository
+from app.storage.utils import ensure_table_exists
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,49 @@ class DynamoJobsRepository(JobsRepository):
             config=Config(connect_timeout=timeout_seconds, read_timeout=timeout_seconds),
             **aws_kwargs,
         )
+
+        # Build attribute definitions and indexes
+        attr_defs = [
+            {"AttributeName": "pk", "AttributeType": "S"},
+            {"AttributeName": "sk", "AttributeType": "S"},
+        ]
+        gsis = []
+        if all_jobs_index:
+            attr_defs.append({"AttributeName": "gsi1_pk", "AttributeType": "S"})
+            attr_defs.append({"AttributeName": "gsi1_sk", "AttributeType": "S"})
+            gsis.append({
+                "IndexName": all_jobs_index,
+                "KeySchema": [
+                    {"AttributeName": "gsi1_pk", "KeyType": "HASH"},
+                    {"AttributeName": "gsi1_sk", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+            })
+        if idempotency_index:
+            attr_defs.append({"AttributeName": "gsi2_pk", "AttributeType": "S"})
+            attr_defs.append({"AttributeName": "gsi2_sk", "AttributeType": "S"})
+            gsis.append({
+                "IndexName": idempotency_index,
+                "KeySchema": [
+                    {"AttributeName": "gsi2_pk", "KeyType": "HASH"},
+                    {"AttributeName": "gsi2_sk", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+            })
+
+        ensure_table_exists(
+            resource=resource,
+            table_name=table_name,
+            key_schema=[
+                {"AttributeName": "pk", "KeyType": "HASH"},
+                {"AttributeName": "sk", "KeyType": "RANGE"},
+            ],
+            attribute_definitions=attr_defs,
+            global_secondary_indexes=gsis if gsis else None,
+        )
+
         self._table = resource.Table(table_name)
         self._all_jobs_index = all_jobs_index
         self._idempotency_index = idempotency_index
@@ -96,6 +140,10 @@ class DynamoJobsRepository(JobsRepository):
         current = self.get_job(job_id)
         if current is None:
             return None
+
+        # Prevent overwriting a canceled status with anything other than canceled
+        if current.status == "canceled" and status is not None and status != "canceled":
+            return current
 
         updated_record = JobRecord(
             job_id=current.job_id,
