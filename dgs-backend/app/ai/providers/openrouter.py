@@ -54,19 +54,31 @@ class OpenRouterModel(AIModel):
         self, prompt: str, schema: dict[str, Any]
     ) -> StructuredModelResponse:
         """Generate structured JSON output using OpenAI's JSON mode."""
+        # OpenRouter/OpenAI structured output requires a schema in response_format
+        # for strict enforcement, or at least 'json_schema' type.
+        
+        # Serialize schema for prompt injection (reinforcement)
+        schema_str = json.dumps(schema, indent=2)
+        system_msg = (
+            "You are a helpful assistant that outputs valid JSON.\n"
+            f"You MUST strictly output JSON adhering to this schema:\n```json\n{schema_str}\n```\n"
+            "Output valid JSON only, no markdown formatting."
+        )
+
         response = await self._client.chat.completions.create(
             model=self.name,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a helpful assistant that outputs valid JSON. Always respond with "
-                        "valid JSON only, no markdown formatting."
-                    ),
-                },
+                {"role": "system", "content": system_msg},
                 {"role": "user", "content": prompt},
             ],
-            response_format={"type": "json_object"},
+            response_format={
+                "type": "json_schema", 
+                "json_schema": {
+                    "name": "lesson_response",
+                    "schema": schema,
+                    "strict": True  # Best effort strictness
+                }
+            },
         )
 
         content = response.choices[0].message.content or "{}"
@@ -95,6 +107,8 @@ class OpenRouterProvider(Provider):
         "openai/gpt-4o",
         "anthropic/claude-3.5-sonnet",
         "google/gemini-2.0-flash-exp:free",
+        "google/gemini-2.0-flash-lite-preview-02-05:free",
+        "google/gemini-2.0-pro-exp-02-05:free",
     }
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:

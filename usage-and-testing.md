@@ -301,13 +301,13 @@ Edit `.env` to change providers:
 ```env
 # Use Gemini for both steps
 GATHERER_PROVIDER=gemini
-GATHERER_MODEL=gemini-1.5-pro
+GATHERER_MODEL=gemini-2.0-flash
 STRUCTURER_PROVIDER=gemini
-STRUCTURER_MODEL=gemini-2.0-flash-exp
+STRUCTURER_MODEL=gemini-2.0-flash
 
 # Or mix providers
 GATHERER_PROVIDER=openrouter
-GATHERER_MODEL=anthropic/claude-3.5-sonnet
+GATHERER_MODEL=google/gemini-2.0-flash-exp:free
 STRUCTURER_PROVIDER=openrouter
 STRUCTURER_MODEL=openai/gpt-4o-mini
 ```
@@ -336,6 +336,38 @@ Use `jq` to format JSON output:
 curl http://localhost:8080/v1/lessons/{lesson_id} \
   -H "X-DGS-Dev-Key: local-dev-secret-key" | jq '.'
 ```
+
+## Manual AI Testing
+
+Since automated tests for AI generation can be costly and flaky, manual verification is often required to ensure schema compliance and prompt effectiveness.
+
+### 1. Verify Schema Enforcement (OpenRouter)
+
+To verify that OpenRouter is correctly receiving and enforcing the JSON schema:
+
+1.  **Configure `.env`**: Set `STRUCTURER_PROVIDER=openrouter` and `STRUCTURER_MODEL=openai/gpt-4o-mini` (or another supported model).
+2.  **Trigger Generation**: Run a generation request (see "Generate a Lesson" above).
+3.  **Inspect Logs**:
+    *   Check the application logs (stdout if running `uvicorn` manually).
+    *   Look for the "Structurer" phase logs.
+    *   **Verification**: You should see the model outputting strict JSON that matches the schema structure (e.g., correct widget types like `fill_blank` instead of `fill-in-the-blank`).
+4.  **Check Database**:
+    *   Execute `aws dynamodb scan --table-name dgs-lessons-local --endpoint-url http://localhost:8000`
+    *   Inspect the `result_json` column.
+    *   Ensure all `required` fields are present.
+
+### 2. Verify Schema Sanitization (Gemini)
+
+To verify that Gemini is receiving the correct schema with `required` fields:
+
+1.  **Configure `.env`**: Set `STRUCTURER_PROVIDER=gemini` and `STRUCTURER_MODEL=gemini-1.5-flash`.
+2.  **Trigger Generation**: Run a generation request.
+3.  **Inspect Output**:
+    *   If the generation succeeds, the schema was accepted.
+    *   If you see `400 InvalidArgument`, the schema might be too complex or contain conflicting constraints. Check logs for the exact error message from Google GenAI SDK.
+4.  **Verify Required Fields**:
+    *   Check the generated JSON for fields that are marked as required in `LessonDocument` (e.g., `version`, `title`, `blocks` array).
+    *   If these are missing, the schema enforcement might be too weak or the prompt needs reinforcement.
 
 ## Next Steps
 

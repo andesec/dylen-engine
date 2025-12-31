@@ -20,13 +20,14 @@ from pydantic import (
 class LessonBaseModel(BaseModel):
     """Base model enforcing strict field handling."""
 
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    # model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    type: StrictStr
 
 
 class WidgetBase(LessonBaseModel):
     """Base class for all widgets."""
 
-    type: StrictStr
+
 
 
 class ParagraphWidget(WidgetBase):
@@ -395,34 +396,49 @@ class QuizWidget(WidgetBase):
         return value
 
 
-Widget = Annotated[
-    ParagraphWidget
-    | CalloutWidget
-    | FlipWidget
-    | TranslationWidget
-    | BlankWidget
-    | ListWidget
-    | TableWidget
-    | CompareWidget
-    | SwipeWidget
-    | FreeTextWidget
-    | StepFlowWidget
-    | AsciiDiagramWidget
-    | ChecklistWidget
-    | ConsoleWidget
-    | CodeViewerWidget
-    | TreeViewWidget
-    | QuizWidget,
-    Field(discriminator="type"),
-]
+# Widget = Annotated[
+#     ParagraphWidget
+#     | CalloutWidget
+#     # | BlankWidget
+#     # | ListWidget
+#     # | TableWidget
+#     # | CompareWidget
+#     # | SwipeWidget
+#     # | FreeTextWidget
+#     # | StepFlowWidget
+#     # | AsciiDiagramWidget
+#     # | ChecklistWidget
+#     # | ConsoleWidget
+#     # | CodeViewerWidget
+#     # | TreeViewWidget
+#     # | QuizWidget
+#     ,
+#     Field(discriminator="type")
+# ]
 
 
 class SectionBlock(LessonBaseModel):
     """Primary section block containing content widgets."""
 
     section: StrictStr = Field(min_length=1)
-    items: list[Widget]
-    subsections: list[SectionBlock] | None = None
+    items: list[WidgetBase] = Field(default_factory=list)
+    subsections: list[SubsectionBlock] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_items(cls, data: Any) -> Any:
+        raw_items = data.get("items") if isinstance(data, dict) else None
+        if raw_items is None:
+            return data
+        data = dict(data)
+        data["items"] = [normalize_widget(item) for item in raw_items]
+        return data
+
+class SubsectionBlock(LessonBaseModel):
+    """Primary subsection block containing content widgets."""
+
+    subsection: StrictStr = Field(min_length=1)
+    items: list[WidgetBase] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -438,10 +454,8 @@ class SectionBlock(LessonBaseModel):
 class LessonDocument(LessonBaseModel):
     """Versioned root lesson document."""
 
-    version: Literal["1.0"] = Field(default="1.0")
     title: StrictStr = Field(min_length=1)
     blocks: list[SectionBlock]
-
 
 def _normalize_callout(value: Any, widget_type: str) -> dict[str, Any]:
     if not isinstance(value, str):

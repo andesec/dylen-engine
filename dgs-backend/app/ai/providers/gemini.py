@@ -44,21 +44,25 @@ class GeminiModel(AIModel):
             }
         return SimpleModelResponse(content=response.text, usage=usage)
 
-    async def generate_structured(
-        self, prompt: str, schema: dict[str, Any]
-    ) -> StructuredModelResponse:
+    async def generate_structured(self, prompt: str, schema) -> StructuredModelResponse:
         """Generate structured JSON output using Gemini's JSON mode."""
         # Use a plain dict for config to avoid pydantic validation errors on JSON Schema
-        config: dict[str, Any] = {
-            "response_mime_type": "application/json",
-            "response_json_schema": schema,
-        }
+        # config: dict[str, Any] = {
+        #     "response_mime_type": "application/json",
+        #     "response_schema": schema,
+        # }
 
-        response = self._client.models.generate_content(
-            model=self.name,
-            contents=prompt,
-            config=config,
-        )
+        try:
+            response = self._client.models.generate_content(
+                model=self.name,
+                contents=prompt,
+                config= {
+                    "response_mime_type": "application/json",
+                    "response_schema": schema
+                }
+            )
+        except Exception as e:
+            raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
 
         usage = None
         if response.usage_metadata:
@@ -87,6 +91,8 @@ class GeminiProvider(Provider):
         "gemini-pro-latest",
         "gemini-flash-latest",
         "gemini-2.0-flash-exp",
+        "gemini-1.5-flash",  # Legacy support
+        "gemini-1.5-pro",
     }
 
     def __init__(self, api_key: str | None = None) -> None:

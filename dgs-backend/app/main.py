@@ -5,6 +5,7 @@ import logging
 import sys
 import time
 from collections.abc import Awaitable, Callable
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
@@ -37,7 +38,31 @@ from app.utils.ids import generate_job_id, generate_lesson_id
 
 settings = get_settings()
 
-app = FastAPI()
+
+class DecimalJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles Decimal types from DynamoDB."""
+
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
+
+
+class DecimalJSONResponse(JSONResponse):
+    """Custom JSONResponse that uses DecimalJSONEncoder."""
+
+    def render(self, content: Any) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            cls=DecimalJSONEncoder,
+        ).encode("utf-8")
+
+
+app = FastAPI(default_response_class=DecimalJSONResponse)
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,11 +75,11 @@ app.add_middleware(
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+async def global_exception_handler(request: Request, exc: Exception) -> DecimalJSONResponse:
     """Global exception handler to catch unhandled errors."""
     logger = logging.getLogger("uvicorn.error")
     logger.error(f"Global exception: {exc}", exc_info=True)
-    return JSONResponse(
+    return DecimalJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Internal Server Error", "error": str(exc)},
     )
@@ -188,8 +213,8 @@ class GenerationModel(str, Enum):
 class GenerationConstraints(BaseModel):
     """Specific constraints for lesson content generation."""
 
-    primaryLanguage: str | None = Field(default=None, alias="primaryLanguage")
-    learnerLevel: str | None = Field(default=None, alias="learnerLevel")
+    primaryLanguage: str | None = Field(default="English", alias="primaryLanguage")
+    learnerLevel: str | None = Field(default="Beginner", alias="learnerLevel")
     length: Literal["Highlights", "Detailed", "Training"] | None = Field(
         default=None, alias="length"
     )
@@ -237,10 +262,15 @@ class GenerationConfig(BaseModel):
 class GenerateLessonRequest(BaseModel):
     """Request payload for lesson generation."""
 
-    topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.")
+    topic: StrictStr = Field(
+        min_length=1, 
+        description="Topic to generate a lesson for.",
+        examples=["Introduction to Python"]
+    )
     prompt: StrictStr = Field(
         min_length=1,
         description="User-supplied guidance (max 250 words).",
+        examples=["Focus on lists and loops"]
     )
     config: GenerationConfig | None = Field(
         default=None, description="Optional generation parameters with sensible defaults."
@@ -251,7 +281,6 @@ class GenerateLessonRequest(BaseModel):
     idempotency_key: StrictStr | None = Field(
         default=None,
         description="Idempotency key to prevent duplicate lesson generation.",
-        alias="idempotency_key",
     )
     constraints: GenerationConstraints | None = Field(
         default=None, description="Domain-specific generation constraints."

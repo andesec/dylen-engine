@@ -30,7 +30,7 @@ from .lesson_models import (
     TableWidget,
     TranslationWidget,
     TreeViewWidget,
-    Widget,
+    # Widget,
 )
 
 

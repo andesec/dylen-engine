@@ -41,6 +41,9 @@
           },
           "prompt": {
             "description": "User-supplied guidance (max 250 words).",
+            "examples": [
+              "Focus on lists and loops"
+            ],
             "minLength": 1,
             "title": "Prompt",
             "type": "string"
@@ -59,6 +62,9 @@
           },
           "topic": {
             "description": "Topic to generate a lesson for.",
+            "examples": [
+              "Introduction to Python"
+            ],
             "minLength": 1,
             "title": "Topic",
             "type": "string"
@@ -111,6 +117,9 @@
           },
           "prompt": {
             "description": "User-supplied guidance (max 250 words).",
+            "examples": [
+              "Focus on lists and loops"
+            ],
             "minLength": 1,
             "title": "Prompt",
             "type": "string"
@@ -129,6 +138,9 @@
           },
           "topic": {
             "description": "Topic to generate a lesson for.",
+            "examples": [
+              "Introduction to Python"
+            ],
             "minLength": 1,
             "title": "Topic",
             "type": "string"
@@ -233,6 +245,7 @@
                 "type": "null"
               }
             ],
+            "default": "Beginner",
             "title": "Learnerlevel"
           },
           "length": {
@@ -260,6 +273,7 @@
                 "type": "null"
               }
             ],
+            "default": "English",
             "title": "Primarylanguage"
           },
           "sections": {

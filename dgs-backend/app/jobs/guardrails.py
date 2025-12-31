@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import MutableMapping
+from decimal import Decimal
 from typing import Any
 
 MAX_ITEM_BYTES = 380_000
@@ -12,9 +13,18 @@ MAX_LOG_ENTRIES = 200
 MAX_RESULT_BYTES = 200_000
 
 
+class DecimalEncoder(json.JSONEncoder):
+    """JSON encoder that handles Decimal types from DynamoDB."""
+
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
+
+
 def estimate_bytes(value: Any) -> int:
     """Approximate the DynamoDB item size using JSON encoding."""
-    return len(json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+    return len(json.dumps(value, ensure_ascii=True, separators=(",", ":"), cls=DecimalEncoder).encode("utf-8"))
 
 
 def sanitize_logs(logs: list[str]) -> list[str]:
@@ -31,7 +41,7 @@ def maybe_truncate_result_json(result_json: dict[str, Any] | None) -> dict[str, 
         return None
     if estimate_bytes(result_json) <= MAX_RESULT_BYTES:
         return result_json
-    preview = json.dumps(result_json, ensure_ascii=True)
+    preview = json.dumps(result_json, ensure_ascii=True, cls=DecimalEncoder)
     return {
         "truncated": True,
         "preview": preview[:MAX_RESULT_BYTES],

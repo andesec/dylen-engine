@@ -33,6 +33,18 @@ def _now_iso() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _serialize_for_dynamodb(obj: Any) -> Any:
+    """Recursively convert float types to Decimal for DynamoDB storage."""
+    if isinstance(obj, float):
+        # Convert float to Decimal via string to preserve precision
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {key: _serialize_for_dynamodb(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [_serialize_for_dynamodb(item) for item in obj]
+    return obj
+
+
 class DynamoJobsRepository(JobsRepository):
     """Persist jobs to DynamoDB."""
 
@@ -203,7 +215,7 @@ class DynamoJobsRepository(JobsRepository):
             "pk": keys.pk,
             "sk": keys.sk,
             "job_id": record.job_id,
-            "request": record.request,
+            "request": _serialize_for_dynamodb(record.request),
             "status": record.status,
             "phase": record.phase,
             "subphase": record.subphase,

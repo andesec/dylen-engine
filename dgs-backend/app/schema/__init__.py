@@ -21,7 +21,7 @@ from .lesson_models import (
     TableWidget,
     TranslationWidget,
     TreeViewWidget,
-    Widget,
+    # Widget,
 )
 from .serialize_lesson import lesson_to_shorthand
 from .validate_lesson import validate_lesson
