@@ -207,25 +207,57 @@ The modular design allows switching between different AI providers (Gemini, Open
 - Ability to leverage different strengths of various models
 
 ### 2. **Structured Output Support**
-The system supports both regular text generation and structured JSON output, which is crucial for generating valid lesson formats that conform to specific schemas.
+The system supports both regular text generation and structured JSON output, which is crucial for generating valid lesson formats that conform to specific schemas. This is a **hard requirement** according to the DGS specs - the structurer phase must use the model/provider's structured output (JSON) endpoint/mode to guarantee JSON-typed output and reduce formatting errors.
 
-### 3. **Robust Error Handling**
+### 3. **Two-Step Pipeline Design**
+Based on the DGS specifications, the system implements a two-step pipeline for cost and quality optimization:
+
+- **Step A - Data Gatherer**: Uses a high-quality model to generate a rich learning dataset (Intermediate Data Model/IDM)
+- **Step B - JSON Structurer**: Uses a low-cost model with structured output to convert IDM → final DLE lesson JSON
+
+This approach allows expensive reasoning/data generation to happen once (Step A) while cheap formatting/structuring happens in Step B, with the IDM being cacheable for reuse.
+
+### 4. **Robust Error Handling**
 The three-tier validation approach (deterministic repair → AI repair → fallback) ensures that even if one step fails, the system can still produce usable output.
 
-### 4. **Cost Optimization**
-The system tracks token usage and provides cost estimates, allowing for monitoring and optimization of AI usage costs.
+### 5. **Cost Optimization**
+The system tracks token usage and provides cost estimates, allowing for monitoring and optimization of AI usage costs. The two-step approach specifically minimizes expensive AI calls.
 
-### 5. **Scalability**
+### 6. **LLM API Requirements and Specifications**
+
+Based on the DGS specifications, the system must adhere to specific LLM API requirements:
+
+#### **Structured Output Requirement**
+- **Mandatory**: Step B (structurer) must use the provider's JSON/structured-output mechanism
+- If a provider doesn't support structured output for the chosen model, DGS must either switch to a compatible model or fail with a clear error
+- This ensures deterministic output and reduces formatting errors
+
+#### **OpenAI Agents SDK Integration**
+- The system is designed to use OpenAI Agents SDK for orchestration and tracing
+- Includes: `GathererAgent`, `StructurerAgent`, and `RepairAgent`
+- Providers remain pluggable (Gemini for development, OpenRouter for production)
+
+#### **Provider-Specific Implementations**
+- **Gemini**: Uses `google-genai` SDK with structured output support
+- **OpenRouter**: Uses OpenAI-compatible SDK with JSON mode for structured output
+- Both providers implement the same base interface for consistency
+
+#### **Schema Validation Requirements**
+- Must use Pydantic v2 models for DLE lesson JSON schema validation
+- Validation must be performed by constructing the Pydantic model (not "best effort" parsing)
+- Uses discriminated unions for widget items and strict types for data integrity
+
+### 7. **Scalability**
 The modular design allows for easy addition of new providers, prompt templates, and repair strategies as the system evolves.
 
 ## How It Works Together
 
 1. **User Request**: A lesson generation request comes in with a topic and optional constraints
-2. **Provider Selection**: The router selects appropriate gatherer and structurer providers/models
-3. **Gatherer Phase**: The gatherer AI creates an intermediate data model with comprehensive topic information
-4. **Structurer Phase**: The structurer AI converts the IDM into properly formatted lesson JSON
-5. **Validation**: The system validates the generated JSON against the lesson schema
+2. **Provider Selection**: The router selects appropriate gatherer and structurer providers/models based on configuration
+3. **Gatherer Phase**: The gatherer AI creates an intermediate data model with comprehensive topic information using high-quality models
+4. **Structurer Phase**: The structurer AI converts the IDM into properly formatted lesson JSON using structured output mode
+5. **Validation**: The system validates the generated JSON against both Pydantic schema and widget rules from `widgets.md`
 6. **Repair**: If validation fails, the system attempts deterministic and/or AI-based repairs
 7. **Output**: The final validated lesson JSON is returned with usage statistics and cost estimates
 
-This architecture ensures high-quality, valid lesson generation while maintaining flexibility and cost-effectiveness.
+This architecture ensures high-quality, valid lesson generation while maintaining flexibility, cost-effectiveness, and compliance with the DGS specifications for LLM API usage.
