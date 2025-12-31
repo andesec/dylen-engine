@@ -48,11 +48,11 @@ class GeminiModel(AIModel):
         self, prompt: str, schema: dict[str, Any]
     ) -> StructuredModelResponse:
         """Generate structured JSON output using Gemini's JSON mode."""
-        # Using the new google-genai config structure
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-        )
+        # Use a plain dict for config to avoid pydantic validation errors on JSON Schema
+        config: dict[str, Any] = {
+            "response_mime_type": "application/json",
+            "response_json_schema": schema,
+        }
 
         response = self._client.models.generate_content(
             model=self.name,

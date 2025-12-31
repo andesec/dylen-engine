@@ -1,0 +1,1056 @@
+05:03:50 - app.main - INFO - Logging initialized. Writing to logs/dgs_app_20251231_050350.log
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FastAPI",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lessons/validate": {
+      "post": {
+        "summary": "Validate Endpoint",
+        "description": "Validate lesson payloads from stored lessons or job results against schema and widgets.",
+        "operationId": "validate_endpoint_v1_lessons_validate_post",
+        "parameters": [
+          {
+            "name": "X-DGS-Dev-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Dgs-Dev-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lessons/generate": {
+      "post": {
+        "summary": "Generate Lesson",
+        "description": "Generate a lesson from a topic using the two-step pipeline.",
+        "operationId": "generate_lesson_v1_lessons_generate_post",
+        "parameters": [
+          {
+            "name": "X-DGS-Dev-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Dgs-Dev-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest-Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateLessonResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs": {
+      "post": {
+        "summary": "Create Job",
+        "description": "Create a background lesson generation job.",
+        "operationId": "create_job_v1_jobs_post",
+        "parameters": [
+          {
+            "name": "X-DGS-Dev-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Dgs-Dev-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest-Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lessons/jobs": {
+      "post": {
+        "summary": "Create Lesson Job",
+        "description": "Alias route for creating a background lesson generation job.",
+        "operationId": "create_lesson_job_v1_lessons_jobs_post",
+        "parameters": [
+          {
+            "name": "X-DGS-Dev-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Dgs-Dev-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest-Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/writing/check": {
+      "post": {
+        "summary": "Create Writing Check",
+        "description": "Create a background job to check a writing task response.",
+        "operationId": "create_writing_check_v1_writing_check_post",
+        "parameters": [
+          {
+            "name": "X-DGS-Dev-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Dgs-Dev-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WritingCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "summary": "Get Job Status",
+        "description": "Fetch the status and result of a background job.",
+        "operationId": "get_job_status_v1_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-DGS-Dev-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Dgs-Dev-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/cancel": {
+      "post": {
+        "summary": "Cancel Job",
+        "description": "Request cancellation of a running background job.",
+        "operationId": "cancel_job_v1_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-DGS-Dev-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Dgs-Dev-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lessons/{lesson_id}": {
+      "get": {
+        "summary": "Get Lesson",
+        "description": "Fetch a stored lesson by identifier, consistent with async job persistence.",
+        "operationId": "get_lesson_v1_lessons__lesson_id__get",
+        "parameters": [
+          {
+            "name": "lesson_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Lesson Id"
+            }
+          },
+          {
+            "name": "X-DGS-Dev-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Dgs-Dev-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonRecordResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GenerateLessonRequest-Input": {
+        "properties": {
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Topic",
+            "description": "Topic to generate a lesson for."
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Prompt",
+            "description": "User-supplied guidance (max 250 words)."
+          },
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional generation parameters with sensible defaults."
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version",
+            "description": "Optional schema version to pin the lesson output to."
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key",
+            "description": "Idempotency key to prevent duplicate lesson generation."
+          },
+          "constraints": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationConstraints"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Domain-specific generation constraints."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "topic",
+          "prompt"
+        ],
+        "title": "GenerateLessonRequest",
+        "description": "Request payload for lesson generation."
+      },
+      "GenerateLessonRequest-Output": {
+        "properties": {
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Topic",
+            "description": "Topic to generate a lesson for."
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Prompt",
+            "description": "User-supplied guidance (max 250 words)."
+          },
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional generation parameters with sensible defaults."
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version",
+            "description": "Optional schema version to pin the lesson output to."
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key",
+            "description": "Idempotency key to prevent duplicate lesson generation."
+          },
+          "constraints": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationConstraints"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Domain-specific generation constraints."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "topic",
+          "prompt"
+        ],
+        "title": "GenerateLessonRequest",
+        "description": "Request payload for lesson generation."
+      },
+      "GenerateLessonResponse": {
+        "properties": {
+          "lesson_id": {
+            "type": "string",
+            "title": "Lesson Id"
+          },
+          "lesson_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Lesson Json"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LessonMeta"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Logs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lesson_id",
+          "lesson_json",
+          "meta",
+          "logs"
+        ],
+        "title": "GenerateLessonResponse",
+        "description": "Response payload for lesson generation."
+      },
+      "GenerationConfig": {
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/GenerationModel",
+            "description": "Model used for lesson structuring.",
+            "default": "gemini-2.5-flash"
+          },
+          "temperature": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "description": "Sampling temperature for the generation pipeline.",
+            "default": 0.2
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "minimum": 256.0,
+            "title": "Max Output Tokens",
+            "description": "Upper bound on tokens produced during structured generation.",
+            "default": 8192
+          },
+          "validation_level": {
+            "$ref": "#/components/schemas/ValidationLevel",
+            "description": "Level of validation applied to the generated lesson.",
+            "default": "strict"
+          },
+          "structured_output": {
+            "type": "boolean",
+            "title": "Structured Output",
+            "description": "If false, fall back to raw JSON generation instead of structured mode.",
+            "default": true
+          },
+          "language": {
+            "type": "string",
+            "maxLength": 8,
+            "minLength": 2,
+            "title": "Language",
+            "description": "Preferred language for the resulting lesson content.",
+            "default": "en"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GenerationConfig",
+        "description": "Tunable configuration for lesson generation."
+      },
+      "GenerationConstraints": {
+        "properties": {
+          "primaryLanguage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primarylanguage"
+          },
+          "learnerLevel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learnerlevel"
+          },
+          "length": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "Highlights",
+                  "Detailed",
+                  "Training"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections"
+          }
+        },
+        "type": "object",
+        "title": "GenerationConstraints",
+        "description": "Specific constraints for lesson content generation."
+      },
+      "GenerationModel": {
+        "type": "string",
+        "enum": [
+          "gemini-2.5-pro",
+          "gemini-2.5-flash",
+          "gemini-2.0-flash",
+          "gemini-2.0-flash-exp",
+          "gemini-pro-latest",
+          "gemini-flash-latest",
+          "openai/gpt-4o-mini",
+          "openai/gpt-4o",
+          "anthropic/claude-3.5-sonnet",
+          "google/gemini-2.0-flash-exp:free"
+        ],
+        "title": "GenerationModel",
+        "description": "Supported model identifiers exposed to clients."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JobCreateResponse": {
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "title": "Jobid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jobId"
+        ],
+        "title": "JobCreateResponse",
+        "description": "Response payload for job creation."
+      },
+      "JobStatusResponse": {
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "title": "Jobid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "error",
+              "canceled"
+            ],
+            "title": "Status"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "subphase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subphase"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress",
+            "description": "Normalized progress indicator when available."
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Logs"
+          },
+          "request": {
+            "$ref": "#/components/schemas/GenerateLessonRequest-Output"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jobId",
+          "status",
+          "request",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "JobStatusResponse",
+        "description": "Status payload for an asynchronous lesson generation job."
+      },
+      "LessonMeta": {
+        "properties": {
+          "provider_a": {
+            "type": "string",
+            "title": "Provider A"
+          },
+          "model_a": {
+            "type": "string",
+            "title": "Model A"
+          },
+          "provider_b": {
+            "type": "string",
+            "title": "Provider B"
+          },
+          "model_b": {
+            "type": "string",
+            "title": "Model B"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "title": "Latency Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider_a",
+          "model_a",
+          "provider_b",
+          "model_b",
+          "latency_ms"
+        ],
+        "title": "LessonMeta",
+        "description": "Metadata about the lesson generation process."
+      },
+      "LessonRecordResponse": {
+        "properties": {
+          "lesson_id": {
+            "type": "string",
+            "title": "Lesson Id"
+          },
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "lesson_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Lesson Json"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LessonMeta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lesson_id",
+          "topic",
+          "title",
+          "created_at",
+          "schema_version",
+          "prompt_version",
+          "lesson_json",
+          "meta"
+        ],
+        "title": "LessonRecordResponse",
+        "description": "Response payload for lesson retrieval."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationLevel": {
+        "type": "string",
+        "enum": [
+          "basic",
+          "strict"
+        ],
+        "title": "ValidationLevel",
+        "description": "Supported validation strictness levels."
+      },
+      "ValidationResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "errors"
+        ],
+        "title": "ValidationResponse",
+        "description": "Response model for lesson validation results."
+      },
+      "WritingCheckRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Text",
+            "description": "The user-written response to check (max 300 words)."
+          },
+          "criteria": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Criteria",
+            "description": "The evaluation criteria from the lesson."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "criteria"
+        ],
+        "title": "WritingCheckRequest",
+        "description": "Request payload for response evaluation."
+      }
+    }
+  }
+}

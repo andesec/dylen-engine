@@ -5,16 +5,25 @@ VENV_MARKER := $(VENV_DIR)/.deps_installed
 APP_DIR := dgs-backend
 PORT ?= 8080
 
-.PHONY: install dev lint format typecheck test sam-local openapi run
+.PHONY: install dev dev-stop lint format typecheck test sam-local openapi run
 
 install:
 	$(PYTHON) -m pip install --upgrade pip
 	$(PYTHON) -m pip install -e .[dev]
 
 dev: openapi
+	@echo "Starting DynamoDB Local..."
+	@docker-compose up -d
+	@echo "Waiting for DynamoDB to be ready..."
+	@sleep 5
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	PORT=$${PORT:-$(PORT)}; \
+	echo "Starting FastAPI app on port $$PORT..."; \
 	cd $(APP_DIR) && $(PYTHON) -m uvicorn app.main:app --reload --host 0.0.0.0 --port $$PORT
+
+dev-stop:
+	@echo "Stopping DynamoDB Local..."
+	@docker-compose down
 
 format:
 	$(PYTHON) -m black $(APP_DIR)

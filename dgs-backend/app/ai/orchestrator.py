@@ -78,16 +78,20 @@ class DgsOrchestrator:
         def _report_progress(phase_name: str, msg: str) -> None:
             if progress_callback:
                 progress_callback(phase_name, [msg])
-
+        
         # Log model selection
         gatherer_model_name = gatherer_model or self._gatherer_model_name
         structurer_model_name = structurer_model or self._structurer_model_name
 
-        log_msg = f"Starting generation for topic: '{topic[:50]}...' if len(topic) >= 50 else topic"
+        log_msg = f"Starting generation for topic: '{topic[:50] + '...' if len(topic) >= 50 else topic}'"
         logs.append(log_msg)
         logger.info(log_msg)
 
         log_msg = f"Gatherer: {self._gatherer_provider}/{gatherer_model_name or 'default'}"
+        logs.append(log_msg)
+        logger.info(log_msg)
+
+        log_msg = f"Structurer: {self._structurer_provider}/{structurer_model_name or 'default'}"
         logs.append(log_msg)
         logger.info(log_msg)
 
@@ -99,10 +103,6 @@ class DgsOrchestrator:
             constraints=constraints,
             language=language,
         )
-
-        def _report_progress(phase: str, message: str) -> None:
-            if progress_callback:
-                progress_callback(phase, [message])
 
         log_msg = "Running gatherer agent..."
         logs.append(log_msg)
@@ -131,6 +131,8 @@ class DgsOrchestrator:
         # 2. STRUCTURE PHASE
         length = (constraints or {}).get("length", "Highlights")
         sections_count = (constraints or {}).get("sections", 1)
+        knowledge_base = gatherer_response.content
+        structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name)
 
         try:
             if length == "Training":
@@ -375,10 +377,13 @@ class DgsOrchestrator:
             return res.content
         else:
             # Fallback (simplified for brevity here)
-            raw = await structurer.generate(prompt_text + "\n\nOutput ONLY valid JSON.")
-            if raw.usage:
-                all_usage.append({"model": _model_name(structurer), "purpose": "structure_highlights_raw", **raw.usage})
-            return cast(dict[str, Any], json.loads(raw.content))
+            try:
+                raw = await structurer.generate(prompt_text + "\n\nOutput ONLY valid JSON.")
+                if raw.usage:
+                    all_usage.append({"model": _model_name(structurer), "purpose": "structure_highlights_raw", **raw.usage})
+                return cast(dict[str, Any], json.loads(raw.content))
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"Failed to parse JSON from model response: {e}") from e
 
     async def _generate_detailed(
         self,
@@ -439,14 +444,18 @@ class DgsOrchestrator:
                 "sections": {"type": "array", "items": {"type": "object", "properties": {"title": {"type": "string"}}}}
             }
         }
-        res_plan = await structurer.generate_structured(plan_prompt, _sanitize_schema_for_gemini(plan_schema))
-        if res_plan.usage:
-            all_usage.append({"model": _model_name(structurer), "purpose": "structure_training_plan", **res_plan.usage})
+        try:
+            res_plan = await structurer.generate_structured(plan_prompt, _sanitize_schema_for_gemini(plan_schema))
+            if res_plan.usage:
+                all_usage.append({"model": _model_name(structurer), "purpose": "structure_training_plan", **res_plan.usage})
+        except Exception as e:
+            raise RuntimeError(f"Failed to generate training plan: {e}") from e
             
         # 2. Generate sections
         final_sections = []
         for i in range(sections_count):
-            title = res_plan.content["sections"][i]["title"] if i < len(res_plan.content["sections"]) else f"Section {i+1}"
+            section_data = res_plan.content.get("sections", [])
+            title = section_data[i].get("title", f"Section {i+1}") if i < len(section_data) else f"Section {i+1}"
             if progress_callback:
                 progress_callback("transform", [f"Generating section {i+1}/{sections_count}: {title}"])
                 
@@ -543,14 +552,20 @@ def _render_repair_prompt(
 
 @lru_cache(maxsize=1)
 def _load_prompt(name: str) -> str:
-    path = Path(__file__).with_name("prompts") / name
-    return path.read_text(encoding="utf-8").strip()
+    try:
+        path = Path(__file__).with_name("prompts") / name
+        return path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, PermissionError, UnicodeDecodeError) as e:
+        raise RuntimeError(f"Failed to load prompt '{name}': {e}") from e
 
 
 @lru_cache(maxsize=1)
 def _load_widgets_text() -> str:
-    path = Path(__file__).parents[1] / "schema" / "widgets.md"
-    return path.read_text(encoding="utf-8").strip()
+    try:
+        path = Path(__file__).parents[1] / "schema" / "widgets.md"
+        return path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, PermissionError, UnicodeDecodeError) as e:
+        raise RuntimeError(f"Failed to load widgets documentation: {e}") from e
 
 
 @lru_cache(maxsize=1)
@@ -561,49 +576,162 @@ def _lesson_json_schema() -> dict[str, Any]:
 
 
 def _sanitize_schema_for_gemini(schema: Any) -> Any:
-    """
-    Sanitize JSON schema for Gemini SDK compatibility.
+    """\
+    Sanitize a JSON Schema for Gemini SDK structured output.
 
-    1. Removes 'null' from anyOf/type (Gemini SDK crashes on null types).
-    2. Simplifies schemas that are just a single type union.
-    3. Heuristically identifies and breaks recursion where possible (SDK RecursionError).
+    The google-genai schema transformer is strict and can crash if it encounters
+    non-schema arrays (e.g., `required: ["a", "b"]`) or unexpected primitives in
+    places it assumes are schema objects.
+
+    Strategy:
+    - Keep a minimal subset of JSON Schema keywords.
+    - Drop metadata keys (title/description/examples/default/etc.).
+    - Drop `required` entirely (we validate with our own validator afterwards).
+    - Replace `$ref` nodes with a permissive object schema to avoid transformer errors.
+
+    This produces a looser schema that Gemini can accept; correctness is enforced
+    by post-validation + repair.
     """
-    if not isinstance(schema, dict):
-        if isinstance(schema, list):
-            return [_sanitize_schema_for_gemini(item) for item in schema]
+
+    if schema is None:
+        return {"type": "object"}
+
+    # Primitives in schema positions can crash the transformer.
+    if isinstance(schema, str):
+        return {"type": "object"}
+
+    if isinstance(schema, (int, float, bool)):
         return schema
 
-    # Clone to avoid mutating the original
-    cleaned = dict(schema)
+    if isinstance(schema, list):
+        # Only keep dict-like schemas in lists; drop primitives like strings.
+        out: list[Any] = []
+        for item in schema:
+            if isinstance(item, dict):
+                out.append(_sanitize_schema_for_gemini(item))
+        return out
 
-    # 1. Handle anyOf/oneOf (remove nulls)
-    for key in ("anyOf", "oneOf"):
-        if key in cleaned:
-            options = cleaned[key]
-            # Remove null entries
-            filtered = [
-                opt for opt in options if not (isinstance(opt, dict) and opt.get("type") == "null")
-            ]
-            if len(filtered) == 1:
-                # If only one remains, collapse it
-                res = _sanitize_schema_for_gemini(filtered[0])
-                # Merge into cleaned, but remove the original union key
-                cleaned.pop(key)
-                cleaned.update(res)
+    if not isinstance(schema, dict):
+        return {"type": "object"}
+
+    # If this node is a $ref, replace it with a permissive object schema.
+    if "$ref" in schema:
+        return {"type": "object"}
+
+    # Allowed keys that Gemini's transformer generally tolerates.
+    ALLOWED_KEYS: set[str] = {
+        "type",
+        "properties",
+        "items",
+        "anyOf",
+        "oneOf",
+        "allOf",
+        "enum",
+        "format",
+        "minimum",
+        "maximum",
+        "minItems",
+        "maxItems",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "additionalProperties",
+    }
+
+    # Keys we explicitly drop (metadata / complex features).
+    DROP_KEYS: set[str] = {
+        "title",
+        "description",
+        "examples",
+        "default",
+        "required",  # required is a list[str] and has triggered crashes
+        "$defs",
+        "definitions",
+    }
+
+    cleaned: dict[str, Any] = {}
+
+    for key, value in schema.items():
+        if value is None:
+            continue
+        if key in DROP_KEYS:
+            continue
+        if key not in ALLOWED_KEYS:
+            # Ignore other JSON Schema keywords to keep transformer happy.
+            continue
+
+        if key == "type":
+            # Pydantic may emit `type: ["string", "null"]`.
+            if isinstance(value, list):
+                types = [t for t in value if isinstance(t, str) and t != "null"]
+                cleaned["type"] = types[0] if types else "object"
+            elif isinstance(value, str) and value != "null":
+                cleaned["type"] = value
             else:
-                cleaned[key] = [_sanitize_schema_for_gemini(item) for item in filtered]
+                cleaned["type"] = "object"
+            continue
 
-    # 2. Convert type: [type, null] to type: type
-    if isinstance(cleaned.get("type"), list):
-        types = [t for t in cleaned["type"] if t != "null"]
-        if len(types) == 1:
-            cleaned["type"] = types[0]
+        if key in ("anyOf", "oneOf", "allOf"):
+            if isinstance(value, list):
+                schemas: list[dict[str, Any]] = []
+                for item in value:
+                    if (
+                        isinstance(item, dict)
+                        and item.get("type") != "null"
+                        and "$ref" not in item
+                    ):
+                        schemas.append(cast(dict[str, Any], _sanitize_schema_for_gemini(item)))
+                if schemas:
+                    cleaned[key] = schemas
+            continue
+
+        if key == "properties":
+            if isinstance(value, dict):
+                props: dict[str, Any] = {}
+                for prop_name, prop_schema in value.items():
+                    if isinstance(prop_schema, dict):
+                        props[prop_name] = _sanitize_schema_for_gemini(prop_schema)
+                    else:
+                        # Coerce unexpected property schema primitives.
+                        props[prop_name] = {"type": "object"}
+                cleaned["properties"] = props
+            continue
+
+        if key == "items":
+            if isinstance(value, dict):
+                cleaned["items"] = _sanitize_schema_for_gemini(value)
+            elif isinstance(value, list):
+                # Prefer first dict-like schema.
+                first = next((v for v in value if isinstance(v, dict)), None)
+                cleaned["items"] = _sanitize_schema_for_gemini(first) if first else {"type": "object"}
+            else:
+                cleaned["items"] = {"type": "object"}
+            continue
+
+        if key == "additionalProperties":
+            # Can be bool or schema.
+            if isinstance(value, bool):
+                cleaned["additionalProperties"] = value
+            elif isinstance(value, dict):
+                cleaned["additionalProperties"] = _sanitize_schema_for_gemini(value)
+            else:
+                cleaned["additionalProperties"] = True
+            continue
+
+        # Simple scalar keys
+        if isinstance(value, (str, int, float, bool)):
+            cleaned[key] = value
+        elif isinstance(value, dict):
+            cleaned[key] = _sanitize_schema_for_gemini(value)
+        # else: drop
+
+    # Ensure we always have a type for object schemas.
+    if "type" not in cleaned:
+        if "properties" in cleaned:
+            cleaned["type"] = "object"
+        elif "items" in cleaned:
+            cleaned["type"] = "array"
         else:
-            cleaned["type"] = types
-
-    # Recursive cleaning
-    for k, v in cleaned.items():
-        if k not in ("anyOf", "oneOf"):  # Already handled
-            cleaned[k] = _sanitize_schema_for_gemini(v)
+            cleaned["type"] = "object"
 
     return cleaned

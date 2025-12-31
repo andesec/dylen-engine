@@ -6,8 +6,15 @@
         "description": "Request payload for lesson generation.",
         "properties": {
           "config": {
-            "$ref": "#/components/schemas/GenerationConfig",
-            "description": "Configurable generation parameters."
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional generation parameters with sensible defaults."
           },
           "constraints": {
             "anyOf": [
@@ -69,8 +76,15 @@
         "description": "Request payload for lesson generation.",
         "properties": {
           "config": {
-            "$ref": "#/components/schemas/GenerationConfig",
-            "description": "Configurable generation parameters."
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional generation parameters with sensible defaults."
           },
           "constraints": {
             "anyOf": [
@@ -172,7 +186,7 @@
             "type": "string"
           },
           "max_output_tokens": {
-            "default": 4096,
+            "default": 8192,
             "description": "Upper bound on tokens produced during structured generation.",
             "maximum": 65536.0,
             "minimum": 256.0,
@@ -181,7 +195,7 @@
           },
           "model": {
             "$ref": "#/components/schemas/GenerationModel",
-            "default": "openai/gpt-4o-mini",
+            "default": "gemini-2.5-flash",
             "description": "Model used for lesson structuring."
           },
           "structured_output": {
@@ -191,7 +205,7 @@
             "type": "boolean"
           },
           "temperature": {
-            "default": 0.4,
+            "default": 0.2,
             "description": "Sampling temperature for the generation pipeline.",
             "maximum": 2.0,
             "minimum": 0.0,

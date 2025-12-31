@@ -202,17 +202,17 @@ class GenerationConfig(BaseModel):
     """Tunable configuration for lesson generation."""
 
     model: GenerationModel = Field(
-        default=GenerationModel.GPT4O_MINI,
+        default=GenerationModel.GEMINI_25_FLASH,
         description="Model used for lesson structuring.",
     )
     temperature: StrictFloat = Field(
-        default=0.4,
+        default=0.2,
         ge=0.0,
         le=2.0,
         description="Sampling temperature for the generation pipeline.",
     )
     max_output_tokens: StrictInt = Field(
-        default=4096,
+        default=8192,
         ge=256,
         le=65536,
         description="Upper bound on tokens produced during structured generation.",
@@ -242,8 +242,8 @@ class GenerateLessonRequest(BaseModel):
         min_length=1,
         description="User-supplied guidance (max 250 words).",
     )
-    config: GenerationConfig = Field(
-        default_factory=GenerationConfig, description="Configurable generation parameters."
+    config: GenerationConfig | None = Field(
+        default=None, description="Optional generation parameters with sensible defaults."
     )
     schema_version: StrictStr | None = Field(
         default=None, description="Optional schema version to pin the lesson output to."
@@ -570,21 +570,23 @@ async def generate_lesson(  # noqa: B008
     _validate_generate_request(request, settings)
 
     start = time.monotonic()
-    structurer_provider, structurer_model = _resolve_structurer_selection(settings, request.config)
+    # Use default config if none provided
+    config = request.config or GenerationConfig()
+    structurer_provider, structurer_model = _resolve_structurer_selection(settings, config)
     orchestrator = _get_orchestrator(
         settings,
         structurer_provider=structurer_provider,
         structurer_model=structurer_model,
     )
-    constraints = _build_constraints(request.config, request.constraints)
+    constraints = _build_constraints(config, request.constraints)
     result = await orchestrator.generate_lesson(
         topic=request.topic,
         prompt=request.prompt,
         constraints=constraints,
         schema_version=request.schema_version or settings.schema_version,
         structurer_model=structurer_model,
-        structured_output=request.config.structured_output,
-        language=request.config.language,
+        structured_output=config.structured_output,
+        language=config.language,
     )
 
     ok, errors, lesson_model = validate_lesson(result.lesson_json)
