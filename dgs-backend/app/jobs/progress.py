@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from math import ceil
 from typing import Any
 
 from app.jobs.models import JobRecord, JobStatus
@@ -21,8 +22,9 @@ class JobCanceledError(Exception):
 class CallPlan:
     """Represents the expected AI call volume for a job."""
 
-    length: str | None
-    sections: int
+    depth: int
+    knowledge_calls: int
+    structurer_calls: int
     required_calls: int
     max_calls: int
 
@@ -36,55 +38,63 @@ class CallPlan:
     def label_prefix(self) -> str:
         """Prefix used for subphase labels."""
 
-        return "section" if (self.length or "").lower() == "training" else "ai_call"
+        return "ai_call"
 
-    def total_steps(self, *, include_validation: bool = True, include_repair: bool = False) -> int:
+    def total_steps(self, *, include_validation: bool = True, include_repair: bool = True) -> int:
         """Compute the total number of progress steps."""
 
-        calls = self.total_ai_calls + (1 if include_repair else 0)
-        return calls + (1 if include_validation else 0)
+        steps = self.knowledge_calls + (self.depth * 3) + 1
+        if not include_repair:
+            steps -= self.depth
+        if include_validation:
+            steps += 1
+        return max(steps, 1)
 
 
-def _coerce_sections(raw_sections: Any) -> int:
-    """Validate and normalize the requested section count."""
+def _coerce_depth(raw_depth: Any) -> int:
+    """Validate and normalize the requested depth."""
 
-    if raw_sections is None:
-        return 1
+    if raw_depth is None:
+        return 2
     try:
-        sections = int(raw_sections)
+        depth = int(raw_depth)
     except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-        raise ValueError("Section count must be an integer.") from exc
-    if sections <= 0:
-        raise ValueError("Section count must be positive.")
-    if sections > 10:
-        raise ValueError("Section count exceeds the maximum of 10.")
-    return sections
+        raise ValueError("Depth must be an integer between 2 and 10.") from exc
+    if depth < 2:
+        raise ValueError("Depth must be at least 2.")
+    if depth > 10:
+        raise ValueError("Depth exceeds the maximum of 10.")
+    return depth
 
 
 def build_call_plan(request_data: Mapping[str, Any]) -> CallPlan:
     """Derive an AI call plan from the raw job request payload."""
 
     constraints = request_data.get("constraints") or {}
-    length = constraints.get("length")
-    sections = _coerce_sections(constraints.get("sections"))
+    depth = _coerce_depth(constraints.get("depth"))
 
-    if length == "Highlights":
-        required_calls, cap = 1, 2
-    elif length == "Detailed":
-        required_calls, cap = 2, 6
-    elif length == "Training":
-        required_calls = sections
-        cap = min(24, sections)
-    else:
-        required_calls, cap = 2, 6
+    knowledge_calls = ceil(depth / 2)
+    structurer_calls = depth
+    total_calls = knowledge_calls + structurer_calls
 
-    if required_calls > cap:
-        raise ValueError(
-            f"Requested call volume ({required_calls}) exceeds the cap for {length or 'default'} "
-            f"({cap})."
-        )
+    max_knowledge_calls = 5
+    max_structurer_calls = 10
+    max_total_calls = 15
 
-    return CallPlan(length=length, sections=sections, required_calls=required_calls, max_calls=cap)
+    if knowledge_calls > max_knowledge_calls:
+        raise ValueError("Lower depth to reduce knowledge calls.")
+    if structurer_calls > max_structurer_calls:
+        raise ValueError("Lower depth to reduce structurer calls.")
+    if total_calls > max_total_calls:
+        raise ValueError("Lower depth to reduce total calls.")
+
+    return CallPlan(
+        depth=depth,
+        knowledge_calls=knowledge_calls,
+        structurer_calls=structurer_calls,
+        required_calls=total_calls,
+        max_calls=max_total_calls,
+    )
 
 
 class JobProgressTracker:
@@ -141,17 +151,19 @@ class JobProgressTracker:
             phase=phase,
             subphase=subphase,
             progress=self._progress_percent(),
+            total_steps=self._total_steps,
+            completed_steps=self._completed_steps,
             logs=self._logs,
         )
         if record and record.status == "canceled":
             raise JobCanceledError(f"Job {self._job_id} was canceled.")
         return record
 
-    def set_cost(self, usage: list[dict[str, Any]], total: float) -> JobRecord | None:
+    def set_cost(self, cost: dict[str, Any]) -> JobRecord | None:
         """Update the job's cost metrics."""
         return self._jobs_repo.update_job(
             self._job_id,
-            cost={"total": total, "calls": usage},
+            cost=cost,
             updated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         )
 
@@ -170,6 +182,20 @@ class JobProgressTracker:
         record = self._update_job(status="running", phase=phase, subphase=subphase)
         self._ai_call_index = min(self._ai_call_index + 1, self._total_ai_calls)
         return record
+
+    def complete_step(
+        self,
+        *,
+        phase: str,
+        subphase: str | None,
+        message: str | None = None,
+    ) -> JobRecord | None:
+        """Advance progress with a custom subphase label."""
+
+        if message:
+            self.add_logs(message)
+        self._completed_steps = min(self._completed_steps + 1, self._total_steps)
+        return self._update_job(status="running", phase=phase, subphase=subphase)
 
     def complete_validation(
         self, *, message: str | None = None, status: JobStatus = "running"

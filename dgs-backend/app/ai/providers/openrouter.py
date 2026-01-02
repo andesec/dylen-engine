@@ -29,9 +29,19 @@ class OpenRouterModel(AIModel):
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is required")
 
+        # OpenRouter uses the OpenAI-compatible API; we add optional attribution headers.
+        default_headers = {}
+        referer = os.getenv("OPENROUTER_HTTP_REFERER")
+        if referer:
+            default_headers["HTTP-Referer"] = referer
+        title = os.getenv("OPENROUTER_TITLE")
+        if title:
+            default_headers["X-Title"] = title
+
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or "https://openrouter.ai/api/v1",
+            default_headers=default_headers or None,
         )
 
     async def generate(self, prompt: str) -> ModelResponse:
@@ -101,14 +111,16 @@ class OpenRouterModel(AIModel):
 class OpenRouterProvider(Provider):
     """OpenRouter provider."""
 
-    _DEFAULT_MODEL: Final[str] = "openai/gpt-4o-mini"
+    _DEFAULT_MODEL: Final[str] = "openai/gpt-oss-20b:free"
     _AVAILABLE_MODELS: Final[set[str]] = {
-        "openai/gpt-4o-mini",
-        "openai/gpt-4o",
-        "anthropic/claude-3.5-sonnet",
-        "google/gemini-2.0-flash-exp:free",
-        "google/gemini-2.0-flash-lite-preview-02-05:free",
-        "google/gemini-2.0-pro-exp-02-05:free",
+        # KnowledgeBuilder options (from integration specs).
+        "xiaomi/mimo-v2-flash:free",
+        "deepseek/deepseek-r1-0528:free",
+        "openai/gpt-oss-120b:free",
+        # Structurer options (from integration specs).
+        "openai/gpt-oss-20b:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemma-3-27b-it:free",
     }
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:

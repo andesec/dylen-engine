@@ -188,74 +188,69 @@ class ValidationResponse(BaseModel):
     errors: list[str]
 
 
-class ValidationLevel(str, Enum):
-    """Supported validation strictness levels."""
+class GenerationMode(str, Enum):
+    """Quality/speed tradeoff for lesson generation."""
 
-    BASIC = "basic"
-    STRICT = "strict"
+    FAST = "fast"
+    BALANCED = "balanced"
+    BEST = "best"
 
 
-class GenerationModel(str, Enum):
-    """Supported model identifiers exposed to clients."""
+class KnowledgeModel(str, Enum):
+    """Model options for the knowledge collection agent."""
 
-    GEMINI_25_PRO = "gemini-2.5-pro"
     GEMINI_25_FLASH = "gemini-2.5-flash"
-    GEMINI_20_FLASH = "gemini-2.0-flash"
-    GEMINI_20_FLASH_EXP = "gemini-2.0-flash-exp"
-    GEMINI_PRO_LATEST = "gemini-pro-latest"
-    GEMINI_FLASH_LATEST = "gemini-flash-latest"
-    GPT4O_MINI = "openai/gpt-4o-mini"
-    GPT4O = "openai/gpt-4o"
-    CLAUDE_35_SONNET = "anthropic/claude-3.5-sonnet"
-    GEMINI_FLASH_FREE = "google/gemini-2.0-flash-exp:free"
+    GEMINI_25_PRO = "gemini-2.5-pro"
+    XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash:free"
+    DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
+    GPT_OSS_120B = "openai/gpt-oss-120b:free"
+
+
+class StructurerModel(str, Enum):
+    """Model options for the structuring agent."""
+
+    GEMINI_25_FLASH = "gemini-2.5-flash"
+    GPT_OSS_20B = "openai/gpt-oss-20b:free"
+    LLAMA_33_70B = "meta-llama/llama-3.3-70b-instruct:free"
+    GEMMA_3_27B = "google/gemma-3-27b-it:free"
 
 
 class GenerationConstraints(BaseModel):
     """Specific constraints for lesson content generation."""
 
-    primaryLanguage: str | None = Field(default="English", alias="primaryLanguage")
-    learnerLevel: str | None = Field(default="Beginner", alias="learnerLevel")
-    length: Literal["Highlights", "Detailed", "Training"] | None = Field(
-        default=None, alias="length"
+    primaryLanguage: Literal["English", "German", "Urdu"] | None = Field(
+        default="English", alias="primaryLanguage"
     )
-    sections: StrictInt | None = Field(default=None, ge=1, le=10, alias="sections")
+    learnerLevel: Literal["Newbie", "Beginner", "Intermediate", "Expert"] | None = Field(
+        default=None, alias="learnerLevel"
+    )
+    depth: Literal[
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+    ] | None = Field(default="2", alias="depth")
 
     model_config = ConfigDict(populate_by_name=True)
 
 
-class GenerationConfig(BaseModel):
-    """Tunable configuration for lesson generation."""
+class ModelsConfig(BaseModel):
+    """Per-agent model selection overrides."""
 
-    model: GenerationModel = Field(
-        default=GenerationModel.GEMINI_25_FLASH,
+    knowledge_model: KnowledgeModel = Field(
+        default=KnowledgeModel.GEMINI_25_FLASH,
+        description="Model used for knowledge collection.",
+    )
+    structurer_model: StructurerModel = Field(
+        default=StructurerModel.GEMINI_25_FLASH,
         description="Model used for lesson structuring.",
     )
-    temperature: StrictFloat = Field(
-        default=0.2,
-        ge=0.0,
-        le=2.0,
-        description="Sampling temperature for the generation pipeline.",
-    )
-    max_output_tokens: StrictInt = Field(
-        default=8192,
-        ge=256,
-        le=65536,
-        description="Upper bound on tokens produced during structured generation.",
-    )
-    validation_level: ValidationLevel = Field(
-        default=ValidationLevel.STRICT,
-        description="Level of validation applied to the generated lesson.",
-    )
-    structured_output: bool = Field(
-        default=True,
-        description="If false, fall back to raw JSON generation instead of structured mode.",
-    )
-    language: StrictStr = Field(
-        default="en",
-        min_length=2,
-        max_length=8,
-        description="Preferred language for the resulting lesson content.",
-    )
+
     model_config = ConfigDict(extra="forbid")
 
 
@@ -267,13 +262,15 @@ class GenerateLessonRequest(BaseModel):
         description="Topic to generate a lesson for.",
         examples=["Introduction to Python"]
     )
-    prompt: StrictStr = Field(
+    prompt: StrictStr | None = Field(
+        default=None,
         min_length=1,
-        description="User-supplied guidance (max 250 words).",
-        examples=["Focus on lists and loops"]
+        description="Optional user-supplied guidance (max 250 words).",
+        examples=["Focus on lists and loops"],
     )
-    config: GenerationConfig | None = Field(
-        default=None, description="Optional generation parameters with sensible defaults."
+    mode: GenerationMode = Field(
+        default=GenerationMode.BALANCED,
+        description="Generation quality mode (fast, balanced, best).",
     )
     schema_version: StrictStr | None = Field(
         default=None, description="Optional schema version to pin the lesson output to."
@@ -284,6 +281,9 @@ class GenerateLessonRequest(BaseModel):
     )
     constraints: GenerationConstraints | None = Field(
         default=None, description="Domain-specific generation constraints."
+    )
+    models: ModelsConfig | None = Field(
+        default=None, description="Optional per-agent model selection overrides."
     )
     model_config = ConfigDict(extra="forbid")
 
@@ -342,11 +342,21 @@ class JobStatusResponse(BaseModel):
     status: JobStatus
     phase: StrictStr | None = None
     subphase: StrictStr | None = None
+    total_steps: StrictInt | None = Field(
+        default=None,
+        ge=1,
+        description="Total number of progress steps when available.",
+    )
+    completed_steps: StrictInt | None = Field(
+        default=None,
+        ge=0,
+        description="Completed progress steps when available.",
+    )
     progress: StrictFloat | None = Field(
         default=None,
         ge=0.0,
-        le=1.0,
-        description="Normalized progress indicator when available.",
+        le=100.0,
+        description="Progress percent (0-100) when available.",
     )
     logs: list[StrictStr] = Field(default_factory=list)
     request: GenerateLessonRequest
@@ -403,40 +413,84 @@ def _get_jobs_repo(settings: Settings) -> DynamoJobsRepository:
     )
 
 
-_GEMINI_STRUCTURER_MODELS = {
-    GenerationModel.GEMINI_20_FLASH_EXP,
-    GenerationModel.GEMINI_20_FLASH,
-    GenerationModel.GEMINI_25_FLASH,
-    GenerationModel.GEMINI_25_PRO,
-    GenerationModel.GEMINI_FLASH_LATEST,
-    GenerationModel.GEMINI_PRO_LATEST,
+_GEMINI_KNOWLEDGE_MODELS = {
+    KnowledgeModel.GEMINI_25_FLASH,
+    KnowledgeModel.GEMINI_25_PRO,
 }
+
+_OPENROUTER_KNOWLEDGE_MODELS = {
+    KnowledgeModel.XIAOMI_MIMO_V2_FLASH,
+    KnowledgeModel.DEEPSEEK_R1_0528,
+    KnowledgeModel.GPT_OSS_120B,
+}
+
+_GEMINI_STRUCTURER_MODELS = {StructurerModel.GEMINI_25_FLASH}
 
 _OPENROUTER_STRUCTURER_MODELS = {
-    GenerationModel.GPT4O_MINI,
-    GenerationModel.GPT4O,
-    GenerationModel.CLAUDE_35_SONNET,
-    GenerationModel.GEMINI_FLASH_FREE,
+    StructurerModel.GPT_OSS_20B,
+    StructurerModel.LLAMA_33_70B,
+    StructurerModel.GEMMA_3_27B,
 }
 
+DEFAULT_KNOWLEDGE_MODEL = KnowledgeModel.GEMINI_25_FLASH.value
 
-def _resolve_structurer_selection(
-    settings: Settings, config: GenerationConfig | None
-) -> tuple[str, str | None]:
+
+def _resolve_model_selection(
+    settings: Settings,
+    *,
+    mode: GenerationMode | None,
+    models: ModelsConfig | None,
+) -> tuple[str, str | None, str, str | None]:
     """
-    Derive the structurer provider + model based on the user config.
+    Derive gatherer and structurer providers/models based on request settings.
 
-    Falls back to environment defaults when no config is provided.
+    Falls back to environment defaults when user input is missing.
     """
-    if config is None:
-        return settings.structurer_provider, settings.structurer_model
+    # Default to balanced unless the caller explicitly chooses a different mode.
+    selected_mode = mode or GenerationMode.BALANCED
 
-    if config.model in _GEMINI_STRUCTURER_MODELS:
-        return "gemini", config.model.value
-    if config.model in _OPENROUTER_STRUCTURER_MODELS:
-        return "openrouter", config.model.value
-    # Default to settings if we cannot infer a provider
-    return settings.structurer_provider, config.model.value
+    # Respect per-agent overrides when provided, otherwise use environment defaults.
+    if models is not None:
+        knowledge_model = models.knowledge_model.value
+        structurer_model = models.structurer_model.value
+    else:
+        knowledge_model = settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
+        structurer_model = _structurer_model_for_mode(settings, selected_mode)
+
+    gatherer_provider = _provider_for_knowledge_model(settings, knowledge_model)
+    structurer_provider = _provider_for_structurer_model(settings, structurer_model)
+    return gatherer_provider, knowledge_model, structurer_provider, structurer_model
+
+
+def _structurer_model_for_mode(settings: Settings, mode: GenerationMode) -> str | None:
+    # Map mode to an environment-configured model preference.
+    if mode == GenerationMode.FAST:
+        return settings.structurer_model_fast or settings.structurer_model
+    if mode == GenerationMode.BEST:
+        return settings.structurer_model_best or settings.structurer_model
+    return settings.structurer_model_balanced or settings.structurer_model
+
+
+def _provider_for_knowledge_model(settings: Settings, model_name: str | None) -> str:
+    # Keep provider routing consistent even if the model list evolves.
+    if not model_name:
+        return settings.gatherer_provider
+    if model_name in {model.value for model in _GEMINI_KNOWLEDGE_MODELS}:
+        return "gemini"
+    if model_name in {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS}:
+        return "openrouter"
+    return settings.gatherer_provider
+
+
+def _provider_for_structurer_model(settings: Settings, model_name: str | None) -> str:
+    # Keep provider routing consistent even if the model list evolves.
+    if not model_name:
+        return settings.structurer_provider
+    if model_name in {model.value for model in _GEMINI_STRUCTURER_MODELS}:
+        return "gemini"
+    if model_name in {model.value for model in _OPENROUTER_STRUCTURER_MODELS}:
+        return "openrouter"
+    return settings.structurer_provider
 
 
 def _require_dev_key(  # noqa: B008
@@ -472,14 +526,6 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
             detail="Request payload is too large for persistence.",
         )
     
-    # Model validation ...
-    if request.config and request.config.model:
-        model_val = request.config.model
-        if not any(model_val in group for group in (_GEMINI_STRUCTURER_MODELS, _OPENROUTER_STRUCTURER_MODELS)):
-            # If not in our enum, it might be a raw string if we allow it, 
-            # but if it's an enum we already validated at Pydantic level.
-            pass
-
     constraints = (
         request.constraints.model_dump(mode="python", by_alias=True) if request.constraints else {}
     )
@@ -511,18 +557,20 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
         )
 
 
-def _build_constraints(
-    config: GenerationConfig | None, constraints: GenerationConstraints | None = None
-) -> dict[str, Any] | None:
-    """Translate user config into orchestration constraints."""
-    out: dict[str, Any] = {}
-    if config and config.language:
-        out["language"] = config.language
+def _build_constraints(constraints: GenerationConstraints | None) -> dict[str, Any] | None:
+    """Translate user constraints into orchestration constraints."""
+    if not constraints:
+        return None
+    # Use aliases to keep API fields aligned with OpenAPI and DLE.
+    return constraints.model_dump(mode="python", by_alias=True, exclude_none=True)
 
-    if constraints:
-        out.update(constraints.model_dump(mode="python", by_alias=True, exclude_none=True))
 
-    return out or None
+def _resolve_primary_language(constraints: GenerationConstraints | None) -> str | None:
+    """Return the requested primary language for orchestration prompts."""
+    # This feeds prompt guidance but does not change response schema.
+    if constraints and constraints.primaryLanguage:
+        return constraints.primaryLanguage
+    return None
 
 
 def _compute_job_ttl(settings: Settings) -> int | None:
@@ -550,6 +598,8 @@ def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
         status=record.status,
         phase=record.phase,
         subphase=record.subphase,
+        total_steps=record.total_steps,
+        completed_steps=record.completed_steps,
         progress=record.progress,
         logs=record.logs or [],
         request=request,
@@ -599,23 +649,29 @@ async def generate_lesson(  # noqa: B008
     _validate_generate_request(request, settings)
 
     start = time.monotonic()
-    # Use default config if none provided
-    config = request.config or GenerationConfig()
-    structurer_provider, structurer_model = _resolve_structurer_selection(settings, config)
+    gatherer_provider, gatherer_model, structurer_provider, structurer_model = _resolve_model_selection(
+        settings,
+        mode=request.mode,
+        models=request.models,
+    )
     orchestrator = _get_orchestrator(
         settings,
+        gatherer_provider=gatherer_provider,
+        gatherer_model=gatherer_model,
         structurer_provider=structurer_provider,
         structurer_model=structurer_model,
     )
-    constraints = _build_constraints(config, request.constraints)
+    constraints = _build_constraints(request.constraints)
+    language = _resolve_primary_language(request.constraints)
     result = await orchestrator.generate_lesson(
         topic=request.topic,
         prompt=request.prompt,
         constraints=constraints,
         schema_version=request.schema_version or settings.schema_version,
         structurer_model=structurer_model,
-        structured_output=config.structured_output,
-        language=config.language,
+        gatherer_model=gatherer_model,
+        structured_output=True,
+        language=language,
     )
 
     ok, errors, lesson_model = validate_lesson(result.lesson_json)
@@ -796,7 +852,7 @@ async def cancel_job(  # noqa: B008
         status="canceled",
         phase="canceled",
         subphase=None,
-        progress=1.0,
+        progress=100.0,
         logs=record.logs + ["Job cancellation requested by client."],
         completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     )

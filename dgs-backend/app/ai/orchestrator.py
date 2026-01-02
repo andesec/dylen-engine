@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
+from math import ceil
 from pathlib import Path
 from typing import Any, cast
 
-from app.ai.providers.base import AIModel, SimpleModelResponse
+from app.ai.providers.base import AIModel
 from app.ai.router import get_model_for_mode
-from app.schema.lesson_models import LessonDocument
+from app.schema.lesson_models import LessonDocument, SectionBlock
 from app.schema.widgets_loader import load_widget_registry
 
 
@@ -65,21 +68,23 @@ class DgsOrchestrator:
         structured_output: bool = True,
         language: str | None = None,
         enable_repair: bool = True,
-        progress_callback: Callable[[str, list[str] | None], None] | None = None,
+        progress_callback: Callable[[str, str | None, list[str] | None, bool], None] | None = None,
     ) -> OrchestrationResult:
-        """Run the gatherer and structurer steps and return lesson JSON."""
-        import logging
-
+        """Run the 4-agent pipeline and return lesson JSON."""
         logger = logging.getLogger(__name__)
         logs: list[str] = []
         all_usage: list[dict[str, Any]] = []
         validation_errors: list[str] | None = None
-        
-        def _report_progress(phase_name: str, msg: str) -> None:
+
+        def _report_progress(
+            phase_name: str,
+            subphase: str | None,
+            messages: list[str] | None = None,
+            advance: bool = True,
+        ) -> None:
             if progress_callback:
-                progress_callback(phase_name, [msg])
-        
-        # Log model selection
+                progress_callback(phase_name, subphase, messages, advance)
+
         gatherer_model_name = gatherer_model or self._gatherer_model_name
         structurer_model_name = structurer_model or self._structurer_model_name
 
@@ -95,217 +100,169 @@ class DgsOrchestrator:
         logs.append(log_msg)
         logger.info(log_msg)
 
-        # Step 1: Gatherer
+        # Derive the number of sections from depth for the KnowledgeBuilder batches.
+        depth = _coerce_depth((constraints or {}).get("depth"))
+        knowledge_calls = ceil(depth / 2)
+
         gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name)
-        gatherer_prompt = _render_gatherer_prompt(
-            topic=topic,
-            prompt=prompt,
-            constraints=constraints,
-            language=language,
-        )
+        sections: dict[int, dict[str, Any]] = {}
 
-        log_msg = "Running gatherer agent..."
-        logs.append(log_msg)
-        logger.info(log_msg)
-        logger.debug(f"Gatherer Prompt:\n{gatherer_prompt}")
-
-        try:
-            # BYPASS: Loading gatherer output from local file instead of AI call
-            bypass_path = Path(__file__).parents[2] / "temp_gatherer_output.md"
-            log_msg = f"Using local content from {bypass_path.name} (AI call commented out)"
-            logs.append(log_msg)
-            logger.info(log_msg)
-            
-            content = bypass_path.read_text(encoding="utf-8")
-            gatherer_response = SimpleModelResponse(content=content, usage=None)
-            
-            # The actual AI call is commented out below:
-            # gatherer_response = await gatherer_model_instance.generate(gatherer_prompt)
-            # if gatherer_response.usage:
-            #     all_usage.append(
-            #         {"model": _model_name(gatherer_model_instance), "purpose": "gather", **gatherer_response.usage}
-            #     )
-        except Exception as e:
-            logger.error(f"Gatherer bypass failed: {e}", exc_info=True)
-            raise RuntimeError(f"Gatherer bypass failed: {e}") from e
-
-        log_msg = f"Gatherer completed ({len(gatherer_response.content)} chars)"
-        logs.append(log_msg)
-        logger.info(log_msg)
-        logger.debug(f"Gatherer Response:\n{gatherer_response.content}")
-        _report_progress("collect", log_msg)
-
-        lesson_schema = _lesson_json_schema()
-        sanitized_schema = _sanitize_schema_for_gemini(lesson_schema)
-
-        # 2. STRUCTURE PHASE
-        length = (constraints or {}).get("length", "Highlights")
-        sections_count = (constraints or {}).get("sections", 1)
-        knowledge_base = gatherer_response.content
-        structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name)
-
-        try:
-            if length == "Training":
-                lesson_json = await self._generate_training(
-                    topic=topic,
-                    prompt=prompt,
-                    knowledge_base=knowledge_base,
-                    sections_count=sections_count,
-                    structurer=structurer_model_instance,
-                    all_usage=all_usage,
-                    logs=logs,
-                    progress_callback=progress_callback,
-                    language=language,
-                )
-            elif length == "Detailed":
-                lesson_json = await self._generate_detailed(
-                    topic=topic,
-                    prompt=prompt,
-                    knowledge_base=knowledge_base,
-                    structurer=structurer_model_instance,
-                    all_usage=all_usage,
-                    logs=logs,
-                    progress_callback=progress_callback,
-                    language=language,
-                )
-            else:
-                lesson_json = await self._generate_highlights(
-                    topic=topic,
-                    prompt=prompt,
-                    knowledge_base=knowledge_base,
-                    structurer=structurer_model_instance,
-                    all_usage=all_usage,
-                    logs=logs,
-                    progress_callback=progress_callback,
-                    language=language,
-                    constraints=constraints,
-                    schema_version=schema_version or self._schema_version,
-                )
-        except Exception as e:
-            logger.error(f"Structure phase failed: {e}", exc_info=True)
-            # Return partial result with usage so far
-            total_cost = self._calculate_total_cost(all_usage)
-            return OrchestrationResult(
-                lesson_json={},
-                provider_a=self._gatherer_provider,
-                model_a=gatherer_model_name,
-                provider_b=self._structurer_provider,
-                model_b=structurer_model_name,
-                logs=logs + [f"FAILED: {str(e)}"],
-                usage=all_usage,
-                total_cost=total_cost,
-                validation_errors=[str(e)]
+        for call_index in range(1, knowledge_calls + 1):
+            section_start = (call_index - 1) * 2 + 1
+            section_end = min(section_start + 1, depth)
+            subphase = f"kb_call_{call_index}_of_{knowledge_calls}"
+            _report_progress(
+                "collect",
+                subphase,
+                [f"KnowledgeBuilder call {call_index}/{knowledge_calls} (sections {section_start}-{section_end})"],
             )
 
-        log_msg = "Structurer completed, validating..."
-        logs.append(log_msg)
-        logger.info(log_msg)
-        _report_progress("transform", log_msg)
-
-        # Import validation and repair utilities
-        from app.ai.deterministic_repair import attempt_deterministic_repair, is_worth_ai_repair
-        from app.schema.validate_lesson import validate_lesson
-
-        # Validate the generated lesson
-        ok, errors, _ = validate_lesson(lesson_json)
-        validation_errors = errors
-
-        if ok:
-            log_msg = "✓ Validation passed on first attempt"
-            logs.append(log_msg)
-            logger.info(log_msg)
-        else:
-            log_msg = f"✗ Validation failed with {len(errors)} error(s)"
-            logs.append(log_msg)
-            logger.warning(log_msg)
-            for error in errors[:3]:  # Log first 3 errors
-                logger.warning(f"  - {error}")
-
-        # Attempt repair if validation fails and repair is enabled
-        if not ok and enable_repair and errors:
-            # Step 1: Try deterministic repair first (no AI call)
-            log_msg = "Attempting deterministic repair..."
-            logs.append(log_msg)
-            logger.info(log_msg)
-
-            repaired_json = attempt_deterministic_repair(lesson_json, errors)
-
-            # Re-validate after deterministic repair
-            ok_after_deterministic, errors_after_deterministic, _ = validate_lesson(repaired_json)
-            validation_errors = errors_after_deterministic
-
-            if ok_after_deterministic:
-                log_msg = "✓ Deterministic repair succeeded"
-                logs.append(log_msg)
-                logger.info(log_msg)
-            else:
-                log_msg = (
-                    f"Deterministic repair reduced errors to {len(errors_after_deterministic)}"
+            # Prompt the KnowledgeBuilder for exactly two sections per call.
+            gatherer_prompt = _render_gatherer_prompt(
+                topic=topic,
+                prompt=prompt,
+                constraints=constraints,
+                language=language,
+                depth=depth,
+                section_start=section_start,
+                section_end=section_end,
+            )
+            logger.debug("Gatherer Prompt:\n%s", gatherer_prompt)
+            gatherer_response = await gatherer_model_instance.generate(gatherer_prompt)
+            if gatherer_response.usage:
+                all_usage.append(
+                    {
+                        "model": _model_name(gatherer_model_instance),
+                        "agent": "KnowledgeBuilder",
+                        "purpose": "collect_batch",
+                        "call_index": f"{call_index}/{knowledge_calls}",
+                        **gatherer_response.usage,
+                    }
                 )
-                logs.append(log_msg)
-                logger.info(log_msg)
+            log_msg = f"KnowledgeBuilder completed batch {call_index}/{knowledge_calls}"
+            logs.append(log_msg)
+            logger.info(log_msg)
 
-            # Step 2: If still invalid and errors are complex, use AI repair
-            if not ok_after_deterministic and is_worth_ai_repair(errors_after_deterministic):
-                log_msg = "Errors are complex, attempting AI repair..."
-                logs.append(log_msg)
-                logger.info(log_msg)
+            # Extract per-section text using deterministic parsing.
+            extracted_sections = _extract_sections_from_batch(gatherer_response.content)
+            if not extracted_sections:
+                raise RuntimeError("KnowledgeBuilder returned no extractable sections.")
+            for section in extracted_sections:
+                section_index = section["index"]
+                if section_index < 1 or section_index > depth:
+                    logs.append(f"Skipping out-of-range section {section_index}.")
+                    continue
+                sections[section_index] = section
+                _report_progress(
+                    "collect",
+                    f"extract_section_{section_index}_of_{depth}",
+                    [f"Extracted section {section_index}/{depth}"],
+                )
 
-                repair_prompt = _render_repair_prompt(
+        # Ensure we collected all requested sections before structuring.
+        if len(sections) < depth:
+            missing = sorted(set(range(1, depth + 1)) - set(sections.keys()))
+            raise RuntimeError(f"Missing extracted sections: {missing}")
+
+        structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name)
+        structured_sections: list[dict[str, Any]] = []
+        max_retries = 2
+
+        for section_index in range(1, depth + 1):
+            section_data = sections[section_index]
+            section_title = section_data["title"]
+            section_text = section_data["content"]
+
+            for attempt in range(max_retries + 1):
+                struct_subphase = f"struct_section_{section_index}_of_{depth}"
+                if attempt == 0:
+                    _report_progress(
+                        "transform",
+                        struct_subphase,
+                        [f"Structuring section {section_index}/{depth}: {section_title}"],
+                    )
+                else:
+                    _report_progress(
+                        "transform",
+                        struct_subphase,
+                        [f"Retrying section {section_index}/{depth} (attempt {attempt + 1})"],
+                        advance=False,
+                    )
+
+                # Structure each section independently so Agent 3 can repair per-section.
+                section_json = await self._generate_section_json(
                     topic=topic,
                     prompt=prompt,
+                    section_title=section_title,
+                    section_text=section_text,
                     constraints=constraints,
-                    invalid_json=repaired_json,
-                    errors=errors_after_deterministic,
-                    widgets_text=_load_widgets_text(),
+                    schema_version=schema_version or self._schema_version,
+                    structurer=structurer_model_instance,
+                    all_usage=all_usage,
+                    usage_purpose=f"struct_section_{section_index}_of_{depth}",
+                    agent_name="PlannerStructurer",
+                    call_index=f"{section_index}/{depth}",
+                    structured_output=structured_output,
+                    language=language,
                 )
-                # Use the dedicated repair model
-                repair_model_name = self._repair_model_name or structurer_model_name
-                repair_model = get_model_for_mode(self._repair_provider, repair_model_name)
 
-                log_msg = (
-                    f"Running repair with {self._repair_provider}/"
-                    f"{repair_model_name or 'default'}..."
+                # Validate the section by wrapping it into a lesson payload.
+                ok, errors, normalized_section = _validate_section_payload(
+                    section_json,
+                    topic=topic,
+                    section_index=section_index,
                 )
-                logs.append(log_msg)
-                logger.info(log_msg)
-
-                try:
-                    repair_response = await repair_model.generate_structured(
-                        repair_prompt, lesson_schema
+                repair_subphase = f"repair_section_{section_index}_of_{depth}"
+                if ok and normalized_section is not None:
+                    _report_progress(
+                        "transform",
+                        repair_subphase,
+                        [f"Section {section_index} validated."],
                     )
-                    repaired_json = repair_response.content
-                    if repair_response.usage:
-                        all_usage.append(
-                            {"model": _model_name(repair_model), "purpose": "repair", **repair_response.usage}
+                    structured_sections.append(normalized_section)
+                    break
+
+                # Attempt deterministic repair before retrying the structurer.
+                if enable_repair:
+                    repaired_section = _deterministic_repair_section(
+                        section_json,
+                        errors,
+                        topic=topic,
+                        section_index=section_index,
+                    )
+                    ok, errors, normalized_section = _validate_section_payload(
+                        repaired_section,
+                        topic=topic,
+                        section_index=section_index,
+                    )
+                    if ok and normalized_section is not None:
+                        _report_progress(
+                            "transform",
+                            repair_subphase,
+                            [f"Section {section_index} repaired."],
                         )
-                except Exception as e:
-                    logger.error(f"Repair agent failed: {e}", exc_info=True)
-                    # Don't crash on repair failure, just fallback to deterministic repair result
-                    logger.warning(
-                        "Falling back to deterministic repair result due to AI repair failure."
+                        structured_sections.append(normalized_section)
+                        break
+
+                if attempt >= max_retries:
+                    validation_errors = errors
+                    raise RuntimeError(
+                        f"Section {section_index} failed validation after {max_retries} retries."
                     )
-                    # Keep the deterministically repaired JSON if AI repair fails
-                    # repaired_json is already set to the deterministically repaired version
-                    pass
 
-                # Final validation
-                ok_final, errors_final, _ = validate_lesson(repaired_json)
-                validation_errors = errors_final
-                if ok_final:
-                    log_msg = "✓ AI repair succeeded"
-                    logs.append(log_msg)
-                    logger.info(log_msg)
-                else:
-                    log_msg = f"AI repair completed, {len(errors_final)} error(s) remain"
-                    logs.append(log_msg)
-                    logger.warning(log_msg)
-            elif not ok_after_deterministic:
-                log_msg = "Errors are simple, skipping AI repair"
-                logs.append(log_msg)
-                logger.info(log_msg)
+        _report_progress("transform", "stitch_sections", ["Stitching sections..."])
+        # Stitch the validated sections into the final lesson payload.
+        lesson_json = {
+            "title": topic,
+            "blocks": structured_sections,
+        }
 
-            lesson_json = repaired_json
+        _report_progress("validate", "final_validation", ["Validating final lesson..."])
+        from app.schema.validate_lesson import validate_lesson
+
+        # Final validation against the full lesson schema + widgets.
+        ok, errors, _ = validate_lesson(lesson_json)
+        validation_errors = errors if not ok else None
 
         log_msg = "Generation pipeline complete"
         logs.append(log_msg)
@@ -327,28 +284,90 @@ class DgsOrchestrator:
 
     def _calculate_total_cost(self, usage: list[dict[str, Any]]) -> float:
         """Estimate total cost based on token usage."""
-        # Simple pricing map (per 1M tokens)
-        PRICES = {
-            "gemini-1.5-flash": (0.075, 0.30),
-            "gemini-2.0-flash": (0.075, 0.30),
-            "gemini-2.0-flash-exp": (0.0, 0.0),  # Free during preview
-            "openai/gpt-4o-mini": (0.15, 0.60),
-            "openai/gpt-4o": (5.0, 15.0),
-            "anthropic/claude-3.5-sonnet": (3.0, 15.0),
-        }
+        # Price table can be overridden via MODEL_PRICING_JSON.
+        pricing = _load_pricing_table()
 
         total = 0.0
         for entry in usage:
             model = entry.get("model", "")
-            p_in, p_out = PRICES.get(model, (0.5, 1.5))  # Default conservative pricing
-            
-            in_tokens = entry.get("prompt_tokens", 0)
-            out_tokens = entry.get("completion_tokens", 0)
-            
-            total += (in_tokens / 1_000_000) * p_in
-            total += (out_tokens / 1_000_000) * p_out
-            
-        return total
+            price_in, price_out = pricing.get(model, (0.5, 1.5))
+
+            in_tokens = int(entry.get("prompt_tokens") or 0)
+            out_tokens = int(entry.get("completion_tokens") or 0)
+
+            call_cost = (in_tokens / 1_000_000) * price_in
+            call_cost += (out_tokens / 1_000_000) * price_out
+
+            entry["input_tokens"] = in_tokens
+            entry["output_tokens"] = out_tokens
+            entry["estimated_cost"] = round(call_cost, 6)
+
+            total += call_cost
+
+        return round(total, 6)
+
+    async def _generate_section_json(
+        self,
+        *,
+        topic: str,
+        prompt: str | None,
+        section_title: str,
+        section_text: str,
+        constraints: dict[str, Any] | None,
+        schema_version: str,
+        structurer: AIModel,
+        all_usage: list[dict[str, Any]],
+        usage_purpose: str,
+        agent_name: str,
+        call_index: str,
+        structured_output: bool,
+        language: str | None,
+    ) -> dict[str, Any]:
+        """Generate a single section JSON object from extracted knowledge."""
+
+        # Use the section-only schema to keep structured outputs small and focused.
+        prompt_text = _render_section_prompt(
+            topic=topic,
+            prompt=prompt,
+            section_title=section_title,
+            section_text=section_text,
+            constraints=constraints,
+            schema_version=schema_version,
+            language=language,
+        )
+
+        schema = _section_json_schema()
+        if structurer.supports_structured_output and structured_output:
+            if _is_gemini_model_name(_model_name(structurer)):
+                schema = _sanitize_schema_for_gemini(schema, root_schema=schema)
+            res = await structurer.generate_structured(prompt_text, schema)
+            if res.usage:
+                all_usage.append(
+                    {
+                        "model": _model_name(structurer),
+                        "agent": agent_name,
+                        "purpose": usage_purpose,
+                        "call_index": call_index,
+                        **res.usage,
+                    }
+                )
+            return res.content
+
+        raw = await structurer.generate(prompt_text + "\n\nOutput ONLY valid JSON.")
+        if raw.usage:
+            all_usage.append(
+                {
+                    "model": _model_name(structurer),
+                    "agent": agent_name,
+                    "purpose": usage_purpose,
+                    "call_index": call_index,
+                    **raw.usage,
+                }
+            )
+        try:
+            return cast(dict[str, Any], json.loads(raw.content))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Failed to parse section JSON: {exc}") from exc
 
     async def _generate_highlights(
         self,
@@ -365,7 +384,12 @@ class DgsOrchestrator:
     ) -> dict[str, Any]:
         """Generate a Highlights lesson in a single pass."""
         if progress_callback:
-            progress_callback("transform", ["Structuring Highlights lesson..."])
+            progress_callback(
+                "transform",
+                "structure_highlights",
+                ["Structuring Highlights lesson..."],
+                True,
+            )
 
         prompt_text = _render_structurer_prompt(
             topic=topic,
@@ -409,7 +433,12 @@ class DgsOrchestrator:
         """Generate a Detailed lesson in two passes."""
         # Pass 1: Skeleton and first part
         if progress_callback:
-            progress_callback("transform", ["Structuring Detailed lesson (Call 1/2)..."])
+            progress_callback(
+                "transform",
+                "structure_detailed_call_1",
+                ["Structuring Detailed lesson (Call 1/2)..."],
+                True,
+            )
             
         # For simplicity in this implementation, we do one full generation and one expansion/detail call
         full_res = await self._generate_highlights(
@@ -420,7 +449,12 @@ class DgsOrchestrator:
         )
         
         if progress_callback:
-            progress_callback("transform", ["Expanding content details (Call 2/2)..."])
+            progress_callback(
+                "transform",
+                "structure_detailed_call_2",
+                ["Expanding content details (Call 2/2)..."],
+                True,
+            )
             
         expand_prompt = f"Expand the following lesson with more detailed activities and deep-dive content:\n{json.dumps(full_res)}"
         expand_schema = _lesson_json_schema()
@@ -444,7 +478,12 @@ class DgsOrchestrator:
     ) -> dict[str, Any]:
         """Generate a Training lesson by looping over sections."""
         if progress_callback:
-            progress_callback("transform", [f"Planning {sections_count} sections..."])
+            progress_callback(
+                "transform",
+                "structure_training_plan",
+                [f"Planning {sections_count} sections..."],
+                True,
+            )
             
         # 1. Plan sections
         plan_prompt = f"Based on this knowledge: {knowledge_base[:2000]}, plan {sections_count} section titles for a lesson on {topic}."
@@ -468,7 +507,12 @@ class DgsOrchestrator:
             section_data = res_plan.content.get("sections", [])
             title = section_data[i].get("title", f"Section {i+1}") if i < len(section_data) else f"Section {i+1}"
             if progress_callback:
-                progress_callback("transform", [f"Generating section {i+1}/{sections_count}: {title}"])
+                progress_callback(
+                    "transform",
+                    f"struct_section_{i+1}_of_{sections_count}",
+                    [f"Generating section {i+1}/{sections_count}: {title}"],
+                    True,
+                )
                 
             sec_prompt = f"Generate a detailed content section for '{title}' within a lesson on {topic}. Knowledge: {knowledge_base[:1000]}"
             # Simplified section content schema
@@ -489,12 +533,49 @@ def _model_name(model: AIModel) -> str:
     return getattr(model, "name", "unknown")
 
 
+@lru_cache(maxsize=1)
+def _load_pricing_table() -> dict[str, tuple[float, float]]:
+    default_prices = {
+        "gemini-1.5-flash": (0.075, 0.30),
+        "gemini-2.0-flash": (0.075, 0.30),
+        "gemini-2.0-flash-exp": (0.0, 0.0),
+        "gemini-2.5-flash": (0.15, 0.60),
+        "gemini-2.5-pro": (1.25, 5.0),
+        "openai/gpt-4o-mini": (0.15, 0.60),
+        "openai/gpt-4o": (5.0, 15.0),
+        "anthropic/claude-3.5-sonnet": (3.0, 15.0),
+    }
+    raw = os.getenv("MODEL_PRICING_JSON")
+    if not raw:
+        return default_prices
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return default_prices
+
+    if not isinstance(parsed, dict):
+        return default_prices
+
+    prices = dict(default_prices)
+    for model, value in parsed.items():
+        if not isinstance(value, dict):
+            continue
+        price_in = value.get("input")
+        price_out = value.get("output")
+        if isinstance(price_in, (int, float)) and isinstance(price_out, (int, float)):
+            prices[str(model)] = (float(price_in), float(price_out))
+    return prices
+
+
 def _render_gatherer_prompt(
     *,
     topic: str,
     prompt: str | None,
     constraints: dict[str, Any] | None,
     language: str | None,
+    depth: int,
+    section_start: int,
+    section_end: int,
 ) -> str:
     prompt_template = _load_prompt("gatherer.md")
     parts = [prompt_template, f"Topic: {topic}"]
@@ -503,6 +584,8 @@ def _render_gatherer_prompt(
     if language:
         parts.append(f"Language: {language}")
     parts.append(f"Constraints: {constraints or {}}")
+    parts.append(f"Total Sections: {depth}")
+    parts.append(f"Return Sections: {section_start}-{section_end}")
     return "\n".join(parts)
 
 
@@ -529,6 +612,135 @@ def _render_structurer_prompt(
             idm,
         ]
     )
+
+
+def _render_section_prompt(
+    *,
+    topic: str,
+    prompt: str | None,
+    section_title: str,
+    section_text: str,
+    constraints: dict[str, Any] | None,
+    schema_version: str,
+    language: str | None,
+) -> str:
+    prompt_template = _load_prompt("structurer_section.md")
+    return "\n".join(
+        [
+            prompt_template,
+            f"Topic: {topic}",
+            f"User Prompt: {prompt or ''}",
+            f"Language: {language or ''}",
+            f"Constraints: {constraints or {}}",
+            f"Schema Version: {schema_version}",
+            "Widgets:",
+            _load_widgets_text(),
+            "Section Title:",
+            section_title,
+            "Section Content:",
+            section_text,
+        ]
+    )
+
+
+def _coerce_depth(raw_depth: Any) -> int:
+    if raw_depth is None:
+        return 2
+    try:
+        depth = int(raw_depth)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Depth must be an integer between 2 and 10.") from exc
+    if depth < 2:
+        raise ValueError("Depth must be at least 2.")
+    if depth > 10:
+        raise ValueError("Depth exceeds the maximum of 10.")
+    return depth
+
+
+def _extract_sections_from_batch(text: str) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    pattern = re.compile(r"^\\s*Section\\s+(\\d+)\\s*-\\s*(.+)\\s*$", re.IGNORECASE)
+
+    for line in text.splitlines():
+        match = pattern.match(line)
+        if match:
+            if current:
+                sections.append(current)
+            current = {
+                "index": int(match.group(1)),
+                "title": match.group(2).strip(),
+                "lines": [],
+            }
+            continue
+        if current is not None:
+            current["lines"].append(line.rstrip())
+
+    if current:
+        sections.append(current)
+
+    extracted: list[dict[str, Any]] = []
+    for section in sections:
+        content = "\n".join(section.get("lines", [])).strip()
+        extracted.append(
+            {
+                "index": section["index"],
+                "title": section["title"],
+                "content": content,
+            }
+        )
+    return extracted
+
+
+def _wrap_section_for_validation(
+    section_json: dict[str, Any],
+    *,
+    topic: str,
+    section_index: int,
+) -> dict[str, Any]:
+    return {
+        "title": f"{topic} - Section {section_index}",
+        "blocks": [section_json],
+    }
+
+
+def _validate_section_payload(
+    section_json: dict[str, Any],
+    *,
+    topic: str,
+    section_index: int,
+) -> tuple[bool, list[str], dict[str, Any] | None]:
+    from app.schema.validate_lesson import validate_lesson
+
+    payload = _wrap_section_for_validation(
+        section_json, topic=topic, section_index=section_index
+    )
+    ok, errors, model = validate_lesson(payload)
+    if not ok or model is None or not model.blocks:
+        return False, errors, None
+    section_payload = model.blocks[0].model_dump(mode="python", by_alias=True)
+    return True, errors, cast(dict[str, Any], section_payload)
+
+
+def _deterministic_repair_section(
+    section_json: dict[str, Any],
+    errors: list[str],
+    *,
+    topic: str,
+    section_index: int,
+) -> dict[str, Any]:
+    from app.ai.deterministic_repair import attempt_deterministic_repair
+
+    payload = _wrap_section_for_validation(
+        section_json, topic=topic, section_index=section_index
+    )
+    repaired = attempt_deterministic_repair(payload, errors)
+    blocks = repaired.get("blocks")
+    if isinstance(blocks, list) and blocks:
+        first_block = blocks[0]
+        if isinstance(first_block, dict):
+            return first_block
+    return section_json
 
 
 def _render_repair_prompt(
@@ -581,9 +793,29 @@ def _load_widgets_text() -> str:
 
 @lru_cache(maxsize=1)
 def _lesson_json_schema() -> dict[str, Any]:
-    # json_schema: dict[str, Any] = LessonDocument.model_json_schema()
-    # load_widget_registry(Path(__file__).parents[1] / "schema" / "widgets.md")
-    return LessonDocument.model_json_schema() #json_schema
+    json_schema: dict[str, Any] = LessonDocument.model_json_schema(
+        by_alias=True,
+        ref_template="#/$defs/{model}",
+        mode="validation"
+    )
+    load_widget_registry(Path(__file__).parents[1] / "schema" / "widgets.md")
+    return json_schema
+    # return LessonDocument.model_json_schema()
+
+
+@lru_cache(maxsize=1)
+def _section_json_schema() -> dict[str, Any]:
+    json_schema: dict[str, Any] = SectionBlock.model_json_schema(
+        by_alias=True,
+        ref_template="#/$defs/{model}",
+        mode="validation",
+    )
+    load_widget_registry(Path(__file__).parents[1] / "schema" / "widgets.md")
+    return json_schema
+
+
+def _is_gemini_model_name(name: str) -> bool:
+    return name.startswith("gemini-")
 
 
 def _sanitize_schema_for_gemini(

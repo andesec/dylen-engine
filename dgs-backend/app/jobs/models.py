@@ -19,6 +19,8 @@ class JobRecord:
     updated_at: str
     phase: str | None = None
     subphase: str | None = None
+    total_steps: int | None = None
+    completed_steps: int | None = None
     progress: float | None = None
     logs: list[str] = field(default_factory=list)
     result_json: dict[str, Any] | None = None

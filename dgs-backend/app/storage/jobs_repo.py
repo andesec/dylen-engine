@@ -23,6 +23,8 @@ class JobsRepository(Protocol):
         status: JobStatus | None = None,
         phase: str | None = None,
         subphase: str | None = None,
+        total_steps: int | None = None,
+        completed_steps: int | None = None,
         progress: float | None = None,
         logs: list[str] | None = None,
         result_json: dict | None = None,

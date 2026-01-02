@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from pydantic import ValidationError
@@ -22,7 +22,8 @@ from app.main import (
     GenerateLessonRequest,
     _build_constraints,
     _get_orchestrator,
-    _resolve_structurer_selection,
+    _resolve_model_selection,
+    _resolve_primary_language,
 )
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
@@ -70,16 +71,22 @@ class JobProcessor:
         tracker = JobProgressTracker(
             job_id=job.job_id,
             jobs_repo=self._jobs_repo,
-            total_steps=call_plan.total_steps(include_validation=True),
+            total_steps=call_plan.total_steps(include_validation=True, include_repair=True),
             total_ai_calls=call_plan.total_ai_calls,
             label_prefix=call_plan.label_prefix,
             initial_logs=base_logs
             + [
                 f"Planned AI calls: {call_plan.required_calls}/{call_plan.max_calls}",
-                f"Sections: {call_plan.sections}",
+                f"Depth: {call_plan.depth}",
+                f"Knowledge calls: {call_plan.knowledge_calls}",
+                f"Structurer calls: {call_plan.structurer_calls}",
             ],
         )
-        tracker.set_phase(phase="collect", subphase=tracker.current_ai_subphase())
+        # Initialize progress with the first KnowledgeBuilder subphase.
+        tracker.set_phase(
+            phase="collect",
+            subphase=f"kb_call_1_of_{call_plan.knowledge_calls}",
+        )
 
         start_time = time.monotonic()
         soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
@@ -106,6 +113,7 @@ class JobProcessor:
                 job.job_id,
                 job.request,
                 tracker=tracker,
+                timeout_checker=_check_timeouts,
             )
 
             if _check_timeouts():
@@ -120,7 +128,10 @@ class JobProcessor:
             shorthand = lesson_to_shorthand(lesson_model)
             tracker.extend_logs(orchestration_result.logs)
             tracker.complete_validation(message="Validate phase complete.", status="done")
-            tracker.set_cost(orchestration_result.usage, orchestration_result.total_cost)
+            cost_summary = _summarize_cost(
+                orchestration_result.usage, orchestration_result.total_cost
+            )
+            tracker.set_cost(cost_summary)
             log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
             log_updates.append("Job completed successfully.")
             updated = self._jobs_repo.update_job(
@@ -132,7 +143,7 @@ class JobProcessor:
                 logs=log_updates,
                 result_json=shorthand,
                 validation=validation,
-                cost={"total": orchestration_result.total_cost, "calls": orchestration_result.usage},
+                cost=cost_summary,
                 completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
             return updated
@@ -174,7 +185,8 @@ class JobProcessor:
             )
 
             tracker.extend_logs(result.logs)
-            tracker.set_cost(result.usage, result.total_cost)
+            cost_summary = _summarize_cost(result.usage, result.total_cost)
+            tracker.set_cost(cost_summary)
             updated = self._jobs_repo.update_job(
                 job.job_id,
                 status="done",
@@ -182,7 +194,7 @@ class JobProcessor:
                 progress=100.0,
                 logs=tracker.logs,
                 result_json={"ok": result.ok, "issues": result.issues, "feedback": result.feedback},
-                cost={"total": result.total_cost, "calls": result.usage},
+                cost=cost_summary,
                 completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
             return updated
@@ -208,6 +220,7 @@ class JobProcessor:
         request: dict[str, Any],
         *,
         tracker: JobProgressTracker | None = None,
+        timeout_checker: Callable[[], bool] | None = None,
     ) -> OrchestrationResult:
         """Execute the orchestration pipeline with guarded parameters."""
         try:
@@ -218,14 +231,24 @@ class JobProcessor:
         if len(topic) > self._settings.max_topic_length:
             raise ValueError(f"Topic exceeds max length of {self._settings.max_topic_length}.")
 
-        structurer_provider, structurer_model = _resolve_structurer_selection(
-            self._settings, request_model.config
+        (
+            gatherer_provider,
+            gatherer_model,
+            structurer_provider,
+            structurer_model,
+        ) = _resolve_model_selection(
+            self._settings,
+            mode=request_model.mode,
+            models=request_model.models,
         )
-        constraints = _build_constraints(request_model.config)
+        constraints = _build_constraints(request_model.constraints)
+        language = _resolve_primary_language(request_model.constraints)
         schema_version = request_model.schema_version or self._settings.schema_version
 
         orchestrator = _get_orchestrator(
             self._settings,
+            gatherer_provider=gatherer_provider,
+            gatherer_model=gatherer_model,
             structurer_provider=structurer_provider,
             structurer_model=structurer_model,
         )
@@ -233,16 +256,23 @@ class JobProcessor:
         logs: list[str] = [
             f"Starting job {job_id}",
             f"Topic: {topic[:80]}{'...' if len(topic) > 80 else ''}",
+            f"Gatherer provider: {gatherer_provider}",
+            f"Gatherer model: {gatherer_model or 'default'}",
             f"Structurer provider: {structurer_provider}",
             f"Structurer model: {structurer_model or 'default'}",
         ]
 
-        def _progress_callback(phase: str, messages: list[str] | None = None) -> None:
+        def _progress_callback(
+            phase: str,
+            subphase: str | None,
+            messages: list[str] | None = None,
+            advance: bool = True,
+        ) -> None:
             if tracker is None:
                 return
             
             # Active guardrail check
-            if _check_timeouts():
+            if timeout_checker and timeout_checker():
                 # Note: We can't easily raise an exception here that Orchestrator will catch nicely,
                 # but Orchestrator has its own try/except now. 
                 # If we raise here, Orchestrator will catch it and return partial usage.
@@ -253,8 +283,13 @@ class JobProcessor:
             if record and record.status == "canceled":
                 raise JobCanceledError(f"Job {job_id} was canceled during orchestration.")
 
-            tracker.complete_ai_call(phase=phase, message="; ".join(messages or []))
-            tracker.set_phase(phase="transform", subphase=tracker.current_ai_subphase())
+            log_message = "; ".join(messages or [])
+            if advance:
+                tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None)
+            else:
+                if log_message:
+                    tracker.add_logs(log_message)
+                tracker.set_phase(phase=phase, subphase=subphase)
 
         result = await self._orchestrator.generate_lesson(
             topic=topic,
@@ -262,8 +297,9 @@ class JobProcessor:
             constraints=constraints,
             schema_version=schema_version,
             structurer_model=structurer_model,
-            structured_output=request_model.config.structured_output,
-            language=request_model.config.language,
+            gatherer_model=gatherer_model,
+            structured_output=True,
+            language=language,
             progress_callback=_progress_callback,
         )
 
@@ -296,3 +332,19 @@ def _parse_timeout_env(var_name: str) -> int:
     except ValueError as exc:  # pragma: no cover - defensive
         raise ValueError(f"{var_name} must be an integer.") from exc
     return max(0, seconds)
+
+
+def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str, Any]:
+    # Roll up token counts and total cost into the job payload expected by DLE.
+    total_input_tokens = 0
+    total_output_tokens = 0
+    for entry in usage:
+        total_input_tokens += int(entry.get("input_tokens") or entry.get("prompt_tokens") or 0)
+        total_output_tokens += int(entry.get("output_tokens") or entry.get("completion_tokens") or 0)
+    return {
+        "currency": "USD",
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_cost": total_cost,
+        "calls": usage,
+    }

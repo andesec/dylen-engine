@@ -141,6 +141,8 @@ class DynamoJobsRepository(JobsRepository):
         status: JobStatus | None = None,
         phase: str | None = None,
         subphase: str | None = None,
+        total_steps: int | None = None,
+        completed_steps: int | None = None,
         progress: float | None = None,
         logs: list[str] | None = None,
         result_json: dict | None = None,
@@ -163,6 +165,10 @@ class DynamoJobsRepository(JobsRepository):
             status=status or current.status,
             phase=phase if phase is not None else current.phase,
             subphase=subphase if subphase is not None else current.subphase,
+            total_steps=total_steps if total_steps is not None else current.total_steps,
+            completed_steps=(
+                completed_steps if completed_steps is not None else current.completed_steps
+            ),
             progress=progress if progress is not None else current.progress,
             logs=logs if logs is not None else current.logs,
             result_json=result_json if result_json is not None else current.result_json,
@@ -219,6 +225,8 @@ class DynamoJobsRepository(JobsRepository):
             "status": record.status,
             "phase": record.phase,
             "subphase": record.subphase,
+            "total_steps": record.total_steps,
+            "completed_steps": record.completed_steps,
             "progress": Decimal(str(record.progress)) if record.progress is not None else None,
             "logs": sanitize_logs(record.logs),
             "result_json": maybe_truncate_result_json(record.result_json),
@@ -244,6 +252,8 @@ class DynamoJobsRepository(JobsRepository):
             status=item["status"],
             phase=item.get("phase"),
             subphase=item.get("subphase"),
+            total_steps=item.get("total_steps"),
+            completed_steps=item.get("completed_steps"),
             progress=(
                 float(item["progress"])
                 if "progress" in item and item["progress"] is not None

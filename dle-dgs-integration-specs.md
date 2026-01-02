@@ -42,32 +42,40 @@ Instead, DLE must **fetch the DGS OpenAPI spec** at runtime and generate config 
 - Source: DGS OpenAPI JSON.
 - Approach:
   1. Fetch OpenAPI JSON.
-  2. Locate `POST /v1/lessons/generate` → requestBody schema `GenerateLessonRequest`.
+  2. Locate `POST /v1/jobs` → requestBody schema `GenerateLessonRequest` (fallback: `POST /v1/lessons/jobs`, then `POST /v1/lessons/generate` if jobs endpoints aren’t present).
   3. Convert fields into UI controls using types, enums, defaults, and required fields.
   4. Render them inside the Config panel.
 
-**Concrete config fields to render (from current OpenAPI)**
+**Concrete config fields to render (from OpenAPI)**
+
 Top-level
 
-- `topic` (string, required, minLength 10)
-- `prompt` (string | null, optional, **visible textarea** for additional details, maxLength 300)
+- `topic` (string, required)
+- `prompt` (string | null, optional, **visible textarea** for additional details)
 - `mode` (enum `fast | balanced | best`, default `balanced`)
 - `schema_version` (string | null)
 - `idempotency_key` (string | null)
 - `constraints` (object | null)
+- `models` (object | null)  // agent model selection
 
 Nested: `constraints`
 
-- `primaryLanguage` (enum `English | German | Urdu` )
+- `primaryLanguage` (enum `English | German | Urdu`)
 - `learnerLevel` (enum `Newbie | Beginner | Intermediate | Expert` | null)
-- `length` (enum `Highlights | Detailed | Training` | null)
+- `depth` (enum `2..10` as strings | null)  // total sections
+
+Nested: `models`
+
+- `knowledge_model` (enum; Gemini or OpenRouter)
+- `structurer_model` (enum; Gemini or OpenRouter)
 
 **UX rules for “easy + intuitive” config**
 
 - Keep Card 1 simple:
   - Always show: **Topic** + **Prompt** + **Mode**
-  - Prompt: helper text “Optional details to guide lesson generation”
-  - Show **Constraints** as 3 simple controls (Language select, Learner Level select, Length select)
+  - Prompt helper: “Optional details to guide lesson generation”
+  - Show **Constraints** as 3 simple controls (Language select, Learner Level select, Depth select)
+  - Show Models as 2 selects (Knowledge model, Structurer model)
 - Put `schema_version` and `idempotency_key` behind **Advanced** accordion.
 - Pre-fill defaults (Mode = balanced).
 - Inline helper text:
@@ -98,8 +106,11 @@ Polling is the simplest for Lambda-based backends (no long-lived connections nee
 **Frontend behavior**
 
 1. Start job (async): `POST /jobs` (or DGS equivalent)
+   - Body: `GenerateLessonRequest` (same shape as `/v1/lessons/generate`)
+   - Include header `X-DGS-Dev-Key: <key>`
    - Receive `{ jobId }` immediately.
 2. Poll: `GET /jobs/{jobId}` on a backoff schedule until done/error.
+   - Include header `X-DGS-Dev-Key: <key>`
    - Recommended:
      - 0–10s: every **750ms**
      - 10–30s: every **1500ms**
@@ -109,7 +120,7 @@ Polling is the simplest for Lambda-based backends (no long-lived connections nee
 
 **Polling UX safeguards**
 
-- Show “Still working…” after \~10s.
+- Show “Still working…” after ~10s.
 - Hard client timeout (e.g., 120s) with actionable error.
 - If network drops: pause polling, show “Reconnecting…”, resume.
 
@@ -137,7 +148,7 @@ Card 2 must include BOTH:
   - Bottom: Content Structure panel
 - Ensure **both are visible at the same time** on iPhone:
   - Make each panel **independently scrollable** (internal scroll)
-  - Set fixed max heights using viewport units (e.g., each \~40–45vh) so the card header + buttons still fit.
+  - Set fixed max heights using viewport units (e.g., each ~40–45vh) so the card header + buttons still fit.
 
 **Controls**
 
@@ -183,11 +194,11 @@ In Advanced mode, Card 2 supports three paths:
    - Code viewer becomes editable.
    - Provide buttons: Validate (local rules), Format/Prettify, Reset.
 2. **Import JSON**
-   - Paste into code viewer OR upload a `.json` file, using a button in the top right controls  of the codeviewer widget
-   - Parse + show errors in the validation panel as it is now. 
+   - Paste into code viewer OR upload a `.json` file, using a button in the top right controls of the codeviewer widget
+   - Parse + show errors in the validation panel as it is now.
 3. **Progressive build using “Partial JSON” widget**
    - Let user assemble JSON in sections.
-   - Build on the functionality already present. 
+   - Build on the functionality already present.
 
 **Important rule:** In “Bring your own JSON” mode, everything happens locally and does **not** trigger DGS generation calls.
 
@@ -205,23 +216,24 @@ While waiting for DGS (polling flow):
 
 ### A4.2 Multi-call progress visualization
 
-DLE must visualize **nested progress** when DGS performs multiple AI calls:
+DLE must visualize **nested progress** when DGS performs multiple LLM calls:
 
 - Example timeline:
   - Collect
-    - AI call 1 / 2
+    - KnowledgeBuilder call 1 / 3
   - Transform
+    - Structuring section 4 / 8
   - Validate
 - Show:
   - Overall phase (Collect / Transform / Validate)
-  - Subphase label (e.g. “AI call 2 of 5”)
+  - Subphase label (e.g. “struct_section_4_of_8”)
 - Progress bar should reflect `completed_steps / total_steps` when available.
 
 ### A4.3 Animated loader
 
 Integrate the “Glowing Loader Ring Animation”:
 
-- Source: [https://codepen.io/Curlmuhi/pen/ExKWXKO](https://codepen.io/Curlmuhi/pen/ExKWXKO)
+- Source: https://codepen.io/Curlmuhi/pen/ExKWXKO
 - Usage:
   - Inline loader inside progress area
   - Optional fullscreen overlay for initial queue state
@@ -248,6 +260,89 @@ Auth header on all lesson endpoints:
 
 ## B1) Job-based async generation (required for polling)
 
+### Generation pipeline (agent-based; source of truth)
+
+A generation job is executed as a **4-agent pipeline** (agents 3 & 4 are deterministic code, not LLMs):
+
+#### Agent 1 — KnowledgeBuilder (LLM)
+
+**Goal:** collect learning material for the requested topic using the configured learner constraints.
+
+**Inputs**
+- `topic`
+- `prompt` (optional)
+- `constraints`:
+  - `primaryLanguage`
+  - `learnerLevel`
+  - `depth` (2–10 sections)
+- `knowledge_model` (Gemini or OpenRouter)
+
+**Output format (TEXT ONLY; strict)**
+- Agent 1 must return **batches**, where **each batch contains exactly 2 sections** in the following format:
+
+```text
+Section 1 - Title for this section
+Summary ...
+Data ....
+Key points ...
+Practice work ....
+Knowledge check ...
+
+Section 2 - Title for this section
+Summary ...
+Data ....
+Key points ...
+Practice work ....
+Knowledge Check ...
+```
+
+**Depth → number of sections**
+- `constraints.depth` controls total sections: **2 to 10**.
+- Since each batch contains 2 sections, the number of Agent 1 LLM calls is:
+  - `knowledge_calls = ceil(depth / 2)`
+
+**Extraction & intermediate artifacts**
+- For each batch response, DGS must run a deterministic **regex-based extractor** to split the response into the two sections.
+- Each extracted section becomes a single “section data file” (one per section).
+- Implementation detail: DGS may write these as temporary files (e.g., `/tmp/job/{jobId}/sections/section_{i}.txt`) during execution, but **must not rely on filesystem persistence** across invocations.
+- For debugging/polling, DGS should store a bounded summary of extracted sections in DynamoDB (e.g., titles + short snippets), but avoid storing full raw text if it risks the 400KB item limit.
+
+#### Agent 2 — Lesson Planner & Structurer (LLM)
+
+**Goal:** convert each extracted section into lesson JSON following `widgets.md` + the section/subsection schema.
+
+**Inputs per section**
+- `section_data` from Agent 1
+- `constraints` (language/level/depth)
+- `schema_version` (if provided)
+- `structurer_model` (Gemini or OpenRouter)
+
+**Behavior**
+- For each section, Agent 2:
+  1) Splits content into subsections (more subsections when depth is higher)
+  2) Selects appropriate interactive widgets per subsection (must be valid per `widgets.md`)
+  3) Produces a **structured JSON output** for *that single section*
+
+> Note: For Gemini, use structured outputs / JSON Schema (native) rather than prompt-only JSON.
+
+#### Agent 3 — Checker & Repairer (Deterministic code)
+
+**Goal:** validate and repair the per-section JSON produced by Agent 2.
+
+- Runs deterministic checks against:
+  - JSON parse validity
+  - required keys / known widget names
+  - common LLM mistakes (trailing commas, markdown fences, `NaN`, comments, stray URLs, etc.)
+- Applies deterministic repairs using regex/AST transforms.
+- If still invalid after the final repair pass, the section is returned to **Agent 2 for regeneration** (bounded retries).
+
+#### Agent 4 — Stitcher (Deterministic code)
+
+**Goal:** assemble the final lesson JSON.
+
+- Takes the validated per-section objects (from Agent 3), orders them, and stitches them into a single lesson object that **must conform to `widgets.md` and the top-level lesson schema**.
+- Final output must be JSON (object), not a string.
+
 ### Persistence (hard requirement)
 
 - **All jobs must be persisted in DynamoDB**.
@@ -273,9 +368,10 @@ Auth header on all lesson endpoints:
   - `schema_version` (string | null)
   - `idempotency_key` (string | null)
   - `constraints` (map | null)
+  - `models` (map | null)
 - `status` (string): `queued | running | done | error | canceled`
 - `phase` (string | null): `collect | transform | validate`
-- `subphase` (string | null): e.g. `ai_call_2_of_5`, `section_3_of_12`
+- `subphase` (string | null)
 - `total_steps` (number | null)
 - `completed_steps` (number | null)
 - `progress` (number | null)  // 0–100
@@ -289,7 +385,7 @@ Auth header on all lesson endpoints:
   - `total_input_tokens` (number)
   - `total_output_tokens` (number)
   - `total_cost` (number)
-  - `calls` (list)  // per-AI-call breakdown
+  - `calls` (list)  // per-LLM-call breakdown
 - `created_at` (string ISO)
 - `updated_at` (string ISO)
 - `expires_at` (number epoch seconds)  // TTL
@@ -305,8 +401,8 @@ Auth header on all lesson endpoints:
 
 **Size guardrails**
 
-- DynamoDB item limit is \~400KB. DGS must enforce:
-  - Maximum lesson size and compress JSON string to fit. 
+- DynamoDB item limit is ~400KB. DGS must enforce:
+  - Maximum lesson size and compress JSON string to fit.
   - Bound `logs` length (e.g. last 100 lines)
   - Bound `calls` breakdown length
 
@@ -322,30 +418,56 @@ Auth header on all lesson endpoints:
   - If soft timeout exceeded → status remains `running`, log warning
   - If hard timeout exceeded → status `error` with timeout code
 
-### Multi-call AI generation (length-aware)
+### Multi-call LLM usage (depth-aware; agent-based)
 
-DGS must account for multiple AI calls in json generation stage (using structurer agent) depending on requested lesson length:
+DGS must account for multiple LLM calls driven primarily by `constraints.depth` (2–10 sections):
 
-- `Highlights` → 1 AI call total
-- `Detailed` → **2 AI calls** (each generating half of the content json)
-- `Training` → **1 AI call per section** (1 call for generating json of each section, N calls. Max 10 calls)
+**Agent 1 (KnowledgeBuilder)**
+- Emits **2 sections per call**.
+- Calls: `knowledge_calls = ceil(depth / 2)`
 
-**Suggested maximum AI calls (guardrails)**
+**Agent 2 (Planner/Structurer)**
+- Produces **one JSON section object per call**.
+- Calls: `structurer_calls = depth`
 
-- Highlights: `max_calls = 2`
-- Detailed: `max_calls = 6`
-- Training: `max_calls = min(24, number_of_sections)`
+**Total LLM calls**
+- `total_calls = knowledge_calls + structurer_calls` (Agent 3/4 are deterministic)
 
-If the plan would exceed `max_calls`:
+**Guardrails (hard limits)**
+- `depth` is capped at 10.
+- Additionally enforce:
+  - `MAX_KNOWLEDGE_CALLS` (default 5)
+  - `MAX_STRUCTURER_CALLS` (default 10)
+  - `MAX_TOTAL_CALLS` (default 15)
 
-- Return an error that advises lowering `length` during the request data validation before processing the request. 
+If the plan exceeds any limit:
+- Reject the request during validation with an actionable error (e.g., “Lower depth”).
 
-Each AI call must be reflected in job status (`subphase`) and logs.
+**Retries / regeneration bounds**
+- Per-section regeneration due to Agent 3 failures must be bounded:
+  - `MAX_STRUCTURER_RETRIES_PER_SECTION` (default 2)
+
+
+Each LLM call must be reflected in job status (`subphase`) and logs.
+
+```md
+
+**Recommended `total_steps` / `completed_steps` semantics (for DLE progress bars)**
+- `total_steps = knowledge_calls + depth /*extract*/ + depth /*structure*/ + depth /*repair*/ + 1 /*stitch*/ + 1 /*final_validate*/`
+- Increment `completed_steps` after each step completes; keep `subphase` aligned to the current step.
+- If you choose a different counting scheme, keep it stable and documented so DLE can render progress consistently.
+```
 
 ### Required status model additions
 
 - `phase`: `collect | transform | validate`
-- `subphase`: string (e.g. `ai_call_1`, `ai_call_2`, `section_3`, etc.)
+- `subphase`: string
+- `subphase` MUST encode agent progress, examples:
+  - `kb_call_1_of_3` (KnowledgeBuilder call)
+  - `extract_section_4_of_8`
+  - `struct_section_4_of_8`
+  - `repair_section_4_of_8`
+  - `stitch_sections`
 - `total_steps`: number (optional)
 - `completed_steps`: number (optional)
 
@@ -355,16 +477,20 @@ Each AI call must be reflected in job status (`subphase`) and logs.
 
 DGS must emit phase transitions internally:
 
-1. collect → 2) transform → 3) validate
+1. collect (Agent 1: KnowledgeBuilder + extraction)
+2. transform (Agent 2: structuring + Agent 3: repair + Agent 4: stitch)
+3. validate (final schema validation against widgets.md)
 
 Even if each phase is fast, still report them so DLE can visualize.
 
-### Required logging + cost accounting per AI call
+### Required logging + cost accounting per LLM call
 
-For every AI call, DGS must log:
+For every LLM call (Agent 1 + Agent 2), DGS must log:
 
-- call index (e.g. `ai_call 2/5`)
-- purpose (e.g. `collect`, `section_3_generate`, `refine`, `repair`)
+- call index (e.g. `kb_call 2/3`, `struct_section 4/8`)
+- agent (e.g. `KnowledgeBuilder` or `PlannerStructurer`)
+- purpose (e.g. `collect_batch`, `structure_section`, `regenerate_section`)
+- model name / id
 - input tokens
 - output tokens
 - **estimated cost** for that call
@@ -389,22 +515,90 @@ Also compute and store totals on the job:
 
 ### Proposed `GenerateLessonRequest`
 
+**Top-level fields**
 - `topic: string` (required)
-- `prompt: string` (required)
-- `config: object` (optional) — define as a proper schema, not `additionalProperties: true`
+- `prompt: string | null` (optional)
+- `mode: "fast" | "balanced" | "best"` (default: `balanced`)
+- `schema_version: string | null`
+- `idempotency_key: string | null`
+- `constraints: object | null`
+- `models: object | null` (NEW; agent model selection)
 
-### Proposed `config` fields (initial set)
+**constraints**
+- `primaryLanguage: "English" | "German" | "Urdu"`
+- `learnerLevel: "Newbie" | "Beginner" | "Intermediate" | "Expert" | null`
+- `depth: "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | null` (NEW; total number of sections)
 
-(These should become real OpenAPI properties with defaults)
+> NOTE: `depth` is intentionally an enum (not integer min/max) to keep downstream LLM JSON Schema constraints simple.
 
-- `model: string` (enum of allowed models)
-- `temperature: number` (default e.g. 0.4)
-- `max_output_tokens: integer` (default)
-- `validation_level: "basic" | "strict"` (default: strict)
-- `structured_output: boolean` (default: true)
-- `language: string` (default: "en")
+**models (agent routing)**
+- `knowledge_model: string` (enum; default: `gemini-2.5-flash`)
+  - Gemini options: `gemini-2.5-flash`, `gemini-2.5-pro`
+  - OpenRouter options: `xiaomi/mimo-v2-flash:free`, `deepseek/deepseek-r1-0528:free`, `openai/gpt-oss-120b:free`
+- `structurer_model: string` (enum; default: `gemini-2.5-flash`)
+  - Gemini options: `gemini-2.5-flash`
+  - OpenRouter options: `openai/gpt-oss-20b:free`, `meta-llama/llama-3.3-70b-instruct:free`, `google/gemma-3-27b-it:free`
 
-> Update these to match what DGS truly supports once implemented; the key is: **define them in OpenAPI** so DLE mirrors them.
+Agent 3 (Checker/Repairer) and Agent 4 (Stitcher) are deterministic code and do not accept model parameters.
+
+### Provider integration requirements (DGS)
+
+DGS must support calling Gemini directly and OpenRouter via its OpenAI-compatible chat endpoint.
+
+References:
+- OpenRouter quickstart: https://openrouter.ai/docs/quickstart
+- Gemini structured outputs: https://ai.google.dev/gemini-api/docs/structured-output
+
+#### OpenRouter (reference request)
+
+- Endpoint: `POST https://openrouter.ai/api/v1/chat/completions`
+- Auth: `Authorization: Bearer <OPENROUTER_API_KEY>`
+- Optional attribution headers:
+  - `HTTP-Referer: <YOUR_SITE_URL>`
+  - `X-Title: <YOUR_SITE_NAME>`
+
+Python (requests) example:
+
+```py
+import requests
+import json
+
+resp = requests.post(
+  url="https://openrouter.ai/api/v1/chat/completions",
+  headers={
+    "Authorization": "Bearer <OPENROUTER_API_KEY>",
+    "HTTP-Referer": "<YOUR_SITE_URL>",  # optional
+    "X-Title": "<YOUR_SITE_NAME>",      # optional
+  },
+  data=json.dumps({
+    "model": "openai/gpt-4o",
+    "messages": [{"role": "user", "content": "Hello"}],
+  }),
+)
+```
+
+#### Gemini (Google GenAI SDK) structured output (reference)
+
+When Agent 2 uses Gemini, DGS should use native structured outputs by providing `response_mime_type` and `response_json_schema`.
+
+Python example:
+
+```py
+from google import genai
+
+client = genai.Client()
+response = client.models.generate_content(
+  model="gemini-2.5-flash",
+  contents="...",
+  config={
+    "response_mime_type": "application/json",
+    "response_json_schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+  },
+)
+json_text = response.text
+```
+
+> In production, `response_json_schema` must be the JSON Schema for your lesson/section objects (derived from `widgets.md` / pydantic models).
 
 ## B4) Cancellation (nice-to-have)
 

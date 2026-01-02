@@ -18,14 +18,16 @@ from pydantic import (
 
 
 class LessonBaseModel(BaseModel):
-    """Base model enforcing strict field handling."""
+    """Base model for strict lesson schema primitives."""
 
+    # NOTE: Widgets carry their own type discriminator; section blocks do not.
     # model_config = ConfigDict(extra="forbid", populate_by_name=True)
-    type: StrictStr
 
 
 class WidgetBase(LessonBaseModel):
-    """Base class for all widgets."""
+    """Base class for all widgets with a type discriminator."""
+
+    type: StrictStr
 
 
 
@@ -455,7 +457,7 @@ class LessonDocument(LessonBaseModel):
     """Versioned root lesson document."""
 
     title: StrictStr = Field(min_length=1)
-    blocks: list[SectionBlock]
+    blocks: list[SectionBlock] = Field(default_factory=list)
 
 def _normalize_callout(value: Any, widget_type: str) -> dict[str, Any]:
     if not isinstance(value, str):
