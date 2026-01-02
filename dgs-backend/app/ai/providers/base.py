@@ -65,14 +65,16 @@ def load_dummy_response(*, expect_json: bool) -> ModelResponse | StructuredModel
     Set DGS_DUMMY_RESPONSE_PATH to a file containing either plain text (for generate)
     or JSON (for generate_structured). This allows local tests without LLM credits.
     """
-    # Separate paths let tests mix text and JSON outputs without confusion.
-    dummy_path = None
-    if expect_json:
-        dummy_path = os.getenv("DGS_DUMMY_RESPONSE_JSON_PATH")
-    else:
-        dummy_path = os.getenv("DGS_DUMMY_RESPONSE_TEXT_PATH")
-    if not dummy_path:
-        dummy_path = os.getenv("DGS_DUMMY_RESPONSE_PATH")
+    # Separate toggles/paths let tests mix text and JSON outputs without confusion.
+    use_dummy_text = os.getenv("DGS_USE_DUMMY_TEXT", "false").lower() == "true"
+    use_dummy_json = os.getenv("DGS_USE_DUMMY_JSON", "false").lower() == "true"
+
+    if expect_json and not use_dummy_json:
+        return None
+    if not expect_json and not use_dummy_text:
+        return None
+
+    dummy_path = os.getenv("DGS_DUMMY_JSON_PATH" if expect_json else "DGS_DUMMY_TEXT_PATH")
     if not dummy_path:
         return None
     path = Path(dummy_path)
