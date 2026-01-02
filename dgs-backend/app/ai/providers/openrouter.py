@@ -14,6 +14,7 @@ from app.ai.providers.base import (
     Provider,
     SimpleModelResponse,
     StructuredModelResponse,
+    load_dummy_response,
 )
 
 
@@ -46,6 +47,10 @@ class OpenRouterModel(AIModel):
 
     async def generate(self, prompt: str) -> ModelResponse:
         """Generate text response from OpenRouter."""
+        # Allow deterministic local tests without spending credits.
+        dummy = load_dummy_response(expect_json=False)
+        if dummy is not None:
+            return dummy
         response = await self._client.chat.completions.create(
             model=self.name,
             messages=[{"role": "user", "content": prompt}],
@@ -64,6 +69,10 @@ class OpenRouterModel(AIModel):
         self, prompt: str, schema: dict[str, Any]
     ) -> StructuredModelResponse:
         """Generate structured JSON output using OpenAI's JSON mode."""
+        # Allow deterministic local tests without spending credits.
+        dummy = load_dummy_response(expect_json=True)
+        if dummy is not None:
+            return dummy
         # OpenRouter/OpenAI structured output requires a schema in response_format
         # for strict enforcement, or at least 'json_schema' type.
         

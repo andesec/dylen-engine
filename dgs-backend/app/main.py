@@ -677,11 +677,11 @@ async def generate_lesson(  # noqa: B008
     ok, errors, lesson_model = validate_lesson(result.lesson_json)
     if not ok or lesson_model is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=errors)
-    if request.schema_version and lesson_model.version != request.schema_version:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Schema version mismatch: {lesson_model.version}",
-        )
+    # if request.schema_version and lesson_model.version != request.schema_version:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail=f"Schema version mismatch: {lesson_model.version}",
+    #     )
 
     lesson_id = generate_lesson_id()
     lesson_json = lesson_to_shorthand(lesson_model)

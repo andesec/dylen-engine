@@ -15,6 +15,7 @@ from app.ai.providers.base import (
     Provider,
     SimpleModelResponse,
     StructuredModelResponse,
+    load_dummy_response,
 )
 
 
@@ -34,6 +35,10 @@ class GeminiModel(AIModel):
 
     async def generate(self, prompt: str) -> ModelResponse:
         """Generate text response from Gemini."""
+        # Allow deterministic local tests without spending credits.
+        dummy = load_dummy_response(expect_json=False)
+        if dummy is not None:
+            return dummy
         response = self._client.models.generate_content(model=self.name, contents=prompt)
         usage = None
         if response.usage_metadata:
@@ -46,6 +51,10 @@ class GeminiModel(AIModel):
 
     async def generate_structured(self, prompt: str, schema) -> StructuredModelResponse:
         """Generate structured JSON output using Gemini's JSON mode."""
+        # Allow deterministic local tests without spending credits.
+        dummy = load_dummy_response(expect_json=True)
+        if dummy is not None:
+            return dummy
         # Use a plain dict for config to avoid pydantic validation errors on JSON Schema
         # config: dict[str, Any] = {
         #     "response_mime_type": "application/json",

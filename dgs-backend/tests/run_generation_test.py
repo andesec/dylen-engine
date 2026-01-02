@@ -14,7 +14,7 @@ from app.schema.widgets_loader import load_widget_registry
 
 async def test_generation():
     # Load widget registry
-    load_widget_registry(project_root / "dgs-backend" / "app" / "schema" / "widgets.md")
+    load_widget_registry(project_root / "dgs-backend" / "app" / "schema" / "widgets_prompt.md")
 
     # Initialize orchestrator
     orchestrator = DgsOrchestrator(

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from .lesson_models import LessonDocument
 from .widgets_loader import WidgetRegistry, load_widget_registry
 
-DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets.md")
+DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets_prompt.md")
 
 
 def _collect_registry(path: Path = DEFAULT_WIDGETS_PATH) -> WidgetRegistry:
@@ -22,9 +22,11 @@ def _collect_registry(path: Path = DEFAULT_WIDGETS_PATH) -> WidgetRegistry:
 
 def _iter_widgets(blocks: Iterable[Any]) -> Iterable[Any]:
     for block in blocks:
+        # Subsections do not nest further, so guard against missing attribute.
         yield from block.items
-        if block.subsections:
-            yield from _iter_widgets(block.subsections)
+        subsections = getattr(block, "subsections", None)
+        if subsections:
+            yield from _iter_widgets(subsections)
 
 
 def validate_lesson(payload: Any) -> tuple[bool, list[str], LessonDocument | None]:

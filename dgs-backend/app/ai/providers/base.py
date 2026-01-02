@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
 from typing import Any, Protocol
 
 
@@ -53,3 +56,33 @@ class Provider(ABC):
     @abstractmethod
     def get_model(self, model: str | None = None) -> AIModel:
         """Return the model client for the provider."""
+
+
+def load_dummy_response(*, expect_json: bool) -> ModelResponse | StructuredModelResponse | None:
+    """
+    Load a deterministic dummy response from disk when testing the pipeline.
+
+    Set DGS_DUMMY_RESPONSE_PATH to a file containing either plain text (for generate)
+    or JSON (for generate_structured). This allows local tests without LLM credits.
+    """
+    # Separate paths let tests mix text and JSON outputs without confusion.
+    dummy_path = None
+    if expect_json:
+        dummy_path = os.getenv("DGS_DUMMY_RESPONSE_JSON_PATH")
+    else:
+        dummy_path = os.getenv("DGS_DUMMY_RESPONSE_TEXT_PATH")
+    if not dummy_path:
+        dummy_path = os.getenv("DGS_DUMMY_RESPONSE_PATH")
+    if not dummy_path:
+        return None
+    path = Path(dummy_path)
+    if not path.is_absolute():
+        # Resolve relative paths from the repo root to keep local fixtures predictable.
+        repo_root = Path(__file__).resolve().parents[4]
+        path = repo_root / path
+    with open(path, "r", encoding="utf-8") as handle:
+        content = handle.read()
+    if expect_json:
+        payload = json.loads(content)
+        return StructuredModelResponse(content=payload, usage=None)
+    return SimpleModelResponse(content=content, usage=None)

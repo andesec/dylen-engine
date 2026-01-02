@@ -658,37 +658,48 @@ def _coerce_depth(raw_depth: Any) -> int:
 
 
 def _extract_sections_from_batch(text: str) -> list[dict[str, Any]]:
-    sections: list[dict[str, Any]] = []
-    current: dict[str, Any] | None = None
-    pattern = re.compile(r"^\\s*Section\\s+(\\d+)\\s*-\\s*(.+)\\s*$", re.IGNORECASE)
+    """Extract numbered 'Section N - Title' blocks from a KnowledgeBuilder batch.
 
-    for line in text.splitlines():
-        match = pattern.match(line)
-        if match:
-            if current:
-                sections.append(current)
-            current = {
-                "index": int(match.group(1)),
-                "title": match.group(2).strip(),
-                "lines": [],
-            }
-            continue
-        if current is not None:
-            current["lines"].append(line.rstrip())
+    This supports minor formatting variations, including:
+    - Extra whitespace
+    - Different dash characters between section number and title: '-', '–', '—'
 
-    if current:
-        sections.append(current)
+    Returns a list of dicts: {index: int, title: str, content: str}
+    """
+
+    # Match section headers like:
+    #   Section 1 - Title
+    #   Section 2 – Title
+    #   Section 3 — Title
+    header_re = re.compile(
+        r"(?m)^\s*Section\s*(\d+)\s*[-–—]\s*([^\n]+?)\s*$"
+    )
+
+    matches = list(header_re.finditer(text))
+    if not matches:
+        return []
 
     extracted: list[dict[str, Any]] = []
-    for section in sections:
-        content = "\n".join(section.get("lines", [])).strip()
+
+    for i, m in enumerate(matches):
+        index = int(m.group(1))
+        title = m.group(2).strip()
+
+        content_start = m.end()
+        content_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+
+        content = text[content_start:content_end].strip("\n")
+        # Normalize trailing whitespace per line without losing intentional indentation.
+        content = "\n".join(line.rstrip() for line in content.splitlines()).strip()
+
         extracted.append(
             {
-                "index": section["index"],
-                "title": section["title"],
+                "index": index,
+                "title": title,
                 "content": content,
             }
         )
+
     return extracted
 
 
@@ -785,7 +796,7 @@ def _load_prompt(name: str) -> str:
 @lru_cache(maxsize=1)
 def _load_widgets_text() -> str:
     try:
-        path = Path(__file__).parents[1] / "schema" / "widgets.md"
+        path = Path(__file__).parents[1] / "schema" / "widgets_prompt.md"
         return path.read_text(encoding="utf-8").strip()
     except (FileNotFoundError, PermissionError, UnicodeDecodeError) as e:
         raise RuntimeError(f"Failed to load widgets documentation: {e}") from e
@@ -798,7 +809,7 @@ def _lesson_json_schema() -> dict[str, Any]:
         ref_template="#/$defs/{model}",
         mode="validation"
     )
-    load_widget_registry(Path(__file__).parents[1] / "schema" / "widgets.md")
+    load_widget_registry(Path(__file__).parents[1] / "schema" / "widgets_prompt.md")
     return json_schema
     # return LessonDocument.model_json_schema()
 
@@ -810,7 +821,7 @@ def _section_json_schema() -> dict[str, Any]:
         ref_template="#/$defs/{model}",
         mode="validation",
     )
-    load_widget_registry(Path(__file__).parents[1] / "schema" / "widgets.md")
+    load_widget_registry(Path(__file__).parents[1] / "schema" / "widgets_prompt.md")
     return json_schema
 
 
