@@ -1,3 +1,5 @@
+NOTE: Prioritize and follow architecture-refactor-specs.md over dle-dgs-integration-specs.md
+
 ## Engineering guardrails
 
 - Secure-by-default posture; avoid introducing permissive defaults.
