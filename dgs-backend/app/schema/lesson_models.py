@@ -30,8 +30,6 @@ class WidgetBase(LessonBaseModel):
     type: StrictStr
 
 
-
-
 class ParagraphWidget(WidgetBase):
     """Paragraph content widget."""
 
@@ -436,6 +434,7 @@ class SectionBlock(LessonBaseModel):
         data["items"] = [normalize_widget(item) for item in raw_items]
         return data
 
+
 class SubsectionBlock(LessonBaseModel):
     """Primary subsection block containing content widgets."""
 
@@ -458,6 +457,7 @@ class LessonDocument(LessonBaseModel):
 
     title: StrictStr = Field(min_length=1)
     blocks: list[SectionBlock] = Field(default_factory=list)
+
 
 def _normalize_callout(value: Any, widget_type: str) -> dict[str, Any]:
     if not isinstance(value, str):

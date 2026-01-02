@@ -40,20 +40,20 @@ class WritingCheckOrchestrator:
         criteria: dict[str, Any],
     ) -> WritingCheckResult:
         model = get_model_for_mode(self._provider, self._model_name)
-        
+
         prompt = self._render_prompt(text, criteria)
-        
+
         # We use structured output if available, else raw JSON parse
         schema = {
             "type": "object",
             "properties": {
                 "ok": {"type": "boolean"},
                 "issues": {"type": "array", "items": {"type": "string"}},
-                "feedback": {"type": "string"}
+                "feedback": {"type": "string"},
             },
-            "required": ["ok", "issues", "feedback"]
+            "required": ["ok", "issues", "feedback"],
         }
-        
+
         try:
             if model.supports_structured_output:
                 res = await model.generate_structured(prompt, schema)
@@ -67,9 +67,9 @@ class WritingCheckOrchestrator:
                 if raw.usage:
                     usage.append({"model": model.name, "purpose": "check", **raw.usage})
                 content = json.loads(raw.content)
-            
+
             total_cost = self._calculate_total_cost(usage)
-            
+
             return WritingCheckResult(
                 ok=content.get("ok", False),
                 issues=content.get("issues", []),

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from app.ai.providers.base import AIModel, Provider
-from app.ai.providers.gemini import GeminiProvider
-from app.ai.providers.openrouter import OpenRouterProvider
+
+if TYPE_CHECKING:
+    from app.ai.providers.gemini import GeminiProvider
+    from app.ai.providers.openrouter import OpenRouterProvider
 
 
 class ProviderMode(str, Enum):
@@ -18,15 +21,16 @@ class ProviderMode(str, Enum):
 
 def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
     """Return a provider instance for the given mode."""
-    provider_map: dict[str, Provider] = {
-        ProviderMode.GEMINI.value: GeminiProvider(),
-        ProviderMode.OPENROUTER.value: OpenRouterProvider(),
-    }
     key = mode.value if isinstance(mode, ProviderMode) else mode
-    try:
-        return provider_map[key]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported provider mode '{mode}'.") from exc
+    if key == ProviderMode.GEMINI.value:
+        from app.ai.providers.gemini import GeminiProvider
+
+        return GeminiProvider()
+    if key == ProviderMode.OPENROUTER.value:
+        from app.ai.providers.openrouter import OpenRouterProvider
+
+        return OpenRouterProvider()
+    raise ValueError(f"Unsupported provider mode '{mode}'.")
 
 
 def get_model_for_mode(mode: str | ProviderMode, model: str | None = None) -> AIModel:

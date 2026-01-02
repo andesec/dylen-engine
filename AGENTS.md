@@ -7,6 +7,7 @@
 - Maintain SOLID layering with clear separation of transport, orchestration, and storage concerns.
 - Use full type hints and docstrings throughout.
 - Default tooling standards: `black`, `ruff`, `mypy`, and `pytest`.
+- Avoid using a new line for function call parameters and definition arguments. Very important!
 
 ## Workflow expectations
 

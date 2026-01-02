@@ -39,7 +39,7 @@ class DynamoLessonsRepository(LessonsRepository):
         resource = boto3.resource(
             "dynamodb", region_name=region, endpoint_url=endpoint_url, **aws_kw
         )
-        
+
         # Ensure table exists
         ensure_table_exists(
             resource=resource,

@@ -84,27 +84,31 @@ class DynamoJobsRepository(JobsRepository):
         if all_jobs_index:
             attr_defs.append({"AttributeName": "gsi1_pk", "AttributeType": "S"})
             attr_defs.append({"AttributeName": "gsi1_sk", "AttributeType": "S"})
-            gsis.append({
-                "IndexName": all_jobs_index,
-                "KeySchema": [
-                    {"AttributeName": "gsi1_pk", "KeyType": "HASH"},
-                    {"AttributeName": "gsi1_sk", "KeyType": "RANGE"},
-                ],
-                "Projection": {"ProjectionType": "ALL"},
-                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
-            })
+            gsis.append(
+                {
+                    "IndexName": all_jobs_index,
+                    "KeySchema": [
+                        {"AttributeName": "gsi1_pk", "KeyType": "HASH"},
+                        {"AttributeName": "gsi1_sk", "KeyType": "RANGE"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                    "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+                }
+            )
         if idempotency_index:
             attr_defs.append({"AttributeName": "gsi2_pk", "AttributeType": "S"})
             attr_defs.append({"AttributeName": "gsi2_sk", "AttributeType": "S"})
-            gsis.append({
-                "IndexName": idempotency_index,
-                "KeySchema": [
-                    {"AttributeName": "gsi2_pk", "KeyType": "HASH"},
-                    {"AttributeName": "gsi2_sk", "KeyType": "RANGE"},
-                ],
-                "Projection": {"ProjectionType": "ALL"},
-                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
-            })
+            gsis.append(
+                {
+                    "IndexName": idempotency_index,
+                    "KeySchema": [
+                        {"AttributeName": "gsi2_pk", "KeyType": "HASH"},
+                        {"AttributeName": "gsi2_sk", "KeyType": "RANGE"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                    "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+                }
+            )
 
         ensure_table_exists(
             resource=resource,

@@ -24,7 +24,11 @@ class DecimalEncoder(json.JSONEncoder):
 
 def estimate_bytes(value: Any) -> int:
     """Approximate the DynamoDB item size using JSON encoding."""
-    return len(json.dumps(value, ensure_ascii=True, separators=(",", ":"), cls=DecimalEncoder).encode("utf-8"))
+    return len(
+        json.dumps(value, ensure_ascii=True, separators=(",", ":"), cls=DecimalEncoder).encode(
+            "utf-8"
+        )
+    )
 
 
 def sanitize_logs(logs: list[str]) -> list[str]:

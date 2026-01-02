@@ -568,7 +568,7 @@
           },
           "structurer_model": {
             "$ref": "#/components/schemas/StructurerModel",
-            "default": "gemini-2.5-flash",
+            "default": "meta-llama/llama-3.3-70b-instruct:free",
             "description": "Model used for lesson structuring."
           }
         },
@@ -578,10 +578,10 @@
       "StructurerModel": {
         "description": "Model options for the structuring agent.",
         "enum": [
+          "google/gemma-3-27b-it:free",
           "gemini-2.5-flash",
           "openai/gpt-oss-20b:free",
-          "meta-llama/llama-3.3-70b-instruct:free",
-          "google/gemma-3-27b-it:free"
+          "meta-llama/llama-3.3-70b-instruct:free"
         ],
         "title": "StructurerModel",
         "type": "string"

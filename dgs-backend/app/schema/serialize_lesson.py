@@ -162,6 +162,6 @@ def lesson_to_shorthand(lesson: LessonDocument) -> dict[str, Any]:
         "title": lesson.title,
         "blocks": [_section_to_shorthand(section) for section in lesson.blocks],
     }
-    if lesson.version != "1.0":
-        data["version"] = lesson.version
+    # if lesson.version != "1.0":
+    #     data["version"] = lesson.version
     return data

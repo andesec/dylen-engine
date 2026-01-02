@@ -19,8 +19,8 @@ def attempt_deterministic_repair(
     repaired = copy.deepcopy(lesson_json)
 
     # Fix missing version
-    if "version" not in repaired:
-        repaired["version"] = "1.0"
+    # if "version" not in repaired:
+    #     repaired["version"] = "1.0"
 
     # Fix missing or empty title
     if (

@@ -5,6 +5,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from app.utils.env import default_env_path, load_env_file
+
+load_env_file(default_env_path(), override=False)
 
 
 @dataclass(frozen=True)

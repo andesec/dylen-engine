@@ -270,14 +270,14 @@ class JobProcessor:
         ) -> None:
             if tracker is None:
                 return
-            
+
             # Active guardrail check
             if timeout_checker and timeout_checker():
                 # Note: We can't easily raise an exception here that Orchestrator will catch nicely,
-                # but Orchestrator has its own try/except now. 
+                # but Orchestrator has its own try/except now.
                 # If we raise here, Orchestrator will catch it and return partial usage.
                 raise TimeoutError("Job hit timeout during orchestration.")
-            
+
             # Check for cancellation
             record = self._jobs_repo.get_job(job_id)
             if record and record.status == "canceled":
@@ -340,7 +340,9 @@ def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str,
     total_output_tokens = 0
     for entry in usage:
         total_input_tokens += int(entry.get("input_tokens") or entry.get("prompt_tokens") or 0)
-        total_output_tokens += int(entry.get("output_tokens") or entry.get("completion_tokens") or 0)
+        total_output_tokens += int(
+            entry.get("output_tokens") or entry.get("completion_tokens") or 0
+        )
     return {
         "currency": "USD",
         "total_input_tokens": total_input_tokens,
