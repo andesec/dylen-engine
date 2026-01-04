@@ -5,16 +5,56 @@
         "additionalProperties": false,
         "description": "Request payload for lesson generation.",
         "properties": {
-          "constraints": {
+          "blueprint": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/GenerationConstraints"
+                "enum": [
+                  "Procedural",
+                  "Theory",
+                  "Social",
+                  "Ops",
+                  "Somatic",
+                  "Values",
+                  "Metacog",
+                  "Critique",
+                  "Create",
+                  "Strategy"
+                ],
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Domain-specific generation constraints."
+            "description": "Optional blueprint or learning outcome guidance for lesson planning.",
+            "title": "Blueprint"
+          },
+          "depth": {
+            "default": "Highlights",
+            "description": "Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
+            "enum": [
+              "Highlights",
+              "Detailed",
+              "Training"
+            ],
+            "title": "Depth",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional user-supplied details (max 250 words).",
+            "examples": [
+              "Focus on lists and loops"
+            ],
+            "title": "Details"
           },
           "idempotency_key": {
             "anyOf": [
@@ -27,6 +67,19 @@
             ],
             "description": "Idempotency key to prevent duplicate lesson generation.",
             "title": "Idempotency Key"
+          },
+          "learner_level": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional learner level hint used for prompt guidance.",
+            "title": "Learner Level"
           },
           "mode": {
             "$ref": "#/components/schemas/GenerationMode",
@@ -44,21 +97,16 @@
             ],
             "description": "Optional per-agent model selection overrides."
           },
-          "prompt": {
-            "anyOf": [
-              {
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "primaryLanguage": {
+            "default": "English",
+            "description": "Primary language for lesson output.",
+            "enum": [
+              "English",
+              "German",
+              "Urdu"
             ],
-            "description": "Optional user-supplied guidance (max 250 words).",
-            "examples": [
-              "Focus on lists and loops"
-            ],
-            "title": "Prompt"
+            "title": "Primarylanguage",
+            "type": "string"
           },
           "schema_version": {
             "anyOf": [
@@ -71,6 +119,24 @@
             ],
             "description": "Optional schema version to pin the lesson output to.",
             "title": "Schema Version"
+          },
+          "teaching_style": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Conceptual",
+                  "Theoretical",
+                  "Practical",
+                  "All"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional teaching style or pedagogy guidance for lesson planning.",
+            "title": "Teaching Style"
           },
           "topic": {
             "description": "Topic to generate a lesson for.",
@@ -92,16 +158,56 @@
         "additionalProperties": false,
         "description": "Request payload for lesson generation.",
         "properties": {
-          "constraints": {
+          "blueprint": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/GenerationConstraints"
+                "enum": [
+                  "Procedural",
+                  "Theory",
+                  "Social",
+                  "Ops",
+                  "Somatic",
+                  "Values",
+                  "Metacog",
+                  "Critique",
+                  "Create",
+                  "Strategy"
+                ],
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Domain-specific generation constraints."
+            "description": "Optional blueprint or learning outcome guidance for lesson planning.",
+            "title": "Blueprint"
+          },
+          "depth": {
+            "default": "Highlights",
+            "description": "Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
+            "enum": [
+              "Highlights",
+              "Detailed",
+              "Training"
+            ],
+            "title": "Depth",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional user-supplied details (max 250 words).",
+            "examples": [
+              "Focus on lists and loops"
+            ],
+            "title": "Details"
           },
           "idempotency_key": {
             "anyOf": [
@@ -114,6 +220,19 @@
             ],
             "description": "Idempotency key to prevent duplicate lesson generation.",
             "title": "Idempotency Key"
+          },
+          "learner_level": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional learner level hint used for prompt guidance.",
+            "title": "Learner Level"
           },
           "mode": {
             "$ref": "#/components/schemas/GenerationMode",
@@ -131,21 +250,16 @@
             ],
             "description": "Optional per-agent model selection overrides."
           },
-          "prompt": {
-            "anyOf": [
-              {
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "primaryLanguage": {
+            "default": "English",
+            "description": "Primary language for lesson output.",
+            "enum": [
+              "English",
+              "German",
+              "Urdu"
             ],
-            "description": "Optional user-supplied guidance (max 250 words).",
-            "examples": [
-              "Focus on lists and loops"
-            ],
-            "title": "Prompt"
+            "title": "Primarylanguage",
+            "type": "string"
           },
           "schema_version": {
             "anyOf": [
@@ -158,6 +272,24 @@
             ],
             "description": "Optional schema version to pin the lesson output to.",
             "title": "Schema Version"
+          },
+          "teaching_style": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Conceptual",
+                  "Theoretical",
+                  "Practical",
+                  "All"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional teaching style or pedagogy guidance for lesson planning.",
+            "title": "Teaching Style"
           },
           "topic": {
             "description": "Topic to generate a lesson for.",
@@ -205,70 +337,6 @@
           "logs"
         ],
         "title": "GenerateLessonResponse",
-        "type": "object"
-      },
-      "GenerationConstraints": {
-        "description": "Specific constraints for lesson content generation.",
-        "properties": {
-          "depth": {
-            "anyOf": [
-              {
-                "enum": [
-                  "2",
-                  "3",
-                  "4",
-                  "5",
-                  "6",
-                  "7",
-                  "8",
-                  "9",
-                  "10"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": "2",
-            "title": "Depth"
-          },
-          "learnerLevel": {
-            "anyOf": [
-              {
-                "enum": [
-                  "Newbie",
-                  "Beginner",
-                  "Intermediate",
-                  "Expert"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Learnerlevel"
-          },
-          "primaryLanguage": {
-            "anyOf": [
-              {
-                "enum": [
-                  "English",
-                  "German",
-                  "Urdu"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": "English",
-            "title": "Primarylanguage"
-          }
-        },
-        "title": "GenerationConstraints",
         "type": "object"
       },
       "GenerationMode": {

@@ -130,7 +130,7 @@ Constraints:
 
 ---
 
-### `swipe` (Binary Swipe Drill)
+### `swipe` (Tinder like Swipe Drill)
 
 ```json
 {
@@ -357,7 +357,7 @@ Recommendation:
 ## Best Practices (Mandatory)
 
 1. Chunk content
-   - Prefer multiple short `section` blocks over one giant section.
+   - Prefer one `section` and multiple short `subsection` blocks over one giant section.
    - Use `subsections` when nested structure is needed.
 
 2. End with assessment

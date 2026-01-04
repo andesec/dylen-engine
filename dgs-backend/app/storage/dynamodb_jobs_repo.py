@@ -13,6 +13,7 @@ from botocore.client import Config
 
 from app.jobs.guardrails import (
     enforce_item_size_guardrails,
+    maybe_truncate_artifacts,
     maybe_truncate_result_json,
     sanitize_logs,
 )
@@ -67,13 +68,8 @@ class DynamoJobsRepository(JobsRepository):
                 aws_kwargs["aws_secret_access_key"] = "test"
 
         session = boto3.session.Session()
-        resource = session.resource(
-            "dynamodb",
-            region_name=region,
-            endpoint_url=endpoint_url,
-            config=Config(connect_timeout=timeout_seconds, read_timeout=timeout_seconds),
-            **aws_kwargs,
-        )
+        config = Config(connect_timeout=timeout_seconds, read_timeout=timeout_seconds)
+        resource = session.resource("dynamodb", region_name=region, endpoint_url=endpoint_url, config=config, **aws_kwargs)
 
         # Build attribute definitions and indexes
         attr_defs = [
@@ -84,42 +80,33 @@ class DynamoJobsRepository(JobsRepository):
         if all_jobs_index:
             attr_defs.append({"AttributeName": "gsi1_pk", "AttributeType": "S"})
             attr_defs.append({"AttributeName": "gsi1_sk", "AttributeType": "S"})
-            gsis.append(
-                {
-                    "IndexName": all_jobs_index,
-                    "KeySchema": [
-                        {"AttributeName": "gsi1_pk", "KeyType": "HASH"},
-                        {"AttributeName": "gsi1_sk", "KeyType": "RANGE"},
-                    ],
-                    "Projection": {"ProjectionType": "ALL"},
-                    "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
-                }
-            )
+            gsi = {
+                "IndexName": all_jobs_index,
+                "KeySchema": [
+                    {"AttributeName": "gsi1_pk", "KeyType": "HASH"},
+                    {"AttributeName": "gsi1_sk", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+            }
+            gsis.append(gsi)
         if idempotency_index:
             attr_defs.append({"AttributeName": "gsi2_pk", "AttributeType": "S"})
             attr_defs.append({"AttributeName": "gsi2_sk", "AttributeType": "S"})
-            gsis.append(
-                {
-                    "IndexName": idempotency_index,
-                    "KeySchema": [
-                        {"AttributeName": "gsi2_pk", "KeyType": "HASH"},
-                        {"AttributeName": "gsi2_sk", "KeyType": "RANGE"},
-                    ],
-                    "Projection": {"ProjectionType": "ALL"},
-                    "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
-                }
-            )
+            gsi = {
+                "IndexName": idempotency_index,
+                "KeySchema": [
+                    {"AttributeName": "gsi2_pk", "KeyType": "HASH"},
+                    {"AttributeName": "gsi2_sk", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+            }
+            gsis.append(gsi)
 
-        ensure_table_exists(
-            resource=resource,
-            table_name=table_name,
-            key_schema=[
-                {"AttributeName": "pk", "KeyType": "HASH"},
-                {"AttributeName": "sk", "KeyType": "RANGE"},
-            ],
-            attribute_definitions=attr_defs,
-            global_secondary_indexes=gsis if gsis else None,
-        )
+        key_schema = [{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}]
+        gsi_defs = gsis if gsis else None
+        ensure_table_exists(resource=resource, table_name=table_name, key_schema=key_schema, attribute_definitions=attr_defs, global_secondary_indexes=gsi_defs)
 
         self._table = resource.Table(table_name)
         self._all_jobs_index = all_jobs_index
@@ -150,6 +137,7 @@ class DynamoJobsRepository(JobsRepository):
         progress: float | None = None,
         logs: list[str] | None = None,
         result_json: dict | None = None,
+        artifacts: dict | None = None,
         validation: dict | None = None,
         cost: dict | None = None,
         completed_at: str | None = None,
@@ -163,27 +151,28 @@ class DynamoJobsRepository(JobsRepository):
         if current.status == "canceled" and status is not None and status != "canceled":
             return current
 
-        updated_record = JobRecord(
-            job_id=current.job_id,
-            request=current.request,
-            status=status or current.status,
-            phase=phase if phase is not None else current.phase,
-            subphase=subphase if subphase is not None else current.subphase,
-            total_steps=total_steps if total_steps is not None else current.total_steps,
-            completed_steps=(
-                completed_steps if completed_steps is not None else current.completed_steps
-            ),
-            progress=progress if progress is not None else current.progress,
-            logs=logs if logs is not None else current.logs,
-            result_json=result_json if result_json is not None else current.result_json,
-            validation=validation if validation is not None else current.validation,
-            cost=cost if cost is not None else current.cost,
-            created_at=current.created_at,
-            updated_at=updated_at or _now_iso(),
-            completed_at=completed_at if completed_at is not None else current.completed_at,
-            ttl=current.ttl,
-            idempotency_key=current.idempotency_key,
-        )
+        completed_steps_value = completed_steps if completed_steps is not None else current.completed_steps
+        payload = {
+            "job_id": current.job_id,
+            "request": current.request,
+            "status": status or current.status,
+            "phase": phase if phase is not None else current.phase,
+            "subphase": subphase if subphase is not None else current.subphase,
+            "total_steps": total_steps if total_steps is not None else current.total_steps,
+            "completed_steps": completed_steps_value,
+            "progress": progress if progress is not None else current.progress,
+            "logs": logs if logs is not None else current.logs,
+            "result_json": result_json if result_json is not None else current.result_json,
+            "artifacts": artifacts if artifacts is not None else current.artifacts,
+            "validation": validation if validation is not None else current.validation,
+            "cost": cost if cost is not None else current.cost,
+            "created_at": current.created_at,
+            "updated_at": updated_at or _now_iso(),
+            "completed_at": completed_at if completed_at is not None else current.completed_at,
+            "ttl": current.ttl,
+            "idempotency_key": current.idempotency_key,
+        }
+        updated_record = JobRecord(**payload)
 
         safe_item = enforce_item_size_guardrails(self._record_to_item(updated_record))
         self._table.put_item(Item=safe_item)
@@ -192,24 +181,22 @@ class DynamoJobsRepository(JobsRepository):
     def find_queued(self, limit: int = 5) -> list[JobRecord]:
         if not self._all_jobs_index:
             return []
-        response = self._table.query(
-            IndexName=self._all_jobs_index,
-            KeyConditionExpression=Key("gsi1_pk").eq("JOB"),
-            FilterExpression=Attr("status").eq("queued"),
-            Limit=limit,
-            ScanIndexForward=True,
-        )
+        params = {
+            "IndexName": self._all_jobs_index,
+            "KeyConditionExpression": Key("gsi1_pk").eq("JOB"),
+            "FilterExpression": Attr("status").eq("queued"),
+            "Limit": limit,
+            "ScanIndexForward": True,
+        }
+        response = self._table.query(**params)
         items = response.get("Items", [])
         return [self._item_to_record(item) for item in items]
 
     def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
         if not self._idempotency_index:
             return None
-        response = self._table.query(
-            IndexName=self._idempotency_index,
-            KeyConditionExpression=Key("gsi2_pk").eq(idempotency_key),
-            Limit=1,
-        )
+        params = {"IndexName": self._idempotency_index, "KeyConditionExpression": Key("gsi2_pk").eq(idempotency_key), "Limit": 1}
+        response = self._table.query(**params)
         items = response.get("Items", [])
         if not items:
             return None
@@ -234,6 +221,7 @@ class DynamoJobsRepository(JobsRepository):
             "progress": Decimal(str(record.progress)) if record.progress is not None else None,
             "logs": sanitize_logs(record.logs),
             "result_json": maybe_truncate_result_json(record.result_json),
+            "artifacts": maybe_truncate_artifacts(_serialize_for_dynamodb(record.artifacts)),
             "validation": record.validation,
             "cost": record.cost,
             "created_at": record.created_at,
@@ -250,26 +238,25 @@ class DynamoJobsRepository(JobsRepository):
         return {key: value for key, value in item.items() if value is not None}
 
     def _item_to_record(self, item: dict[str, Any]) -> JobRecord:
-        return JobRecord(
-            job_id=item["job_id"],
-            request=item["request"],
-            status=item["status"],
-            phase=item.get("phase"),
-            subphase=item.get("subphase"),
-            total_steps=item.get("total_steps"),
-            completed_steps=item.get("completed_steps"),
-            progress=(
-                float(item["progress"])
-                if "progress" in item and item["progress"] is not None
-                else None
-            ),
-            logs=item.get("logs") or [],
-            result_json=item.get("result_json"),
-            validation=item.get("validation"),
-            cost=item.get("cost"),
-            created_at=item["created_at"],
-            updated_at=item["updated_at"],
-            completed_at=item.get("completed_at"),
-            ttl=item.get("ttl"),
-            idempotency_key=item.get("idempotency_key"),
-        )
+        progress = float(item["progress"]) if "progress" in item and item["progress"] is not None else None
+        payload = {
+            "job_id": item["job_id"],
+            "request": item["request"],
+            "status": item["status"],
+            "phase": item.get("phase"),
+            "subphase": item.get("subphase"),
+            "total_steps": item.get("total_steps"),
+            "completed_steps": item.get("completed_steps"),
+            "progress": progress,
+            "logs": item.get("logs") or [],
+            "result_json": item.get("result_json"),
+            "artifacts": item.get("artifacts"),
+            "validation": item.get("validation"),
+            "cost": item.get("cost"),
+            "created_at": item["created_at"],
+            "updated_at": item["updated_at"],
+            "completed_at": item.get("completed_at"),
+            "ttl": item.get("ttl"),
+            "idempotency_key": item.get("idempotency_key"),
+        }
+        return JobRecord(**payload)

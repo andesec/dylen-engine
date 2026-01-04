@@ -13,6 +13,31 @@ from typing import Any, Protocol
 from app.utils.env import default_env_path, load_env_file
 from botocore.signers import add_generate_db_auth_token
 
+_ENV_LOADED = False
+
+
+def _ensure_env_loaded() -> None:
+  """Load the repo .env once so dummy flags work outside the API process."""
+  global _ENV_LOADED
+  if _ENV_LOADED:
+    return
+  load_env_file(default_env_path(), override=False)
+  _ENV_LOADED = True
+
+
+def _resolve_dummy_path(agent: str, raw_path: str | None) -> Path:
+  """Resolve a dummy response path using env or default fixtures."""
+  base_dir = Path(__file__).resolve().parents[4]
+  if raw_path:
+    path = Path(raw_path)
+  else:
+    path = base_dir / "fixtures" / f"dummy_{agent.lower()}_response.md"
+  if not path.is_absolute():
+    path = base_dir / path
+  if not path.is_file():
+    raise RuntimeError(f"Dummy response path not found for {agent}: {path}")
+  return path
+
 
 class ModelResponse(Protocol):
   """Response contract for model outputs."""
@@ -72,20 +97,15 @@ class AIModel(ABC):
     Returns:
         StructuredModelResponse with content as dict, or None if not enabled/found
     """
-    if os.getenv(f"DGS_USE_DUMMY_{agent}_RESPONSE", "false").lower() != "true":
+    _ensure_env_loaded()
+    flag = os.getenv(f"DGS_USE_DUMMY_{agent}_RESPONSE", "false").strip().lower()
+    if flag not in {"true", "1", "yes", "on"}:
       return None
 
-    dummy_path = os.getenv(f"DGS_DUMMY_{agent}_RESPONSE_PATH")
-    if not dummy_path:
-      raise RuntimeError(f"DGS_DUMMY_{agent}_RESPONSE_PATH not found!")
+    path = _resolve_dummy_path(agent, os.getenv(f"DGS_DUMMY_{agent}_RESPONSE_PATH"))
 
-    path = Path(dummy_path)
-    if not path.is_absolute():
-      repo_root = Path(__file__).resolve().parents[4]
-      path = repo_root / path
-
-      with open(path, "r", encoding="utf-8") as handle:
-        return handle.read().strip()
+    with open(path, "r", encoding="utf-8") as handle:
+      return handle.read().strip()
 
 class Provider(ABC):
   """Abstract base class for AI providers."""

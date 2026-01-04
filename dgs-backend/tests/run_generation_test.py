@@ -33,8 +33,11 @@ async def test_generation():
     # Run the generation
     result = await orchestrator.generate_lesson(
         topic="Introduction to Python: Lists and Loops",
-        prompt="Focus on lists and loops",
-        constraints={"length": "Highlights"},
+        details="Focus on lists and loops",
+        blueprint="Introduce list operations and loop constructs with examples.",
+        teaching_style="Interactive walkthrough with short quizzes.",
+        learner_level="Beginner",
+        depth="Highlights",
     )
 
     print("\n--- Generation Result ---")

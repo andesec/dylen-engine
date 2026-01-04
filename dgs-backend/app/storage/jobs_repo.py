@@ -28,6 +28,7 @@ class JobsRepository(Protocol):
         progress: float | None = None,
         logs: list[str] | None = None,
         result_json: dict | None = None,
+        artifacts: dict | None = None,
         validation: dict | None = None,
         cost: dict | None = None,
         completed_at: str | None = None,

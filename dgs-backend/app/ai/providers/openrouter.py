@@ -96,7 +96,7 @@ class OpenRouterModel(AIModel):
       cleaned = AIModel.strip_json_fences(dummy)
       parsed = cast(dict[str, Any], json.loads(cleaned))
       response = StructuredModelResponse(content=parsed, usage=None)
-      logger.info("OpenRouter dummy structured response:\n%s", dummy.content)
+      logger.info("OpenRouter dummy structured response:\n%s", dummy)
       return response
 
     # OpenRouter/OpenAI structured output requires a schema in response_format

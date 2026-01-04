@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from math import ceil
 from typing import Any
 
 from app.jobs.models import JobRecord, JobStatus
@@ -23,8 +22,11 @@ class CallPlan:
     """Represents the expected AI call volume for a job."""
 
     depth: int
-    knowledge_calls: int
+    planner_calls: int
+    gather_calls: int
     structurer_calls: int
+    repair_calls: int
+    stitch_calls: int
     required_calls: int
     max_calls: int
 
@@ -43,9 +45,11 @@ class CallPlan:
     def total_steps(self, *, include_validation: bool = True, include_repair: bool = True) -> int:
         """Compute the total number of progress steps."""
 
-        steps = self.knowledge_calls + (self.depth * 3) + 1
-        if not include_repair:
-            steps -= self.depth
+        planner_steps = 2
+        gather_steps = self.gather_calls * 2
+        structurer_steps = self.structurer_calls * 2
+        stitch_steps = self.stitch_calls
+        steps = planner_steps + gather_steps + structurer_steps + stitch_steps
         if include_validation:
             steps += 1
         return max(steps, 1)
@@ -54,12 +58,23 @@ class CallPlan:
 def _coerce_depth(raw_depth: Any) -> int:
     """Validate and normalize the requested depth."""
 
+    # Accept DLE depth labels in addition to numeric values for backward compatibility.
     if raw_depth is None:
         return 2
+    if isinstance(raw_depth, str):
+        normalized = raw_depth.strip().lower()
+        if normalized == "highlights":
+            return 2
+        if normalized == "detailed":
+            return 6
+        if normalized == "training":
+            return 10
+        if normalized.isdigit():
+            raw_depth = int(normalized)
     try:
         depth = int(raw_depth)
     except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-        raise ValueError("Depth must be an integer between 2 and 10.") from exc
+        raise ValueError("Depth must be Highlights, Detailed, Training, or an integer between 2 and 10.") from exc
     if depth < 2:
         raise ValueError("Depth must be at least 2.")
     if depth > 10:
@@ -70,31 +85,31 @@ def _coerce_depth(raw_depth: Any) -> int:
 def build_call_plan(request_data: Mapping[str, Any]) -> CallPlan:
     """Derive an AI call plan from the raw job request payload."""
 
-    constraints = request_data.get("constraints") or {}
-    depth = _coerce_depth(constraints.get("depth"))
+    depth = _coerce_depth(request_data.get("depth"))
 
-    knowledge_calls = ceil(depth / 2)
+    planner_calls = 1
+    gather_calls = depth
     structurer_calls = depth
-    total_calls = knowledge_calls + structurer_calls
+    repair_calls = depth
+    stitch_calls = 1
+    total_calls = planner_calls + gather_calls + structurer_calls + repair_calls
 
-    max_knowledge_calls = 5
+    max_gather_calls = 10
     max_structurer_calls = 10
-    max_total_calls = 15
+    max_repair_calls = 10
+    max_total_calls = 35
 
-    if knowledge_calls > max_knowledge_calls:
-        raise ValueError("Lower depth to reduce knowledge calls.")
+    if gather_calls > max_gather_calls:
+        raise ValueError("Lower depth to reduce gatherer calls.")
     if structurer_calls > max_structurer_calls:
         raise ValueError("Lower depth to reduce structurer calls.")
+    if repair_calls > max_repair_calls:
+        raise ValueError("Lower depth to reduce repair calls.")
     if total_calls > max_total_calls:
         raise ValueError("Lower depth to reduce total calls.")
 
-    return CallPlan(
-        depth=depth,
-        knowledge_calls=knowledge_calls,
-        structurer_calls=structurer_calls,
-        required_calls=total_calls,
-        max_calls=max_total_calls,
-    )
+    plan = CallPlan(depth=depth, planner_calls=planner_calls, gather_calls=gather_calls, structurer_calls=structurer_calls, repair_calls=repair_calls, stitch_calls=stitch_calls, required_calls=total_calls, max_calls=max_total_calls)
+    return plan
 
 
 class JobProgressTracker:
@@ -142,30 +157,26 @@ class JobProgressTracker:
             return 0.0
         return min(round((self._completed_steps / self._total_steps) * 100, 2), 100.0)
 
-    def _update_job(
-        self, *, status: JobStatus, phase: str, subphase: str | None = None
-    ) -> JobRecord | None:
-        record = self._jobs_repo.update_job(
-            self._job_id,
-            status=status,
-            phase=phase,
-            subphase=subphase,
-            progress=self._progress_percent(),
-            total_steps=self._total_steps,
-            completed_steps=self._completed_steps,
-            logs=self._logs,
-        )
+    def _update_job(self, *, status: JobStatus, phase: str, subphase: str | None = None) -> JobRecord | None:
+        payload = {
+            "status": status,
+            "phase": phase,
+            "subphase": subphase,
+            "progress": self._progress_percent(),
+            "total_steps": self._total_steps,
+            "completed_steps": self._completed_steps,
+            "logs": self._logs,
+        }
+        record = self._jobs_repo.update_job(self._job_id, **payload)
         if record and record.status == "canceled":
             raise JobCanceledError(f"Job {self._job_id} was canceled.")
         return record
 
     def set_cost(self, cost: dict[str, Any]) -> JobRecord | None:
         """Update the job's cost metrics."""
-        return self._jobs_repo.update_job(
-            self._job_id,
-            cost=cost,
-            updated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        )
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        payload = {"cost": cost, "updated_at": timestamp}
+        return self._jobs_repo.update_job(self._job_id, **payload)
 
     def set_phase(self, *, phase: str, subphase: str | None = None) -> JobRecord | None:
         """Update the phase without advancing progress."""
@@ -183,13 +194,7 @@ class JobProgressTracker:
         self._ai_call_index = min(self._ai_call_index + 1, self._total_ai_calls)
         return record
 
-    def complete_step(
-        self,
-        *,
-        phase: str,
-        subphase: str | None,
-        message: str | None = None,
-    ) -> JobRecord | None:
+    def complete_step(self, *, phase: str, subphase: str | None, message: str | None = None) -> JobRecord | None:
         """Advance progress with a custom subphase label."""
 
         if message:
@@ -197,9 +202,7 @@ class JobProgressTracker:
         self._completed_steps = min(self._completed_steps + 1, self._total_steps)
         return self._update_job(status="running", phase=phase, subphase=subphase)
 
-    def complete_validation(
-        self, *, message: str | None = None, status: JobStatus = "running"
-    ) -> JobRecord | None:
+    def complete_validation(self, *, message: str | None = None, status: JobStatus = "running") -> JobRecord | None:
         """Mark validation as finished and finalize progress."""
 
         if message:
@@ -212,14 +215,8 @@ class JobProgressTracker:
 
         self.add_logs(message)
         self._completed_steps = self._total_steps
-        return self._jobs_repo.update_job(
-            self._job_id,
-            status="error",
-            phase=phase,
-            subphase="error",
-            progress=self._progress_percent(),
-            logs=self._logs,
-        )
+        payload = {"status": "error", "phase": phase, "subphase": "error", "progress": self._progress_percent(), "logs": self._logs}
+        return self._jobs_repo.update_job(self._job_id, **payload)
 
     @property
     def logs(self) -> list[str]:

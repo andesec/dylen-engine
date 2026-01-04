@@ -94,17 +94,10 @@ async def global_exception_handler(request: Request, exc: Exception) -> DecimalJ
   )
 
 
-# Create logs directory if it doesn't exist
-log_dir = Path("logs")
-log_dir.mkdir(exist_ok=True)
-
-# Generate log filename with timestamp
-log_file = log_dir / f"dgs_app_{time.strftime('%Y%m%d_%H%M%S')}.log"
-
-# Define formatter
-formatter = logging.Formatter(
-  "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
-)
+LOG_LINE_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+LOG_FORMATTER = logging.Formatter(LOG_LINE_FORMAT, datefmt="%H:%M:%S")
+_LOG_FILE_PATH: Path | None = None
+_LOGGING_INITIALIZED = False
 
 
 class TruncatedFormatter(logging.Formatter):
@@ -124,38 +117,45 @@ class TruncatedFormatter(logging.Formatter):
     return "".join(lines)
 
 
-# Configure Root Logger explicitly (safety against uvicorn hijacking)
-root_logger = logging.getLogger()
-# Stream Handler (Console) - Truncated
-stream_handler = logging.StreamHandler(sys.stdout)
-stream_handler.setFormatter(
-  TruncatedFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S")
-)
+def _build_handlers() -> tuple[logging.Handler, logging.Handler, Path]:
+  """Create logging handlers anchored to the backend directory."""
+  log_dir = Path(__file__).resolve().parent.parent / "logs"
+  try:
+    log_dir.mkdir(parents=True, exist_ok=True)
+  except OSError as exc:
+    raise RuntimeError(f"Failed to create log directory at {log_dir}: {exc}") from exc
 
-# File Handler
-file_handler = logging.FileHandler(log_file)
-file_handler.setFormatter(formatter)
+  log_path = log_dir / f"dgs_app_{time.strftime('%Y%m%d_%H%M%S')}.log"
+  try:
+    # Touch early so the file exists even if handlers have not flushed yet.
+    log_path.touch(exist_ok=True)
+  except OSError as exc:
+    raise RuntimeError(f"Failed to create log file at {log_path}: {exc}") from exc
+
+  stream = logging.StreamHandler(sys.stdout)
+  stream.setFormatter(TruncatedFormatter(LOG_LINE_FORMAT, datefmt="%H:%M:%S"))
+  file_handler = logging.FileHandler(log_path, encoding="utf-8")
+  file_handler.setFormatter(LOG_FORMATTER)
+  return stream, file_handler, log_path
 
 
-def setup_logging():
+def setup_logging() -> Path:
   """Ensure all loggers use our handlers and propagate to root."""
-  # Capture uvicorn loggers
+  stream_handler, file_handler, log_path = _build_handlers()
   for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
     l = logging.getLogger(logger_name)
     l.handlers = [stream_handler, file_handler]
     l.propagate = False
   
-  logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=[stream_handler, file_handler],
-    force=True,
-  )
-  # Re-apply to root just in case
+  logging.basicConfig(level=logging.DEBUG, handlers=[stream_handler, file_handler], force=True)
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
   if not root.handlers:
     root.addHandler(stream_handler)
     root.addHandler(file_handler)
+  if not log_path.exists():
+    raise RuntimeError(f"Logging initialization failed; log file missing at {log_path}")
+  return log_path
 
 
 # Silence noisy libraries
@@ -187,9 +187,20 @@ def _log_widget_registry() -> None:
 
 def _initialize_logging() -> None:
   """Initialize logging and log startup messages."""
-  setup_logging()
-  logger.info(f"Logging initialized. Writing to {log_file}")
+  global _LOG_FILE_PATH, _LOGGING_INITIALIZED
+  if _LOGGING_INITIALIZED:
+    return
+  log_path = setup_logging()
+  _LOG_FILE_PATH = log_path
+  _LOGGING_INITIALIZED = True
+  logger.info("Logging initialized. Writing to %s", _LOG_FILE_PATH)
   _log_widget_registry()
+
+
+try:
+  _initialize_logging()
+except Exception:
+  logger.warning("Initial logging setup failed; will retry on lifespan.", exc_info=True)
 
 
 @app.middleware("http")
@@ -249,33 +260,6 @@ class StructurerModel(str, Enum):
   LLAMA_33_70B = "meta-llama/llama-3.3-70b-instruct:free"
 
 
-class GenerationConstraints(BaseModel):
-  """Specific constraints for lesson content generation."""
-  
-  primaryLanguage: Literal["English", "German", "Urdu"] | None = Field(
-    default="English", alias="primaryLanguage"
-  )
-  learnerLevel: Literal["Newbie", "Beginner", "Intermediate", "Expert"] | None = Field(
-    default=None, alias="learnerLevel"
-  )
-  depth: (
-      Literal[
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "10",
-      ]
-      | None
-  ) = Field(default="2", alias="depth")
-  
-  model_config = ConfigDict(populate_by_name=True)
-
-
 class ModelsConfig(BaseModel):
   """Per-agent model selection overrides."""
   
@@ -299,11 +283,46 @@ class GenerateLessonRequest(BaseModel):
     description="Topic to generate a lesson for.",
     examples=["Introduction to Python"],
   )
-  prompt: StrictStr | None = Field(
+  details: StrictStr | None = Field(
     default=None,
     min_length=1,
-    description="Optional user-supplied guidance (max 250 words).",
+    description="Optional user-supplied details (max 250 words).",
     examples=["Focus on lists and loops"],
+  )
+  blueprint: (
+    Literal[
+      "Procedural",
+      "Theory",
+      "Social",
+      "Ops",
+      "Somatic",
+      "Values",
+      "Metacog",
+      "Critique",
+      "Create",
+      "Strategy",
+    ]
+    | None
+  ) = Field(
+    default=None,
+    description="Optional blueprint or learning outcome guidance for lesson planning.",
+  )
+  teaching_style: Literal["Conceptual", "Theoretical", "Practical", "All"] | None = Field(
+    default=None,
+    description="Optional teaching style or pedagogy guidance for lesson planning.",
+  )
+  learner_level: StrictStr | None = Field(
+    default=None,
+    min_length=1,
+    description="Optional learner level hint used for prompt guidance.",
+  )
+  depth: Literal["Highlights", "Detailed", "Training"] = Field(
+    default="Highlights",
+    description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
+  )
+  primaryLanguage: Literal["English", "German", "Urdu"] = Field(
+    default="English",
+    description="Primary language for lesson output.",
   )
   mode: GenerationMode = Field(
     default=GenerationMode.BALANCED,
@@ -315,9 +334,6 @@ class GenerateLessonRequest(BaseModel):
   idempotency_key: StrictStr | None = Field(
     default=None,
     description="Idempotency key to prevent duplicate lesson generation.",
-  )
-  constraints: GenerationConstraints | None = Field(
-    default=None, description="Domain-specific generation constraints."
   )
   models: ModelsConfig | None = Field(
     default=None, description="Optional per-agent model selection overrides."
@@ -545,19 +561,22 @@ def _count_words(text: str) -> int:
   return len(text.split())
 
 
+
+
 def _validate_generate_request(request: GenerateLessonRequest, settings: Settings) -> None:
-  """Enforce topic/prompt length and persistence size constraints."""
+  """Enforce topic/detail length and persistence size constraints."""
   if len(request.topic) > settings.max_topic_length:
     raise HTTPException(
       status_code=status.HTTP_400_BAD_REQUEST,
       detail=f"Topic exceeds max length of {settings.max_topic_length} chars.",
     )
-  if request.prompt:
-    word_count = _count_words(request.prompt)
+  if request.details:
+    # Guardrail to keep user-provided detail payloads within size limits.
+    word_count = _count_words(request.details)
     if word_count > 250:
       raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail=f"User prompt is too long ({word_count} words). Max 250 words.",
+        detail=f"User details are too long ({word_count} words). Max 250 words.",
       )
   if estimate_bytes(request.model_dump(mode="python", by_alias=True)) > MAX_REQUEST_BYTES:
     raise HTTPException(
@@ -565,13 +584,10 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
       detail="Request payload is too large for persistence.",
     )
   
-  constraints = (
-    request.constraints.model_dump(mode="python", by_alias=True) if request.constraints else {}
-  )
   try:
     from app.jobs.progress import build_call_plan  # Local import to avoid circular deps
-    
-    build_call_plan({"constraints": constraints})
+
+    build_call_plan(request.model_dump(mode="python", by_alias=True))
   except ValueError as exc:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -596,19 +612,17 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
     )
 
 
-def _build_constraints(constraints: GenerationConstraints | None) -> dict[str, Any] | None:
-  """Translate user constraints into orchestration constraints."""
-  if not constraints:
-    return None
-  # Use aliases to keep API fields aligned with OpenAPI and DLE.
-  return constraints.model_dump(mode="python", by_alias=True, exclude_none=True)
-
-
-def _resolve_primary_language(constraints: GenerationConstraints | None) -> str | None:
+def _resolve_primary_language(request: GenerateLessonRequest) -> str | None:
   """Return the requested primary language for orchestration prompts."""
   # This feeds prompt guidance but does not change response schema.
-  if constraints and constraints.primaryLanguage:
-    return constraints.primaryLanguage
+  return request.primaryLanguage
+
+
+def _resolve_learner_level(request: GenerateLessonRequest) -> str | None:
+  """Return the learner level from the request."""
+  # Prefer the explicit request field for prompt guidance.
+  if request.learner_level:
+    return request.learner_level
   return None
 
 
@@ -695,12 +709,15 @@ async def generate_lesson(  # noqa: B008
     structurer_provider=structurer_provider,
     structurer_model=structurer_model,
   )
-  constraints = _build_constraints(request.constraints)
-  language = _resolve_primary_language(request.constraints)
+  language = _resolve_primary_language(request)
+  learner_level = _resolve_learner_level(request)
   result = await orchestrator.generate_lesson(
     topic=request.topic,
-    prompt=request.prompt,
-    constraints=constraints,
+    details=request.details,
+    blueprint=request.blueprint,
+    teaching_style=request.teaching_style,
+    learner_level=learner_level,
+    depth=request.depth,
     schema_version=request.schema_version or settings.schema_version,
     structurer_model=structurer_model,
     gatherer_model=gatherer_model,

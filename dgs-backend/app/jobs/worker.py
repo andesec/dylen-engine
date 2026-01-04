@@ -20,8 +20,8 @@ from app.jobs.progress import (
 )
 from app.main import (
     GenerateLessonRequest,
-    _build_constraints,
     _get_orchestrator,
+    _resolve_learner_level,
     _resolve_model_selection,
     _resolve_primary_language,
 )
@@ -34,9 +34,7 @@ from app.writing.orchestrator import WritingCheckOrchestrator
 class JobProcessor:
     """Coordinates execution of queued jobs."""
 
-    def __init__(
-        self, *, jobs_repo: JobsRepository, orchestrator: DgsOrchestrator, settings: Settings
-    ) -> None:
+    def __init__(self, *, jobs_repo: JobsRepository, orchestrator: DgsOrchestrator, settings: Settings) -> None:
         self._jobs_repo = jobs_repo
         self._orchestrator = orchestrator
         self._settings = settings
@@ -58,35 +56,21 @@ class JobProcessor:
             call_plan = build_call_plan(job.request)
         except ValueError as exc:
             error_log = f"Validation failed: {exc}"
-            self._jobs_repo.update_job(
-                job.job_id,
-                status="error",
-                phase="failed",
-                subphase="validation",
-                progress=100.0,
-                logs=base_logs + [error_log],
-            )
+            payload = {"status": "error", "phase": "failed", "subphase": "validation", "progress": 100.0, "logs": base_logs + [error_log]}
+            self._jobs_repo.update_job(job.job_id, **payload)
             return None
 
-        tracker = JobProgressTracker(
-            job_id=job.job_id,
-            jobs_repo=self._jobs_repo,
-            total_steps=call_plan.total_steps(include_validation=True, include_repair=True),
-            total_ai_calls=call_plan.total_ai_calls,
-            label_prefix=call_plan.label_prefix,
-            initial_logs=base_logs
-            + [
-                f"Planned AI calls: {call_plan.required_calls}/{call_plan.max_calls}",
-                f"Depth: {call_plan.depth}",
-                f"Knowledge calls: {call_plan.knowledge_calls}",
-                f"Structurer calls: {call_plan.structurer_calls}",
-            ],
-        )
-        # Initialize progress with the first KnowledgeBuilder subphase.
-        tracker.set_phase(
-            phase="collect",
-            subphase=f"kb_call_1_of_{call_plan.knowledge_calls}",
-        )
+        total_steps = call_plan.total_steps(include_validation=True, include_repair=True)
+        initial_logs = base_logs + [
+            f"Planned AI calls: {call_plan.required_calls}/{call_plan.max_calls}",
+            f"Depth: {call_plan.depth}",
+            f"Planner calls: {call_plan.planner_calls}",
+            f"Gatherer calls: {call_plan.gather_calls}",
+            f"Structurer calls: {call_plan.structurer_calls}",
+            f"Repair calls: {call_plan.repair_calls}",
+        ]
+        tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=total_steps, total_ai_calls=call_plan.total_ai_calls, label_prefix=call_plan.label_prefix, initial_logs=initial_logs)
+        tracker.set_phase(phase="plan", subphase="planner_start")
 
         start_time = time.monotonic()
         soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
@@ -109,12 +93,7 @@ class JobProcessor:
             if _check_timeouts():
                 return None
 
-            orchestration_result = await self._run_orchestration(
-                job.job_id,
-                job.request,
-                tracker=tracker,
-                timeout_checker=_check_timeouts,
-            )
+            orchestration_result = await self._run_orchestration(job.job_id, job.request, tracker=tracker, timeout_checker=_check_timeouts)
 
             if _check_timeouts():
                 return None
@@ -128,24 +107,24 @@ class JobProcessor:
             shorthand = lesson_to_shorthand(lesson_model)
             tracker.extend_logs(orchestration_result.logs)
             tracker.complete_validation(message="Validate phase complete.", status="done")
-            cost_summary = _summarize_cost(
-                orchestration_result.usage, orchestration_result.total_cost
-            )
+            cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
             tracker.set_cost(cost_summary)
             log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
             log_updates.append("Job completed successfully.")
-            updated = self._jobs_repo.update_job(
-                job.job_id,
-                status="done",
-                phase="validate",
-                subphase="complete",
-                progress=100.0,
-                logs=log_updates,
-                result_json=shorthand,
-                validation=validation,
-                cost=cost_summary,
-                completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            )
+            completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            payload = {
+                "status": "done",
+                "phase": "validate",
+                "subphase": "complete",
+                "progress": 100.0,
+                "logs": log_updates,
+                "result_json": shorthand,
+                "artifacts": orchestration_result.artifacts,
+                "validation": validation,
+                "cost": cost_summary,
+                "completed_at": completed_at,
+            }
+            updated = self._jobs_repo.update_job(job.job_id, **payload)
             return updated
         except JobCanceledError:
             # Re-fetch the record to ensure we have the final canceled state
@@ -153,50 +132,26 @@ class JobProcessor:
         except Exception as exc:  # noqa: BLE001
             error_log = f"Job failed: {exc}"
             tracker.fail(phase="failed", message=error_log)
-            self._jobs_repo.update_job(
-                job.job_id,
-                status="error",
-                phase="failed",
-                progress=100.0,
-                logs=tracker.logs,
-            )
+            payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+            self._jobs_repo.update_job(job.job_id, **payload)
             return None
 
     async def _process_writing_check(self, job: JobRecord) -> JobRecord | None:
         """Execute a background writing task evaluation."""
-        tracker = JobProgressTracker(
-            job_id=job.job_id,
-            jobs_repo=self._jobs_repo,
-            total_steps=1,
-            total_ai_calls=1,
-            label_prefix="check",
-            initial_logs=["Writing check acknowledged."],
-        )
+        tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="check", initial_logs=["Writing check acknowledged."])
         tracker.set_phase(phase="evaluating", subphase="ai_check")
 
         try:
-            orchestrator = WritingCheckOrchestrator(
-                provider=self._settings.structurer_provider,
-                model=self._settings.structurer_model,
-            )
-            result = await orchestrator.check_response(
-                text=job.request["text"],
-                criteria=job.request["criteria"],
-            )
+            orchestrator = WritingCheckOrchestrator(provider=self._settings.structurer_provider, model=self._settings.structurer_model)
+            result = await orchestrator.check_response(text=job.request["text"], criteria=job.request["criteria"])
 
             tracker.extend_logs(result.logs)
             cost_summary = _summarize_cost(result.usage, result.total_cost)
             tracker.set_cost(cost_summary)
-            updated = self._jobs_repo.update_job(
-                job.job_id,
-                status="done",
-                phase="complete",
-                progress=100.0,
-                logs=tracker.logs,
-                result_json={"ok": result.ok, "issues": result.issues, "feedback": result.feedback},
-                cost=cost_summary,
-                completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            )
+            completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            result_json = {"ok": result.ok, "issues": result.issues, "feedback": result.feedback}
+            payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
+            updated = self._jobs_repo.update_job(job.job_id, **payload)
             return updated
         except JobCanceledError:
             return self._jobs_repo.get_job(job.job_id)
@@ -214,14 +169,7 @@ class JobProcessor:
                 results.append(processed)
         return results
 
-    async def _run_orchestration(
-        self,
-        job_id: str,
-        request: dict[str, Any],
-        *,
-        tracker: JobProgressTracker | None = None,
-        timeout_checker: Callable[[], bool] | None = None,
-    ) -> OrchestrationResult:
+    async def _run_orchestration(self, job_id: str, request: dict[str, Any], *, tracker: JobProgressTracker | None = None, timeout_checker: Callable[[], bool] | None = None) -> OrchestrationResult:
         """Execute the orchestration pipeline with guarded parameters."""
         try:
             request_model = GenerateLessonRequest.model_validate(request)
@@ -231,27 +179,13 @@ class JobProcessor:
         if len(topic) > self._settings.max_topic_length:
             raise ValueError(f"Topic exceeds max length of {self._settings.max_topic_length}.")
 
-        (
-            gatherer_provider,
-            gatherer_model,
-            structurer_provider,
-            structurer_model,
-        ) = _resolve_model_selection(
-            self._settings,
-            mode=request_model.mode,
-            models=request_model.models,
-        )
-        constraints = _build_constraints(request_model.constraints)
-        language = _resolve_primary_language(request_model.constraints)
+        selection = _resolve_model_selection(self._settings, mode=request_model.mode, models=request_model.models)
+        gatherer_provider, gatherer_model, structurer_provider, structurer_model = selection
+        language = _resolve_primary_language(request_model)
+        learner_level = _resolve_learner_level(request_model)
         schema_version = request_model.schema_version or self._settings.schema_version
 
-        orchestrator = _get_orchestrator(
-            self._settings,
-            gatherer_provider=gatherer_provider,
-            gatherer_model=gatherer_model,
-            structurer_provider=structurer_provider,
-            structurer_model=structurer_model,
-        )
+        orchestrator = _get_orchestrator(self._settings, gatherer_provider=gatherer_provider, gatherer_model=gatherer_model, structurer_provider=structurer_provider, structurer_model=structurer_model)
 
         logs: list[str] = [
             f"Starting job {job_id}",
@@ -262,12 +196,8 @@ class JobProcessor:
             f"Structurer model: {structurer_model or 'default'}",
         ]
 
-        def _progress_callback(
-            phase: str,
-            subphase: str | None,
-            messages: list[str] | None = None,
-            advance: bool = True,
-        ) -> None:
+        Msgs = list[str] | None
+        def _progress_callback(phase: str, subphase: str | None, messages: Msgs = None, advance: bool = True) -> None:
             if tracker is None:
                 return
 
@@ -293,8 +223,11 @@ class JobProcessor:
 
         result = await self._orchestrator.generate_lesson(
             topic=topic,
-            prompt=request_model.prompt,
-            constraints=constraints,
+            details=request_model.details,
+            blueprint=request_model.blueprint,
+            teaching_style=request_model.teaching_style,
+            learner_level=learner_level,
+            depth=request_model.depth,
             schema_version=schema_version,
             structurer_model=structurer_model,
             gatherer_model=gatherer_model,
@@ -306,14 +239,7 @@ class JobProcessor:
         merged_logs = list(_merge_logs(logs, result.logs))
         if tracker is not None:
             tracker.set_phase(phase="validate", subphase="validation")
-        return result.__class__(
-            lesson_json=result.lesson_json,
-            provider_a=result.provider_a,
-            model_a=result.model_a,
-            provider_b=result.provider_b,
-            model_b=result.model_b,
-            logs=merged_logs,
-        )
+        return result.__class__(lesson_json=result.lesson_json, provider_a=result.provider_a, model_a=result.model_a, provider_b=result.provider_b, model_b=result.model_b, logs=merged_logs)
 
 
 def _merge_logs(*log_sets: Iterable[str]) -> Iterable[str]:
@@ -340,9 +266,8 @@ def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str,
     total_output_tokens = 0
     for entry in usage:
         total_input_tokens += int(entry.get("input_tokens") or entry.get("prompt_tokens") or 0)
-        total_output_tokens += int(
-            entry.get("output_tokens") or entry.get("completion_tokens") or 0
-        )
+        output_tokens = int(entry.get("output_tokens") or entry.get("completion_tokens") or 0)
+        total_output_tokens += output_tokens
     return {
         "currency": "USD",
         "total_input_tokens": total_input_tokens,

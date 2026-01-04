@@ -24,6 +24,7 @@ class JobRecord:
     progress: float | None = None
     logs: list[str] = field(default_factory=list)
     result_json: dict[str, Any] | None = None
+    artifacts: dict[str, Any] | None = None
     validation: dict[str, Any] | None = None
     cost: dict[str, Any] | None = None
     completed_at: str | None = None
