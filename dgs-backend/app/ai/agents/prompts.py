@@ -124,14 +124,14 @@ def _planner_prompt_name(blueprint: str | None) -> str:
   normalized = "".join(ch for ch in blueprint.lower() if ch.isalnum())
   prompt_map = {
     "procedural": "planner_procedural.md",
-    "theory": "planner_theory.md",
+    "factual": "planner_factual.md",
     "social": "planner_social.md",
-    "ops": "planner_ops.md",
+    "management": "planner_management.md",
     "somatic": "planner_somatic.md",
     "values": "planner_values.md",
-    "metacog": "planner_metacog.md",
+    "metacognitive": "planner_metacognitive.md",
     "critique": "planner_critique.md",
-    "create": "planner_create.md",
+    "creativity": "planner_creativity.md",
     "strategy": "planner_strategy.md",
   }
   return prompt_map.get(normalized, "planner_default.md")

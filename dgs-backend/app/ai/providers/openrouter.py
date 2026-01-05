@@ -156,6 +156,7 @@ class OpenRouterProvider(Provider):
     "xiaomi/mimo-v2-flash:free",
     "deepseek/deepseek-r1-0528:free",
     "openai/gpt-oss-120b:free",
+    "meta-llama/llama-3.1-405b-instruct:free"
     # Structurer options (from integration specs).
     "openai/gpt-oss-20b:free",
     "meta-llama/llama-3.3-70b-instruct:free",
