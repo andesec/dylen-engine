@@ -53,6 +53,8 @@ class DgsOrchestrator:
     *,
     gatherer_provider: str,
     gatherer_model: str | None,
+    planner_provider: str | None,
+    planner_model: str | None,
     structurer_provider: str,
     structurer_model: str | None,
     repair_provider: str,
@@ -61,6 +63,8 @@ class DgsOrchestrator:
   ) -> None:
     self._gatherer_provider = gatherer_provider
     self._gatherer_model_name = gatherer_model
+    self._planner_provider = planner_provider or structurer_provider
+    self._planner_model_name = planner_model
     self._structurer_provider = structurer_provider
     self._structurer_model_name = structurer_model
     self._repair_provider = repair_provider
@@ -97,6 +101,7 @@ class DgsOrchestrator:
 
     gatherer_model_name = gatherer_model or self._gatherer_model_name
     structurer_model_name = structurer_model or self._structurer_model_name
+    planner_model_name = self._planner_model_name or structurer_model_name
 
     topic_preview = topic[:50] + "..." if len(topic) >= 50 else topic
     log_msg = f"Starting generation for topic: '{topic_preview}'"
@@ -107,7 +112,7 @@ class DgsOrchestrator:
     logs.append(log_msg)
     logger.info(log_msg)
 
-    log_msg = f"Planner: {self._structurer_provider}/{structurer_model_name or 'default'}"
+    log_msg = f"Planner: {self._planner_provider}/{planner_model_name or 'default'}"
     logs.append(log_msg)
     logger.info(log_msg)
 
@@ -138,15 +143,17 @@ class DgsOrchestrator:
     usage_sink = all_usage.append
 
     gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name)
+    planner_model_instance = get_model_for_mode(self._planner_provider, planner_model_name)
     structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name)
     repairer_model_instance = get_model_for_mode(self._repair_provider, self._repair_model_name)
 
     schema = self._schema_service
     use = usage_sink
     gatherer_prov = self._gatherer_provider
+    planner_prov = self._planner_provider
     structurer_prov = self._structurer_provider
     repair_prov = self._repair_provider
-    planner_agent = PlannerAgent(model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use)
+    planner_agent = PlannerAgent(model=planner_model_instance, prov=planner_prov, schema=schema, use=use)
     gatherer_agent = GathererAgent(model=gatherer_model_instance, prov=gatherer_prov, schema=schema, use=use)
     structurer_agent = StructurerAgent(model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use)
     repairer_agent = RepairerAgent(model=repairer_model_instance, prov=repair_prov, schema=schema, use=use)
@@ -156,8 +163,8 @@ class DgsOrchestrator:
     try:
       lesson_plan = await planner_agent.run(request, ctx)
     except Exception as exc:
-      planner_model = _model_name(structurer_model_instance)
-      _log_request_failure(logger=logger, logs=logs, agent="Planner", provider=structurer_prov, model=planner_model, prompt=None, response=None, error=exc)
+      planner_model = _model_name(planner_model_instance)
+      _log_request_failure(logger=logger, logs=logs, agent="Planner", provider=planner_prov, model=planner_model, prompt=None, response=None, error=exc)
       raise
     _report_progress("plan", "planner_complete", ["Lesson plan ready."])
 

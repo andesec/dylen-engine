@@ -243,11 +243,12 @@ class GenerationMode(str, Enum):
 
 class KnowledgeModel(str, Enum):
   """Model options for the knowledge collection agent."""
-  
+
   GEMINI_25_FLASH = "gemini-2.5-flash"
   GEMINI_25_PRO = "gemini-2.5-pro"
   XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash:free"
   DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
+  LLAMA_31_405B = "meta-llama/llama-3.1-405b-instruct:free"
   GPT_OSS_120B = "openai/gpt-oss-120b:free"
 
 
@@ -262,13 +263,13 @@ class StructurerModel(str, Enum):
 
 class ModelsConfig(BaseModel):
   """Per-agent model selection overrides."""
-  
+
   knowledge_model: KnowledgeModel = Field(
-    default=KnowledgeModel.GEMINI_25_FLASH,
+    default=KnowledgeModel.LLAMA_31_405B,
     description="Model used for knowledge collection.",
   )
   structurer_model: StructurerModel = Field(
-    default=StructurerModel.LLAMA_33_70B,
+    default=StructurerModel.GPT_OSS_20B,
     description="Model used for lesson structuring.",
   )
   
@@ -434,12 +435,16 @@ def _get_orchestrator(
     *,
     gatherer_provider: str | None = None,
     gatherer_model: str | None = None,
+    planner_provider: str | None = None,
+    planner_model: str | None = None,
     structurer_provider: str | None = None,
     structurer_model: str | None = None,
 ) -> DgsOrchestrator:
   return DgsOrchestrator(
     gatherer_provider=gatherer_provider or settings.gatherer_provider,
     gatherer_model=gatherer_model or settings.gatherer_model,
+    planner_provider=planner_provider or settings.planner_provider,
+    planner_model=planner_model or settings.planner_model,
     structurer_provider=structurer_provider or settings.structurer_provider,
     structurer_model=structurer_model or settings.structurer_model,
     repair_provider=settings.repair_provider,
@@ -476,6 +481,7 @@ _GEMINI_KNOWLEDGE_MODELS = {
 _OPENROUTER_KNOWLEDGE_MODELS = {
   KnowledgeModel.XIAOMI_MIMO_V2_FLASH,
   KnowledgeModel.DEEPSEEK_R1_0528,
+  KnowledgeModel.LLAMA_31_405B,
   KnowledgeModel.GPT_OSS_120B,
 }
 
@@ -487,7 +493,7 @@ _OPENROUTER_STRUCTURER_MODELS = {
   StructurerModel.GEMMA_3_27B,
 }
 
-DEFAULT_KNOWLEDGE_MODEL = KnowledgeModel.GEMINI_25_FLASH.value
+DEFAULT_KNOWLEDGE_MODEL = KnowledgeModel.LLAMA_31_405B.value
 
 
 def _resolve_model_selection(

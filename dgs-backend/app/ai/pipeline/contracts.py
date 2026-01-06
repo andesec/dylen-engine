@@ -53,10 +53,11 @@ class LessonPlan(BaseModel):
 
 
 class SectionDraft(BaseModel):
-  """Raw content captured for a section."""
+  """Raw content captured for a section along with the originating planner context to guide structuring."""
 
   section_number: int = Field(ge=1)
   title: str
+  plan_section: PlanSection | None = None
   raw_text: str
   extracted_parts: dict[str, Any] | None = None
 

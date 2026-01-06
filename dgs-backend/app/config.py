@@ -23,6 +23,8 @@ class Settings:
     ddb_endpoint_url: str | None
     gatherer_provider: str
     gatherer_model: str | None
+    planner_provider: str
+    planner_model: str | None
     structurer_provider: str
     structurer_model: str | None
     structurer_model_fast: str | None
@@ -70,17 +72,19 @@ def get_settings() -> Settings:
         jobs_table=os.getenv("DGS_JOBS_TABLE", "dgs_jobs"),
         ddb_region=os.getenv("AWS_REGION", "us-east-1"),
         ddb_endpoint_url=os.getenv("DGS_DDB_ENDPOINT_URL"),
-        gatherer_provider=os.getenv("DGS_GATHERER_PROVIDER", "gemini"),
-        gatherer_model=os.getenv("DGS_GATHERER_MODEL"),
+        gatherer_provider=os.getenv("DGS_GATHERER_PROVIDER", "openrouter"),
+        gatherer_model=os.getenv("DGS_GATHERER_MODEL", "meta-llama/llama-3.1-405b-instruct:free"),
+        planner_provider=os.getenv("DGS_PLANNER_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter")),
+        planner_model=os.getenv("DGS_PLANNER_MODEL", "openai/gpt-oss-120b:free"),
         structurer_provider=os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter"),
-        structurer_model=os.getenv("DGS_STRUCTURER_MODEL"),
+        structurer_model=os.getenv("DGS_STRUCTURER_MODEL", "openai/gpt-oss-20b:free"),
         structurer_model_fast=os.getenv("DGS_STRUCTURER_MODEL_FAST"),
         structurer_model_balanced=os.getenv("DGS_STRUCTURER_MODEL_BALANCED"),
         structurer_model_best=os.getenv("DGS_STRUCTURER_MODEL_BEST"),
         repair_provider=os.getenv(
             "DGS_REPAIR_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "gemini")
         ),
-        repair_model=os.getenv("DGS_REPAIR_MODEL"),
+        repair_model=os.getenv("DGS_REPAIR_MODEL", "google/gemma-3-27b-it:free"),
         prompt_version=os.getenv("DGS_PROMPT_VERSION", "v1"),
         schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
         tenant_key=os.getenv("DGS_TENANT_KEY", "TENANT#default"),
