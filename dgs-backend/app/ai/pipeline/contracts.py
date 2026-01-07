@@ -13,7 +13,8 @@ class GenerationRequest(BaseModel):
 
   topic: str
   prompt: str | None = None
-  depth: int = Field(default=2, ge=2, le=10)
+  depth: str
+  section_count: int = Field(ge=2, le=10)
   blueprint: str | None = None
   teaching_style: str | None = None
   language: str | None = None
@@ -30,27 +31,27 @@ class JobContext(BaseModel):
   model: str
   request: GenerationRequest
   metadata: dict[str, Any] | None = None
+  
+class PlanSubsection(BaseModel):
+  """Plan metadata for an individual lesson subsection."""
+
+  title: str
+  planned_widgets: list[str] = Field(default_factory=list)
 
 
 class PlanSection(BaseModel):
   """Plan metadata for an individual lesson section."""
-
-  section_number: int = Field(ge=1)
+  section_number: int = Field(ge=1, le=10)
   title: str
-  subsections: list[str] = Field(default_factory=list)
-  planned_widgets: list[str] = Field(default_factory=list)
-  gather_prompt: str
-  goals: list[str] = Field(default_factory=list)
-  continuity_notes: list[str] = Field(default_factory=list)
+  subsections: list[PlanSubsection]
+  data_collection_points: list[str] = Field(default_factory=list)
+  goals: str
+  continuity_note: str
 
 
 class LessonPlan(BaseModel):
   """Structured plan for a lesson."""
-
-  topic: str
   sections: list[PlanSection]
-  metadata: dict[str, Any] | None = None
-
 
 class SectionDraft(BaseModel):
   """Raw content captured for a section along with the originating planner context to guide structuring."""

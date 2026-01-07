@@ -11,10 +11,10 @@ RULES
 - planned_widgets required in every subsection
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz)
-- Subsection titles must be critique-specific (criteria, evidence, bias, tradeoffs, standards, comparisons)
+- Subsection titles must be critique and subtopic specific
 - In case of confusion follow "details" input.
 
-LESSON FLOW (guidance only, never titles)
+OVERALL LESSON FLOW (guidance only, never titles)
 Context → Standards/Benchmarks → Claims & Evidence → Comparative Analysis → Bias & Limitations → Tradeoffs → Verdict → Improve/Refine → Eval  
 Adjust depth and repetition based on number of sections.
 
@@ -25,7 +25,7 @@ CHECKLIST
   - ≥1 comparison (good vs bad, strong vs weak, A vs B)
   - ≥1 bias/limitation check
   - ≥2 practice-heavy critique tasks (guided → independent)
-- continuity_notes state how the previous section’s criteria are reused or expanded
+- continuity_note states what was covered in the previous section so current section can build on it, where relevant.
 - Last section contains a long 15+ MCQs quiz covering full-topic evaluation scenarios
 
 DATA_COLLECTION_POINTS (section-level; guidance only)
@@ -40,4 +40,4 @@ Specify points for the Gatherer to collect:
 - mini-check focus + question types
 
 JSON SHAPE (exact)
-{"sections":[{"title":"","goals":"","continuity_notes":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}
+{"sections":[{"section_number":1,"title":"","goals":"","continuity_note":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}

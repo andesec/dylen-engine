@@ -12,8 +12,8 @@ PLANNER_SECTION_JSON
 Widget Schema: 
 WIDGET_SCHEMA_JSON
 
-Teaching style: <…>
-Learner level: <…>
+Teaching style: STYLE
+Learner level: LEARNER_LEVEL
 ---
 
 OUTPUT:
@@ -23,7 +23,7 @@ RULES:
 - Every planner subsection must be adequately and accurately represented.
 - Preserve practice and knowledge checks.
 - Improve clarity, presentation and flow only; do not invent content.
-- Adapt presentation to style and learner level.
+- Adapt presentation to teaching style and learner level.
 - Follow the shorthand array definition for the widgets.
 
 PROHIBITED:

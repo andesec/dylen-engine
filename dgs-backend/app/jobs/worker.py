@@ -20,6 +20,7 @@ from app.jobs.progress import (
 )
 from app.main import (
     GenerateLessonRequest,
+    WritingCheckRequest,
     _get_orchestrator,
     _resolve_learner_level,
     _resolve_model_selection,
@@ -142,8 +143,11 @@ class JobProcessor:
         tracker.set_phase(phase="evaluating", subphase="ai_check")
 
         try:
-            orchestrator = WritingCheckOrchestrator(provider=self._settings.structurer_provider, model=self._settings.structurer_model)
-            result = await orchestrator.check_response(text=job.request["text"], criteria=job.request["criteria"])
+            # Validate and hydrate the request so optional model overrides are honored.
+            request_model = WritingCheckRequest.model_validate(job.request)
+            checker_model = request_model.checker_model or self._settings.structurer_model
+            orchestrator = WritingCheckOrchestrator(provider=self._settings.structurer_provider, model=checker_model)
+            result = await orchestrator.check_response(text=request_model.text, criteria=request_model.criteria)
 
             tracker.extend_logs(result.logs)
             cost_summary = _summarize_cost(result.usage, result.total_cost)
@@ -153,8 +157,10 @@ class JobProcessor:
             payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
             updated = self._jobs_repo.update_job(job.job_id, **payload)
             return updated
+
         except JobCanceledError:
             return self._jobs_repo.get_job(job.job_id)
+
         except Exception as exc:
             tracker.fail(phase="failed", message=f"Writing check failed: {exc}")
             return None
@@ -171,29 +177,56 @@ class JobProcessor:
 
     async def _run_orchestration(self, job_id: str, request: dict[str, Any], *, tracker: JobProgressTracker | None = None, timeout_checker: Callable[[], bool] | None = None) -> OrchestrationResult:
         """Execute the orchestration pipeline with guarded parameters."""
+
         try:
             request_model = GenerateLessonRequest.model_validate(request)
+
         except ValidationError as exc:
             raise ValueError("Stored job request is invalid.") from exc
         topic = request_model.topic
+
         if len(topic) > self._settings.max_topic_length:
             raise ValueError(f"Topic exceeds max length of {self._settings.max_topic_length}.")
 
+        # Resolve per-agent model overrides so queued jobs honor request settings.
         selection = _resolve_model_selection(self._settings, mode=request_model.mode, models=request_model.models)
-        gatherer_provider, gatherer_model, structurer_provider, structurer_model = selection
+        (
+            gatherer_provider,
+            gatherer_model,
+            planner_provider,
+            planner_model,
+            structurer_provider,
+            structurer_model,
+            repairer_provider,
+            repairer_model,
+        ) = selection
         language = _resolve_primary_language(request_model)
         learner_level = _resolve_learner_level(request_model)
         schema_version = request_model.schema_version or self._settings.schema_version
 
-        orchestrator = _get_orchestrator(self._settings, gatherer_provider=gatherer_provider, gatherer_model=gatherer_model, structurer_provider=structurer_provider, structurer_model=structurer_model)
+        orchestrator = _get_orchestrator(
+            self._settings,
+            gatherer_provider=gatherer_provider,
+            gatherer_model=gatherer_model,
+            planner_provider=planner_provider,
+            planner_model=planner_model,
+            structurer_provider=structurer_provider,
+            structurer_model=structurer_model,
+            repair_provider=repairer_provider,
+            repair_model=repairer_model,
+        )
 
         logs: list[str] = [
             f"Starting job {job_id}",
             f"Topic: {topic[:80]}{'...' if len(topic) > 80 else ''}",
             f"Gatherer provider: {gatherer_provider}",
             f"Gatherer model: {gatherer_model or 'default'}",
+            f"Planner provider: {planner_provider}",
+            f"Planner model: {planner_model or 'default'}",
             f"Structurer provider: {structurer_provider}",
             f"Structurer model: {structurer_model or 'default'}",
+            f"Repairer provider: {repairer_provider}",
+            f"Repairer model: {repairer_model or 'default'}",
         ]
 
         Msgs = list[str] | None

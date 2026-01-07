@@ -9,10 +9,10 @@ RULES
 - planned_widgets required in every subsection
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz)
-- Subsection titles must be fact- and logic-specific (definitions, models, rules, mechanisms, cause–effect)
+- Subsection titles must be fact, logic and subtopic-specific
 - In case of confusion follow "details" input.
 
-LESSON FLOW (guidance only, never titles)
+OVERALL LESSON FLOW (guidance only, never titles)
 Foundations → Definitions → Models & Rules → Mechanisms → Cause–Effect → Examples & Edge Cases → Verification → Eval  
 Expand or compress based on number of sections.
 
@@ -23,7 +23,7 @@ CHECKLIST
   - ≥1 causal or logical relationship
   - ≥1 verification or falsification check
   - ≥2 practice tasks focused on reasoning or application
-- continuity_notes state how prior concepts are reused or deepened
+- continuity_note states what was covered in the previous section so current section can build on it, where relevant.
 - Last section contains a long 15+ MCQs quiz covering definitions, rules, mechanisms, and logic
 
 DATA_COLLECTION_POINTS (section-level; guidance only)
@@ -38,4 +38,4 @@ Specify points for the Gatherer to collect:
 - mini-check focus + question types
 
 JSON SHAPE (exact)
-{"sections":[{"title":"","goals":"","continuity_notes":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}
+{"sections":[{"section_number":1,"title":"","goals":"","continuity_note":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}

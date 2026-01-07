@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import (
+  AliasChoices,
   BaseModel,
   ConfigDict,
   Field,
@@ -66,8 +67,13 @@ class DecimalJSONResponse(JSONResponse):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
   """Ensure logging is correctly set up after uvicorn starts."""
-  _initialize_logging()
-  logger.info("Startup complete - logging verified.")
+  
+  try:
+    _initialize_logging()
+    logger.info("Startup complete - logging verified.")
+  except Exception:
+    logger.warning("Initial logging setup failed; will retry on lifespan.", exc_info=True)
+    
   yield
 
 
@@ -197,12 +203,6 @@ def _initialize_logging() -> None:
   _log_widget_registry()
 
 
-try:
-  _initialize_logging()
-except Exception:
-  logger.warning("Initial logging setup failed; will retry on lifespan.", exc_info=True)
-
-
 @app.middleware("http")
 async def log_requests(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -264,16 +264,30 @@ class StructurerModel(str, Enum):
 class ModelsConfig(BaseModel):
   """Per-agent model selection overrides."""
 
-  knowledge_model: KnowledgeModel = Field(
-    default=KnowledgeModel.LLAMA_31_405B,
-    description="Model used for knowledge collection.",
+  gatherer_model: StrictStr | None = Field(
+    default=None,
+    validation_alias=AliasChoices("gatherer_model", "knowledge_model"),
+    serialization_alias="gatherer_model",
+    description="Model used for the gatherer agent (provider inferred when possible).",
+    examples=["meta-llama/llama-3.1-405b-instruct:free"],
   )
-  structurer_model: StructurerModel = Field(
-    default=StructurerModel.GPT_OSS_20B,
-    description="Model used for lesson structuring.",
+  planner_model: StrictStr | None = Field(
+    default=None,
+    description="Model used for the planner agent (provider inferred when possible).",
+    examples=["openai/gpt-oss-120b:free"],
+  )
+  structurer_model: StrictStr | None = Field(
+    default=None,
+    description="Model used for lesson structuring (provider inferred when possible).",
+    examples=["openai/gpt-oss-20b:free"],
+  )
+  repairer_model: StrictStr | None = Field(
+    default=None,
+    description="Model used for repair validation and fixes (provider inferred when possible).",
+    examples=["google/gemma-3-27b-it:free"],
   )
   
-  model_config = ConfigDict(extra="forbid")
+  model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class GenerateLessonRequest(BaseModel):
@@ -321,7 +335,7 @@ class GenerateLessonRequest(BaseModel):
     default="Highlights",
     description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
   )
-  primaryLanguage: Literal["English", "German", "Urdu"] = Field(
+  primary_language: Literal["English", "German", "Urdu"] = Field(
     default="English",
     description="Primary language for lesson output.",
   )
@@ -337,7 +351,16 @@ class GenerateLessonRequest(BaseModel):
     description="Idempotency key to prevent duplicate lesson generation.",
   )
   models: ModelsConfig | None = Field(
-    default=None, description="Optional per-agent model selection overrides."
+    default=None,
+    description="Optional per-agent model selection overrides.",
+    examples=[
+      {
+        "gatherer_model": "meta-llama/llama-3.1-405b-instruct:free",
+        "planner_model": "openai/gpt-oss-120b:free",
+        "structurer_model": "openai/gpt-oss-20b:free",
+        "repairer_model": "google/gemma-3-27b-it:free",
+      }
+    ],
   )
   model_config = ConfigDict(extra="forbid")
 
@@ -381,20 +404,24 @@ class WritingCheckRequest(BaseModel):
     min_length=1, description="The user-written response to check (max 300 words)."
   )
   criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
+  checker_model: StrictStr | None = Field(
+    default=None,
+    description="Optional model override for writing evaluation (provider inferred when possible).",
+    examples=["openai/gpt-oss-20b:free"],
+  )
   model_config = ConfigDict(extra="forbid")
 
 
 class JobCreateResponse(BaseModel):
   """Response payload for job creation."""
   
-  job_id: StrictStr = Field(serialization_alias="jobId", validation_alias="jobId")
-  model_config = ConfigDict(populate_by_name=True)
+  job_id: StrictStr
 
 
 class JobStatusResponse(BaseModel):
   """Status payload for an asynchronous lesson generation job."""
   
-  job_id: StrictStr = Field(serialization_alias="jobId", validation_alias="jobId")
+  job_id: StrictStr
   status: JobStatus
   phase: StrictStr | None = None
   subphase: StrictStr | None = None
@@ -419,10 +446,10 @@ class JobStatusResponse(BaseModel):
   result: dict[str, Any] | None = None
   validation: ValidationResponse | None = None
   cost: dict[str, Any] | None = None
-  created_at: StrictStr = Field(serialization_alias="createdAt", validation_alias="createdAt")
-  updated_at: StrictStr = Field(serialization_alias="updatedAt", validation_alias="updatedAt")
+  created_at: StrictStr
+  updated_at: StrictStr
   completed_at: StrictStr | None = Field(
-    default=None, serialization_alias="completedAt", validation_alias="completedAt"
+    default=None
   )
   model_config = ConfigDict(populate_by_name=True)
 
@@ -439,6 +466,8 @@ def _get_orchestrator(
     planner_model: str | None = None,
     structurer_provider: str | None = None,
     structurer_model: str | None = None,
+    repair_provider: str | None = None,
+    repair_model: str | None = None,
 ) -> DgsOrchestrator:
   return DgsOrchestrator(
     gatherer_provider=gatherer_provider or settings.gatherer_provider,
@@ -447,8 +476,8 @@ def _get_orchestrator(
     planner_model=planner_model or settings.planner_model,
     structurer_provider=structurer_provider or settings.structurer_provider,
     structurer_model=structurer_model or settings.structurer_model,
-    repair_provider=settings.repair_provider,
-    repair_model=settings.repair_model,
+    repair_provider=repair_provider or settings.repair_provider,
+    repair_model=repair_model or settings.repair_model,
     schema_version=settings.schema_version,
   )
 
@@ -501,7 +530,7 @@ def _resolve_model_selection(
     *,
     mode: GenerationMode | None,
     models: ModelsConfig | None,
-) -> tuple[str, str | None, str, str | None]:
+) -> tuple[str, str | None, str, str | None, str, str | None, str, str | None]:
   """
   Derive gatherer and structurer providers/models based on request settings.
 
@@ -511,16 +540,34 @@ def _resolve_model_selection(
   selected_mode = mode or GenerationMode.BALANCED
   
   # Respect per-agent overrides when provided, otherwise use environment defaults.
+
   if models is not None:
-    knowledge_model = models.knowledge_model.value
-    structurer_model = models.structurer_model.value
+    gatherer_model = models.gatherer_model or settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
+    planner_model = models.planner_model or settings.planner_model
+    structurer_model = models.structurer_model or _structurer_model_for_mode(settings, selected_mode)
+    repairer_model = models.repairer_model or settings.repair_model
+
   else:
-    knowledge_model = settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
+    gatherer_model = settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
+    planner_model = settings.planner_model
     structurer_model = _structurer_model_for_mode(settings, selected_mode)
-  
-  gatherer_provider = _provider_for_knowledge_model(settings, knowledge_model)
+    repairer_model = settings.repair_model
+
+  # Resolve provider hints to keep routing consistent for each agent.
+  gatherer_provider = _provider_for_knowledge_model(settings, gatherer_model)
+  planner_provider = _provider_for_model_hint(settings, planner_model, settings.planner_provider)
   structurer_provider = _provider_for_structurer_model(settings, structurer_model)
-  return gatherer_provider, knowledge_model, structurer_provider, structurer_model
+  repairer_provider = _provider_for_model_hint(settings, repairer_model, settings.repair_provider)
+  return (
+    gatherer_provider,
+    gatherer_model,
+    planner_provider,
+    planner_model,
+    structurer_provider,
+    structurer_model,
+    repairer_provider,
+    repairer_model,
+  )
 
 
 def _structurer_model_for_mode(settings: Settings, mode: GenerationMode) -> str | None:
@@ -545,13 +592,36 @@ def _provider_for_knowledge_model(settings: Settings, model_name: str | None) ->
 
 def _provider_for_structurer_model(settings: Settings, model_name: str | None) -> str:
   # Keep provider routing consistent even if the model list evolves.
+
   if not model_name:
     return settings.structurer_provider
+
   if model_name in {model.value for model in _GEMINI_STRUCTURER_MODELS}:
     return "gemini"
+
   if model_name in {model.value for model in _OPENROUTER_STRUCTURER_MODELS}:
     return "openrouter"
+
   return settings.structurer_provider
+
+
+def _provider_for_model_hint(settings: Settings, model_name: str | None, fallback_provider: str) -> str:
+  """Resolve a provider from known model lists with a safe fallback."""
+  # Only route to known providers when the model name matches a known set.
+
+  if not model_name:
+    return fallback_provider
+
+  gemini_models = {model.value for model in _GEMINI_KNOWLEDGE_MODELS} | {model.value for model in _GEMINI_STRUCTURER_MODELS}
+  openrouter_models = {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS} | {model.value for model in _OPENROUTER_STRUCTURER_MODELS}
+
+  if model_name in gemini_models:
+    return "gemini"
+
+  if model_name in openrouter_models:
+    return "openrouter"
+
+  return fallback_provider
 
 
 def _require_dev_key(  # noqa: B008
@@ -621,7 +691,7 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
 def _resolve_primary_language(request: GenerateLessonRequest) -> str | None:
   """Return the requested primary language for orchestration prompts."""
   # This feeds prompt guidance but does not change response schema.
-  return request.primaryLanguage
+  return request.primary_language
 
 
 def _resolve_learner_level(request: GenerateLessonRequest) -> str | None:
@@ -701,19 +771,28 @@ async def generate_lesson(  # noqa: B008
   _validate_generate_request(request, settings)
   
   start = time.monotonic()
-  gatherer_provider, gatherer_model, structurer_provider, structurer_model = (
-    _resolve_model_selection(
-      settings,
-      mode=request.mode,
-      models=request.models,
-    )
-  )
+  # Resolve per-agent model overrides and provider routing for this request.
+  selection = _resolve_model_selection(settings, mode=request.mode, models=request.models)
+  (
+    gatherer_provider,
+    gatherer_model,
+    planner_provider,
+    planner_model,
+    structurer_provider,
+    structurer_model,
+    repairer_provider,
+    repairer_model,
+  ) = selection
   orchestrator = _get_orchestrator(
     settings,
     gatherer_provider=gatherer_provider,
     gatherer_model=gatherer_model,
+    planner_provider=planner_provider,
+    planner_model=planner_model,
     structurer_provider=structurer_provider,
     structurer_model=structurer_model,
+    repair_provider=repairer_provider,
+    repair_model=repairer_model,
   )
   language = _resolve_primary_language(request)
   learner_level = _resolve_learner_level(request)

@@ -10,10 +10,10 @@ RULES
 - planned_widgets required in every subsection
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz or reflective check)
-- Subsection titles must be metacognition-specific (awareness, monitoring, bias, strategy, regulation, optimization)
+- Subsection titles must be metacognition and subtopic specific
 - In case of confusion follow "details" input.
 
-LESSON FLOW (guidance only, never titles)
+OVERALL LESSON FLOW (guidance only, never titles)
 Awareness → Mental Models → Monitoring → Bias & Limits → Strategy Selection → Regulation → Optimization → Eval  
 Expand or compress based on number of sections.
 
@@ -24,7 +24,7 @@ CHECKLIST
   - ≥1 self-monitoring or reflection mechanism
   - ≥1 bias, limitation, or failure pattern
   - ≥2 applied exercises using the learner’s own behavior or history
-- continuity_notes describe how prior self-observations or strategies are reused or refined
+- continuity_note states what was covered in the previous section so current section can build on it, where relevant.
 - Last section contains a comprehensive 15+ MCQs quiz plus scenario-based reflection prompts
 
 DATA_COLLECTION_POINTS (section-level; guidance only)
@@ -39,4 +39,4 @@ Specify points for the Gatherer to collect:
 - mini-check focus + question types
 
 JSON SHAPE (exact)
-{"sections":[{"title":"","goals":"","continuity_notes":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}
+{"sections":[{"section_number":1,"title":"","goals":"","continuity_note":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}

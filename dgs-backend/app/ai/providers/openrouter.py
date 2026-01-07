@@ -25,7 +25,6 @@ class OpenRouterModel(AIModel):
   _STRUCTURED_OUTPUT_MODELS: Final[set[str]] = {
     "openai/gpt-oss-20b:free",
     "openai/gpt-oss-120b:free",
-    "google/gemma-3-27b-it:free",
   }
 
   def __init__(self, name: str, api_key: str | None = None, base_url: str | None = None) -> None:

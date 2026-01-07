@@ -10,10 +10,10 @@ RULES
 - planned_widgets required in every subsection
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz or reflective judgment check)
-- Subsection titles must be value-specific (principles, perspectives, dilemmas, consequences, mindset, alignment)
+- Subsection titles must be value and mindset specific 
 - In case of confusion follow "details" input.
 
-LESSON FLOW (guidance only, never titles)
+OVERALL LESSON FLOW (guidance only, never titles)
 Context → Core Values → Perspectives → Dilemmas → Consequences → Tradeoffs → Growth Mindset → Personal Alignment → Eval  
 Expand or compress based on number of sections.
 
@@ -25,7 +25,7 @@ CHECKLIST
   - ≥1 dilemma or tension with consequences
   - ≥1 growth mindset examples (if applicable)
   - ≥2 reflection or judgment-based practice tasks
-- continuity_notes state how earlier values or perspectives are reconsidered or deepened
+- continuity_note states what was covered in the previous section so current section can build on it, where relevant.
 - Last section contains a comprehensive 15+ MCQs quiz plus scenario-based value judgments, and mindset changes
 
 DATA_COLLECTION_POINTS (section-level; guidance only)
@@ -40,4 +40,4 @@ Specify points for the Gatherer to collect:
 - mini-check focus + question types
 
 JSON SHAPE (exact)
-{"sections":[{"title":"","goals":"","continuity_notes":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}
+{"sections":[{"section_number":1,"title":"","goals":"","continuity_note":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}

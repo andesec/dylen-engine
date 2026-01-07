@@ -10,10 +10,10 @@ RULES
 - planned_widgets required in every subsection
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz or checklist-based review)
-- Subsection titles must be planning-specific (scope, resources, sequencing, dependencies, risks, tracking)
+- Subsection titles must be planning, management and subtopic specific
 - In case of confusion follow "details" input.
 
-LESSON FLOW (guidance only, never titles)
+OVERALL LESSON FLOW (guidance only, never titles)
 Goal Definition → Scope & Constraints → Resource Mapping → Sequencing & Dependencies → Risk & Buffers → Execution & Tracking → Adjustment → Eval  
 Expand or compress based on number of sections.
 
@@ -24,7 +24,7 @@ CHECKLIST
   - ≥1 constraint, dependency, or tradeoff
   - ≥1 risk or failure mode with mitigation
   - ≥2 practice tasks that produce or refine a planning artifact
-- continuity_notes state how earlier plans or assumptions are reused, updated, or corrected
+- continuity_note states what was covered in the previous section so current section can build on it, where relevant.
 - Last section contains a comprehensive 15+ MCQs quiz plus a full end-to-end planning scenario
 
 DATA_COLLECTION_POINTS (section-level; guidance only)
@@ -39,4 +39,4 @@ Specify points for the Gatherer to collect:
 - mini-check focus + question types
 
 JSON SHAPE (exact)
-{"sections":[{"title":"","goals":"","continuity_notes":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}
+{"sections":[{"section_number":1,"title":"","goals":"","continuity_note":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}

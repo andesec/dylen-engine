@@ -17,6 +17,7 @@ from app.ai.pipeline.contracts import (
   JobContext,
   RepairInput,
   SectionDraft,
+  LessonPlan,
   StructuredSection,
   StructuredSectionBatch,
 )
@@ -94,6 +95,11 @@ class DgsOrchestrator:
     logs: list[str] = []
     all_usage: list[dict[str, Any]] = []
     validation_errors: list[str] | None = None
+    # Track artifacts so failure logs can include the latest built data.
+    lesson_plan: LessonPlan | None = None
+    draft_artifacts: list[dict[str, Any]] = []
+    structured_artifacts: list[dict[str, Any]] = []
+    repair_artifacts: list[dict[str, Any]] = []
 
     def _report_progress(phase_name: str, subphase: OptStr, messages: Msgs = None, advance: bool = True) -> None:
       if progress_callback:
@@ -120,13 +126,12 @@ class DgsOrchestrator:
     logs.append(log_msg)
     logger.info(log_msg)
 
-    depth = _coerce_depth(depth)
-
     lang = language
     request = GenerationRequest(
       topic=topic,
       prompt=details,
       depth=depth,
+      section_count=_depth_profile(depth),
       blueprint=blueprint,
       teaching_style=teaching_style,
       learner_level=learner_level,
@@ -160,59 +165,79 @@ class DgsOrchestrator:
     stitcher_agent = StitcherAgent(model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use)
 
     _report_progress("plan", "planner_start", ["Planning lesson sections..."])
+
     try:
       lesson_plan = await planner_agent.run(request, ctx)
     except Exception as exc:
       planner_model = _model_name(planner_model_instance)
       _log_request_failure(logger=logger, logs=logs, agent="Planner", provider=planner_prov, model=planner_model, prompt=None, response=None, error=exc)
+      _log_pipeline_snapshot(logger=logger, logs=logs, agent="Planner", error=exc, lesson_plan=lesson_plan, draft_artifacts=draft_artifacts, structured_artifacts=structured_artifacts, repair_artifacts=repair_artifacts)
       raise
+
     _report_progress("plan", "planner_complete", ["Lesson plan ready."])
 
     sections: dict[int, SectionDraft] = {}
-    draft_artifacts: list[dict[str, Any]] = []
-    structured_artifacts: list[dict[str, Any]] = []
-    repair_artifacts: list[dict[str, Any]] = []
+    
+    section_count = len(lesson_plan.sections)
+
     for plan_section in lesson_plan.sections:
       section_index = plan_section.section_number
-      gather_subphase = f"gather_section_{section_index}_of_{depth}"
-      gather_msg = f"Gathering section {section_index}/{depth}: {plan_section.title}"
+      gather_subphase = f"gather_section_{section_index}_of_{section_count}"
+      gather_msg = f"Gathering section {section_index}/{section_count}: {plan_section.title}"
       _report_progress("collect", gather_subphase, [gather_msg])
+
       try:
         draft = await gatherer_agent.run(plan_section, ctx)
       except Exception as exc:
         gather_model = _model_name(gatherer_model_instance)
         _log_request_failure(logger=logger, logs=logs, agent="Gatherer", provider=gatherer_prov, model=gather_model, prompt=None, response=None, error=exc)
-        logs.append(f"Gatherer failed section {section_index}/{depth}.")
+        _log_pipeline_snapshot(
+          logger=logger,
+          logs=logs,
+          agent="Gatherer",
+          error=exc,
+          lesson_plan=lesson_plan,
+          draft_artifacts=draft_artifacts,
+          structured_artifacts=structured_artifacts,
+          repair_artifacts=repair_artifacts,
+        )
+        logs.append(f"Gatherer failed section {section_index}/{section_count}.")
         continue
-      if section_index < 1 or section_index > depth:
+
+      if section_index < 1 or section_index > section_count:
         logs.append(f"Skipping out-of-range section {section_index}.")
         continue
+
       sections[section_index] = draft
       draft_artifacts.append(draft.model_dump(mode="python"))
-      extract_subphase = f"extract_section_{section_index}_of_{depth}"
-      extract_msg = f"Extracted section {section_index}/{depth}"
+      extract_subphase = f"extract_section_{section_index}_of_{section_count}"
+      extract_msg = f"Extracted section {section_index}/{section_count}"
       _report_progress("collect", extract_subphase, [extract_msg])
+      section_index += 1
 
     # Ensure we collected all requested sections before structuring.
-    if len(sections) < depth:
-      missing = sorted(set(range(1, depth + 1)) - set(sections.keys()))
+
+    if len(sections) < section_count:
+      missing = sorted(set(range(1, section_count + 1)) - set(sections.keys()))
       logs.append(f"Missing extracted sections: {missing}")
       logger.warning("Missing extracted sections: %s", missing)
 
     structured_sections: list[StructuredSection] = []
+
     if not enable_repair:
       logs.append("Repair is disabled; failed sections are skipped.")
       logger.info("Repair is disabled; failed sections are skipped.")
 
-    for section_index in range(1, depth + 1):
+    for section_index in range(1, section_count + 1):
       draft = sections.get(section_index)
+
       if draft is None:
         logs.append(f"Skipping missing section {section_index}.")
         logger.warning("Skipping missing section %s.", section_index)
         continue
 
-      struct_subphase = f"struct_section_{section_index}_of_{depth}"
-      struct_msg = f"Structuring section {section_index}/{depth}: {draft.title}"
+      struct_subphase = f"struct_section_{section_index}_of_{section_count}"
+      struct_msg = f"Structuring section {section_index}/{section_count}: {draft.title}"
       _report_progress("transform", struct_subphase, [struct_msg])
 
       try:
@@ -220,10 +245,21 @@ class DgsOrchestrator:
       except RuntimeError as exc:
         structurer_model = _model_name(structurer_model_instance)
         _log_request_failure(logger=logger, logs=logs, agent="Structurer", provider=self._structurer_provider, model=structurer_model, prompt=None, response=None, error=exc)
+        _log_pipeline_snapshot(
+          logger=logger,
+          logs=logs,
+          agent="Structurer",
+          error=exc,
+          lesson_plan=lesson_plan,
+          draft_artifacts=draft_artifacts,
+          structured_artifacts=structured_artifacts,
+          repair_artifacts=repair_artifacts,
+        )
         logs.append(f"Skipping section {section_index} due to structurer failure.")
         continue
 
       structured_artifacts.append(structured.model_dump(mode="python"))
+
       if structured.validation_errors and not enable_repair:
         validation_errors = structured.validation_errors
         logs.append(f"Section {section_index} failed validation: {structured.validation_errors}")
@@ -231,16 +267,30 @@ class DgsOrchestrator:
         continue
 
       section_json = structured.payload
+
       if enable_repair:
         repair_input = RepairInput(section=draft, structured=structured)
+
         try:
           repair_result = await repairer_agent.run(repair_input, ctx)
         except RuntimeError as exc:
           repair_model = _model_name(repairer_model_instance)
           _log_request_failure(logger=logger, logs=logs, agent="Repairer", provider=self._repair_provider, model=repair_model, prompt=None, response=None, error=exc)
+          _log_pipeline_snapshot(
+            logger=logger,
+            logs=logs,
+            agent="Repairer",
+            error=exc,
+            lesson_plan=lesson_plan,
+            draft_artifacts=draft_artifacts,
+            structured_artifacts=structured_artifacts,
+            repair_artifacts=repair_artifacts,
+          )
           logs.append(f"Skipping section {section_index} due to repair failure.")
           continue
+
         repair_artifacts.append(repair_result.model_dump(mode="python"))
+
         if repair_result.errors:
           validation_errors = repair_result.errors
           logs.append(f"Section {section_index} failed repair validation: {repair_result.errors}")
@@ -248,14 +298,31 @@ class DgsOrchestrator:
           continue
         section_json = repair_result.fixed_json
 
-      validate_subphase = f"validate_section_{section_index}_of_{depth}"
+      validate_subphase = f"validate_section_{section_index}_of_{section_count}"
       _report_progress("transform", validate_subphase, [f"Section {section_index} validated."])
       structured_section = StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
       structured_sections.append(structured_section)
 
     _report_progress("transform", "stitch_sections", ["Stitching sections..."])
     batch = StructuredSectionBatch(sections=structured_sections)
-    stitch_result = await stitcher_agent.run(batch, ctx)
+
+    try:
+      stitch_result = await stitcher_agent.run(batch, ctx)
+    except Exception as exc:
+      stitch_model = _model_name(structurer_model_instance)
+      _log_request_failure(logger=logger, logs=logs, agent="Stitcher", provider=self._structurer_provider, model=stitch_model, prompt=None, response=None, error=exc)
+      _log_pipeline_snapshot(
+        logger=logger,
+        logs=logs,
+        agent="Stitcher",
+        error=exc,
+        lesson_plan=lesson_plan,
+        draft_artifacts=draft_artifacts,
+        structured_artifacts=structured_artifacts,
+        repair_artifacts=repair_artifacts,
+      )
+      raise
+
     lesson_json = stitch_result.lesson_json
     metadata = stitch_result.metadata or {}
     validation_errors = metadata.get("validation_errors") or None
@@ -301,6 +368,20 @@ class DgsOrchestrator:
       total += call_cost
 
     return round(total, 6)
+  
+def _depth_profile(depth: str) -> int:
+  """Map numeric depth to DLE labels and section counts for prompt rendering."""
+  # Keep prompt depth labels aligned with the API depth tiers.
+  mapping = {
+    "highlights": 2,
+    "detailed": 6,
+    "training": 10,
+  }
+  
+  if depth.lower() in mapping:
+    return mapping[depth.lower()]
+  
+  raise ValueError("Depth must be one of the following: Highlights, Detailed or Training.")
 
 def _log_request_failure(
   *,
@@ -315,17 +396,73 @@ def _log_request_failure(
 ) -> None:
   """Log request failures with prompt/response details."""
   message = f"{agent} request failed (provider={provider}, model={model}): {error}"
+
   if logs is not None:
     logs.append(message)
+
   logger.error(message)
+
   if prompt:
     logger.error("%s prompt:\n%s", agent, prompt)
   else:
     logger.error("%s prompt: <none>", agent)
+
   if response is None:
     logger.error("%s response: <none>", agent)
   else:
     logger.error("%s response:\n%s", agent, response)
+
+def _build_failure_snapshot(
+  lesson_plan: LessonPlan | None,
+  draft_artifacts: list[dict[str, Any]],
+  structured_artifacts: list[dict[str, Any]],
+  repair_artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+  """Capture the newest artifacts so partial pipeline output is visible during failures."""
+  # Surface the newest data only to keep logs readable while still debugging failures.
+  plan_payload: dict[str, Any] | None = None
+
+  if lesson_plan is not None:
+    plan_payload = lesson_plan.model_dump(mode="python")
+
+  snapshot = {
+    "plan": plan_payload,
+    "drafts_count": len(draft_artifacts),
+    "latest_draft": draft_artifacts[-1] if draft_artifacts else None,
+    "structured_count": len(structured_artifacts),
+    "latest_structured": structured_artifacts[-1] if structured_artifacts else None,
+    "repairs_count": len(repair_artifacts),
+    "latest_repair": repair_artifacts[-1] if repair_artifacts else None,
+  }
+  return snapshot
+
+
+def _log_pipeline_snapshot(
+  *,
+  logger: logging.Logger,
+  logs: list[str] | None,
+  agent: str,
+  error: Exception,
+  lesson_plan: LessonPlan | None,
+  draft_artifacts: list[dict[str, Any]],
+  structured_artifacts: list[dict[str, Any]],
+  repair_artifacts: list[dict[str, Any]],
+) -> None:
+  """Log the latest available artifacts so failed pipelines retain context."""
+  # Serialize a focused snapshot for operational debugging.
+  snapshot = _build_failure_snapshot(
+    lesson_plan=lesson_plan,
+    draft_artifacts=draft_artifacts,
+    structured_artifacts=structured_artifacts,
+    repair_artifacts=repair_artifacts,
+  )
+  snapshot_json = json.dumps(snapshot, ensure_ascii=True)
+  message = f"{agent} failure snapshot (error={error}): {snapshot_json}"
+
+  if logs is not None:
+    logs.append(message)
+
+  logger.warning(message)
 
 
 def _model_name(model: AIModel) -> str:
@@ -383,7 +520,7 @@ def _coerce_depth(raw_depth: Any) -> int:
   try:
     depth = int(raw_depth)
   except (TypeError, ValueError) as exc:
-    raise ValueError("Depth must be Highlights, Detailed, Training, or an integer between 2 and 10.") from exc
+    raise ValueError("Depth must be Highlights, Detailed, Training") from exc
   if depth < 2:
     raise ValueError("Depth must be at least 2.")
   if depth > 10:

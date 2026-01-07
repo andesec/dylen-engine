@@ -11,10 +11,10 @@ RULES
 - planned_widgets required in every subsection
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz/fillblank)
-- Subsection titles must be topic-specific (no generic titles)
+- Subsection titles must be subtopic-specific (no generic titles)
 - In case of confusion follow "details" input.
 
-LESSON FLOW (guidance only, never titles)
+OVERALL LESSON FLOW (guidance only, never titles)
 Prereqs → Context → Constraints → Outcome → Steps/Decisions → Verify → Fix → Practice → Eval
 Expand or compress this based on number of sections.
 
@@ -24,7 +24,7 @@ CHECKLIST
 - ≥1 verification signal
 - ≥1 failure + fix
 - ≥2 practice-heavy subsections per section
-- continuity_notes state what was done in previous section.
+- continuity_note states what was covered in the previous section so current section can build on it, where relevant.
 - Last section contains a long 15+ MCQs quiz on the whole topic.
 
 DATA_COLLECTION_POINTS (section-level; guidance only)
@@ -39,4 +39,4 @@ Specify points for the Gatherer to collect:
 - mini-check focus + question types
 
 JSON SHAPE (exact)
-{"sections":[{"title":"","goals":"","continuity_notes":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}
+{"sections":[{"section_number":1,"title":"","goals":"","continuity_note":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}

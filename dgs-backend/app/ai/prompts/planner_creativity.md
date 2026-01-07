@@ -11,10 +11,10 @@ RULES
 - planned_widgets required in every subsection
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz or practical review where applicable)
-- Subsection titles must be creation-specific (ideation, constraints, drafts, variation, refinement, delivery)
+- Subsection titles must be creativitiy and subtopic specific
 - In case of confusion follow "details" input.
 
-LESSON FLOW (guidance only, never titles)
+OVERALL LESSON FLOW (guidance only, never titles)
 Inspiration → Constraints → Ideation → First Draft → Variation & Exploration → Feedback → Refinement → Final Output → Eval  
 Expand or compress based on number of sections.
 
@@ -24,7 +24,7 @@ CHECKLIST
   - ≥1 explicit creative constraint
   - ≥2 hands-on creation or modification tasks
   - ≥1 feedback or reflection loop
-- continuity_notes state how the previous section’s output is reused, evolved, or constrained further
+- continuity_note states what was covered in the previous section so current section can build on it, where relevant.
 - Last section contains a comprehensive final task plus a 15+ MCQs quiz on scenarios, principles, constraints, and decision-making
 
 DATA_COLLECTION_POINTS (section-level; guidance only)
@@ -39,4 +39,4 @@ Specify points for the Gatherer to collect:
 - mini-check focus + question types
 
 JSON SHAPE (exact)
-{"sections":[{"title":"","goals":"","continuity_notes":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}
+{"sections":[{"section_number":1,"title":"","goals":"","continuity_note":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}

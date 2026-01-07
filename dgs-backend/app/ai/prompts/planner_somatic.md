@@ -10,10 +10,10 @@ RULES
 - planned_widgets required in every subsection
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz or form-check where applicable)
-- Subsection titles must be movement- and sensation-specific (alignment, tempo, range, breath, tension, release)
+- Subsection titles must be subtopic-specific
 - In case of confusion follow "details" input.
 
-LESSON FLOW (guidance only, never titles)
+OVERALL LESSON FLOW (guidance only, never titles)
 Body Awareness → Setup & Alignment → Movement Pattern → Sensation & Feedback → Errors & Corrections → Drills → Integration → Eval  
 Expand or compress based on number of sections.
 
@@ -24,7 +24,7 @@ CHECKLIST
   - ≥1 sensation or feedback signal
   - ≥1 common error with correction cue
   - ≥2 drill-based or repetition-focused practice tasks
-- continuity_notes state how earlier movement patterns or cues are reused or layered
+- continuity_note states what was covered in the previous section so current section can build on it, where relevant.
 - Last section contains a comprehensive 15+ MCQs quiz plus applied form-recognition or cue-selection scenarios
 
 DATA_COLLECTION_POINTS (section-level; guidance only)
@@ -39,4 +39,4 @@ Specify points for the Gatherer to collect:
 - mini-check focus + question types
 
 JSON SHAPE (exact)
-{"sections":[{"title":"","goals":"","continuity_notes":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}
+{"sections":[{"section_number":1,"title":"","goals":"","continuity_note":"","data_collection_points":[],"subsections":[{"title":"","planned_widgets":["",""]}]}]}

@@ -7,7 +7,7 @@ import logging
 from typing import Any, cast
 
 from app.ai.agents.base import BaseAgent
-from app.ai.agents.prompts import format_schema_block, render_section_prompt
+from app.ai.agents.prompts import format_schema_block, render_structurer_prompt
 from app.ai.pipeline.contracts import JobContext, SectionDraft, StructuredSection
 
 
@@ -31,7 +31,7 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
       return StructuredSection(section_number=section_index, payload=dummy_json, validation_errors=validation_errors)
     schema_version = str((ctx.metadata or {}).get("schema_version", ""))
     structured_output = bool((ctx.metadata or {}).get("structured_output", True))
-    prompt_text = render_section_prompt(request, input_data, schema_version)
+    prompt_text = render_structurer_prompt(request, input_data, schema_version)
     schema = self._schema_service.section_schema()
     if self._model.supports_structured_output and structured_output:
       schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
