@@ -11,6 +11,7 @@ RULES
 - 3–8 subsections per section
 - Last subsection = mini-check (quiz or checklist-based review)
 - Subsection titles must be planning, management and subtopic specific
+- Subsections within each section must be purpose-built for that section’s goal; avoid repeating identical subsection patterns, task types, or learning sequences across sections unless explicitly required by the topic.
 - In case of confusion follow "details" input.
 
 OVERALL LESSON FLOW (guidance only, never titles)

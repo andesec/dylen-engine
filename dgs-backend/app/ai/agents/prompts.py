@@ -146,6 +146,29 @@ def render_structurer_prompt(request: Req, section: Section, schema_version: str
   return rendered_template
 
 
+def render_gatherer_structurer_prompt(request: Req, section: PlanSection, schema_version: str) -> str:
+  """Render the merged gatherer+structurer prompt with planner and schema context."""
+  prompt_template = _load_prompt("gatherer-structurer.md")
+  plan_json = _serialize_plan_section(section)
+  widget_schema = _load_section_schema_text()
+  
+  # Enforce explicit blueprints so prompt content stays aligned with the plan.
+  if not request.blueprint:
+    raise ValueError("Blueprint is required to render gatherer-structurer prompts.")
+  
+  replacements = {
+    "PLANNER_SECTION_JSON": plan_json,
+    "WIDGET_SCHEMA_JSON": widget_schema,
+    "STYLE": request.teaching_style or "Default to learner needs.",
+    "LEARNER_LEVEL": request.learner_level or "Unspecified",
+    "DEPTH": request.depth,
+    "BLUEPRINT": request.blueprint,
+  }
+  
+  rendered_template = _replace_tokens(prompt_template, replacements)
+  return rendered_template
+
+
 def render_repair_prompt(
   request: Req, section: Section, repair_targets: list[dict[str, Any]],
   errors: Errors, widget_schemas: dict[str, Any],

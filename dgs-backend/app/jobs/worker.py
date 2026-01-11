@@ -54,7 +54,7 @@ class JobProcessor:
 
         base_logs = job.logs + ["Job acknowledged by worker."]
         try:
-            call_plan = build_call_plan(job.request)
+            call_plan = build_call_plan(job.request, merge_gatherer_structurer=self._settings.merge_gatherer_structurer)
         except ValueError as exc:
             error_log = f"Validation failed: {exc}"
             payload = {"status": "error", "phase": "failed", "subphase": "validation", "progress": 100.0, "logs": base_logs + [error_log]}
@@ -62,6 +62,7 @@ class JobProcessor:
             return None
 
         total_steps = call_plan.total_steps(include_validation=True, include_repair=True)
+        merge_label = "enabled" if self._settings.merge_gatherer_structurer else "disabled"
         initial_logs = base_logs + [
             f"Planned AI calls: {call_plan.required_calls}/{call_plan.max_calls}",
             f"Depth: {call_plan.depth}",
@@ -69,6 +70,7 @@ class JobProcessor:
             f"Gatherer calls: {call_plan.gather_calls}",
             f"Structurer calls: {call_plan.structurer_calls}",
             f"Repair calls: {call_plan.repair_calls}",
+            f"Merged gatherer+structurer: {merge_label}",
         ]
         tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=total_steps, total_ai_calls=call_plan.total_ai_calls, label_prefix=call_plan.label_prefix, initial_logs=initial_logs)
         tracker.set_phase(phase="plan", subphase="planner_start")

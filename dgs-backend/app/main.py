@@ -563,6 +563,7 @@ def _get_orchestrator(
     repair_provider=repair_provider or settings.repair_provider,
     repair_model=repair_model or settings.repair_model,
     schema_version=settings.schema_version,
+    merge_gatherer_structurer=settings.merge_gatherer_structurer,
   )
 
 
@@ -747,7 +748,10 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
   try:
     from app.jobs.progress import build_call_plan  # Local import to avoid circular deps
 
-    build_call_plan(request.model_dump(mode="python", by_alias=True))
+    build_call_plan(
+      request.model_dump(mode="python", by_alias=True),
+      merge_gatherer_structurer=settings.merge_gatherer_structurer,
+    )
   except ValueError as exc:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

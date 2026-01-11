@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, cast
 
-from app.ai.agents import GathererAgent, PlannerAgent, RepairerAgent, StructurerAgent, StitcherAgent
+from app.ai.agents import GathererAgent, GathererStructurerAgent, PlannerAgent, RepairerAgent, StructurerAgent, StitcherAgent
 from app.ai.pipeline.contracts import (
   GenerationRequest,
   JobContext,
@@ -28,6 +28,7 @@ from app.schema.service import SchemaService
 OptStr = str | None
 Msgs = list[str] | None
 ProgressCallback = Callable[[str, OptStr, Msgs, bool], None] | None
+MERGED_DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class DgsOrchestrator:
     repair_provider: str,
     repair_model: str | None,
     schema_version: str,
+    merge_gatherer_structurer: bool = False,
   ) -> None:
     self._gatherer_provider = gatherer_provider
     self._gatherer_model_name = gatherer_model
@@ -72,6 +74,7 @@ class DgsOrchestrator:
     self._repair_model_name = repair_model
     self._schema_version = schema_version
     self._schema_service = SchemaService()
+    self._merge_gatherer_structurer = merge_gatherer_structurer
 
   async def generate_lesson(
     self,
@@ -108,20 +111,32 @@ class DgsOrchestrator:
     gatherer_model_name = gatherer_model or self._gatherer_model_name
     structurer_model_name = structurer_model or self._structurer_model_name
     planner_model_name = self._planner_model_name or structurer_model_name
+    # Toggle merged gatherer+structurer mode based on the environment flag.
+    merge_enabled = self._merge_gatherer_structurer
+    merged_model_name = gatherer_model_name or MERGED_DEFAULT_MODEL
 
     topic_preview = topic[:50] + "..." if len(topic) >= 50 else topic
     log_msg = f"Starting generation for topic: '{topic_preview}'"
     logs.append(log_msg)
     logger.info(log_msg)
 
-    log_msg = f"Gatherer: {self._gatherer_provider}/{gatherer_model_name or 'default'}"
-    logs.append(log_msg)
-    logger.info(log_msg)
+    
+    if merge_enabled:
+      log_msg = f"Gatherer+Structurer (merged): {self._gatherer_provider}/{merged_model_name or 'default'}"
+      logs.append(log_msg)
+      logger.info(log_msg)
+
+    else:
+      log_msg = f"Gatherer: {self._gatherer_provider}/{gatherer_model_name or 'default'}"
+      logs.append(log_msg)
+      logger.info(log_msg)
+
 
     log_msg = f"Planner: {self._planner_provider}/{planner_model_name or 'default'}"
     logs.append(log_msg)
     logger.info(log_msg)
 
+    
     log_msg = f"Structurer: {self._structurer_provider}/{structurer_model_name or 'default'}"
     logs.append(log_msg)
     logger.info(log_msg)
@@ -147,7 +162,13 @@ class DgsOrchestrator:
     ctx = JobContext(job_id=jid, created_at=created_at, provider=prov, model=mod, request=request, metadata=meta)
     usage_sink = all_usage.append
 
-    gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name)
+    
+    if merge_enabled:
+      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, merged_model_name)
+
+    else:
+      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name)
+
     planner_model_instance = get_model_for_mode(self._planner_provider, planner_model_name)
     structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name)
     repairer_model_instance = get_model_for_mode(self._repair_provider, self._repair_model_name)
@@ -159,124 +180,49 @@ class DgsOrchestrator:
     structurer_prov = self._structurer_provider
     repair_prov = self._repair_provider
     planner_agent = PlannerAgent(model=planner_model_instance, prov=planner_prov, schema=schema, use=use)
-    gatherer_agent = GathererAgent(model=gatherer_model_instance, prov=gatherer_prov, schema=schema, use=use)
+    
+    if merge_enabled:
+      gatherer_agent = None
+      gatherer_structurer_agent = GathererStructurerAgent(
+        model=gatherer_model_instance,
+        prov=gatherer_prov,
+        schema=schema,
+        use=use,
+      )
+
+    else:
+      gatherer_agent = GathererAgent(model=gatherer_model_instance, prov=gatherer_prov, schema=schema, use=use)
+      gatherer_structurer_agent = None
+
     structurer_agent = StructurerAgent(model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use)
     repairer_agent = RepairerAgent(model=repairer_model_instance, prov=repair_prov, schema=schema, use=use)
     stitcher_agent = StitcherAgent(model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use)
 
-    _report_progress("plan", "planner_start", ["Planning lesson sections..."])
-
-    try:
-      lesson_plan = await planner_agent.run(request, ctx)
-    except Exception as exc:
-      planner_model = _model_name(planner_model_instance)
-      _log_request_failure(logger=logger, logs=logs, agent="Planner", provider=planner_prov, model=planner_model, prompt=None, response=None, error=exc)
-      _log_pipeline_snapshot(logger=logger, logs=logs, agent="Planner", error=exc, lesson_plan=lesson_plan, draft_artifacts=draft_artifacts, structured_artifacts=structured_artifacts, repair_artifacts=repair_artifacts)
-      raise
-
-    _report_progress("plan", "planner_complete", ["Lesson plan ready."])
-
-    sections: dict[int, SectionDraft] = {}
-    
-    section_count = len(lesson_plan.sections)
-
-    for plan_section in lesson_plan.sections:
-      section_index = plan_section.section_number
-      gather_subphase = f"gather_section_{section_index}_of_{section_count}"
-      gather_msg = f"Gathering section {section_index}/{section_count}: {plan_section.title}"
-      _report_progress("collect", gather_subphase, [gather_msg])
-
-      try:
-        draft = await gatherer_agent.run(plan_section, ctx)
-      except Exception as exc:
-        gather_model = _model_name(gatherer_model_instance)
-        _log_request_failure(logger=logger, logs=logs, agent="Gatherer", provider=gatherer_prov, model=gather_model, prompt=None, response=None, error=exc)
-        _log_pipeline_snapshot(
-          logger=logger,
-          logs=logs,
-          agent="Gatherer",
-          error=exc,
-          lesson_plan=lesson_plan,
-          draft_artifacts=draft_artifacts,
-          structured_artifacts=structured_artifacts,
-          repair_artifacts=repair_artifacts,
-        )
-        logs.append(f"Gatherer failed section {section_index}/{section_count}.")
-        continue
-
-      if section_index < 1 or section_index > section_count:
-        logs.append(f"Skipping out-of-range section {section_index}.")
-        continue
-
-      sections[section_index] = draft
-      draft_artifacts.append(draft.model_dump(mode="python"))
-      extract_subphase = f"extract_section_{section_index}_of_{section_count}"
-      extract_msg = f"Extracted section {section_index}/{section_count}"
-      _report_progress("collect", extract_subphase, [extract_msg])
-      section_index += 1
-
-    # Ensure we collected all requested sections before structuring.
-
-    if len(sections) < section_count:
-      missing = sorted(set(range(1, section_count + 1)) - set(sections.keys()))
-      logs.append(f"Missing extracted sections: {missing}")
-      logger.warning("Missing extracted sections: %s", missing)
-
-    structured_sections: list[StructuredSection] = []
-
-    if not enable_repair:
-      logs.append("Repair is disabled; failed sections are skipped.")
-      logger.info("Repair is disabled; failed sections are skipped.")
-
-    for section_index in range(1, section_count + 1):
-      draft = sections.get(section_index)
-
-      if draft is None:
-        logs.append(f"Skipping missing section {section_index}.")
-        logger.warning("Skipping missing section %s.", section_index)
-        continue
-
-      struct_subphase = f"struct_section_{section_index}_of_{section_count}"
-      struct_msg = f"Structuring section {section_index}/{section_count}: {draft.title}"
-      _report_progress("transform", struct_subphase, [struct_msg])
-
-      try:
-        structured = await structurer_agent.run(draft, ctx)
-
-      except RuntimeError as exc:
-        # Fail fast on structurer errors to avoid returning partial lessons.
-        structurer_model = _model_name(structurer_model_instance)
-        _log_request_failure(logger=logger, logs=logs, agent="Structurer", provider=self._structurer_provider, model=structurer_model, prompt=None, response=None, error=exc)
-        _log_pipeline_snapshot(
-          logger=logger,
-          logs=logs,
-          agent="Structurer",
-          error=exc,
-          lesson_plan=lesson_plan,
-          draft_artifacts=draft_artifacts,
-          structured_artifacts=structured_artifacts,
-          repair_artifacts=repair_artifacts,
-        )
-        error_message = f"Structurer failed for section {section_index}/{section_count}: {exc}"
-        logs.append(error_message)
-        _report_progress("transform", struct_subphase, [error_message], advance=False)
-        raise RuntimeError(error_message) from exc
-
-      structured_artifacts.append(structured.model_dump(mode="python"))
+    async def _process_structured_section(
+      *,
+      draft: SectionDraft,
+      structured: StructuredSection,
+      section_index: int,
+    ) -> StructuredSection | None:
+      """Validate, optionally repair, and finalize a structured section."""
+      nonlocal validation_errors
 
       if structured.validation_errors and not enable_repair:
+        # Preserve validation errors while allowing remaining sections to proceed.
         validation_errors = structured.validation_errors
         logs.append(f"Section {section_index} failed validation: {structured.validation_errors}")
         logger.error("Section %s failed validation: %s", section_index, structured.validation_errors)
-        continue
+        return None
 
       section_json = structured.payload
 
       if enable_repair:
+        # Repair invalid sections in-place to preserve the full pipeline.
         repair_input = RepairInput(section=draft, structured=structured)
 
         try:
           repair_result = await repairer_agent.run(repair_input, ctx)
+
         except RuntimeError as exc:
           repair_model = _model_name(repairer_model_instance)
           _log_request_failure(logger=logger, logs=logs, agent="Repairer", provider=self._repair_provider, model=repair_model, prompt=None, response=None, error=exc)
@@ -291,7 +237,7 @@ class DgsOrchestrator:
             repair_artifacts=repair_artifacts,
           )
           logs.append(f"Skipping section {section_index} due to repair failure.")
-          continue
+          return None
 
         repair_artifacts.append(repair_result.model_dump(mode="python"))
 
@@ -299,13 +245,163 @@ class DgsOrchestrator:
           validation_errors = repair_result.errors
           logs.append(f"Section {section_index} failed repair validation: {repair_result.errors}")
           logger.error("Section %s failed repair validation: %s", section_index, repair_result.errors)
-          continue
+          return None
         section_json = repair_result.fixed_json
 
       validate_subphase = f"validate_section_{section_index}_of_{section_count}"
       _report_progress("transform", validate_subphase, [f"Section {section_index} validated."])
-      structured_section = StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
-      structured_sections.append(structured_section)
+      return StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
+
+    _report_progress("plan", "planner_start", ["Planning lesson sections..."])
+
+    try:
+      lesson_plan = await planner_agent.run(request, ctx)
+    except Exception as exc:
+      planner_model = _model_name(planner_model_instance)
+      _log_request_failure(logger=logger, logs=logs, agent="Planner", provider=planner_prov, model=planner_model, prompt=None, response=None, error=exc)
+      _log_pipeline_snapshot(logger=logger, logs=logs, agent="Planner", error=exc, lesson_plan=lesson_plan, draft_artifacts=draft_artifacts, structured_artifacts=structured_artifacts, repair_artifacts=repair_artifacts)
+      raise
+
+    _report_progress("plan", "planner_complete", ["Lesson plan ready."])
+
+    sections: dict[int, SectionDraft] = {}
+    structured_sections: list[StructuredSection] = []
+    
+    section_count = len(lesson_plan.sections)
+
+    for plan_section in lesson_plan.sections:
+      section_index = plan_section.section_number
+
+      if merge_enabled:
+        merge_subphase = f"gather_struct_section_{section_index}_of_{section_count}"
+        merge_msg = f"Gathering+structuring section {section_index}/{section_count}: {plan_section.title}"
+        _report_progress("transform", merge_subphase, [merge_msg])
+
+        try:
+          structured = await gatherer_structurer_agent.run(plan_section, ctx)
+
+        except Exception as exc:
+          merged_model = _model_name(gatherer_model_instance)
+          _log_request_failure(logger=logger, logs=logs, agent="GathererStructurer", provider=gatherer_prov, model=merged_model, prompt=None, response=None, error=exc)
+          _log_pipeline_snapshot(
+            logger=logger,
+            logs=logs,
+            agent="GathererStructurer",
+            error=exc,
+            lesson_plan=lesson_plan,
+            draft_artifacts=draft_artifacts,
+            structured_artifacts=structured_artifacts,
+            repair_artifacts=repair_artifacts,
+          )
+          logs.append(f"Gatherer-structurer failed section {section_index}/{section_count}.")
+          continue
+
+        if section_index < 1 or section_index > section_count:
+          logs.append(f"Skipping out-of-range section {section_index}.")
+          continue
+
+        # Preserve draft context for repair by synthesizing a minimal SectionDraft.
+        draft = SectionDraft(
+          section_number=section_index,
+          title=plan_section.title,
+          plan_section=plan_section,
+          raw_text="Merged gatherer-structurer output (raw gatherer text unavailable).",
+          extracted_parts=None,
+        )
+        sections[section_index] = draft
+        draft_artifacts.append(draft.model_dump(mode="python"))
+        structured_artifacts.append(structured.model_dump(mode="python"))
+        structured_section = await _process_structured_section(draft=draft, structured=structured, section_index=section_index)
+
+        if structured_section is not None:
+          structured_sections.append(structured_section)
+
+      else:
+        gather_subphase = f"gather_section_{section_index}_of_{section_count}"
+        gather_msg = f"Gathering section {section_index}/{section_count}: {plan_section.title}"
+        _report_progress("collect", gather_subphase, [gather_msg])
+
+        try:
+          draft = await gatherer_agent.run(plan_section, ctx)
+        except Exception as exc:
+          gather_model = _model_name(gatherer_model_instance)
+          _log_request_failure(logger=logger, logs=logs, agent="Gatherer", provider=gatherer_prov, model=gather_model, prompt=None, response=None, error=exc)
+          _log_pipeline_snapshot(
+            logger=logger,
+            logs=logs,
+            agent="Gatherer",
+            error=exc,
+            lesson_plan=lesson_plan,
+            draft_artifacts=draft_artifacts,
+            structured_artifacts=structured_artifacts,
+            repair_artifacts=repair_artifacts,
+          )
+          logs.append(f"Gatherer failed section {section_index}/{section_count}.")
+          continue
+
+        if section_index < 1 or section_index > section_count:
+          logs.append(f"Skipping out-of-range section {section_index}.")
+          continue
+
+        sections[section_index] = draft
+        draft_artifacts.append(draft.model_dump(mode="python"))
+        extract_subphase = f"extract_section_{section_index}_of_{section_count}"
+        extract_msg = f"Extracted section {section_index}/{section_count}"
+        _report_progress("collect", extract_subphase, [extract_msg])
+        section_index += 1
+
+    # Ensure we collected all requested sections before structuring.
+
+    if len(sections) < section_count:
+      missing = sorted(set(range(1, section_count + 1)) - set(sections.keys()))
+      logs.append(f"Missing extracted sections: {missing}")
+      logger.warning("Missing extracted sections: %s", missing)
+
+    if not enable_repair:
+      logs.append("Repair is disabled; failed sections are skipped.")
+      logger.info("Repair is disabled; failed sections are skipped.")
+
+    if not merge_enabled:
+
+      for section_index in range(1, section_count + 1):
+        draft = sections.get(section_index)
+
+        if draft is None:
+          logs.append(f"Skipping missing section {section_index}.")
+          logger.warning("Skipping missing section %s.", section_index)
+          continue
+
+        struct_subphase = f"struct_section_{section_index}_of_{section_count}"
+        struct_msg = f"Structuring section {section_index}/{section_count}: {draft.title}"
+        _report_progress("transform", struct_subphase, [struct_msg])
+
+        try:
+          structured = await structurer_agent.run(draft, ctx)
+
+        except RuntimeError as exc:
+          # Fail fast on structurer errors to avoid returning partial lessons.
+          structurer_model = _model_name(structurer_model_instance)
+          _log_request_failure(logger=logger, logs=logs, agent="Structurer", provider=self._structurer_provider, model=structurer_model, prompt=None, response=None, error=exc)
+          _log_pipeline_snapshot(
+            logger=logger,
+            logs=logs,
+            agent="Structurer",
+            error=exc,
+            lesson_plan=lesson_plan,
+            draft_artifacts=draft_artifacts,
+            structured_artifacts=structured_artifacts,
+            repair_artifacts=repair_artifacts,
+          )
+          error_message = f"Structurer failed for section {section_index}/{section_count}: {exc}"
+          logs.append(error_message)
+          _report_progress("transform", struct_subphase, [error_message], advance=False)
+          raise RuntimeError(error_message) from exc
+
+        structured_artifacts.append(structured.model_dump(mode="python"))
+        structured_section = await _process_structured_section(draft=draft, structured=structured, section_index=section_index)
+
+        if structured_section is not None:
+          structured_sections.append(structured_section)
 
     _report_progress("transform", "stitch_sections", ["Stitching sections..."])
     batch = StructuredSectionBatch(sections=structured_sections)

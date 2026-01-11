@@ -34,6 +34,7 @@ class Settings:
     repair_model: str | None
     prompt_version: str
     schema_version: str
+    merge_gatherer_structurer: bool
     tenant_key: str
     lesson_id_index_name: str
     jobs_all_jobs_index_name: str | None
@@ -108,6 +109,7 @@ def get_settings() -> Settings:
         repair_model=os.getenv("DGS_REPAIR_MODEL", "google/gemma-3-27b-it:free"),
         prompt_version=os.getenv("DGS_PROMPT_VERSION", "v1"),
         schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
+        merge_gatherer_structurer=_parse_bool(os.getenv("MERGE_GATHERER_STRUCTURER")),
         tenant_key=os.getenv("DGS_TENANT_KEY", "TENANT#default"),
         lesson_id_index_name=os.getenv("DGS_LESSON_ID_INDEX", "lesson_id_index"),
         jobs_all_jobs_index_name=os.getenv("DGS_JOBS_ALL_JOBS_INDEX", "jobs_all_jobs"),

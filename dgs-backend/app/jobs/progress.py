@@ -82,16 +82,17 @@ def _coerce_depth(raw_depth: Any) -> int:
     return depth
 
 
-def build_call_plan(request_data: Mapping[str, Any]) -> CallPlan:
-    """Derive an AI call plan from the raw job request payload."""
+def build_call_plan(request_data: Mapping[str, Any], *, merge_gatherer_structurer: bool = False) -> CallPlan:
+  """Derive an AI call plan from the raw job request payload."""
 
-    depth = _coerce_depth(request_data.get("depth"))
+  depth = _coerce_depth(request_data.get("depth"))
 
-    planner_calls = 1
-    gather_calls = depth
-    structurer_calls = depth
-    repair_calls = depth
-    stitch_calls = 1
+  planner_calls = 1
+  # Merge gatherer+structurer into one per-section call when enabled.
+  gather_calls = 0 if merge_gatherer_structurer else depth
+  structurer_calls = depth
+  repair_calls = depth
+  stitch_calls = 1
     total_calls = planner_calls + gather_calls + structurer_calls + repair_calls
 
     max_gather_calls = 10
