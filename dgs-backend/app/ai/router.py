@@ -6,6 +6,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from app.ai.providers.base import AIModel, Provider
+from app.ai.providers.audit import instrument_model
 
 if TYPE_CHECKING:
     from app.ai.providers.gemini import GeminiProvider
@@ -36,4 +37,7 @@ def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
 def get_model_for_mode(mode: str | ProviderMode, model: str | None = None) -> AIModel:
     """Return a model client for the given mode and model name."""
     provider = get_provider_for_mode(mode)
-    return provider.get_model(model)
+    # Wrap provider models to capture audit telemetry without changing call sites.
+    model_client = provider.get_model(model)
+    provider_name = getattr(provider, "name", mode.value if isinstance(mode, ProviderMode) else str(mode))
+    return instrument_model(model_client, provider_name)

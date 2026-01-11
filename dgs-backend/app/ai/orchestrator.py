@@ -242,7 +242,9 @@ class DgsOrchestrator:
 
       try:
         structured = await structurer_agent.run(draft, ctx)
+
       except RuntimeError as exc:
+        # Fail fast on structurer errors to avoid returning partial lessons.
         structurer_model = _model_name(structurer_model_instance)
         _log_request_failure(logger=logger, logs=logs, agent="Structurer", provider=self._structurer_provider, model=structurer_model, prompt=None, response=None, error=exc)
         _log_pipeline_snapshot(
@@ -255,8 +257,10 @@ class DgsOrchestrator:
           structured_artifacts=structured_artifacts,
           repair_artifacts=repair_artifacts,
         )
-        logs.append(f"Skipping section {section_index} due to structurer failure.")
-        continue
+        error_message = f"Structurer failed for section {section_index}/{section_count}: {exc}"
+        logs.append(error_message)
+        _report_progress("transform", struct_subphase, [error_message], advance=False)
+        raise RuntimeError(error_message) from exc
 
       structured_artifacts.append(structured.model_dump(mode="python"))
 

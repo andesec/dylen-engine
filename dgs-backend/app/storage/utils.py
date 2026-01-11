@@ -8,6 +8,8 @@ from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
+_KNOWN_TABLES: set[str] = set()
+
 
 def ensure_table_exists(
     resource: Any,
@@ -18,9 +20,14 @@ def ensure_table_exists(
     global_secondary_indexes: list[dict[str, Any]] | None = None,
 ) -> None:
     """Idempotently create a DynamoDB table and wait until it's active."""
+    
+    # Skip repeated checks within the same process to avoid log noise.
+    if table_name in _KNOWN_TABLES:
+        return
+    
     if provisioned_throughput is None:
         provisioned_throughput = {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
-
+    
     try:
         table = resource.create_table(
             TableName=table_name,
@@ -32,9 +39,15 @@ def ensure_table_exists(
         logger.info(f"Creating table {table_name}...")
         table.wait_until_exists()
         logger.info(f"Table {table_name} is now ACTIVE.")
+        _KNOWN_TABLES.add(table_name)
+    
     except ClientError as e:
+        
+        # Treat already-existing tables as a successful, cacheable outcome.
         if e.response["Error"]["Code"] == "ResourceInUseException":
             logger.info(f"Table {table_name} already exists.")
+            _KNOWN_TABLES.add(table_name)
+        
         else:
             logger.error(f"Failed to create table {table_name}: {e}")
             raise

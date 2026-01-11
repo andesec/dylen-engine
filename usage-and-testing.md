@@ -104,6 +104,22 @@ docker-compose down
 
 **Note:** The table creation only happens once. On subsequent runs, docker-compose detects the existing table and skips creation.
 
+### 5. Set Up Postgres Audit (Optional but Recommended)
+
+LLM audit logging writes to Postgres when `DGS_LLM_AUDIT_ENABLED=true`.
+
+**Start Postgres with the bundled schema:**
+```bash
+docker-compose up -d postgres postgres-init
+```
+
+**Verify connectivity:**
+```bash
+psql "postgresql://dgs:dgs_password@localhost:5432/dgs" -c "SELECT 1;"
+```
+
+**Note:** The backend depends on `psycopg[binary]` so local installs include the bundled libpq.
+
 ## Running the Service Locally
 
 ### Start the Development Server

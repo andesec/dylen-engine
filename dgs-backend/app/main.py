@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import sys
 import time
@@ -12,7 +13,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import (
@@ -39,6 +40,9 @@ from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.utils.ids import generate_job_id, generate_lesson_id
 
 settings = get_settings()
+# Track background job worker state for lifecycle management.
+_JOB_WORKER_TASK: asyncio.Task[None] | None = None
+_JOB_WORKER_ACTIVE = False
 
 
 class DecimalJSONEncoder(json.JSONEncoder):
@@ -68,13 +72,19 @@ class DecimalJSONResponse(JSONResponse):
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
   """Ensure logging is correctly set up after uvicorn starts."""
   
+  
   try:
     _initialize_logging()
     logger.info("Startup complete - logging verified.")
+  
+    _start_job_worker(settings)
+  
   except Exception:
     logger.warning("Initial logging setup failed; will retry on lifespan.", exc_info=True)
-    
+  
   yield
+  
+  _stop_job_worker()
 
 
 app = FastAPI(default_response_class=DecimalJSONResponse, lifespan=lifespan)
@@ -203,6 +213,81 @@ def _initialize_logging() -> None:
   _log_widget_registry()
 
 
+def _start_job_worker(active_settings: Settings) -> None:
+  """Start a lightweight job poller to ensure queued jobs are processed."""
+  global _JOB_WORKER_TASK, _JOB_WORKER_ACTIVE
+  
+  # Avoid spawning multiple loops if lifespan runs more than once.
+  
+  
+  if _JOB_WORKER_ACTIVE:
+    return
+  
+  
+  if not active_settings.jobs_auto_process:
+    return
+  
+  # Schedule the worker on the running loop so it survives request lifetimes.
+  
+  
+  loop = asyncio.get_running_loop()
+  _JOB_WORKER_TASK = loop.create_task(_job_worker_loop(active_settings))
+  _JOB_WORKER_TASK.add_done_callback(_log_job_task_failure)
+  _JOB_WORKER_ACTIVE = True
+  logger.info("Job worker loop started.")
+
+
+def _stop_job_worker() -> None:
+  """Stop the job poller when the app shuts down."""
+  global _JOB_WORKER_TASK, _JOB_WORKER_ACTIVE
+  
+  
+  if not _JOB_WORKER_ACTIVE:
+    return
+  
+  
+  if _JOB_WORKER_TASK is None:
+    _JOB_WORKER_ACTIVE = False
+    return
+  
+  # Cancel the task to stop polling promptly on shutdown.
+  
+  _JOB_WORKER_TASK.cancel()
+  _JOB_WORKER_TASK = None
+  _JOB_WORKER_ACTIVE = False
+  logger.info("Job worker loop stopped.")
+
+
+async def _job_worker_loop(active_settings: Settings) -> None:
+  """Poll for queued jobs so processing happens even if kickoff is missed."""
+  from app.jobs.worker import JobProcessor
+  
+  # Reuse a single processor to keep orchestration wiring consistent.
+  
+  
+  repo = _get_jobs_repo(active_settings)
+  processor = JobProcessor(
+    jobs_repo=repo,
+    orchestrator=_get_orchestrator(active_settings),
+    settings=active_settings,
+  )
+  poll_seconds = 2.0
+  
+  
+  while True:
+    
+    
+    try:
+      await processor.process_queue(limit=5)
+    
+    
+    except Exception as exc:  # noqa: BLE001
+      logger.error("Job worker loop failed: %s", exc, exc_info=True)
+    
+    
+    await asyncio.sleep(poll_seconds)
+
+
 @app.middleware("http")
 async def log_requests(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -269,7 +354,7 @@ class ModelsConfig(BaseModel):
     validation_alias=AliasChoices("gatherer_model", "knowledge_model"),
     serialization_alias="gatherer_model",
     description="Model used for the gatherer agent (provider inferred when possible).",
-    examples=["meta-llama/llama-3.1-405b-instruct:free"],
+    examples=["xiaomi/mimo-v2-flash:free"],
   )
   planner_model: StrictStr | None = Field(
     default=None,
@@ -354,7 +439,7 @@ class GenerateLessonRequest(BaseModel):
     description="Optional per-agent model selection overrides.",
     examples=[
       {
-        "gatherer_model": "meta-llama/llama-3.1-405b-instruct:free",
+        "gatherer_model": "xiaomi/mimo-v2-flash:free",
         "planner_model": "openai/gpt-oss-120b:free",
         "structurer_model": "openai/gpt-oss-20b:free",
         "repairer_model": "google/gemma-3-27b-it:free",
@@ -418,7 +503,7 @@ class JobCreateResponse(BaseModel):
 
 
 class JobStatusResponse(BaseModel):
-  """Status payload for an asynchronous lesson generation job."""
+  """Status payload for an asynchronous job."""
   
   job_id: StrictStr
   status: JobStatus
@@ -441,7 +526,7 @@ class JobStatusResponse(BaseModel):
     description="Progress percent (0-100) when available.",
   )
   logs: list[StrictStr] = Field(default_factory=list)
-  request: GenerateLessonRequest
+  request: GenerateLessonRequest | WritingCheckRequest
   result: dict[str, Any] | None = None
   validation: ValidationResponse | None = None
   cost: dict[str, Any] | None = None
@@ -709,8 +794,11 @@ def _compute_job_ttl(settings: Settings) -> int | None:
 
 def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
   """Convert a persisted job record into an API response payload."""
+  
+  # Parse the stored payload into the correct request model for the job type.
   try:
-    request = GenerateLessonRequest.model_validate(record.request)
+    request = _parse_job_request(record.request)
+  
   except ValidationError as exc:
     raise HTTPException(
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -718,6 +806,7 @@ def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
     ) from exc
   
   validation = None
+  
   if record.validation is not None:
     validation = ValidationResponse.model_validate(record.validation)
   
@@ -738,6 +827,17 @@ def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
     updated_at=record.updated_at,
     completed_at=record.completed_at,
   )
+
+
+def _parse_job_request(payload: dict[str, Any]) -> GenerateLessonRequest | WritingCheckRequest:
+  """Resolve the stored job request to the correct request model."""
+  
+  # Writing checks carry a distinct payload shape (text + criteria).
+  
+  if "text" in payload and "criteria" in payload:
+    return WritingCheckRequest.model_validate(payload)
+  
+  return GenerateLessonRequest.model_validate(payload)
 
 
 @app.get("/health")
@@ -881,6 +981,72 @@ async def _create_job_record(
   return JobCreateResponse(job_id=job_id)
 
 
+async def _process_job_async(job_id: str, settings: Settings) -> None:
+  """Run a queued job in-process to update status as work progresses."""
+  
+  from app.jobs.worker import JobProcessor
+  
+  # Fetch the queued record so we can process only if it still exists.
+  repo = _get_jobs_repo(settings)
+  record = await run_in_threadpool(repo.get_job, job_id)
+  
+  if record is None:
+    return
+  
+  # Run the job with a fresh processor to update progress states.
+  processor = JobProcessor(
+    jobs_repo=repo,
+    orchestrator=_get_orchestrator(settings),
+    settings=settings,
+  )
+  # Execute the job asynchronously so progress updates stream back to storage.
+  await processor.process_job(record)
+
+
+def _kickoff_job_processing(background_tasks: BackgroundTasks, job_id: str, settings: Settings) -> None:
+  """Schedule background processing so clients see status updates."""
+  
+  # Fire-and-forget processing to keep the API responsive.
+  # Skip in-process execution when external workers (Lambda) are responsible.
+  
+  
+  if not settings.jobs_auto_process:
+    return
+  
+  # Defer to the shared worker loop to avoid duplicate processing.
+  
+  
+  if _JOB_WORKER_ACTIVE:
+    return
+  
+  # Prefer immediate scheduling on the running loop to start work right away.
+  
+  
+  try:
+    loop = asyncio.get_running_loop()
+  
+  
+  except RuntimeError:
+    background_tasks.add_task(_process_job_async, job_id, settings)
+    return
+  
+  
+  task = loop.create_task(_process_job_async(job_id, settings))
+  task.add_done_callback(_log_job_task_failure)
+
+
+def _log_job_task_failure(task: asyncio.Task[None]) -> None:
+  """Log unexpected failures from background job tasks."""
+  
+  
+  try:
+    task.result()
+  
+  
+  except Exception as exc:  # noqa: BLE001
+    logger.error("Job processing task failed: %s", exc, exc_info=True)
+
+
 @app.post(
   "/v1/jobs",
   response_model=JobCreateResponse,
@@ -888,10 +1054,16 @@ async def _create_job_record(
 )
 async def create_job(  # noqa: B008
     request: GenerateLessonRequest,
+    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> JobCreateResponse:
   """Create a background lesson generation job."""
-  return await _create_job_record(request, settings)
+  response = await _create_job_record(request, settings)
+  
+  # Kick off processing so the client can poll for status immediately.
+  _kickoff_job_processing(background_tasks, response.job_id, settings)
+  
+  return response
 
 
 @app.post(
@@ -901,10 +1073,16 @@ async def create_job(  # noqa: B008
 )
 async def create_lesson_job(  # noqa: B008
     request: GenerateLessonRequest,
+    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> JobCreateResponse:
   """Alias route for creating a background lesson generation job."""
-  return await _create_job_record(request, settings)
+  response = await _create_job_record(request, settings)
+  
+  # Kick off processing so the client can poll for status immediately.
+  _kickoff_job_processing(background_tasks, response.job_id, settings)
+  
+  return response
 
 
 @app.post(
@@ -915,6 +1093,7 @@ async def create_lesson_job(  # noqa: B008
 )
 async def create_writing_check(  # noqa: B008
     request: WritingCheckRequest,
+    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> JobCreateResponse:
   """Create a background job to check a writing task response."""
@@ -933,7 +1112,12 @@ async def create_writing_check(  # noqa: B008
     ttl=_compute_job_ttl(settings),
   )
   await run_in_threadpool(repo.create_job, record)
-  return JobCreateResponse(job_id=job_id)
+  response = JobCreateResponse(job_id=job_id)
+  
+  # Kick off processing so the client can poll for status immediately.
+  _kickoff_job_processing(background_tasks, response.job_id, settings)
+  
+  return response
 
 
 @app.get(

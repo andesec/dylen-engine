@@ -13,6 +13,7 @@ from app.ai.agents.prompts import format_schema_block, render_repair_prompt
 from app.ai.deterministic_repair import attempt_deterministic_repair
 from app.ai.pipeline.contracts import JobContext, RepairInput, RepairResult
 from app.schema.lesson_models import normalize_widget
+from app.telemetry.context import llm_call_context
 
 JsonDict = dict[str, Any]
 Errors = list[str]
@@ -79,11 +80,24 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
     if self._model.supports_structured_output:
       schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
-      response = await self._model.generate_structured(prompt_text, schema)
       purpose = f"repair_section_{section.section_number}_of_{request.depth}"
       call_index = f"{section.section_number}/{request.depth}"
+
+      # Stamp the provider call with agent context for audit logging.
+
+      with llm_call_context(
+        agent=self.name,
+        lesson_topic=request.topic,
+        job_id=ctx.job_id,
+        purpose=purpose,
+        call_index=call_index,
+      ):
+        response = await self._model.generate_structured(prompt_text, schema)
+
+
       self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
       repaired_payload = response.content
+
     else:
       prompt_parts = [
         prompt_text,
@@ -91,10 +105,23 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
         "Output ONLY valid JSON.",
       ]
       prompt_with_schema = "\n\n".join(prompt_parts)
-      raw = await self._model.generate(prompt_with_schema)
       purpose = f"repair_section_{section.section_number}_of_{request.depth}"
       call_index = f"{section.section_number}/{request.depth}"
+
+      # Stamp the provider call with agent context for audit logging.
+
+      with llm_call_context(
+        agent=self.name,
+        lesson_topic=request.topic,
+        job_id=ctx.job_id,
+        purpose=purpose,
+        call_index=call_index,
+      ):
+        raw = await self._model.generate(prompt_with_schema)
+
+
       self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=raw.usage)
+
 
       try:
         cleaned = self._model.strip_json_fences(raw.content)

@@ -39,17 +39,36 @@ class Settings:
     jobs_all_jobs_index_name: str | None
     jobs_idempotency_index_name: str | None
     jobs_ttl_seconds: int | None
+    jobs_auto_process: bool
+    pg_dsn: str | None
+    pg_connect_timeout: int
+    llm_audit_enabled: bool
 
 
 def _parse_origins(raw: str | None) -> list[str]:
+
     if not raw:
         raise ValueError("DGS_ALLOWED_ORIGINS must be set to one or more origins.")
+
     origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+
     if not origins:
         raise ValueError("DGS_ALLOWED_ORIGINS must include at least one origin.")
+
     if "*" in origins:
         raise ValueError("DGS_ALLOWED_ORIGINS must not include wildcard origins.")
+
     return origins
+
+
+def _parse_bool(raw: str | None) -> bool:
+    """Parse a boolean-ish string from environment variables."""
+
+    if raw is None:
+        return False
+
+    normalized = raw.strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
 
 
 @lru_cache(maxsize=1)
@@ -57,10 +76,12 @@ def get_settings() -> Settings:
     """Load settings once per process."""
 
     dev_key = os.getenv("DGS_DEV_KEY", "").strip()
+
     if not dev_key:
         raise ValueError("DGS_DEV_KEY must be set to a non-empty value.")
 
     max_topic_length = int(os.getenv("DGS_MAX_TOPIC_LENGTH", "200"))
+
     if max_topic_length <= 0:
         raise ValueError("DGS_MAX_TOPIC_LENGTH must be a positive integer.")
 
@@ -73,7 +94,7 @@ def get_settings() -> Settings:
         ddb_region=os.getenv("AWS_REGION", "us-east-1"),
         ddb_endpoint_url=os.getenv("DGS_DDB_ENDPOINT_URL"),
         gatherer_provider=os.getenv("DGS_GATHERER_PROVIDER", "openrouter"),
-        gatherer_model=os.getenv("DGS_GATHERER_MODEL", "meta-llama/llama-3.1-405b-instruct:free"),
+        gatherer_model=os.getenv("DGS_GATHERER_MODEL", "xiaomi/mimo-v2-flash:free"),
         planner_provider=os.getenv("DGS_PLANNER_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter")),
         planner_model=os.getenv("DGS_PLANNER_MODEL", "openai/gpt-oss-120b:free"),
         structurer_provider=os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter"),
@@ -92,13 +113,21 @@ def get_settings() -> Settings:
         jobs_all_jobs_index_name=os.getenv("DGS_JOBS_ALL_JOBS_INDEX", "jobs_all_jobs"),
         jobs_idempotency_index_name=os.getenv("DGS_JOBS_IDEMPOTENCY_INDEX", "jobs_idempotency"),
         jobs_ttl_seconds=_parse_optional_int(os.getenv("DGS_JOBS_TTL_SECONDS")),
+        jobs_auto_process=_parse_bool(os.getenv("DGS_JOBS_AUTO_PROCESS")),
+        pg_dsn=os.getenv("DGS_PG_DSN"),
+        pg_connect_timeout=int(os.getenv("DGS_PG_CONNECT_TIMEOUT", "5")),
+        llm_audit_enabled=_parse_bool(os.getenv("DGS_LLM_AUDIT_ENABLED")),
     )
 
 
 def _parse_optional_int(raw: str | None) -> int | None:
+
     if raw is None or raw.strip() == "":
         return None
+
     value = int(raw)
+
     if value <= 0:
         raise ValueError("Optional TTL seconds must be positive when provided.")
+
     return value

@@ -46,6 +46,24 @@ def _serialize_for_dynamodb(obj: Any) -> Any:
     return obj
 
 
+def _coerce_optional_int(value: Any) -> int | None:
+    """Normalize DynamoDB numeric fields to ints for strict response models."""
+    
+    # Allow missing values to pass through untouched.
+    if value is None:
+        return None
+    
+    # DynamoDB returns Decimal for numeric attributes.
+    if isinstance(value, Decimal):
+        return int(value)
+    
+    # Preserve ints and coerce other numeric types when possible.
+    if isinstance(value, int):
+        return value
+    
+    return int(value)
+
+
 class DynamoJobsRepository(JobsRepository):
     """Persist jobs to DynamoDB."""
 
@@ -239,14 +257,19 @@ class DynamoJobsRepository(JobsRepository):
 
     def _item_to_record(self, item: dict[str, Any]) -> JobRecord:
         progress = float(item["progress"]) if "progress" in item and item["progress"] is not None else None
+        
+        # Coerce DynamoDB numeric types to ints for strict response validation.
+        total_steps = _coerce_optional_int(item.get("total_steps"))
+        completed_steps = _coerce_optional_int(item.get("completed_steps"))
+        
         payload = {
             "job_id": item["job_id"],
             "request": item["request"],
             "status": item["status"],
             "phase": item.get("phase"),
             "subphase": item.get("subphase"),
-            "total_steps": item.get("total_steps"),
-            "completed_steps": item.get("completed_steps"),
+            "total_steps": total_steps,
+            "completed_steps": completed_steps,
             "progress": progress,
             "logs": item.get("logs") or [],
             "result_json": item.get("result_json"),
