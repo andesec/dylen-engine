@@ -7,30 +7,27 @@ from typing import Any, cast
 from .lesson_models import (
     AsciiDiagramWidget,
     BlankWidget,
-    CalloutWidget,
-    ChecklistGroup,
+    WarnWidget,
+    ErrorWidget,
+    SuccessWidget,
     ChecklistWidget,
     CodeViewerWidget,
     CompareWidget,
-    ConsoleDemoEntry,
-    ConsoleInteractiveRule,
     ConsoleWidget,
     FlipWidget,
     FreeTextWidget,
     LessonDocument,
-    ListWidget,
+    UnorderedListWidget,
+    OrderedListWidget,
     ParagraphWidget,
-    QuizQuestion,
     QuizWidget,
     SectionBlock,
-    StepFlowBranch,
-    StepFlowOption,
     StepFlowWidget,
     SwipeWidget,
     TableWidget,
     TranslationWidget,
     TreeViewWidget,
-    # Widget,
+    Widget,
 )
 
 
@@ -41,108 +38,23 @@ def _dump_model(model: Any, *, by_alias: bool = False) -> dict[str, Any]:
     return cast(dict[str, Any], model.dict(by_alias=by_alias))
 
 
-def _trim_trailing(values: list[Any], default_map: dict[int, Any] | None = None) -> list[Any]:
-    trimmed = list(values)
-    while trimmed:
-        idx = len(trimmed) - 1
-        val = trimmed[idx]
-        default = default_map.get(idx) if default_map else None
-        if val is None or val == default:
-            trimmed.pop()
-            continue
-        break
-    return trimmed
-
-
-def _step_flow_node_to_shorthand(node: Any) -> Any:
-    if isinstance(node, StepFlowBranch):
-        return [
-            [option.label, [_step_flow_node_to_shorthand(s) for s in option.steps]]
-            for option in node.options
-        ]
-    if isinstance(node, str):
-        return node
-    if isinstance(node, StepFlowOption):
-        return [node.label, [_step_flow_node_to_shorthand(s) for s in node.steps]]
-    return node
-
-
-def _checklist_node_to_shorthand(node: Any) -> Any:
-    if isinstance(node, ChecklistGroup):
-        return [node.title, [_checklist_node_to_shorthand(child) for child in node.children]]
-    if isinstance(node, str):
-        return node
-    return node
-
-
-def _quiz_question_to_shorthand(question: QuizQuestion) -> dict[str, Any]:
-    return _dump_model(question, by_alias=True)
-
-
 def _widget_to_shorthand(widget: Widget) -> Any:
+    # If it's a plain string, it's a paragraph shorthand
+    if isinstance(widget, str):
+        return widget
+
+    # If it's a model, we can just dump it because the models ARE the shorthand now.
+    # Exception: ParagraphWidget might be used explicitly, dump it to { "p": ... }
+    # but usually we might want to convert to string if possible?
+    # The user requirements didn't say we MUST convert {p: "..."} to "...", but it's cleaner.
     if isinstance(widget, ParagraphWidget):
-        return widget.text
-    if isinstance(widget, CalloutWidget):
-        return {widget.type: widget.text}
-    if isinstance(widget, FlipWidget):
-        items: list[Any] = [widget.front, widget.back]
-        if widget.front_hint is not None or widget.back_hint is not None:
-            items.append(widget.front_hint)
-        if widget.back_hint is not None:
-            items.append(widget.back_hint)
-        return {"flip": _trim_trailing(items)}
-    if isinstance(widget, TranslationWidget):
-        return {"tr": [widget.source, widget.target]}
-    if isinstance(widget, BlankWidget):
-        return {"blank": [widget.prompt, widget.answer, widget.hint, widget.explanation]}
-    if isinstance(widget, ListWidget):
-        return {widget.type: list(widget.items)}
-    if isinstance(widget, TableWidget):
-        return {"table": list(widget.rows)}
-    if isinstance(widget, CompareWidget):
-        return {"compare": list(widget.rows)}
-    if isinstance(widget, SwipeWidget):
-        cards = [[card.text, card.correct_bucket, card.feedback] for card in widget.cards]
-        return {"swipe": [widget.title, list(widget.buckets), cards]}
-    if isinstance(widget, FreeTextWidget):
-        values: list[Any] = [
-            widget.prompt,
-            widget.seed_locked,
-            widget.text,
-            widget.lang,
-            widget.wordlist_csv,
-            widget.mode,
-        ]
-        return {"freeText": _trim_trailing(values, default_map={2: "", 3: "en", 5: "multi"})}
-    if isinstance(widget, StepFlowWidget):
-        flow = [_step_flow_node_to_shorthand(node) for node in widget.flow]
-        return {"stepFlow": [widget.lead, flow]}
-    if isinstance(widget, AsciiDiagramWidget):
-        return {"asciiDiagram": [widget.lead, widget.diagram]}
-    if isinstance(widget, ChecklistWidget):
-        tree = [_checklist_node_to_shorthand(node) for node in widget.tree]
-        return {"checklist": [widget.lead, tree]}
-    if isinstance(widget, ConsoleWidget):
-        if widget.mode == 0:
-            script_entries = cast(list[ConsoleDemoEntry], widget.rules_or_script)
-            entries = [[entry.command, entry.delay_ms, entry.output] for entry in script_entries]
-        else:
-            interactive_entries = cast(list[ConsoleInteractiveRule], widget.rules_or_script)
-            entries = [[entry.pattern, entry.level, entry.output] for entry in interactive_entries]
-        console_values = [widget.lead, widget.mode, entries]
-        if widget.guided is not None:
-            console_values.append([[step.task, step.solution] for step in widget.guided])
-        return {"console": _trim_trailing(console_values)}
-    if isinstance(widget, CodeViewerWidget):
-        values = [widget.code, widget.language, widget.editable, widget.textarea_id]
-        return {"codeviewer": _trim_trailing(values, default_map={2: False})}
-    if isinstance(widget, TreeViewWidget):
-        values = [widget.lesson, widget.title, widget.textarea_id, widget.editor_id]
-        return {"treeview": _trim_trailing(values)}
-    if isinstance(widget, QuizWidget):
-        questions = [_quiz_question_to_shorthand(question) for question in widget.questions]
-        return {"quiz": {"title": widget.title, "questions": questions}}
-    return _dump_model(widget)
+        return widget.p  # Convert explicit p-widget to string shorthand if preferred, or keep as object
+        # Actually, let's keep it as the model dump if the user provided it as such,
+        # BUT the model has field 'p', so dump gives {'p': 'text'}.
+        # If the input was string, Pydantic parsed it as string (if allowed).
+        # Wait, Widget union has `StrictStr`.
+
+    return _dump_model(widget, by_alias=True)
 
 
 def _section_to_shorthand(section: SectionBlock) -> dict[str, Any]:
@@ -162,6 +74,4 @@ def lesson_to_shorthand(lesson: LessonDocument) -> dict[str, Any]:
         "title": lesson.title,
         "blocks": [_section_to_shorthand(section) for section in lesson.blocks],
     }
-    # if lesson.version != "1.0":
-    #     data["version"] = lesson.version
     return data

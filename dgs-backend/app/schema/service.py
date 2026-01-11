@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.schema.lesson_models import LessonDocument, SectionBlock, widget_model_for_type
+from app.schema.lesson_models import LessonDocument, SectionBlock
 from app.schema.widgets_loader import load_widget_registry
 
 DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets_prompt.md")
@@ -43,15 +43,13 @@ class SchemaService:
     self._widgets_path = widgets_path or DEFAULT_WIDGETS_PATH
 
   def lesson_schema(self) -> dict[str, Any]:
-    """Return the lesson JSON schema and ensure widget registry is loaded."""
+    """Return the lesson JSON schema."""
     json_schema: dict[str, Any] = LessonDocument.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
-    load_widget_registry(self._widgets_path)
     return json_schema
 
   def section_schema(self) -> dict[str, Any]:
-    """Return the section JSON schema and ensure widget registry is loaded."""
+    """Return the section JSON schema."""
     json_schema: dict[str, Any] = SectionBlock.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
-    load_widget_registry(self._widgets_path)
     return json_schema
 
   def sanitize_schema(self, schema: dict[str, Any], provider_name: str) -> dict[str, Any]:
@@ -74,12 +72,8 @@ class SchemaService:
         issues.append(_issue_from_pydantic_error(err))
       return ValidationResult(ok=False, issues=issues, model=None)
 
-    registry = load_widget_registry(self._widgets_path)
-
-    for widget, path in _iter_widgets(lesson_model.blocks):
-      if not registry.is_known(widget.type):
-        message = f"Unknown widget type: {widget.type}"
-        issues.append(ValidationIssue(path=path, message=message))
+    # Note: Previously we checked against widgets_loader, but now Pydantic validation is sufficient
+    # as the models strictly define the allowed structures.
 
     model = lesson_model if not issues else None
     return ValidationResult(ok=not issues, issues=issues, model=model)
@@ -94,53 +88,59 @@ class SchemaService:
     return True, _issues_to_messages(result.issues), section_json
 
   def widget_schemas_for_types(self, widget_types: list[str]) -> dict[str, Any]:
-    """Return widget JSON schemas keyed by widget type label."""
+    """
+    Return widget JSON schemas keyed by widget type label.
+    Deprecated: With shorthand, types are keys in the JSON, not separate discriminators.
+    However, we can return the schema for the specific Pydantic model corresponding to the key.
+    """
     schemas: dict[str, Any] = {}
 
-    # Preserve input order while de-duplicating widget types.
+    # Map shorthand keys to Pydantic models in lesson_models.py
+    # We need to import them dynamically or have a mapping.
+    # Since this function might be used by prompts, we need to decide if we still support it.
+    # If the prompts need the schema for "tr", we return TranslationWidget.model_json_schema()
+
+    from app.schema.lesson_models import (
+        TranslationWidget, FlipWidget, BlankWidget, SwipeWidget, FreeTextWidget,
+        StepFlowWidget, AsciiDiagramWidget, ChecklistWidget, ConsoleWidget,
+        CodeViewerWidget, TreeViewWidget, QuizWidget,
+        UnorderedListWidget, OrderedListWidget, TableWidget, CompareWidget,
+        ParagraphWidget, WarnWidget, ErrorWidget, SuccessWidget
+    )
+
+    TYPE_TO_MODEL = {
+        "tr": TranslationWidget,
+        "flip": FlipWidget,
+        "blank": BlankWidget,
+        "swipe": SwipeWidget,
+        "freeText": FreeTextWidget,
+        "stepFlow": StepFlowWidget,
+        "asciiDiagram": AsciiDiagramWidget,
+        "checklist": ChecklistWidget,
+        "console": ConsoleWidget,
+        "codeviewer": CodeViewerWidget,
+        "treeview": TreeViewWidget,
+        "quiz": QuizWidget,
+        "ul": UnorderedListWidget,
+        "ol": OrderedListWidget,
+        "table": TableWidget,
+        "compare": CompareWidget,
+        "p": ParagraphWidget,
+        "warn": WarnWidget,
+        "err": ErrorWidget,
+        "success": SuccessWidget
+    }
 
     for widget_type in dict.fromkeys(widget_types):
-      model = widget_model_for_type(widget_type)
-
-      if model is None:
-        continue
-
-      # Emit per-widget schemas so prompts can focus on relevant shapes.
-      schemas[widget_type] = model.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
+        model = TYPE_TO_MODEL.get(widget_type)
+        if model:
+             schemas[widget_type] = model.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
 
     return schemas
 
   @staticmethod
   def _wrap_section_for_validation(section_json: dict[str, Any], *, topic: str, section_index: int) -> dict[str, Any]:
     return {"title": f"{topic} - Section {section_index}", "blocks": [section_json]}
-
-
-def _iter_widgets(blocks: list[Any]) -> list[tuple[Any, str]]:
-  items: list[tuple[Any, str]] = []
-
-  # Track paths for widgets so validation errors can point to exact entries.
-
-  for block_index, block in enumerate(blocks):
-    block_items = getattr(block, "items", None)
-
-    if block_items:
-
-      for item_index, item in enumerate(block_items):
-        items.append((item, f"blocks.{block_index}.items.{item_index}.type"))
-
-    subsections = getattr(block, "subsections", None)
-
-    if subsections:
-
-      for subsection_index, subsection in enumerate(subsections):
-        subsection_items = getattr(subsection, "items", None)
-
-        if subsection_items:
-
-          for item_index, item in enumerate(subsection_items):
-            items.append((item, f"blocks.{block_index}.subsections.{subsection_index}.items.{item_index}.type"))
-
-  return items
 
 
 def _issue_from_pydantic_error(err: dict[str, Any]) -> ValidationIssue:

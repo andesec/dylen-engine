@@ -3,8 +3,9 @@
 from .lesson_models import (
     AsciiDiagramWidget,
     BlankWidget,
-    CalloutWidget,
-    ChecklistGroup,
+    WarnWidget,
+    ErrorWidget,
+    SuccessWidget,
     ChecklistWidget,
     CodeViewerWidget,
     CompareWidget,
@@ -12,7 +13,8 @@ from .lesson_models import (
     FlipWidget,
     FreeTextWidget,
     LessonDocument,
-    ListWidget,
+    UnorderedListWidget,
+    OrderedListWidget,
     ParagraphWidget,
     QuizWidget,
     SectionBlock,
@@ -21,7 +23,7 @@ from .lesson_models import (
     TableWidget,
     TranslationWidget,
     TreeViewWidget,
-    # Widget,
+    Widget,
 )
 from .serialize_lesson import lesson_to_shorthand
 from .validate_lesson import validate_lesson
@@ -30,8 +32,9 @@ from .widgets_loader import WidgetDefinition, WidgetRegistry, load_widget_regist
 __all__ = [
     "AsciiDiagramWidget",
     "BlankWidget",
-    "CalloutWidget",
-    "ChecklistGroup",
+    "WarnWidget",
+    "ErrorWidget",
+    "SuccessWidget",
     "ChecklistWidget",
     "CodeViewerWidget",
     "CompareWidget",
@@ -39,7 +42,8 @@ __all__ = [
     "FlipWidget",
     "FreeTextWidget",
     "LessonDocument",
-    "ListWidget",
+    "UnorderedListWidget",
+    "OrderedListWidget",
     "ParagraphWidget",
     "QuizWidget",
     "SectionBlock",

@@ -109,11 +109,9 @@ Notes:
 
 ---
 
-### `info` / `tip` / `warn` / `err` / `success` (Callouts)
+### `warn` / `err` / `success` (Callouts)
 
 ```json
-{ "info": "Key insight / rule of thumb." }
-{ "tip": "Helpful tactic or shortcut." }
 { "warn": "Common pitfall / misconception." }
 { "err": "Critical mistake or anti-pattern." }
 { "success": "Checkpoint: how to know you understood it." }
@@ -402,7 +400,7 @@ Notes:
    - Use `subsections` when nested structure is needed.
 
 2. Teach with a reliable loop
-   - Explanation (`p`) -> key insight (`info`) -> pitfall (`warn`) -> translation (`tr`) -> practice (`blank`) -> checkpoint (`quiz`).
+   - Explanation (`p`) -> key insight (`warn`) -> translation (`tr`) -> practice (`blank`) -> checkpoint (`quiz`).
 
 3. End with assessment
    - Final block should be a quiz that targets the most important learning outcomes.
@@ -429,7 +427,6 @@ Notes:
       "section": "What it is",
       "items": [
         { "p": "Define the concept in plain language." },
-        { "info": "Rule of thumb that learners can reuse." },
         { "warn": "Common misunderstanding to avoid." }
       ]
     },
