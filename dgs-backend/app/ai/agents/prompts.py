@@ -179,21 +179,15 @@ def _resolve_planner_prompt_name(blueprint: str | None) -> str:
   # Normalize the blueprint label to an alphanumeric key so UI labels map to prompt files.
   normalized = "".join(ch for ch in blueprint.lower() if ch.isalnum())
   prompt_map = {
-    "procedural": "planner_procedural.md",
-    "factual": "planner_factual.md",
-    "theory": "planner_factual.md",
-    "social": "planner_social.md",
-    "management": "planner_management.md",
-    "planningmanagement": "planner_management.md",
-    "ops": "planner_management.md",
-    "somatic": "planner_somatic.md",
-    "values": "planner_values.md",
-    "metacognitive": "planner_metacognitive.md",
-    "metacog": "planner_metacognitive.md",
-    "critique": "planner_critique.md",
-    "creativity": "planner_creativity.md",
-    "create": "planner_creativity.md",
-    "strategy": "planner_strategy.md",
+    "skillbuilding": "planner_skill_building.md",
+    "knowledgeunderstanding": "planner_knowledge_understanding.md",
+    "communicationskills": "planner_communication_skills.md",
+    "planningandproductivity": "planner_planning_productivity.md",
+    "movementandfitness": "planner_movement_fitness.md",
+    "growthmindset": "planner_growth_mindset.md",
+    "criticalthinking": "planner_critical_thinking.md",
+    "creativeskills": "planner_creative_skills.md",
+    "decisionmakingstrategy": "planner_decision_making_strategy.md",
   }
   
   # Return a prompt filename only when the blueprint is supported.

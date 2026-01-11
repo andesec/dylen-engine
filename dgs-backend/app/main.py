@@ -306,16 +306,15 @@ class GenerateLessonRequest(BaseModel):
   )
   blueprint: (
     Literal[
-      "Procedural",
-      "Theory",
-      "Social",
-      "Ops",
-      "Somatic",
-      "Values",
-      "Metacog",
-      "Critique",
-      "Create",
-      "Strategy",
+      "Skill Building",
+      "Knowledge & Understanding",
+      "Communication Skills",
+      "Planning and Productivity",
+      "Movement and Fitness",
+      "Growth Mindset",
+      "Critical Thinking",
+      "Creative Skills",
+      "Decision Making & Strategy",
     ]
     | None
   ) = Field(
