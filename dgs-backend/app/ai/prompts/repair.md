@@ -1,16 +1,21 @@
 You are an expert at molding text and JSON to a specific schema
 
-TASK: Restructure and repair a lesson JSON structure that failed validation against the Widgets schema.
+TASK: Repair only the specific widget items that failed validation.
 
-The JSON must strictly conform to widget field requirements and shorthand rules defined in the Widgets Schema
+Rules:
+- Return JSON shaped as {"repairs":[{"path":"<path>","widget":{...}}]}
+- Use the provided paths exactly as given.
+- Each widget must be a full object with explicit "type" and required fields.
+- Output ONLY valid JSON, no explanations.
 
-Produce a complete and corrected version. Output ONLY valid JSON, no explanations.
+Widgets Reference (widgets_prompt.md):
+WIDGETS_DOC
 
-Widgets Schema:
-WIDGETS_SCHEMA
+Widget Schemas (only referenced types):
+WIDGET_SCHEMAS
 
-Invalid JSON:
-SECTION_JSON
+Failed Items:
+FAILED_ITEMS_JSON
 
 Errors:
 ERRORS

@@ -14,7 +14,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
 
   async def run(self, input_data: StructuredSectionBatch, ctx: JobContext) -> FinalLesson:
     """Stitch structured sections into a final lesson payload."""
-    sections = StitcherAgent._output_dle_shorthand(StructuredSectionBatch.sections)
+    sections = StitcherAgent._output_dle_shorthand(input_data.sections)
     lesson_json = {"title": ctx.request.topic, "blocks": [section.payload for section in sections]}
     result = self._schema_service.validate_lesson_payload(lesson_json)
     messages = [f"{issue.path}: {issue.message}" for issue in result.issues]
@@ -47,7 +47,12 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
       if not isinstance(item, dict):
         return item
 
-      # Already shorthand (no `type`) or is a block object
+      # Already shorthand object (e.g., {"info": "..."}, {"table": [...]}, etc.)
+      # If there is no `type` key, do nothing.
+      if "type" not in item:
+        return item
+
+      # Full-form widget object uses `type` as the escape hatch.
       wtype = item.get("type")
       if not wtype:
         return item

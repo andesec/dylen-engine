@@ -146,13 +146,18 @@ def render_structurer_prompt(request: Req, section: Section, schema_version: str
   return rendered_template
 
 
-def render_repair_prompt(request: Req, section: Section, invalid_json: JsonDict, errors: Errors) -> str:
+def render_repair_prompt(
+  request: Req, section: Section, repair_targets: list[dict[str, Any]],
+  errors: Errors, widget_schemas: dict[str, Any],
+) -> str:
   """Render the repair prompt for invalid JSON with embedded widget schema."""
   prompt_template = _load_prompt("repair.md")
+  # Keep repair prompts focused on failing items and relevant widget shapes.
   rendered_template = _replace_tokens(prompt_template, {
-    "WIDGETS_SCHEMA": _load_widgets_text(),
-    "SECTION_JSON": json.dumps(invalid_json, ensure_ascii=True, separators=(",", ":")),
-    "ERRORS": ".".join(f"- {error}" for error in errors)
+    "WIDGETS_DOC": _load_widgets_text(),
+    "WIDGET_SCHEMAS": json.dumps(widget_schemas, indent=2, ensure_ascii=True),
+    "FAILED_ITEMS_JSON": json.dumps(repair_targets, indent=2, ensure_ascii=True),
+    "ERRORS": "\n".join(f"- {error}" for error in errors),
   })
   return rendered_template
 

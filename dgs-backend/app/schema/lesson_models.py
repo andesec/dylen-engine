@@ -396,40 +396,44 @@ class QuizWidget(WidgetBase):
         return value
 
 
-# Widget = Annotated[
-#     ParagraphWidget
-#     | CalloutWidget
-#     # | BlankWidget
-#     # | ListWidget
-#     # | TableWidget
-#     # | CompareWidget
-#     # | SwipeWidget
-#     # | FreeTextWidget
-#     # | StepFlowWidget
-#     # | AsciiDiagramWidget
-#     # | ChecklistWidget
-#     # | ConsoleWidget
-#     # | CodeViewerWidget
-#     # | TreeViewWidget
-#     # | QuizWidget
-#     ,
-#     Field(discriminator="type")
-# ]
+Widget = Annotated[
+    ParagraphWidget
+    | CalloutWidget
+    | FlipWidget
+    | TranslationWidget
+    | BlankWidget
+    | ListWidget
+    | TableWidget
+    | CompareWidget
+    | SwipeWidget
+    | FreeTextWidget
+    | StepFlowWidget
+    | AsciiDiagramWidget
+    | ChecklistWidget
+    | ConsoleWidget
+    | CodeViewerWidget
+    | TreeViewWidget
+    | QuizWidget,
+    Field(discriminator="type"),
+]
 
 
 class SectionBlock(LessonBaseModel):
     """Primary section block containing content widgets."""
 
     section: StrictStr = Field(min_length=1)
-    items: list[WidgetBase] = Field(default_factory=list)
+    items: list[Widget] = Field(default_factory=list)
     subsections: list[SubsectionBlock] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
     def normalize_items(cls, data: Any) -> Any:
         raw_items = data.get("items") if isinstance(data, dict) else None
+
         if raw_items is None:
             return data
+        
+        # Normalize shorthand widgets so they validate against discriminated models.
         data = dict(data)
         data["items"] = [normalize_widget(item) for item in raw_items]
         return data
@@ -439,14 +443,17 @@ class SubsectionBlock(LessonBaseModel):
     """Primary subsection block containing content widgets."""
 
     subsection: StrictStr = Field(min_length=1)
-    items: list[WidgetBase] = Field(default_factory=list)
+    items: list[Widget] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
     def normalize_items(cls, data: Any) -> Any:
         raw_items = data.get("items") if isinstance(data, dict) else None
+
         if raw_items is None:
             return data
+        
+        # Normalize shorthand widgets so they validate against discriminated models.
         data = dict(data)
         data["items"] = [normalize_widget(item) for item in raw_items]
         return data
@@ -804,6 +811,38 @@ def normalize_widget(entry: Any) -> dict[str, Any]:
     if normalized is None:
         raise ValueError(f"invalid widget payload for {key}")
     return normalized
+
+
+def widget_model_for_type(widget_type: str) -> type[LessonBaseModel] | None:
+    """Resolve the Pydantic widget model for a widget type label."""
+    # Keep widget type routing explicit to constrain schema lookup to known models.
+    return _WIDGET_MODEL_BY_TYPE.get(widget_type)
+
+
+_WIDGET_MODEL_BY_TYPE: dict[str, type[LessonBaseModel]] = {
+    "p": ParagraphWidget,
+    "info": CalloutWidget,
+    "tip": CalloutWidget,
+    "warn": CalloutWidget,
+    "err": CalloutWidget,
+    "success": CalloutWidget,
+    "flip": FlipWidget,
+    "tr": TranslationWidget,
+    "blank": BlankWidget,
+    "ul": ListWidget,
+    "ol": ListWidget,
+    "table": TableWidget,
+    "compare": CompareWidget,
+    "swipe": SwipeWidget,
+    "freeText": FreeTextWidget,
+    "stepFlow": StepFlowWidget,
+    "asciiDiagram": AsciiDiagramWidget,
+    "checklist": ChecklistWidget,
+    "console": ConsoleWidget,
+    "codeviewer": CodeViewerWidget,
+    "treeview": TreeViewWidget,
+    "quiz": QuizWidget,
+}
 
 
 SectionBlock.update_forward_refs()
