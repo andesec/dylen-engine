@@ -116,10 +116,10 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
           return {"compare": matrix}
         return item
 
-      # freeText (widgets_prompt.md): {"freeText": [prompt, seedLocked, text, lang, wordlistCsv, mode]}
+      # freeText (widgets_prompt.md): {"freeText": [prompt, seedLocked, lang, wordlistCsv]}
       # If `title` exists, fold it into the prompt string to preserve information.
       if wtype == "freeText":
-        known = {"type", "prompt", "seedLocked", "text", "lang", "wordlistCsv", "mode"}
+        known = {"type", "prompt", "seedLocked", "lang", "wordlistCsv"}
         known_with_title = known | {"title"}
 
         prompt = item.get("prompt")
@@ -127,16 +127,15 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
 
         if isinstance(prompt, str) and set(item.keys()).issubset(known_with_title):
           prompt_text = prompt
+
           if isinstance(title, str) and title.strip():
             prompt_text = f"{title.strip()}: {prompt}"
 
           arr: list[Any] = [
             prompt_text,
             _as_str(item.get("seedLocked") or ""),
-            _as_str(item.get("text") or ""),
             _as_str(item.get("lang") or "en"),
             _as_str(item.get("wordlistCsv") or ""),
-            _as_str(item.get("mode") or "multi"),
           ]
           return {"freeText": arr}
 
@@ -174,30 +173,39 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
           return {"asciiDiagram": [lead, diagram]}
         return item
 
-      # console: build the shorthand array if keys are present
-      if wtype == "console":
+      # interactiveTerminal: convert full-form fields into the supported payload shape
+      if wtype == "interactiveTerminal":
         lead = item.get("lead") or item.get("title")
-        mode = item.get("mode")
-        rules_or_script = item.get("rulesOrScript") or item.get("script") or item.get("rules")
+        rules = item.get("rules")
         guided = item.get("guided")
-        if isinstance(lead, str) and isinstance(mode, int) and isinstance(rules_or_script, list):
-          arr: list[Any] = [lead, mode, rules_or_script]
+        if isinstance(lead, str) and isinstance(rules, list):
+          payload: dict[str, Any] = {"lead": lead, "rules": rules}
           if guided is not None:
-            arr.append(guided)
-          return {"console": arr}
+            payload["guided"] = guided
+          return {"interactiveTerminal": payload}
         return item
 
-      # codeviewer: {type, code, language, editable, textareaId} -> shorthand array
-      if wtype == "codeviewer":
+      # terminalDemo: convert full-form fields into the supported payload shape
+      if wtype == "terminalDemo":
+        lead = item.get("lead") or item.get("title")
+        rules = item.get("rules")
+        if isinstance(lead, str) and isinstance(rules, list):
+          return {"terminalDemo": {"lead": lead, "rules": rules}}
+        return item
+
+      # codeEditor: {type, code, language, readOnly, highlightedLines} -> shorthand array
+      if wtype == "codeEditor":
         code = item.get("code")
         language = item.get("language")
         if isinstance(language, str):
-          editable = bool(item.get("editable", False))
-          textarea_id = item.get("textareaId") or item.get("textarea_id")
-          arr: list[Any] = [code, language, editable]
-          if textarea_id:
-            arr.append(_as_str(textarea_id))
-          return {"codeviewer": arr}
+          read_only = bool(item.get("readOnly", False))
+          highlighted_lines = item.get("highlightedLines")
+          arr: list[Any] = [code, language, read_only]
+          if highlighted_lines is not None and isinstance(highlighted_lines, list):
+            arr.append(highlighted_lines)
+          elif highlighted_lines is not None:
+            return item
+          return {"codeEditor": arr}
         return item
 
       # treeview: {type, lesson, title, textareaId, editorId} -> shorthand array
@@ -214,12 +222,12 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
           return {"treeview": arr}
         return item
 
-      # quiz (widgets_prompt.md):
-      # {"quiz": {"title": str, "questions": [{"q": str, "c": [..], "a": int, "e": str}, ...]}}
+      # mcqs (widgets_prompt.md):
+      # {"mcqs": {"title": str, "questions": [{"q": str, "c": [..], "a": int, "e": str}, ...]}}
       # Support both:
-      # - full-form batch quizzes: {type:"quiz", questions:[{text/options/answer...}, ...]}
-      # - single-question quizzes: {type:"quiz", question:"...", options:[...], correctAnswer:"A"|"B"|..., feedback:"..."}
-      if wtype == "quiz":
+      # - full-form batch quizzes: {type:"quiz"|"mcqs", questions:[{text/options/answer...}, ...]}
+      # - single-question quizzes: {type:"quiz"|"mcqs", question:"...", options:[...], correctAnswer:"A"|"B"|..., feedback:"..."}
+      if wtype in {"quiz", "mcqs"}:
         qtitle = item.get("title") if isinstance(item.get("title"), str) else "Quiz"
 
         # Case 1: full-form batch quiz
@@ -261,7 +269,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
             out_qs.append({"q": q_text, "c": c, "a": a_idx, "e": expl})
 
           if out_qs:
-            return {"quiz": {"title": qtitle, "questions": out_qs}}
+            return {"mcqs": {"title": qtitle, "questions": out_qs}}
 
           return item
 
@@ -300,7 +308,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
         if not isinstance(expl, str) or not expl.strip():
           expl = f"Correct: {c[a_idx]}."
 
-        return {"quiz": {"title": qtitle, "questions": [{"q": q_text, "c": c, "a": a_idx, "e": expl}]}}
+        return {"mcqs": {"title": qtitle, "questions": [{"q": q_text, "c": c, "a": a_idx, "e": expl}]}}
 
       # Unknown or non-lossless widget: keep full-form
       return item

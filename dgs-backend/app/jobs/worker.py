@@ -267,7 +267,7 @@ class JobProcessor:
                     tracker.add_logs(log_message)
                 tracker.set_phase(phase=phase, subphase=subphase)
 
-        result = await self._orchestrator.generate_lesson(
+        result = await orchestrator.generate_lesson(
             topic=topic,
             details=request_model.details,
             blueprint=request_model.blueprint,

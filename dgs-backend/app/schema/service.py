@@ -102,8 +102,8 @@ class SchemaService:
 
     from app.schema.lesson_models import (
         TranslationWidget, FlipWidget, FillBlankWidget, SwipeCardsWidget, FreeTextWidget, InputLineWidget,
-        StepFlowWidget, AsciiDiagramWidget, ChecklistWidget, ConsoleWidget,
-        CodeViewerWidget, TreeViewWidget, MCQsWidget,
+        StepFlowWidget, AsciiDiagramWidget, ChecklistWidget, InteractiveTerminalWidget, TerminalDemoWidget,
+        CodeEditorWidget, TreeViewWidget, MCQsWidget,
         UnorderedListWidget, OrderedListWidget, TableWidget, CompareWidget,
         ParagraphWidget, WarnWidget, ErrorWidget, SuccessWidget
     )
@@ -118,8 +118,9 @@ class SchemaService:
         "stepFlow": StepFlowWidget,
         "asciiDiagram": AsciiDiagramWidget,
         "checklist": ChecklistWidget,
-        "console": ConsoleWidget,
-        "codeviewer": CodeViewerWidget,
+        "interactiveTerminal": InteractiveTerminalWidget,
+        "terminalDemo": TerminalDemoWidget,
+        "codeEditor": CodeEditorWidget,
         "treeview": TreeViewWidget,
         "mcqs": MCQsWidget,
         "ul": UnorderedListWidget,

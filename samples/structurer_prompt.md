@@ -307,21 +307,25 @@ Where to use:
 
 ---
 
-### `codeviewer` (Code Viewer / Editor)
+### `codeEditor` (Modern Code Editor)
 
 ```json
-{ "codeviewer": ["{\n  \"hello\": \"world\"\n}", "json", false, "json-input"] }
+{ "codeEditor": ["console.log('hello');", "javascript", false, [1, 3]] }
 ```
 
 Schema (array positions):
-1. `code` (string|object): code to display; objects are JSON-stringified.
-2. `language` (string, required): language for highlighting (e.g., `json`, `python`, `C#`).
-3. `editable` (boolean, optional): shows textarea when true. Default: false.
-4. `textareaId` (string, optional): id assigned to textarea when editable.
+1. `code` (string|object): Code to display. Objects are JSON-stringified.
+2. `language` (string): Language for syntax highlighting (e.g., `javascript`, `python`).
+3. `readOnly` (boolean, optional): If true, the editor is read-only. Default: false (editable).
+4. `highlightedLines` (array, optional): List of 1-based line numbers to highlight.
 
 Notes:
 - Use inside `items` like any other widget.
 - Provide the language whenever possible; inference works for shebangs (`#!/usr/bin/env python`) or `// language: ruby`-style comments on the first line.
+
+Where to use:
+- Interactive coding exercises, code examples with highlighting.
+- Preferred over codeviewer for new content.
 
 ---
 

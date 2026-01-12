@@ -5,7 +5,7 @@
     "Python lists are ordered, mutable collections used to store multiple items under one variable. They can hold different data types like numbers, strings, and even other lists.",
     { "info": "Lists use square brackets [] and items are separated by commas." },
     { "warn": "Lists are zero-indexed, so the first element is at index 0." },
-    { "codeviewer": ["# Creating a list\nmy_list = [1, 2, 3, \"apple\", \"banana\", True]\n\n# Accessing elements\nmy_list[0]      # first element\nmy_list[-1]     # last element\n\n# Slicing\nmy_list[1:4]\n\n# Modifying elements\nmy_list[0] = 100\n\n# Adding elements\nmy_list.append(\"cherry\")\nmy_list.insert(1, \"orange\")\n\n# Removing elements\nmy_list.remove(\"apple\")\npopped_item = my_list.pop(0)", "python", false, "lists-basic"] },
+    { "codeEditor": ["# Creating a list\nmy_list = [1, 2, 3, \"apple\", \"banana\", True]\n\n# Accessing elements\nmy_list[0]      # first element\nmy_list[-1]     # last element\n\n# Slicing\nmy_list[1:4]\n\n# Modifying elements\nmy_list[0] = 100\n\n# Adding elements\nmy_list.append(\"cherry\")\nmy_list.insert(1, \"orange\")\n\n# Removing elements\nmy_list.remove(\"apple\")\npopped_item = my_list.pop(0)", "python", false, [1, 3]] },
     { "ul": [
         "Lists are ordered and mutable",
         "They can store mixed data types",

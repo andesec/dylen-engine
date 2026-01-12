@@ -256,9 +256,10 @@ def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple
         subsection["subsection"] = f"Subsection {subsection_index + 1}"
         changes.append(f"subsection_title_{subsection_index}")
 
-    # Ensure subsection items are always a list to keep validation stable.
+    # Normalize subsection items into a list so downstream validation stays stable.
     if "items" not in subsection or not isinstance(subsection.get("items"), list):
-      subsection["items"] = []
+      coerced_items = _coerce_items_list(subsection.get("items"))
+      subsection["items"] = coerced_items
       changes.append(f"subsection_items_{subsection_index}")
 
   return repaired, changes
@@ -400,22 +401,48 @@ def _set_value_at_path(section_json: JsonDict, path: str, value: Any) -> bool:
   return False
 
 
+def _coerce_items_list(value: Any) -> list[Any]:
+  """Coerce malformed subsection items into a safe list for repair reuse."""
+  # Preserve valid lists to avoid reshaping already-correct items.
+  if isinstance(value, list):
+    return value
+  # Wrap single widget mappings so subsection items remain iterable.
+  if isinstance(value, dict):
+    return [value]
+  # Parse string payloads when they look like JSON, otherwise fallback to a paragraph widget.
+  if isinstance(value, str):
+    stripped = value.strip()
+    if not stripped:
+      return []
+    if stripped.startswith("[") or stripped.startswith("{"):
+      try:
+        parsed = json.loads(stripped)
+      except json.JSONDecodeError:
+        parsed = None
+      if isinstance(parsed, list):
+        return parsed
+      if isinstance(parsed, dict):
+        return [parsed]
+    return [{"p": stripped}]
+  # Fallback to a paragraph string for scalar values to preserve context.
+  if value is None:
+    return []
+  return [{"p": str(value)}]
+
+
 def _detect_widget_type(widget: Any) -> str | None:
   """Infer a widget type label from a widget payload."""
-
-  # Handle explicit widget objects as well as shorthand mappings.
-
+  # Prefer shorthand keys so repair schemas stay aligned with the backend format.
   if isinstance(widget, dict):
-
-    if "type" in widget:
-      return str(widget["type"])
-
     if len(widget) == 1:
       return str(next(iter(widget.keys())))
-
+    if "type" in widget:
+      other_keys = [key for key in widget.keys() if key != "type"]
+      if len(other_keys) == 1:
+        return str(other_keys[0])
+      return str(widget["type"])
   if isinstance(widget, str):
     return "p"
-
   return None
 
 

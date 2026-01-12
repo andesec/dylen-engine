@@ -5,7 +5,7 @@ TASK: Repair only the specific widget items that failed validation.
 Rules:
 - Return JSON shaped as {"repairs":[{"path":"<path>","widget":{...}}]}
 - Use the provided paths exactly as given.
-- Each widget must be a full object with explicit "type" and required fields.
+- Each widget must use shorthand keys with array/object fields (example: {"p":"..."} or {"fillblank":[...]}).
 - Output ONLY valid JSON, no explanations.
 
 Widgets Reference (widgets_prompt.md):
