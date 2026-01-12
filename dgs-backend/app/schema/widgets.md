@@ -233,20 +233,19 @@ Recommendation:
 ### `freeText` (Multi-line Free Text Editor)
 
 ```json
-{ "freeText": ["What do you mean by Clarity?.", "In my view,", "", "en", "clarity,structure,example,reason,summary"] }
+{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary"] }
 ```
 
 Schema (array positions):
 1. `prompt` (string): title shown above the editor.
 2. `seedLocked` (string, optional): non-removable prefix.
-3. `text` (string): initial editable content (can be empty).
-4. `lang` (string, optional): language key. Default: `en`.
-5. `wordlistCsv` (string, optional): comma-separated terms as one string.
+3. `lang` (string, optional): language key. Default: `en`.
+4. `wordlistCsv` (string, optional): comma-separated terms as one string.
 
 Notes:
 - Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
 - The Wordlist button becomes available after the first rating run.
-- Export produces a `.txt` with `seedLocked + text`.
+- Export produces a `.txt` with `seedLocked + user_input`.
 
 Where to use:
 - Writing exercises, reflections, short answers, note-taking, “explain in your own words”.
@@ -258,15 +257,13 @@ Where to use:
 ### `inputLine` (Single-line Text Input)
 
 ```json
-{ "inputLine": ["What is your name?", "My name is ", "", "en"] }
+{ "inputLine": ["What is your name?", "en"] }
 ```
 
 Schema (array positions):
 1. `prompt` (string): title shown above the input.
-2. `seedLocked` (string, optional): non-removable prefix.
-3. `text` (string): initial editable content (can be empty).
-4. `lang` (string, optional): language key. Default: `en`.
-5. `wordlistCsv` (string, optional): comma-separated terms as one string.
+2. `lang` (string, optional): language key. Default: `en`.
+3. `wordlistCsv` (string, optional): comma-separated terms as one string.
 
 Where to use:
 - Simple questions, naming, single-sentence answers.

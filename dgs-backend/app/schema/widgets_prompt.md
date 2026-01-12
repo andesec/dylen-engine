@@ -161,15 +161,14 @@ Recommendation:
 ### `freeText` (Multi-line Free Text Editor)
 
 ```json
-{ "freeText": ["What do you mean by Clarity?.", "In my view,", "", "en", "clarity,structure,example,reason,summary"] }
+{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary"] }
 ```
 
 Schema (array positions):
 1. `prompt` (string): title shown above the editor.
 2. `seedLocked` (string, optional): non-removable prefix.
-3. `text` (string): initial editable content (can be empty).
-4. `lang` (string, optional): language key. Default: `en`.
-5. `wordlistCsv` (string, optional): comma-separated terms as one string.
+3. `lang` (string, optional): language key. Default: `en`.
+4. `wordlistCsv` (string, optional): comma-separated terms as one string.
 
 Notes:
 - Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
@@ -186,15 +185,13 @@ Where to use:
 ### `inputLine` (Single-line Text Input)
 
 ```json
-{ "inputLine": ["What is your name?", "My name is ", "", "en"] }
+{ "inputLine": ["What is your name?", "en"] }
 ```
 
 Schema (array positions):
 1. `prompt` (string): title shown above the input.
-2. `seedLocked` (string, optional): non-removable prefix.
-3. `text` (string): initial editable content (can be empty).
-4. `lang` (string, optional): language key. Default: `en`.
-5. `wordlistCsv` (string, optional): comma-separated terms as one string.
+2. `lang` (string, optional): language key. Default: `en`.
+3. `wordlistCsv` (string, optional): comma-separated terms as one string.
 
 Where to use:
 - Simple questions, naming, single-sentence answers.
@@ -387,4 +384,3 @@ Recommendation:
 - Do not mix multiple shorthand keys in the same item object.
 - Do not omit required fields or violate required ordering in widget definitions.
 - Do not number sections or subsections. The system takes care of the numbers itself.
-

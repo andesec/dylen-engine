@@ -172,7 +172,7 @@ class SwipeCardsWidget(BaseModel):
 class FreeTextWidget(BaseModel):
     """
     Free text editor widget (Multi-line only).
-    Format: [prompt, seed_locked?, text?, lang?, wordlist_csv?]
+    Format: [prompt, seed_locked?, lang?, wordlist_csv?]
     """
     freeText: list[Any]
 
@@ -190,20 +190,16 @@ class FreeTextWidget(BaseModel):
         if len(v) > 1 and v[1] is not None and not isinstance(v[1], str):
             raise ValueError("freeText seed_locked must be a string or null")
 
-        # 2: text (optional)
+        # 2: lang (optional)
         if len(v) > 2 and v[2] is not None and not isinstance(v[2], str):
-             raise ValueError("freeText text must be a string or null")
-
-        # 3: lang (optional)
-        if len(v) > 3 and v[3] is not None and not isinstance(v[3], str):
              raise ValueError("freeText lang must be a string or null")
 
-        # 4: wordlist_csv (optional)
-        if len(v) > 4 and v[4] is not None and not isinstance(v[4], str):
+        # 3: wordlist_csv (optional)
+        if len(v) > 3 and v[3] is not None and not isinstance(v[3], str):
              raise ValueError("freeText wordlist_csv must be a string or null")
 
-        # Ensure no more elements (mode is removed)
-        if len(v) > 5:
+        # Ensure no more elements
+        if len(v) > 4:
              raise ValueError("freeText widget has too many elements")
 
         return v
@@ -212,8 +208,7 @@ class FreeTextWidget(BaseModel):
 class InputLineWidget(BaseModel):
     """
     Single line input widget.
-    Format: [prompt, seed_locked?, text?, lang?, wordlist_csv?]
-    Variant of freeText but enforced single line behavior in UI.
+    Format: [prompt, lang?, wordlist_csv?]
     """
     inputLine: list[Any]
 
@@ -227,23 +222,15 @@ class InputLineWidget(BaseModel):
         if not isinstance(v[0], str):
             raise ValueError("inputLine prompt must be a string")
 
-        # 1: seed_locked (optional)
+        # 1: lang (optional)
         if len(v) > 1 and v[1] is not None and not isinstance(v[1], str):
-            raise ValueError("inputLine seed_locked must be a string or null")
-
-        # 2: text (optional)
-        if len(v) > 2 and v[2] is not None and not isinstance(v[2], str):
-             raise ValueError("inputLine text must be a string or null")
-
-        # 3: lang (optional)
-        if len(v) > 3 and v[3] is not None and not isinstance(v[3], str):
              raise ValueError("inputLine lang must be a string or null")
 
-        # 4: wordlist_csv (optional)
-        if len(v) > 4 and v[4] is not None and not isinstance(v[4], str):
+        # 2: wordlist_csv (optional)
+        if len(v) > 2 and v[2] is not None and not isinstance(v[2], str):
              raise ValueError("inputLine wordlist_csv must be a string or null")
 
-        if len(v) > 5:
+        if len(v) > 3:
              raise ValueError("inputLine widget has too many elements")
 
         return v
