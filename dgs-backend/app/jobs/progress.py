@@ -83,33 +83,54 @@ def _coerce_depth(raw_depth: Any) -> int:
 
 
 def build_call_plan(request_data: Mapping[str, Any], *, merge_gatherer_structurer: bool = False) -> CallPlan:
-  """Derive an AI call plan from the raw job request payload."""
+    """Derive an AI call plan from the raw job request payload."""
 
-  depth = _coerce_depth(request_data.get("depth"))
+    # Normalize depth input before computing call counts.
+    depth = _coerce_depth(request_data.get("depth"))
 
-  planner_calls = 1
-  # Merge gatherer+structurer into one per-section call when enabled.
-  gather_calls = 0 if merge_gatherer_structurer else depth
-  structurer_calls = depth
-  repair_calls = depth
-  stitch_calls = 1
+    # Set per-phase call counts based on depth and merge preference.
+    planner_calls = 1
+    # Merge gatherer+structurer into one per-section call when enabled.
+    gather_calls = 0 if merge_gatherer_structurer else depth
+    structurer_calls = depth
+    repair_calls = depth
+    stitch_calls = 1
+
+    # Aggregate total calls for overall guardrails.
     total_calls = planner_calls + gather_calls + structurer_calls + repair_calls
 
+    # Guardrails keep the plan within expected operational limits.
     max_gather_calls = 10
     max_structurer_calls = 10
     max_repair_calls = 10
     max_total_calls = 35
 
     if gather_calls > max_gather_calls:
+
         raise ValueError("Lower depth to reduce gatherer calls.")
+
     if structurer_calls > max_structurer_calls:
+
         raise ValueError("Lower depth to reduce structurer calls.")
+
     if repair_calls > max_repair_calls:
+
         raise ValueError("Lower depth to reduce repair calls.")
+
     if total_calls > max_total_calls:
+
         raise ValueError("Lower depth to reduce total calls.")
 
-    plan = CallPlan(depth=depth, planner_calls=planner_calls, gather_calls=gather_calls, structurer_calls=structurer_calls, repair_calls=repair_calls, stitch_calls=stitch_calls, required_calls=total_calls, max_calls=max_total_calls)
+    plan = CallPlan(
+        depth=depth,
+        planner_calls=planner_calls,
+        gather_calls=gather_calls,
+        structurer_calls=structurer_calls,
+        repair_calls=repair_calls,
+        stitch_calls=stitch_calls,
+        required_calls=total_calls,
+        max_calls=max_total_calls,
+    )
     return plan
 
 

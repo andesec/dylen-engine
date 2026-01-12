@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.ai.orchestrator import DgsOrchestrator, OrchestrationResult
+from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult
 from app.config import Settings
 from app.jobs.models import JobRecord
 from app.jobs.progress import (
@@ -101,6 +101,8 @@ class JobProcessor:
             if _check_timeouts():
                 return None
 
+            # Surface orchestration logs even when validation fails.
+            tracker.extend_logs(orchestration_result.logs)
             lesson_model_validation = validate_lesson(orchestration_result.lesson_json)
             ok, errors, lesson_model = lesson_model_validation
             validation = {"ok": ok, "errors": errors}
@@ -108,7 +110,6 @@ class JobProcessor:
                 raise ValueError(f"Validation failed with {len(errors)} error(s).")
 
             shorthand = lesson_to_shorthand(lesson_model)
-            tracker.extend_logs(orchestration_result.logs)
             tracker.complete_validation(message="Validate phase complete.", status="done")
             cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
             tracker.set_cost(cost_summary)
@@ -132,6 +133,16 @@ class JobProcessor:
         except JobCanceledError:
             # Re-fetch the record to ensure we have the final canceled state
             return self._jobs_repo.get_job(job.job_id)
+
+        except OrchestrationError as exc:
+            # Preserve pipeline logs when orchestration fails fast.
+            tracker.extend_logs(exc.logs)
+            error_log = f"Job failed: {exc}"
+            tracker.fail(phase="failed", message=error_log)
+            payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+            self._jobs_repo.update_job(job.job_id, **payload)
+            return None
+
         except Exception as exc:  # noqa: BLE001
             error_log = f"Job failed: {exc}"
             tracker.fail(phase="failed", message=error_log)

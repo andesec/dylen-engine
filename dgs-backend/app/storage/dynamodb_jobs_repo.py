@@ -7,9 +7,12 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+import logging
+
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.client import Config
+from botocore.exceptions import ClientError
 
 from app.jobs.guardrails import (
     enforce_item_size_guardrails,
@@ -20,6 +23,8 @@ from app.jobs.guardrails import (
 from app.jobs.models import JobRecord, JobStatus
 from app.storage.jobs_repo import JobsRepository
 from app.storage.utils import ensure_table_exists
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,15 @@ def _coerce_optional_int(value: Any) -> int | None:
     return int(value)
 
 
+def _is_local_endpoint(endpoint_url: str | None) -> bool:
+    """Return True when pointing at a local DynamoDB endpoint."""
+    
+    if not endpoint_url:
+        return False
+    
+    return "localhost" in endpoint_url or "127.0.0.1" in endpoint_url
+
+
 class DynamoJobsRepository(JobsRepository):
     """Persist jobs to DynamoDB."""
 
@@ -78,7 +92,10 @@ class DynamoJobsRepository(JobsRepository):
         timeout_seconds: int = 10,
     ) -> None:
         aws_kwargs: dict[str, Any] = {}
-        if endpoint_url and ("localhost" in endpoint_url or "127.0.0.1" in endpoint_url):
+        
+        self._local_endpoint = _is_local_endpoint(endpoint_url)
+        
+        if self._local_endpoint:
             import os
 
             if not os.getenv("AWS_ACCESS_KEY_ID"):
@@ -197,7 +214,14 @@ class DynamoJobsRepository(JobsRepository):
         return updated_record
 
     def find_queued(self, limit: int = 5) -> list[JobRecord]:
+        """Return a batch of queued jobs, with local fallback if indexes are missing."""
+        
         if not self._all_jobs_index:
+            
+            # Local dev can fall back to a scan when GSIs are unavailable.
+            if self._local_endpoint:
+                return self._scan_queued(limit=limit)
+            
             return []
         params = {
             "IndexName": self._all_jobs_index,
@@ -206,7 +230,18 @@ class DynamoJobsRepository(JobsRepository):
             "Limit": limit,
             "ScanIndexForward": True,
         }
-        response = self._table.query(**params)
+        
+        try:
+            response = self._table.query(**params)
+        
+        except ClientError as exc:
+            
+            # Fall back to scans for local tables missing the GSI definition.
+            if self._local_endpoint and exc.response["Error"]["Code"] == "ValidationException":
+                logger.warning("Jobs GSI missing; falling back to scan for queued jobs.")
+                return self._scan_queued(limit=limit)
+            
+            raise
         items = response.get("Items", [])
         return [self._item_to_record(item) for item in items]
 
@@ -223,6 +258,29 @@ class DynamoJobsRepository(JobsRepository):
     def _job_keys(self, job_id: str) -> DynamoJobKeys:
         pk = f"JOB#{job_id}"
         return DynamoJobKeys(pk=pk, sk=pk)
+    
+    def _scan_queued(self, limit: int) -> list[JobRecord]:
+        """Scan the table for queued jobs (local-only fallback)."""
+        items: list[dict[str, Any]] = []
+        last_key: dict[str, Any] | None = None
+        
+        while len(items) < limit:
+            
+            # Scan pages until the desired number of queued jobs is reached.
+            remaining = limit - len(items)
+            params = {"FilterExpression": Attr("status").eq("queued"), "Limit": remaining}
+            
+            if last_key:
+                params["ExclusiveStartKey"] = last_key
+            
+            response = self._table.scan(**params)
+            items.extend(response.get("Items", []))
+            last_key = response.get("LastEvaluatedKey")
+            
+            if not last_key:
+                break
+        
+        return [self._item_to_record(item) for item in items]
 
     def _record_to_item(self, record: JobRecord) -> dict[str, Any]:
         keys = self._job_keys(record.job_id)

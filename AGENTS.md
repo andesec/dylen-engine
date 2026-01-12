@@ -1,4 +1,4 @@
-NOTE: Prioritize and follow architecture-refactor-specs.md over dle-dgs-integration-specs.md
+<!-- NOTE: Prioritize and follow architecture-refactor-specs.md over dle-dgs-integration-specs.md -->
 
 ## Engineering guardrails
 
@@ -14,9 +14,10 @@ NOTE: Prioritize and follow architecture-refactor-specs.md over dle-dgs-integrat
 - keep function definitions and call parameters on a single line unless the signature exceeds 120 characters, in which case keep them in as fewer lines as possible.
 - Add line breaks before and after the following blocks: [if/else, try/except, loop, with]
 - Add comments for all logic implementations. Add docstrings for functions. They should focus on How and Why and less on What.
+- No blank lines after the comments, the next line should start with the code directly.
 
 ## Workflow expectations
-
+- Don't unnecessarily format a file or code if there is no change in the code there.
 - Before opening a PR, run: `make format lint typecheck test`.
 - Keep AWS-specific code confined to `infra/` or `lambda_handler.py`.
 - Keep `openapi.json` updated whenever API endpoints change.

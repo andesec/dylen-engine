@@ -43,6 +43,8 @@ class Settings:
     jobs_auto_process: bool
     pg_dsn: str | None
     pg_connect_timeout: int
+    pg_lessons_table: str
+    pg_jobs_table: str
     llm_audit_enabled: bool
 
 
@@ -118,6 +120,8 @@ def get_settings() -> Settings:
         jobs_auto_process=_parse_bool(os.getenv("DGS_JOBS_AUTO_PROCESS")),
         pg_dsn=os.getenv("DGS_PG_DSN"),
         pg_connect_timeout=int(os.getenv("DGS_PG_CONNECT_TIMEOUT", "5")),
+        pg_lessons_table=os.getenv("DGS_PG_LESSONS_TABLE", "dgs_lessons"),
+        pg_jobs_table=os.getenv("DGS_PG_JOBS_TABLE", "dgs_jobs"),
         llm_audit_enabled=_parse_bool(os.getenv("DGS_LLM_AUDIT_ENABLED")),
     )
 

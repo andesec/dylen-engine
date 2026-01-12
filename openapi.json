@@ -193,6 +193,33 @@
         "title": "GenerateLessonResponse",
         "type": "object"
       },
+      "OrchestrationFailureResponse": {
+        "description": "Response payload for orchestration failures.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail",
+          "error",
+          "logs"
+        ],
+        "title": "OrchestrationFailureResponse",
+        "type": "object"
+      },
       "GenerationMode": {
         "description": "Quality/speed tradeoff for lesson generation.",
         "enum": [
@@ -849,6 +876,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrchestrationFailureResponse"
+                }
+              }
+            },
+            "description": "Orchestration Failure"
           },
           "422": {
             "content": {

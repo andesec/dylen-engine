@@ -28,7 +28,7 @@ from pydantic import (
 )
 from starlette.concurrency import run_in_threadpool
 
-from app.ai.orchestrator import DgsOrchestrator
+from app.ai.orchestrator import DgsOrchestrator, OrchestrationError
 from app.config import Settings, get_settings
 from app.jobs.guardrails import MAX_ITEM_BYTES, estimate_bytes
 from app.jobs.models import JobRecord, JobStatus
@@ -37,6 +37,9 @@ from app.schema.validate_lesson import validate_lesson
 from app.storage.dynamodb_jobs_repo import DynamoJobsRepository
 from app.storage.dynamodb_repo import DynamoLessonsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
+from app.storage.jobs_repo import JobsRepository
+from app.storage.postgres_jobs_repo import PostgresJobsRepository
+from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 from app.utils.ids import generate_job_id, generate_lesson_id
 
 settings = get_settings()
@@ -72,11 +75,10 @@ class DecimalJSONResponse(JSONResponse):
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
   """Ensure logging is correctly set up after uvicorn starts."""
   
-  
   try:
     _initialize_logging()
     logger.info("Startup complete - logging verified.")
-  
+    
     _start_job_worker(settings)
   
   except Exception:
@@ -107,6 +109,18 @@ async def global_exception_handler(request: Request, exc: Exception) -> DecimalJ
   return DecimalJSONResponse(
     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
     content={"detail": "Internal Server Error", "error": str(exc)},
+  )
+
+@app.exception_handler(OrchestrationError)
+async def orchestration_exception_handler(request: Request, exc: OrchestrationError) -> DecimalJSONResponse:
+  """Return a structured failure response for orchestration errors."""
+  # Log orchestration failures with stack traces for diagnostics.
+  logger = logging.getLogger("uvicorn.error")
+  logger.error("Orchestration failure: %s", exc, exc_info=True)
+  # Provide the failure logs so callers can close out the request with context.
+  return DecimalJSONResponse(
+    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    content={"detail": "Orchestration failed", "error": str(exc), "logs": exc.logs},
   )
 
 
@@ -140,14 +154,14 @@ def _build_handlers() -> tuple[logging.Handler, logging.Handler, Path]:
     log_dir.mkdir(parents=True, exist_ok=True)
   except OSError as exc:
     raise RuntimeError(f"Failed to create log directory at {log_dir}: {exc}") from exc
-
+  
   log_path = log_dir / f"dgs_app_{time.strftime('%Y%m%d_%H%M%S')}.log"
   try:
     # Touch early so the file exists even if handlers have not flushed yet.
     log_path.touch(exist_ok=True)
   except OSError as exc:
     raise RuntimeError(f"Failed to create log file at {log_path}: {exc}") from exc
-
+  
   stream = logging.StreamHandler(sys.stdout)
   stream.setFormatter(TruncatedFormatter(LOG_LINE_FORMAT, datefmt="%H:%M:%S"))
   file_handler = logging.FileHandler(log_path, encoding="utf-8")
@@ -219,16 +233,13 @@ def _start_job_worker(active_settings: Settings) -> None:
   
   # Avoid spawning multiple loops if lifespan runs more than once.
   
-  
   if _JOB_WORKER_ACTIVE:
     return
-  
   
   if not active_settings.jobs_auto_process:
     return
   
   # Schedule the worker on the running loop so it survives request lifetimes.
-  
   
   loop = asyncio.get_running_loop()
   _JOB_WORKER_TASK = loop.create_task(_job_worker_loop(active_settings))
@@ -241,10 +252,8 @@ def _stop_job_worker() -> None:
   """Stop the job poller when the app shuts down."""
   global _JOB_WORKER_TASK, _JOB_WORKER_ACTIVE
   
-  
   if not _JOB_WORKER_ACTIVE:
     return
-  
   
   if _JOB_WORKER_TASK is None:
     _JOB_WORKER_ACTIVE = False
@@ -264,7 +273,6 @@ async def _job_worker_loop(active_settings: Settings) -> None:
   
   # Reuse a single processor to keep orchestration wiring consistent.
   
-  
   repo = _get_jobs_repo(active_settings)
   processor = JobProcessor(
     jobs_repo=repo,
@@ -273,9 +281,7 @@ async def _job_worker_loop(active_settings: Settings) -> None:
   )
   poll_seconds = 2.0
   
-  
   while True:
-    
     
     try:
       await processor.process_queue(limit=5)
@@ -283,7 +289,6 @@ async def _job_worker_loop(active_settings: Settings) -> None:
     
     except Exception as exc:  # noqa: BLE001
       logger.error("Job worker loop failed: %s", exc, exc_info=True)
-    
     
     await asyncio.sleep(poll_seconds)
 
@@ -328,7 +333,7 @@ class GenerationMode(str, Enum):
 
 class KnowledgeModel(str, Enum):
   """Model options for the knowledge collection agent."""
-
+  
   GEMINI_25_FLASH = "gemini-2.5-flash"
   GEMINI_25_PRO = "gemini-2.5-pro"
   XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash:free"
@@ -348,7 +353,7 @@ class StructurerModel(str, Enum):
 
 class ModelsConfig(BaseModel):
   """Per-agent model selection overrides."""
-
+  
   gatherer_model: StrictStr | None = Field(
     default=None,
     validation_alias=AliasChoices("gatherer_model", "knowledge_model"),
@@ -390,18 +395,18 @@ class GenerateLessonRequest(BaseModel):
     examples=["Focus on lists and loops"],
   )
   blueprint: (
-    Literal[
-      "Skill Building",
-      "Knowledge & Understanding",
-      "Communication Skills",
-      "Planning and Productivity",
-      "Movement and Fitness",
-      "Growth Mindset",
-      "Critical Thinking",
-      "Creative Skills",
-      "Decision Making & Strategy",
-    ]
-    | None
+      Literal[
+        "Skill Building",
+        "Knowledge & Understanding",
+        "Communication Skills",
+        "Planning and Productivity",
+        "Movement and Fitness",
+        "Growth Mindset",
+        "Critical Thinking",
+        "Creative Skills",
+        "Decision Making & Strategy",
+      ]
+      | None
   ) = Field(
     default=None,
     description="Optional blueprint or learning outcome guidance for lesson planning.",
@@ -466,6 +471,14 @@ class GenerateLessonResponse(BaseModel):
   lesson_json: dict[str, Any]
   meta: LessonMeta
   logs: list[StrictStr]  # New field for orchestration logs
+
+
+class OrchestrationFailureResponse(BaseModel):
+  """Response payload for orchestration failures."""
+  
+  detail: StrictStr
+  error: StrictStr
+  logs: list[StrictStr]
 
 
 class LessonRecordResponse(BaseModel):
@@ -568,22 +581,32 @@ def _get_orchestrator(
 
 
 def _get_repo(settings: Settings) -> LessonsRepository:
-  return DynamoLessonsRepository(
-    table_name=settings.ddb_table,
-    region=settings.ddb_region,
-    endpoint_url=settings.ddb_endpoint_url,
-    tenant_key=settings.tenant_key,
-    lesson_id_index=settings.lesson_id_index_name,
+  """Return the active lessons repository."""
+  
+  # Enforce Postgres-backed storage for lessons.
+  
+  if not settings.pg_dsn:
+    raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
+  
+  return PostgresLessonsRepository(
+    dsn=settings.pg_dsn,
+    connect_timeout=settings.pg_connect_timeout,
+    table_name=settings.pg_lessons_table,
   )
 
 
-def _get_jobs_repo(settings: Settings) -> DynamoJobsRepository:
-  return DynamoJobsRepository(
-    table_name=settings.jobs_table,
-    region=settings.ddb_region,
-    endpoint_url=settings.ddb_endpoint_url,
-    all_jobs_index=settings.jobs_all_jobs_index_name,
-    idempotency_index=settings.jobs_idempotency_index_name,
+def _get_jobs_repo(settings: Settings) -> JobsRepository:
+  """Return the active jobs repository."""
+  
+  # Enforce Postgres-backed storage for jobs.
+  
+  if not settings.pg_dsn:
+    raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
+  
+  return PostgresJobsRepository(
+    dsn=settings.pg_dsn,
+    connect_timeout=settings.pg_connect_timeout,
+    table_name=settings.pg_jobs_table,
   )
 
 
@@ -625,19 +648,19 @@ def _resolve_model_selection(
   selected_mode = mode or GenerationMode.BALANCED
   
   # Respect per-agent overrides when provided, otherwise use environment defaults.
-
+  
   if models is not None:
     gatherer_model = models.gatherer_model or settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
     planner_model = models.planner_model or settings.planner_model
     structurer_model = models.structurer_model or _structurer_model_for_mode(settings, selected_mode)
     repairer_model = models.repairer_model or settings.repair_model
-
+  
   else:
     gatherer_model = settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
     planner_model = settings.planner_model
     structurer_model = _structurer_model_for_mode(settings, selected_mode)
     repairer_model = settings.repair_model
-
+  
   # Resolve provider hints to keep routing consistent for each agent.
   gatherer_provider = _provider_for_knowledge_model(settings, gatherer_model)
   planner_provider = _provider_for_model_hint(settings, planner_model, settings.planner_provider)
@@ -677,35 +700,35 @@ def _provider_for_knowledge_model(settings: Settings, model_name: str | None) ->
 
 def _provider_for_structurer_model(settings: Settings, model_name: str | None) -> str:
   # Keep provider routing consistent even if the model list evolves.
-
+  
   if not model_name:
     return settings.structurer_provider
-
+  
   if model_name in {model.value for model in _GEMINI_STRUCTURER_MODELS}:
     return "gemini"
-
+  
   if model_name in {model.value for model in _OPENROUTER_STRUCTURER_MODELS}:
     return "openrouter"
-
+  
   return settings.structurer_provider
 
 
 def _provider_for_model_hint(settings: Settings, model_name: str | None, fallback_provider: str) -> str:
   """Resolve a provider from known model lists with a safe fallback."""
   # Only route to known providers when the model name matches a known set.
-
+  
   if not model_name:
     return fallback_provider
-
+  
   gemini_models = {model.value for model in _GEMINI_KNOWLEDGE_MODELS} | {model.value for model in _GEMINI_STRUCTURER_MODELS}
   openrouter_models = {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS} | {model.value for model in _OPENROUTER_STRUCTURER_MODELS}
-
+  
   if model_name in gemini_models:
     return "gemini"
-
+  
   if model_name in openrouter_models:
     return "openrouter"
-
+  
   return fallback_provider
 
 
@@ -720,8 +743,6 @@ def _require_dev_key(  # noqa: B008
 def _count_words(text: str) -> int:
   """Approximate word count by splitting on whitespace."""
   return len(text.split())
-
-
 
 
 def _validate_generate_request(request: GenerateLessonRequest, settings: Settings) -> None:
@@ -747,7 +768,7 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
   
   try:
     from app.jobs.progress import build_call_plan  # Local import to avoid circular deps
-
+    
     build_call_plan(
       request.model_dump(mode="python", by_alias=True),
       merge_gatherer_structurer=settings.merge_gatherer_structurer,
@@ -864,6 +885,7 @@ async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
 @app.post(
   "/v1/lessons/generate",
   response_model=GenerateLessonResponse,
+  responses={500: {"model": OrchestrationFailureResponse}},
   dependencies=[Depends(_require_dev_key)],
 )
 async def generate_lesson(  # noqa: B008
@@ -1013,18 +1035,15 @@ def _kickoff_job_processing(background_tasks: BackgroundTasks, job_id: str, sett
   # Fire-and-forget processing to keep the API responsive.
   # Skip in-process execution when external workers (Lambda) are responsible.
   
-  
   if not settings.jobs_auto_process:
     return
   
   # Defer to the shared worker loop to avoid duplicate processing.
   
-  
   if _JOB_WORKER_ACTIVE:
     return
   
   # Prefer immediate scheduling on the running loop to start work right away.
-  
   
   try:
     loop = asyncio.get_running_loop()
@@ -1034,14 +1053,12 @@ def _kickoff_job_processing(background_tasks: BackgroundTasks, job_id: str, sett
     background_tasks.add_task(_process_job_async, job_id, settings)
     return
   
-  
   task = loop.create_task(_process_job_async(job_id, settings))
   task.add_done_callback(_log_job_task_failure)
 
 
 def _log_job_task_failure(task: asyncio.Task[None]) -> None:
   """Log unexpected failures from background job tasks."""
-  
   
   try:
     task.result()

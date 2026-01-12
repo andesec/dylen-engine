@@ -62,6 +62,18 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
         changes = ["deterministic_repair"]
         return RepairResult(section_number=section_number, fixed_json=section_json, changes=changes, errors=[])
 
+    if errors:
+      # Apply manual subsection fixes (titles/items) before invoking AI repair.
+      section_json, manual_changes = _apply_subsection_fallbacks(section_json, errors)
+
+      if manual_changes:
+        # Re-validate only when manual fixes were applied.
+        validator = self._schema_service.validate_section_payload
+        ok, errors, _ = validator(section_json, topic=topic, section_index=section_number)
+
+        if ok:
+          return RepairResult(section_number=section_number, fixed_json=section_json, changes=manual_changes, errors=[])
+
     if not errors:
       return RepairResult(section_number=section_number, fixed_json=section_json, changes=[], errors=[])
 
@@ -158,19 +170,27 @@ def _collect_repair_targets(section_json: JsonDict, errors: Errors) -> list[Repa
   errors_by_path: dict[str, list[str]] = {}
 
   # Normalize error strings into a per-widget bucket keyed by path.
-
   for path, message in _parse_error_entries(errors):
     target_path = _target_path_from_error(path)
 
     if target_path is None:
       continue
 
+    if _is_subsection_path(target_path):
+      # Expand subsection-level errors into item-level repair targets.
+      expanded = _expand_subsection_targets(section_json, target_path, message)
+
+      for item_path, item_messages in expanded.items():
+        errors_by_path.setdefault(item_path, []).extend(item_messages)
+
+      if expanded:
+        continue
+
     errors_by_path.setdefault(target_path, []).append(message)
 
   targets: list[RepairTarget] = []
 
   # Resolve each target path into the actual widget payload to repair.
-
   for target_path, messages in errors_by_path.items():
     payload = _value_at_path(section_json, target_path)
 
@@ -193,7 +213,6 @@ def _parse_error_entries(errors: Errors) -> list[tuple[str, str]]:
   entries: list[tuple[str, str]] = []
 
   # Preserve the original ordering to keep repairs deterministic.
-
   for error in errors:
 
     if ":" in error:
@@ -205,21 +224,97 @@ def _parse_error_entries(errors: Errors) -> list[tuple[str, str]]:
   return entries
 
 
+def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple[JsonDict, list[str]]:
+  """Apply local subsection fixes based on error paths to avoid extra AI calls."""
+  repaired = copy.deepcopy(section_json)
+  changes: list[str] = []
+
+  # Inspect validation errors for subsection-level issues that can be fixed locally.
+  for path, _message in _parse_error_entries(errors):
+    tokens = [token for token in path.split(".") if token]
+
+    # Strip the lesson wrapper added during section validation.
+    if len(tokens) >= 2 and tokens[0] == "blocks" and tokens[1].isdigit():
+      tokens = tokens[2:]
+
+    # Focus only on subsection-related errors.
+    if len(tokens) < 2 or tokens[0] != "subsections" or not tokens[1].isdigit():
+      continue
+
+    subsection_index = int(tokens[1])
+    subsection_path = f"subsections.{subsection_index}"
+    subsection = _value_at_path(repaired, subsection_path)
+
+    if not isinstance(subsection, dict):
+      continue
+
+    # Ensure subsection titles exist for schema validation.
+    if len(tokens) >= 3 and tokens[2] == "subsection":
+      title = subsection.get("subsection")
+
+      if not isinstance(title, str) or not title.strip():
+        subsection["subsection"] = f"Subsection {subsection_index + 1}"
+        changes.append(f"subsection_title_{subsection_index}")
+
+    # Ensure subsection items are always a list to keep validation stable.
+    if "items" not in subsection or not isinstance(subsection.get("items"), list):
+      subsection["items"] = []
+      changes.append(f"subsection_items_{subsection_index}")
+
+  return repaired, changes
+
+
+def _is_subsection_path(path: str) -> bool:
+  """Identify subsection container paths so errors can be expanded into item repairs."""
+  tokens = [token for token in path.split(".") if token]
+
+  # Require the simple subsection.<index> shape to avoid misclassification.
+  if len(tokens) != 2:
+    return False
+
+  return tokens[0] == "subsections" and tokens[1].isdigit()
+
+
+def _expand_subsection_targets(section_json: JsonDict, path: str, message: str) -> dict[str, list[str]]:
+  """Expand subsection errors into per-item targets to batch AI repairs."""
+  expanded: dict[str, list[str]] = {}
+  subsection = _value_at_path(section_json, path)
+
+  # Guard against non-dict subsection payloads.
+  if not isinstance(subsection, dict):
+    return expanded
+
+  items = subsection.get("items")
+
+  # Guard against missing or malformed items lists.
+  if not isinstance(items, list):
+    return expanded
+
+  # Emit item-level paths so widget repairs include subsection content.
+  for item_index in range(len(items)):
+    item_path = f"{path}.items.{item_index}"
+    expanded[item_path] = [message]
+
+  return expanded
+
+
 def _target_path_from_error(path: str) -> str | None:
   """Derive a widget-level path from a validation error path."""
   tokens = [token for token in path.split(".") if token]
 
   # Strip the lesson wrapper added during section validation.
-
   if len(tokens) >= 2 and tokens[0] == "blocks" and tokens[1].isdigit():
     tokens = tokens[2:]
 
   # Prefer item-level repairs for section items and subsections.
-
   for index, token in enumerate(tokens):
 
     if token == "items" and index + 1 < len(tokens):
       return ".".join(tokens[: index + 2])
+
+  # Fallback to subsection-level targeting when items are not specified.
+  if len(tokens) >= 2 and tokens[0] == "subsections" and tokens[1].isdigit():
+    return ".".join(tokens[:2])
 
   return None
 

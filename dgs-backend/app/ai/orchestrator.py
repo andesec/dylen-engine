@@ -47,6 +47,16 @@ class OrchestrationResult:
   artifacts: dict[str, Any] | None = None
 
 
+class OrchestrationError(RuntimeError):
+  """Raised when the orchestration pipeline encounters a fatal error."""
+
+  def __init__(self, message: str, *, logs: list[str]) -> None:
+    """Store the failure message and a log snapshot for upstream handlers."""
+    super().__init__(message)
+    # Keep a snapshot of logs to surface in API/job responses.
+    self.logs = logs
+
+
 class DgsOrchestrator:
   """Coordinates the gatherer and structurer agents."""
 
@@ -208,22 +218,25 @@ class DgsOrchestrator:
       nonlocal validation_errors
 
       if structured.validation_errors and not enable_repair:
-        # Preserve validation errors while allowing remaining sections to proceed.
+        # Treat validation errors as fatal to avoid returning partial lessons.
         validation_errors = structured.validation_errors
-        logs.append(f"Section {section_index} failed validation: {structured.validation_errors}")
+        error_message = f"Section {section_index} failed validation: {structured.validation_errors}"
+        logs.append(error_message)
         logger.error("Section %s failed validation: %s", section_index, structured.validation_errors)
-        return None
+        _report_progress("transform", f"validate_section_{section_index}_of_{section_count}", [error_message], advance=False)
+        raise OrchestrationError(error_message, logs=list(logs))
 
       section_json = structured.payload
 
       if enable_repair:
-        # Repair invalid sections in-place to preserve the full pipeline.
+        # Attempt repair to avoid failing on transient schema errors.
         repair_input = RepairInput(section=draft, structured=structured)
 
         try:
           repair_result = await repairer_agent.run(repair_input, ctx)
 
-        except RuntimeError as exc:
+        except Exception as exc:
+          # Treat repair failures as fatal to avoid incomplete lessons.
           repair_model = _model_name(repairer_model_instance)
           _log_request_failure(logger=logger, logs=logs, agent="Repairer", provider=self._repair_provider, model=repair_model, prompt=None, response=None, error=exc)
           _log_pipeline_snapshot(
@@ -236,16 +249,21 @@ class DgsOrchestrator:
             structured_artifacts=structured_artifacts,
             repair_artifacts=repair_artifacts,
           )
-          logs.append(f"Skipping section {section_index} due to repair failure.")
-          return None
+          error_message = f"Repairer failed for section {section_index}/{section_count}: {exc}"
+          logs.append(error_message)
+          _report_progress("transform", f"repair_section_{section_index}_of_{section_count}", [error_message], advance=False)
+          raise OrchestrationError(error_message, logs=list(logs)) from exc
 
         repair_artifacts.append(repair_result.model_dump(mode="python"))
 
         if repair_result.errors:
+          # Fail fast when repair cannot produce a valid section.
           validation_errors = repair_result.errors
-          logs.append(f"Section {section_index} failed repair validation: {repair_result.errors}")
+          error_message = f"Section {section_index} failed repair validation: {repair_result.errors}"
+          logs.append(error_message)
           logger.error("Section %s failed repair validation: %s", section_index, repair_result.errors)
-          return None
+          _report_progress("transform", f"repair_section_{section_index}_of_{section_count}", [error_message], advance=False)
+          raise OrchestrationError(error_message, logs=list(logs))
         section_json = repair_result.fixed_json
 
       validate_subphase = f"validate_section_{section_index}_of_{section_count}"
@@ -257,10 +275,14 @@ class DgsOrchestrator:
     try:
       lesson_plan = await planner_agent.run(request, ctx)
     except Exception as exc:
+      # Fail fast when the planner cannot produce a valid plan.
       planner_model = _model_name(planner_model_instance)
       _log_request_failure(logger=logger, logs=logs, agent="Planner", provider=planner_prov, model=planner_model, prompt=None, response=None, error=exc)
       _log_pipeline_snapshot(logger=logger, logs=logs, agent="Planner", error=exc, lesson_plan=lesson_plan, draft_artifacts=draft_artifacts, structured_artifacts=structured_artifacts, repair_artifacts=repair_artifacts)
-      raise
+      error_message = f"Planner failed: {exc}"
+      logs.append(error_message)
+      _report_progress("plan", "planner_failed", [error_message], advance=False)
+      raise OrchestrationError(error_message, logs=list(logs)) from exc
 
     _report_progress("plan", "planner_complete", ["Lesson plan ready."])
 
@@ -281,6 +303,7 @@ class DgsOrchestrator:
           structured = await gatherer_structurer_agent.run(plan_section, ctx)
 
         except Exception as exc:
+          # Stop immediately on merged gatherer/structurer failures.
           merged_model = _model_name(gatherer_model_instance)
           _log_request_failure(logger=logger, logs=logs, agent="GathererStructurer", provider=gatherer_prov, model=merged_model, prompt=None, response=None, error=exc)
           _log_pipeline_snapshot(
@@ -293,12 +316,18 @@ class DgsOrchestrator:
             structured_artifacts=structured_artifacts,
             repair_artifacts=repair_artifacts,
           )
-          logs.append(f"Gatherer-structurer failed section {section_index}/{section_count}.")
-          continue
+          error_message = f"Gatherer-structurer failed section {section_index}/{section_count}: {exc}"
+          logs.append(error_message)
+          _report_progress("transform", merge_subphase, [error_message], advance=False)
+          raise OrchestrationError(error_message, logs=list(logs)) from exc
 
         if section_index < 1 or section_index > section_count:
-          logs.append(f"Skipping out-of-range section {section_index}.")
-          continue
+          # Treat out-of-range indices as fatal planner/agent mismatches.
+          error_message = f"Received out-of-range section index {section_index}."
+          logs.append(error_message)
+          logger.error("Out-of-range section index %s.", section_index)
+          _report_progress("transform", merge_subphase, [error_message], advance=False)
+          raise OrchestrationError(error_message, logs=list(logs))
 
         # Preserve draft context for repair by synthesizing a minimal SectionDraft.
         draft = SectionDraft(
@@ -323,7 +352,9 @@ class DgsOrchestrator:
 
         try:
           draft = await gatherer_agent.run(plan_section, ctx)
+
         except Exception as exc:
+          # Stop immediately on gatherer failures to avoid partial lessons.
           gather_model = _model_name(gatherer_model_instance)
           _log_request_failure(logger=logger, logs=logs, agent="Gatherer", provider=gatherer_prov, model=gather_model, prompt=None, response=None, error=exc)
           _log_pipeline_snapshot(
@@ -336,12 +367,18 @@ class DgsOrchestrator:
             structured_artifacts=structured_artifacts,
             repair_artifacts=repair_artifacts,
           )
-          logs.append(f"Gatherer failed section {section_index}/{section_count}.")
-          continue
+          error_message = f"Gatherer failed section {section_index}/{section_count}: {exc}"
+          logs.append(error_message)
+          _report_progress("collect", gather_subphase, [error_message], advance=False)
+          raise OrchestrationError(error_message, logs=list(logs)) from exc
 
         if section_index < 1 or section_index > section_count:
-          logs.append(f"Skipping out-of-range section {section_index}.")
-          continue
+          # Treat out-of-range indices as fatal planner/agent mismatches.
+          error_message = f"Received out-of-range section index {section_index}."
+          logs.append(error_message)
+          logger.error("Out-of-range section index %s.", section_index)
+          _report_progress("collect", gather_subphase, [error_message], advance=False)
+          raise OrchestrationError(error_message, logs=list(logs))
 
         sections[section_index] = draft
         draft_artifacts.append(draft.model_dump(mode="python"))
@@ -353,13 +390,18 @@ class DgsOrchestrator:
     # Ensure we collected all requested sections before structuring.
 
     if len(sections) < section_count:
+      # Treat missing sections as fatal to avoid returning partial lessons.
       missing = sorted(set(range(1, section_count + 1)) - set(sections.keys()))
-      logs.append(f"Missing extracted sections: {missing}")
-      logger.warning("Missing extracted sections: %s", missing)
+      error_message = f"Missing extracted sections: {missing}"
+      logs.append(error_message)
+      logger.error("Missing extracted sections: %s", missing)
+      _report_progress("collect", "missing_sections", [error_message], advance=False)
+      raise OrchestrationError(error_message, logs=list(logs))
 
     if not enable_repair:
-      logs.append("Repair is disabled; failed sections are skipped.")
-      logger.info("Repair is disabled; failed sections are skipped.")
+      # Note that repair is disabled so invalid sections will stop the pipeline.
+      logs.append("Repair is disabled; pipeline will stop on invalid sections.")
+      logger.info("Repair is disabled; pipeline will stop on invalid sections.")
 
     if not merge_enabled:
 
@@ -378,7 +420,7 @@ class DgsOrchestrator:
         try:
           structured = await structurer_agent.run(draft, ctx)
 
-        except RuntimeError as exc:
+        except Exception as exc:
           # Fail fast on structurer errors to avoid returning partial lessons.
           structurer_model = _model_name(structurer_model_instance)
           _log_request_failure(logger=logger, logs=logs, agent="Structurer", provider=self._structurer_provider, model=structurer_model, prompt=None, response=None, error=exc)
@@ -395,7 +437,7 @@ class DgsOrchestrator:
           error_message = f"Structurer failed for section {section_index}/{section_count}: {exc}"
           logs.append(error_message)
           _report_progress("transform", struct_subphase, [error_message], advance=False)
-          raise RuntimeError(error_message) from exc
+          raise OrchestrationError(error_message, logs=list(logs)) from exc
 
         structured_artifacts.append(structured.model_dump(mode="python"))
         structured_section = await _process_structured_section(draft=draft, structured=structured, section_index=section_index)
@@ -404,11 +446,15 @@ class DgsOrchestrator:
           structured_sections.append(structured_section)
 
     _report_progress("transform", "stitch_sections", ["Stitching sections..."])
+    stitch_log = "Stitching sections..."
+    logs.append(stitch_log)
+    logger.info(stitch_log)
     batch = StructuredSectionBatch(sections=structured_sections)
 
     try:
       stitch_result = await stitcher_agent.run(batch, ctx)
     except Exception as exc:
+      # Fail fast on stitcher errors so the request closes with an error.
       stitch_model = _model_name(structurer_model_instance)
       _log_request_failure(logger=logger, logs=logs, agent="Stitcher", provider=self._structurer_provider, model=stitch_model, prompt=None, response=None, error=exc)
       _log_pipeline_snapshot(
@@ -421,11 +467,22 @@ class DgsOrchestrator:
         structured_artifacts=structured_artifacts,
         repair_artifacts=repair_artifacts,
       )
-      raise
+      error_message = f"Stitcher failed: {exc}"
+      logs.append(error_message)
+      _report_progress("transform", "stitch_sections", [error_message], advance=False)
+      raise OrchestrationError(error_message, logs=list(logs)) from exc
 
     lesson_json = stitch_result.lesson_json
     metadata = stitch_result.metadata or {}
     validation_errors = metadata.get("validation_errors") or None
+    
+    if validation_errors:
+      # Treat stitcher validation errors as fatal to avoid returning invalid lessons.
+      error_message = f"Stitcher validation failed: {validation_errors}"
+      logs.append(error_message)
+      logger.error("Stitcher validation failed: %s", validation_errors)
+      _report_progress("transform", "stitch_sections", [error_message], advance=False)
+      raise OrchestrationError(error_message, logs=list(logs))
 
     log_msg = "Generation pipeline complete"
     logs.append(log_msg)
