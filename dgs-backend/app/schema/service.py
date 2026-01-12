@@ -101,9 +101,9 @@ class SchemaService:
     # If the prompts need the schema for "tr", we return TranslationWidget.model_json_schema()
 
     from app.schema.lesson_models import (
-        TranslationWidget, FlipWidget, BlankWidget, SwipeWidget, FreeTextWidget,
+        TranslationWidget, FlipWidget, FillBlankWidget, SwipeCardsWidget, FreeTextWidget, InputLineWidget,
         StepFlowWidget, AsciiDiagramWidget, ChecklistWidget, ConsoleWidget,
-        CodeViewerWidget, TreeViewWidget, QuizWidget,
+        CodeViewerWidget, TreeViewWidget, MCQsWidget,
         UnorderedListWidget, OrderedListWidget, TableWidget, CompareWidget,
         ParagraphWidget, WarnWidget, ErrorWidget, SuccessWidget
     )
@@ -111,16 +111,17 @@ class SchemaService:
     TYPE_TO_MODEL = {
         "tr": TranslationWidget,
         "flip": FlipWidget,
-        "blank": BlankWidget,
-        "swipe": SwipeWidget,
+        "fillblank": FillBlankWidget,
+        "swipecards": SwipeCardsWidget,
         "freeText": FreeTextWidget,
+        "inputLine": InputLineWidget,
         "stepFlow": StepFlowWidget,
         "asciiDiagram": AsciiDiagramWidget,
         "checklist": ChecklistWidget,
         "console": ConsoleWidget,
         "codeviewer": CodeViewerWidget,
         "treeview": TreeViewWidget,
-        "quiz": QuizWidget,
+        "mcqs": MCQsWidget,
         "ul": UnorderedListWidget,
         "ol": OrderedListWidget,
         "table": TableWidget,

@@ -16,7 +16,7 @@ Goal: keep lesson JSON compact, predictable for LLMs, and easy to render on the 
 ```
 
 - `title` (string, required): lesson title.
-- `blocks` (array, required): ordered lesson blocks. Only `section` and `quiz` are valid block types.
+- `blocks` (array, required): ordered lesson blocks. Only `section` and `mcqs` are valid block types.
 
 Note:
 - The Table of Contents is inferred from `section` and `subsections` titles.
@@ -50,14 +50,14 @@ Recommendation:
 
 ---
 
-### `quiz` (Assessment Block or Widget)
+### `mcqs` (Assessment Block or Widget)
 
 ```json
 {
   "section": "Quiz",
   "items": [
     {
-      "quiz": {
+      "mcqs": {
         "title": "Quiz Title",
         "questions": [
           {
@@ -93,7 +93,7 @@ Each item is either:
 - an object with exactly one shorthand key, or
 - a full-form widget object with `type` (advanced escape hatch).
 
-Unless the object is a block (`section`, `quiz`) or uses `type`, it must use exactly one key.
+Unless the object is a block (`section`, `mcqs`) or uses `type`, it must use exactly one key.
 
 Note:
 - Dividers are auto-inserted between widgets when a section/subsection has multiple items.
@@ -146,10 +146,10 @@ Constraints:
 
 ---
 
-### `blank` (Fill-in-the-Blank)
+### `fillblank` (Fill-in-the-Blank)
 
 ```json
-{ "blank": ["Prompt with ___", "Correct answer", "Hint", "Why it's correct"] }
+{ "fillblank": ["Prompt with ___", "Correct answer", "Hint", "Why it's correct"] }
 ```
 
 Constraints (array order is required):
@@ -200,11 +200,11 @@ Constraints:
 
 ---
 
-### `swipe` (Binary Swipe Drill)
+### `swipecards` (Binary Swipe Drill)
 
 ```json
 {
-  "swipe": [
+  "swipecards": [
     "Quick Drill: XSS Basics",
     ["No", "Yes"],
     [
@@ -230,10 +230,10 @@ Recommendation:
 
 ---
 
-### `freeText` (Free Text Editor)
+### `freeText` (Multi-line Free Text Editor)
 
 ```json
-{ "freeText": ["What do you mean by Clarity?.", "In my view,", "", "en", "clarity,structure,example,reason,summary", "multi"] }
+{ "freeText": ["What do you mean by Clarity?.", "In my view,", "", "en", "clarity,structure,example,reason,summary"] }
 ```
 
 Schema (array positions):
@@ -242,7 +242,6 @@ Schema (array positions):
 3. `text` (string): initial editable content (can be empty).
 4. `lang` (string, optional): language key. Default: `en`.
 5. `wordlistCsv` (string, optional): comma-separated terms as one string.
-6. `mode` (string, optional): `single` or `multi`. Default: `multi`.
 
 Notes:
 - Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
@@ -253,6 +252,24 @@ Where to use:
 - Writing exercises, reflections, short answers, note-taking, “explain in your own words”.
 - Use `wordlistCsv` for topic-specific vocabulary learners should practice.
 - Confidence checking involves usage of suggested vocabulary provided in wordlistcsv.
+
+---
+
+### `inputLine` (Single-line Text Input)
+
+```json
+{ "inputLine": ["What is your name?", "My name is ", "", "en"] }
+```
+
+Schema (array positions):
+1. `prompt` (string): title shown above the input.
+2. `seedLocked` (string, optional): non-removable prefix.
+3. `text` (string): initial editable content (can be empty).
+4. `lang` (string, optional): language key. Default: `en`.
+5. `wordlistCsv` (string, optional): comma-separated terms as one string.
+
+Where to use:
+- Simple questions, naming, single-sentence answers.
 
 ---
 
@@ -400,7 +417,7 @@ Notes:
    - Use `subsections` when nested structure is needed.
 
 2. Teach with a reliable loop
-   - Explanation (`p`) -> key insight (`warn`) -> translation (`tr`) -> practice (`blank`) -> checkpoint (`quiz`).
+   - Explanation (`p`) -> key insight (`warn`) -> translation (`tr`) -> practice (`fillblank`) -> checkpoint (`mcqs`).
 
 3. End with assessment
    - Final block should be a quiz that targets the most important learning outcomes.
@@ -440,14 +457,14 @@ Notes:
     {
       "section": "Practice",
       "items": [
-        { "blank": ["Fill in: ___ is used when ...", "The concept", "Definition", "It matches the definition you learned."] }
+        { "fillblank": ["Fill in: ___ is used when ...", "The concept", "Definition", "It matches the definition you learned."] }
       ]
     },
     {
       "section": "Check your understanding",
       "items": [
         {
-          "quiz": {
+          "mcqs": {
             "title": "Check your understanding",
             "questions": [
               { "q": "What is the best description?", "c": ["A", "B", "C"], "a": 1, "e": "B matches the definition; A/C miss key parts." }

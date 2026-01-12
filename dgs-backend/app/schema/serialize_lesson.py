@@ -6,7 +6,7 @@ from typing import Any, cast
 
 from .lesson_models import (
     AsciiDiagramWidget,
-    BlankWidget,
+    FillBlankWidget,
     WarnWidget,
     ErrorWidget,
     SuccessWidget,
@@ -16,14 +16,15 @@ from .lesson_models import (
     ConsoleWidget,
     FlipWidget,
     FreeTextWidget,
+    InputLineWidget,
     LessonDocument,
     UnorderedListWidget,
     OrderedListWidget,
     ParagraphWidget,
-    QuizWidget,
+    MCQsWidget,
     SectionBlock,
     StepFlowWidget,
-    SwipeWidget,
+    SwipeCardsWidget,
     TableWidget,
     TranslationWidget,
     TreeViewWidget,
@@ -49,10 +50,6 @@ def _widget_to_shorthand(widget: Widget) -> Any:
     # The user requirements didn't say we MUST convert {p: "..."} to "...", but it's cleaner.
     if isinstance(widget, ParagraphWidget):
         return widget.p  # Convert explicit p-widget to string shorthand if preferred, or keep as object
-        # Actually, let's keep it as the model dump if the user provided it as such,
-        # BUT the model has field 'p', so dump gives {'p': 'text'}.
-        # If the input was string, Pydantic parsed it as string (if allowed).
-        # Wait, Widget union has `StrictStr`.
 
     return _dump_model(widget, by_alias=True)
 

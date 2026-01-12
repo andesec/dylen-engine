@@ -72,17 +72,17 @@ class TranslationWidget(BaseModel):
         return v
 
 
-class BlankWidget(BaseModel):
+class FillBlankWidget(BaseModel):
     """Fill-in-the-blank widget: [prompt, answer, hint, explanation]"""
-    blank: list[StrictStr]
+    fillblank: list[StrictStr]
 
-    @field_validator("blank")
+    @field_validator("fillblank")
     @classmethod
     def validate_blank(cls, v: list[str]) -> list[str]:
         if len(v) != 4:
-            raise ValueError("blank widget must have exactly 4 elements: [prompt, answer, hint, explanation]")
+            raise ValueError("fillblank widget must have exactly 4 elements: [prompt, answer, hint, explanation]")
         if "___" not in v[0]:
-            raise ValueError("blank prompt must include ___ placeholder")
+            raise ValueError("fillblank prompt must include ___ placeholder")
         return v
 
 
@@ -126,53 +126,53 @@ class CompareWidget(BaseModel):
         return v
 
 
-class SwipeWidget(BaseModel):
+class SwipeCardsWidget(BaseModel):
     """
-    Swipe drill widget.
+    Swipe cards drill widget.
     Format: [title, [bucket1, bucket2], [[text, bucket_idx, feedback], ...]]
     """
-    swipe: list[Any]
+    swipecards: list[Any]
 
-    @field_validator("swipe")
+    @field_validator("swipecards")
     @classmethod
-    def validate_swipe(cls, v: list[Any]) -> list[Any]:
+    def validate_swipecards(cls, v: list[Any]) -> list[Any]:
         if len(v) != 3:
-            raise ValueError("swipe widget must have exactly 3 elements: [title, buckets, cards]")
+            raise ValueError("swipecards widget must have exactly 3 elements: [title, buckets, cards]")
 
         title, buckets, cards = v[0], v[1], v[2]
 
         if not isinstance(title, str) or not title:
-            raise ValueError("swipe title must be a non-empty string")
+            raise ValueError("swipecards title must be a non-empty string")
 
         if not isinstance(buckets, list) or len(buckets) != 2 or not all(isinstance(b, str) and b for b in buckets):
-            raise ValueError("swipe buckets must be a list of two non-empty strings")
+            raise ValueError("swipecards buckets must be a list of two non-empty strings")
 
         if not isinstance(cards, list) or not cards:
-            raise ValueError("swipe cards must be a non-empty list")
+            raise ValueError("swipecards cards must be a non-empty list")
 
         for i, card in enumerate(cards):
             if not isinstance(card, list) or len(card) != 3:
-                raise ValueError(f"swipe card at index {i} must be [text, correct_bucket_idx, feedback]")
+                raise ValueError(f"swipecards card at index {i} must be [text, correct_bucket_idx, feedback]")
             text, idx, feedback = card
             if not isinstance(text, str):
-                raise ValueError(f"swipe card {i} text must be a string")
+                raise ValueError(f"swipecards card {i} text must be a string")
             if not isinstance(idx, int) or idx not in (0, 1):
-                raise ValueError(f"swipe card {i} correct_bucket_idx must be 0 or 1")
+                raise ValueError(f"swipecards card {i} correct_bucket_idx must be 0 or 1")
             if not isinstance(feedback, str):
-                raise ValueError(f"swipe card {i} feedback must be a string")
+                raise ValueError(f"swipecards card {i} feedback must be a string")
 
             if len(text) > 120:
-                raise ValueError(f"swipe card {i} text exceeds 120 characters")
+                raise ValueError(f"swipecards card {i} text exceeds 120 characters")
             if len(feedback) > 150:
-                raise ValueError(f"swipe card {i} feedback exceeds 150 characters")
+                raise ValueError(f"swipecards card {i} feedback exceeds 150 characters")
 
         return v
 
 
 class FreeTextWidget(BaseModel):
     """
-    Free text editor widget.
-    Format: [prompt, seed_locked?, text?, lang?, wordlist_csv?, mode?]
+    Free text editor widget (Multi-line only).
+    Format: [prompt, seed_locked?, text?, lang?, wordlist_csv?]
     """
     freeText: list[Any]
 
@@ -202,10 +202,49 @@ class FreeTextWidget(BaseModel):
         if len(v) > 4 and v[4] is not None and not isinstance(v[4], str):
              raise ValueError("freeText wordlist_csv must be a string or null")
 
-        # 5: mode (optional)
-        if len(v) > 5 and v[5] is not None:
-            if v[5] not in ("single", "multi"):
-                 raise ValueError("freeText mode must be 'single' or 'multi'")
+        # Ensure no more elements (mode is removed)
+        if len(v) > 5:
+             raise ValueError("freeText widget has too many elements")
+
+        return v
+
+
+class InputLineWidget(BaseModel):
+    """
+    Single line input widget.
+    Format: [prompt, seed_locked?, text?, lang?, wordlist_csv?]
+    Variant of freeText but enforced single line behavior in UI.
+    """
+    inputLine: list[Any]
+
+    @field_validator("inputLine")
+    @classmethod
+    def validate_input_line(cls, v: list[Any]) -> list[Any]:
+        if len(v) < 1:
+            raise ValueError("inputLine widget must have at least a prompt")
+
+        # 0: prompt
+        if not isinstance(v[0], str):
+            raise ValueError("inputLine prompt must be a string")
+
+        # 1: seed_locked (optional)
+        if len(v) > 1 and v[1] is not None and not isinstance(v[1], str):
+            raise ValueError("inputLine seed_locked must be a string or null")
+
+        # 2: text (optional)
+        if len(v) > 2 and v[2] is not None and not isinstance(v[2], str):
+             raise ValueError("inputLine text must be a string or null")
+
+        # 3: lang (optional)
+        if len(v) > 3 and v[3] is not None and not isinstance(v[3], str):
+             raise ValueError("inputLine lang must be a string or null")
+
+        # 4: wordlist_csv (optional)
+        if len(v) > 4 and v[4] is not None and not isinstance(v[4], str):
+             raise ValueError("inputLine wordlist_csv must be a string or null")
+
+        if len(v) > 5:
+             raise ValueError("inputLine widget has too many elements")
 
         return v
 
@@ -378,8 +417,6 @@ class CodeViewerWidget(BaseModel):
 
         code, lang = v[0], v[1]
         if not isinstance(code, (str, dict, list)): # code can be object if json
-             # The old model said StrictStr, but users might pass json object which gets stringified?
-             # widgets.md says: code (string|object): code to display; objects are JSON-stringified.
              pass
 
         if not isinstance(lang, str):
@@ -416,8 +453,8 @@ class TreeViewWidget(BaseModel):
         return v
 
 
-class QuizQuestion(BaseModel):
-    """Quiz question model (remains object-based inside the quiz widget)."""
+class MCQsQuestion(BaseModel):
+    """MCQ question model."""
     q: StrictStr = Field(min_length=1)
     c: list[StrictStr] = Field(min_length=2)
     a: StrictInt
@@ -427,24 +464,24 @@ class QuizQuestion(BaseModel):
     @classmethod
     def validate_choices(cls, v: list[str]) -> list[str]:
         if any(not c for c in v):
-            raise ValueError("quiz choices must be non-empty strings")
+            raise ValueError("mcqs choices must be non-empty strings")
         return v
 
     @model_validator(mode="after")
-    def validate_answer_index(self) -> QuizQuestion:
+    def validate_answer_index(self) -> MCQsQuestion:
         if not 0 <= self.a < len(self.c):
-            raise ValueError("quiz answer index must be within choices range")
+            raise ValueError("mcqs answer index must be within choices range")
         return self
 
 
-class QuizInner(BaseModel):
+class MCQsInner(BaseModel):
     title: StrictStr = Field(min_length=1)
-    questions: list[QuizQuestion] = Field(min_length=1)
+    questions: list[MCQsQuestion] = Field(min_length=1)
 
 
-class QuizWidget(BaseModel):
-    """Quiz widget: { "quiz": { "title": ..., "questions": ... } }"""
-    quiz: QuizInner
+class MCQsWidget(BaseModel):
+    """MCQs widget: { "mcqs": { "title": ..., "questions": ... } }"""
+    mcqs: MCQsInner
 
 
 # --- Union Type ---
@@ -457,20 +494,21 @@ Widget = Union[
     SuccessWidget,
     FlipWidget,
     TranslationWidget,
-    BlankWidget,
+    FillBlankWidget,
     UnorderedListWidget,
     OrderedListWidget,
     TableWidget,
     CompareWidget,
-    SwipeWidget,
+    SwipeCardsWidget,
     FreeTextWidget,
+    InputLineWidget,
     StepFlowWidget,
     AsciiDiagramWidget,
     ChecklistWidget,
     ConsoleWidget,
     CodeViewerWidget,
     TreeViewWidget,
-    QuizWidget,
+    MCQsWidget,
 ]
 
 
