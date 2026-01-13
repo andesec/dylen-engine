@@ -9,15 +9,16 @@
             "anyOf": [
               {
                 "enum": [
-                  "Skill Building",
-                  "Knowledge & Understanding",
-                  "Communication Skills",
-                  "Planning and Productivity",
-                  "Movement and Fitness",
-                  "Growth Mindset",
-                  "Critical Thinking",
-                  "Creative Skills",
-                  "Decision Making & Strategy"
+                  "skillbuilding",
+                  "knowledgeunderstanding",
+                  "communicationskills",
+                  "planningandproductivity",
+                  "movementandfitness",
+                  "growthmindset",
+                  "criticalthinking",
+                  "creativeskills",
+                  "webdevandcoding",
+                  "languagepractice"
                 ],
                 "type": "string"
               },
@@ -29,12 +30,12 @@
             "title": "Blueprint"
           },
           "depth": {
-            "default": "Highlights",
+            "default": "highlights",
             "description": "Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
             "enum": [
-              "Highlights",
-              "Detailed",
-              "Training"
+              "highlights",
+              "detailed",
+              "training"
             ],
             "title": "Depth",
             "type": "string"
@@ -79,11 +80,6 @@
             ],
             "description": "Optional learner level hint used for prompt guidance.",
             "title": "Learner Level"
-          },
-          "mode": {
-            "$ref": "#/components/schemas/GenerationMode",
-            "default": "balanced",
-            "description": "Generation quality mode (fast, balanced, best)."
           },
           "models": {
             "anyOf": [
@@ -130,13 +126,15 @@
           "teaching_style": {
             "anyOf": [
               {
-                "enum": [
-                  "Conceptual",
-                  "Theoretical",
-                  "Practical",
-                  "All"
-                ],
-                "type": "string"
+                "items": {
+                  "enum": [
+                    "conceptual",
+                    "theoretical",
+                    "practical"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
@@ -153,6 +151,23 @@
             "minLength": 1,
             "title": "Topic",
             "type": "string"
+          },
+          "widgets": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional list of allowed widgets (overrides defaults).",
+            "title": "Widgets"
           }
         },
         "required": [
@@ -192,43 +207,6 @@
         ],
         "title": "GenerateLessonResponse",
         "type": "object"
-      },
-      "OrchestrationFailureResponse": {
-        "description": "Response payload for orchestration failures.",
-        "properties": {
-          "detail": {
-            "title": "Detail",
-            "type": "string"
-          },
-          "error": {
-            "title": "Error",
-            "type": "string"
-          },
-          "logs": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Logs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "detail",
-          "error",
-          "logs"
-        ],
-        "title": "OrchestrationFailureResponse",
-        "type": "object"
-      },
-      "GenerationMode": {
-        "description": "Quality/speed tradeoff for lesson generation.",
-        "enum": [
-          "fast",
-          "balanced",
-          "best"
-        ],
-        "title": "GenerationMode",
-        "type": "string"
       },
       "HTTPValidationError": {
         "properties": {
@@ -344,7 +322,8 @@
               {
                 "$ref": "#/components/schemas/WritingCheckRequest"
               }
-            ]
+            ],
+            "title": "Request"
           },
           "result": {
             "anyOf": [
@@ -569,6 +548,33 @@
         "title": "ModelsConfig",
         "type": "object"
       },
+      "OrchestrationFailureResponse": {
+        "description": "Response payload for orchestration failures.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail",
+          "error",
+          "logs"
+        ],
+        "title": "OrchestrationFailureResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -661,6 +667,135 @@
           "criteria"
         ],
         "title": "WritingCheckRequest",
+        "type": "object"
+      },
+      "LessonCatalogResponse": {
+        "description": "Response payload for lesson option metadata.",
+        "properties": {
+          "blueprints": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Blueprints",
+            "type": "array"
+          },
+          "teaching_styles": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Teaching Styles",
+            "type": "array"
+          },
+          "learner_levels": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Learner Levels",
+            "type": "array"
+          },
+          "depths": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Depths",
+            "type": "array"
+          },
+          "widgets": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Widgets",
+            "type": "array"
+          },
+          "agent_models": {
+            "items": {
+              "$ref": "#/components/schemas/AgentModelOption"
+            },
+            "title": "Agent Models",
+            "type": "array"
+          },
+          "default_widgets": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            "title": "Default Widgets",
+            "type": "object"
+          }
+        },
+        "required": [
+          "blueprints",
+          "teaching_styles",
+          "learner_levels",
+          "depths",
+          "widgets",
+          "agent_models",
+          "default_widgets"
+        ],
+        "title": "LessonCatalogResponse",
+        "type": "object"
+      },
+      "OptionDetail": {
+        "description": "Metadata describing an option with tooltip guidance.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "tooltip": {
+            "title": "Tooltip",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "tooltip"
+        ],
+        "title": "OptionDetail",
+        "type": "object"
+      },
+      "AgentModelOption": {
+        "description": "Valid model choices for a pipeline agent.",
+        "properties": {
+          "agent": {
+            "title": "Agent",
+            "type": "string"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent",
+          "default",
+          "options"
+        ],
+        "title": "AgentModelOption",
         "type": "object"
       }
     }
@@ -877,16 +1012,6 @@
             },
             "description": "Successful Response"
           },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OrchestrationFailureResponse"
-                }
-              }
-            },
-            "description": "Orchestration Failure"
-          },
           "422": {
             "content": {
               "application/json": {
@@ -896,6 +1021,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrchestrationFailureResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           }
         },
         "summary": "Generate Lesson"
@@ -1100,6 +1235,25 @@
           }
         },
         "summary": "Create Writing Check"
+      }
+    },
+    "/v1/lessons/catalog": {
+      "get": {
+        "description": "Return blueprint, teaching style, and widget metadata for clients.",
+        "operationId": "get_lesson_catalog_v1_lessons_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Lesson Catalog"
       }
     }
   }

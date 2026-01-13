@@ -72,7 +72,6 @@ def _teaching_style_addendum(style: str | list[str] | None) -> str:
     "conceptual": "Emphasize understanding, intuition and mental models before moving to practice.",
     "theoretical": "Prioritize formal correctness, proofs, and edge-case reasoning.",
     "practical": "Lead with application, drills, scenarios, and feedback to reach outcomes quickly.",
-    "all": "Sequence conceptual -> theoretical -> practical with focus on understandigng and application.",
   }
   
   for s in styles:
@@ -253,7 +252,8 @@ def _resolve_planner_prompt_name(blueprint: str | None) -> str:
     "growthmindset": "planner_growth_mindset.md",
     "criticalthinking": "planner_critical_thinking.md",
     "creativeskills": "planner_creative_skills.md",
-    "decisionmakingstrategy": "planner_decision_making_strategy.md",
+    "webdevandcoding": "planner_coding.md",
+    "languagepractice": "planner_language.md",
   }
   
   # Return a prompt filename only when the blueprint is supported.

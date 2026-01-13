@@ -5,6 +5,7 @@ import asyncio
 import logging
 import sys
 import time
+from functools import lru_cache
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from decimal import Decimal
@@ -33,6 +34,7 @@ from app.ai.orchestrator import DgsOrchestrator, OrchestrationError
 from app.config import Settings, get_settings
 from app.jobs.guardrails import MAX_ITEM_BYTES, estimate_bytes
 from app.jobs.models import JobRecord, JobStatus
+from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.storage.dynamodb_jobs_repo import DynamoJobsRepository
@@ -324,14 +326,6 @@ class ValidationResponse(BaseModel):
   errors: list[str]
 
 
-class GenerationMode(str, Enum):
-  """Quality/speed tradeoff for lesson generation."""
-  
-  FAST = "fast"
-  BALANCED = "balanced"
-  BEST = "best"
-
-
 class KnowledgeModel(str, Enum):
   """Model options for the knowledge collection agent."""
   
@@ -350,6 +344,37 @@ class StructurerModel(str, Enum):
   GEMINI_25_FLASH = "gemini-2.5-flash"
   GPT_OSS_20B = "openai/gpt-oss-20b:free"
   LLAMA_33_70B = "meta-llama/llama-3.3-70b-instruct:free"
+
+
+class PlannerModel(str, Enum):
+  """Model options for the planning agent."""
+  
+  GEMINI_25_PRO = "gemini-2.5-pro"
+  GEMINI_PRO_LATEST = "gemini-pro-latest"
+  GPT_OSS_120B = "openai/gpt-oss-120b:free"
+  XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash:free"
+  LLAMA_31_405B = "meta-llama/llama-3.1-405b-instruct:free"
+  DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
+
+
+class RepairerModel(str, Enum):
+  """Model options for the repair agent."""
+  
+  GPT_OSS_20B = "openai/gpt-oss-20b:free"
+  GEMMA_3_27B = "google/gemma-3-27b-it:free"
+  DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
+  GEMINI_25_FLASH = "gemini-2.5-flash"
+
+
+class GathererStructurerModel(str, Enum):
+  """Model options for the merged gatherer+structurer agent."""
+  
+  GEMINI_25_FLASH = "gemini-2.5-flash"
+  GEMINI_25_PRO = "gemini-2.5-pro"
+  XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash:free"
+  DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
+  LLAMA_31_405B = "meta-llama/llama-3.1-405b-instruct:free"
+  GPT_OSS_120B = "openai/gpt-oss-120b:free"
 
 
 class ModelsConfig(BaseModel):
@@ -397,22 +422,23 @@ class GenerateLessonRequest(BaseModel):
   )
   blueprint: (
       Literal[
-        "Skill Building",
-        "Knowledge & Understanding",
-        "Communication Skills",
-        "Planning and Productivity",
-        "Movement and Fitness",
-        "Growth Mindset",
-        "Critical Thinking",
-        "Creative Skills",
-        "Decision Making & Strategy",
+        "skillbuilding",
+        "knowledgeunderstanding",
+        "communicationskills",
+        "planningandproductivity",
+        "movementandfitness",
+        "growthmindset",
+        "criticalthinking",
+        "creativeskills",
+        "webdevandcoding",
+        "languagepractice",
       ]
       | None
   ) = Field(
     default=None,
     description="Optional blueprint or learning outcome guidance for lesson planning.",
   )
-  teaching_style: list[Literal["Conceptual", "Theoretical", "Practical", "All"]] | None = Field(
+  teaching_style: list[Literal["conceptual", "theoretical", "practical"]] | None = Field(
     default=None,
     description="Optional teaching style or pedagogy guidance for lesson planning.",
   )
@@ -421,8 +447,8 @@ class GenerateLessonRequest(BaseModel):
     min_length=1,
     description="Optional learner level hint used for prompt guidance.",
   )
-  depth: Literal["Highlights", "Detailed", "Training"] = Field(
-    default="Highlights",
+  depth: Literal["highlights", "detailed", "training"] = Field(
+    default="highlights",
     description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
   )
   primary_language: Literal["English", "German", "Urdu"] = Field(
@@ -434,10 +460,6 @@ class GenerateLessonRequest(BaseModel):
     min_length=3,
     max_length=8,
     description="Optional list of allowed widgets (overrides defaults).",
-  )
-  mode: GenerationMode = Field(
-    default=GenerationMode.BALANCED,
-    description="Generation quality mode (fast, balanced, best).",
   )
   schema_version: StrictStr | None = Field(
     default=None, description="Optional schema version to pin the lesson output to."
@@ -460,11 +482,70 @@ class GenerateLessonRequest(BaseModel):
   )
   model_config = ConfigDict(extra="forbid")
 
+  @model_validator(mode="before")
+  @classmethod
+  def normalize_option_ids(cls, values: Any) -> Any:
+    # Normalize option ids so API inputs align with catalog ids.
+    if not isinstance(values, dict):
+      return values
+
+    data = dict(values)
+    blueprint = data.get("blueprint")
+
+    if isinstance(blueprint, str):
+      data["blueprint"] = _normalize_option_id(blueprint)
+
+    teaching_style = data.get("teaching_style")
+
+    if isinstance(teaching_style, str):
+      teaching_style = [teaching_style]
+
+    if isinstance(teaching_style, list):
+      normalized_styles: list[str] = []
+
+      for style in teaching_style:
+        # Enforce string-only entries for teaching styles.
+        if not isinstance(style, str):
+          raise ValueError("Teaching style entries must be strings.")
+        normalized_styles.append(_normalize_option_id(style))
+
+      # Expand legacy "all" into the explicit style list.
+      if "all" in normalized_styles:
+        normalized_styles = ["conceptual", "theoretical", "practical"]
+
+      data["teaching_style"] = normalized_styles
+
+    learner_level = data.get("learner_level")
+
+    if isinstance(learner_level, str):
+      data["learner_level"] = _normalize_option_id(learner_level)
+
+    depth = data.get("depth")
+
+    if isinstance(depth, str):
+      data["depth"] = _normalize_option_id(depth)
+
+    widgets = data.get("widgets")
+
+    if isinstance(widgets, list):
+      normalized_widgets: list[str] = []
+
+      for widget in widgets:
+        # Enforce string-only entries for widget selections.
+        if not isinstance(widget, str):
+          raise ValueError("Widget entries must be strings.")
+        normalized_widgets.append(widget)
+
+      data["widgets"] = _normalize_widget_ids(normalized_widgets)
+
+    return data
+
   @model_validator(mode="after")
   def validate_depth_style_constraint(self) -> GenerateLessonRequest:
-    if self.depth == "Highlights" and self.teaching_style:
-      if "All" in self.teaching_style or len(self.teaching_style) == 3:
-        raise ValueError("Cannot select 'All' teaching styles when depth is 'Highlights'.")
+    if self.depth == "highlights" and self.teaching_style:
+
+      if len(self.teaching_style) == 3:
+        raise ValueError("Cannot select all teaching styles when depth is 'highlights'.")
     return self
 
 
@@ -506,6 +587,34 @@ class LessonRecordResponse(BaseModel):
   prompt_version: StrictStr
   lesson_json: dict[str, Any]
   meta: LessonMeta
+
+
+class OptionDetail(BaseModel):
+  """Metadata describing an option with tooltip guidance."""
+  
+  id: StrictStr
+  label: StrictStr
+  tooltip: StrictStr
+
+
+class AgentModelOption(BaseModel):
+  """Valid model choices for a pipeline agent."""
+  
+  agent: StrictStr
+  default: StrictStr | None
+  options: list[StrictStr]
+
+
+class LessonCatalogResponse(BaseModel):
+  """Response payload for lesson option metadata."""
+  
+  blueprints: list[OptionDetail]
+  teaching_styles: list[OptionDetail]
+  learner_levels: list[OptionDetail]
+  depths: list[OptionDetail]
+  widgets: list[OptionDetail]
+  agent_models: list[AgentModelOption]
+  default_widgets: dict[str, dict[str, list[StrictStr]]]
 
 
 class WritingCheckRequest(BaseModel):
@@ -566,6 +675,46 @@ class JobStatusResponse(BaseModel):
 
 
 MAX_REQUEST_BYTES = MAX_ITEM_BYTES // 2
+
+
+def _normalize_option_id(value: str) -> str:
+  """Normalize option ids to lowercase alphanumeric tokens."""
+  # Strip non-alphanumeric characters for stable option ids.
+  return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
+@lru_cache(maxsize=1)
+def _widget_id_map() -> dict[str, str]:
+  """Build a mapping from normalized widget ids to canonical widget keys."""
+  # Load widget registry once to align client ids with schema keys.
+  from app.schema.service import DEFAULT_WIDGETS_PATH
+  from app.schema.widgets_loader import load_widget_registry
+
+  registry = load_widget_registry(DEFAULT_WIDGETS_PATH)
+  mapping: dict[str, str] = {}
+
+  for widget_name in registry.available_types():
+    normalized = _normalize_option_id(widget_name)
+    mapping[normalized] = widget_name
+
+  return mapping
+
+
+def _normalize_widget_ids(widgets: list[str]) -> list[str]:
+  """Normalize widget ids to canonical registry keys."""
+  widget_map = _widget_id_map()
+  normalized: list[str] = []
+
+  for widget in widgets:
+    # Normalize widget ids so schema validation uses canonical keys.
+    widget_id = _normalize_option_id(widget)
+
+    if widget_id not in widget_map:
+      raise ValueError(f"Unsupported widget id '{widget}'.")
+
+    normalized.append(widget_map[widget_id])
+
+  return normalized
 
 
 def _get_orchestrator(
@@ -644,13 +793,34 @@ _OPENROUTER_STRUCTURER_MODELS = {
   StructurerModel.GEMMA_3_27B,
 }
 
+_GEMINI_PLANNER_MODELS = {
+  PlannerModel.GEMINI_25_PRO,
+  PlannerModel.GEMINI_PRO_LATEST,
+}
+
+_OPENROUTER_PLANNER_MODELS = {
+  PlannerModel.GPT_OSS_120B,
+  PlannerModel.XIAOMI_MIMO_V2_FLASH,
+  PlannerModel.LLAMA_31_405B,
+  PlannerModel.DEEPSEEK_R1_0528,
+}
+
+_GEMINI_REPAIRER_MODELS = {
+  RepairerModel.GEMINI_25_FLASH,
+}
+
+_OPENROUTER_REPAIRER_MODELS = {
+  RepairerModel.GPT_OSS_20B,
+  RepairerModel.GEMMA_3_27B,
+  RepairerModel.DEEPSEEK_R1_0528,
+}
+
 DEFAULT_KNOWLEDGE_MODEL = KnowledgeModel.LLAMA_31_405B.value
 
 
 def _resolve_model_selection(
     settings: Settings,
     *,
-    mode: GenerationMode | None,
     models: ModelsConfig | None,
 ) -> tuple[str, str | None, str, str | None, str, str | None, str, str | None]:
   """
@@ -658,21 +828,18 @@ def _resolve_model_selection(
 
   Falls back to environment defaults when user input is missing.
   """
-  # Default to balanced unless the caller explicitly chooses a different mode.
-  selected_mode = mode or GenerationMode.BALANCED
-  
   # Respect per-agent overrides when provided, otherwise use environment defaults.
   
   if models is not None:
     gatherer_model = models.gatherer_model or settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
     planner_model = models.planner_model or settings.planner_model
-    structurer_model = models.structurer_model or _structurer_model_for_mode(settings, selected_mode)
+    structurer_model = models.structurer_model or settings.structurer_model
     repairer_model = models.repairer_model or settings.repair_model
   
   else:
     gatherer_model = settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
     planner_model = settings.planner_model
-    structurer_model = _structurer_model_for_mode(settings, selected_mode)
+    structurer_model = settings.structurer_model
     repairer_model = settings.repair_model
   
   # Resolve provider hints to keep routing consistent for each agent.
@@ -690,15 +857,6 @@ def _resolve_model_selection(
     repairer_provider,
     repairer_model,
   )
-
-
-def _structurer_model_for_mode(settings: Settings, mode: GenerationMode) -> str | None:
-  # Map mode to an environment-configured model preference.
-  if mode == GenerationMode.FAST:
-    return settings.structurer_model_fast or settings.structurer_model
-  if mode == GenerationMode.BEST:
-    return settings.structurer_model_best or settings.structurer_model
-  return settings.structurer_model_balanced or settings.structurer_model
 
 
 def _provider_for_knowledge_model(settings: Settings, model_name: str | None) -> str:
@@ -734,8 +892,18 @@ def _provider_for_model_hint(settings: Settings, model_name: str | None, fallbac
   if not model_name:
     return fallback_provider
   
-  gemini_models = {model.value for model in _GEMINI_KNOWLEDGE_MODELS} | {model.value for model in _GEMINI_STRUCTURER_MODELS}
-  openrouter_models = {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS} | {model.value for model in _OPENROUTER_STRUCTURER_MODELS}
+  gemini_models = (
+    {model.value for model in _GEMINI_KNOWLEDGE_MODELS}
+    | {model.value for model in _GEMINI_STRUCTURER_MODELS}
+    | {model.value for model in _GEMINI_PLANNER_MODELS}
+    | {model.value for model in _GEMINI_REPAIRER_MODELS}
+  )
+  openrouter_models = (
+    {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS}
+    | {model.value for model in _OPENROUTER_STRUCTURER_MODELS}
+    | {model.value for model in _OPENROUTER_PLANNER_MODELS}
+    | {model.value for model in _OPENROUTER_REPAIRER_MODELS}
+  )
   
   if model_name in gemini_models:
     return "gemini"
@@ -876,12 +1044,29 @@ def _parse_job_request(payload: dict[str, Any]) -> GenerateLessonRequest | Writi
   if "text" in payload and "criteria" in payload:
     return WritingCheckRequest.model_validate(payload)
   
+  # Drop deprecated fields so legacy records can still be parsed.
+  if "mode" in payload:
+    payload = {key: value for key, value in payload.items() if key != "mode"}
+  
   return GenerateLessonRequest.model_validate(payload)
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
   return {"status": "ok"}
+
+
+@app.get(
+  "/v1/lessons/catalog",
+  response_model=LessonCatalogResponse,
+)
+async def get_lesson_catalog(response: Response) -> LessonCatalogResponse:
+  """Return blueprint, teaching style, and widget metadata for clients."""
+  # Instruct clients to cache since the catalog is static.
+  response.headers["Cache-Control"] = "public, max-age=86400"
+  # Build a static payload so the client can cache the response safely.
+  payload = build_lesson_catalog(settings)
+  return LessonCatalogResponse(**payload)
 
 
 @app.post(
@@ -911,7 +1096,7 @@ async def generate_lesson(  # noqa: B008
   
   start = time.monotonic()
   # Resolve per-agent model overrides and provider routing for this request.
-  selection = _resolve_model_selection(settings, mode=request.mode, models=request.models)
+  selection = _resolve_model_selection(settings, models=request.models)
   (
     gatherer_provider,
     gatherer_model,

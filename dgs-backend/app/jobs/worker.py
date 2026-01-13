@@ -192,6 +192,11 @@ class JobProcessor:
         """Execute the orchestration pipeline with guarded parameters."""
 
         try:
+
+            # Drop deprecated fields so legacy records can still be parsed.
+            if "mode" in request:
+                request = {key: value for key, value in request.items() if key != "mode"}
+
             request_model = GenerateLessonRequest.model_validate(request)
 
         except ValidationError as exc:
@@ -202,7 +207,7 @@ class JobProcessor:
             raise ValueError(f"Topic exceeds max length of {self._settings.max_topic_length}.")
 
         # Resolve per-agent model overrides so queued jobs honor request settings.
-        selection = _resolve_model_selection(self._settings, mode=request_model.mode, models=request_model.models)
+        selection = _resolve_model_selection(self._settings, models=request_model.models)
         (
             gatherer_provider,
             gatherer_model,
