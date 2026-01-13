@@ -5,7 +5,7 @@ TASK: Create a lesson plan for "{{TOPIC}}". Other agents will generate the actua
 INPUTS: details={{DETAILS}}; learnerLevel={{LEARNER_LEVEL}}; lessonDepth={{DEPTH}}; supportedWidgets={{SUPPORTED_WIDGETS}}; teachingStyle={{TEACHING_STYLE_ADDENDUM}}
 
 RULES
-- Output minified JSON in {{PRIMARY_LANGUAGE}} only.
+- Output minified JSON in {{PRIMARY_LANGUAGE}} and lesson language only.
 - Exactly {{SECTION_COUNT}} sections
 - Use ONLY supportedWidgets
 - planned_widgets required in every subsection
