@@ -16,9 +16,10 @@ class GenerationRequest(BaseModel):
   depth: str
   section_count: int = Field(ge=2, le=10)
   blueprint: str | None = None
-  teaching_style: str | None = None
+  teaching_style: list[str] | None = None
   language: str | None = None
   learner_level: str | None = None
+  widgets: list[str] | None = Field(default=None, min_length=3, max_length=8)
   constraints: dict[str, Any] | None = None
 
 

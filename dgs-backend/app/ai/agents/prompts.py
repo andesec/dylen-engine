@@ -10,6 +10,7 @@ from typing import Any
 from app.ai.pipeline.contracts import GenerationRequest, PlanSection, SectionDraft
 from app.schema.service import DEFAULT_WIDGETS_PATH, SchemaService
 from app.schema.widgets_loader import load_widget_registry
+from app.schema.widget_preference import get_widget_preference
 
 JsonDict = dict[str, Any]
 Errors = list[str]
@@ -23,6 +24,15 @@ def _stringify_constraints(constraints: dict[str, Any] | None) -> str:
     return "{}"
   
   return json.dumps(constraints, ensure_ascii=True, sort_keys=True)
+
+
+def _format_style(style: str | list[str] | None) -> str | None:
+  """Format the teaching style for display in prompts."""
+  if not style:
+    return None
+  if isinstance(style, str):
+    return style
+  return ", ".join(style)
 
 
 def _replace_placeholders(template: str, values: dict[str, str]) -> str:
@@ -50,22 +60,29 @@ def _supported_widgets() -> list[str]:
   return registry.available_types()
 
 
-def _teaching_style_addendum(style: str | None) -> str:
+def _teaching_style_addendum(style: str | list[str] | None) -> str:
   """Explain how the chosen teaching style should shape structure and tone."""
   if not style:
     return "Blend conceptual clarity with practice; no teaching style preference was provided."
   
-  normalized = style.strip().lower()
+  styles = [style] if isinstance(style, str) else style
+  descriptions = []
+  
   mapping = {
     "conceptual": "Emphasize understanding, intuition and mental models before moving to practice.",
     "theoretical": "Prioritize formal correctness, proofs, and edge-case reasoning.",
     "practical": "Lead with application, drills, scenarios, and feedback to reach outcomes quickly.",
-    "all": "Sequence conceptual -> theoretical -> practical with focus on understandigng and application, increasing rigor and practice.",
+    "all": "Sequence conceptual -> theoretical -> practical with focus on understandigng and application.",
   }
-  if normalized in mapping:
-    return mapping[normalized]
   
-  return f"Honor the user's stated teaching style: {style}."
+  for s in styles:
+    normalized = s.strip().lower()
+    if normalized in mapping:
+      descriptions.append(mapping[normalized])
+    else:
+      descriptions.append(f"Honor the user's stated teaching style: {s}.")
+      
+  return " ".join(descriptions)
 
 
 def _serialize_plan_section(plan_section: PlanSection | None) -> str:
@@ -118,7 +135,7 @@ def render_gatherer_prompt(request: Req, section: PlanSection) -> str:
   
   tokens = {
     "PLANNER_SECTION_JSON": plan_json,
-    "STYLE": request.teaching_style or "Default to learner needs.",
+    "STYLE": _format_style(request.teaching_style) or "Default to learner needs.",
     "BLUEPRINT": request.blueprint,
     "LEARNER_LEVEL": request.learner_level or "Beginner",
     "DEPTH": request.depth,
@@ -128,17 +145,29 @@ def render_gatherer_prompt(request: Req, section: PlanSection) -> str:
   return rendered_prompt
 
 
-def render_structurer_prompt(request: Req, section: Section, schema_version: str) -> str:
+def render_structurer_prompt(request: Req, section: Section, _schema_version: str) -> str:
   """Render the section structurer prompt with embedded gatherer and planner context."""
   prompt_template = _load_prompt("structurer.md")
   plan_json = _serialize_plan_section(section.plan_section)
-  widget_schema = _load_section_schema_text()
+  
+  if request.widgets:
+    allowed_widgets = request.widgets
+  elif request.blueprint:
+    allowed_widgets = get_widget_preference(request.blueprint, request.teaching_style)
+  else:
+    allowed_widgets = None
+
+  if allowed_widgets:
+    schema = SchemaService().subset_section_schema(allowed_widgets)
+    widget_schema = json.dumps(schema, indent=2, ensure_ascii=True)
+  else:
+    widget_schema = _load_section_schema_text()
   
   replacements = {
     "GATHERER_CONTENT": section.raw_text or "Gatherer content missing.",
     "PLANNER_SECTION_JSON": plan_json,
     "WIDGET_SCHEMA_JSON": widget_schema,
-    "STYLE": request.teaching_style or "Default to learner needs.",
+    "STYLE": _format_style(request.teaching_style) or "Default to learner needs.",
     "LEARNER_LEVEL": request.learner_level or "Unspecified",
   }
   
@@ -146,11 +175,23 @@ def render_structurer_prompt(request: Req, section: Section, schema_version: str
   return rendered_template
 
 
-def render_gatherer_structurer_prompt(request: Req, section: PlanSection, schema_version: str) -> str:
+def render_gatherer_structurer_prompt(request: Req, section: PlanSection, _schema_version: str) -> str:
   """Render the merged gatherer+structurer prompt with planner and schema context."""
   prompt_template = _load_prompt("gatherer-structurer.md")
   plan_json = _serialize_plan_section(section)
-  widget_schema = _load_section_schema_text()
+  
+  if request.widgets:
+    allowed_widgets = request.widgets
+  elif request.blueprint:
+    allowed_widgets = get_widget_preference(request.blueprint, request.teaching_style)
+  else:
+    allowed_widgets = None
+
+  if allowed_widgets:
+    schema = SchemaService().subset_section_schema(allowed_widgets)
+    widget_schema = json.dumps(schema, indent=2, ensure_ascii=True)
+  else:
+    widget_schema = _load_section_schema_text()
   
   # Enforce explicit blueprints so prompt content stays aligned with the plan.
   if not request.blueprint:
@@ -159,7 +200,9 @@ def render_gatherer_structurer_prompt(request: Req, section: PlanSection, schema
   replacements = {
     "PLANNER_SECTION_JSON": plan_json,
     "WIDGET_SCHEMA_JSON": widget_schema,
-    "STYLE": request.teaching_style or "Default to learner needs.",
+    "WIDGET_SCHEMA_JSON": widget_schema,
+    "STYLE": _format_style(request.teaching_style) or "Default to learner needs.",
+    "LEARNER_LEVEL": request.learner_level or "Unspecified",
     "LEARNER_LEVEL": request.learner_level or "Unspecified",
     "DEPTH": request.depth,
     "BLUEPRINT": request.blueprint,
@@ -170,7 +213,7 @@ def render_gatherer_structurer_prompt(request: Req, section: PlanSection, schema
 
 
 def render_repair_prompt(
-  request: Req, section: Section, repair_targets: list[dict[str, Any]],
+  _request: Req, _section: Section, repair_targets: list[dict[str, Any]],
   errors: Errors, widget_schemas: dict[str, Any],
 ) -> str:
   """Render the repair prompt for invalid JSON with embedded widget schema."""

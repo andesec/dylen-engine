@@ -25,6 +25,7 @@ from pydantic import (
   StrictInt,
   StrictStr,
   ValidationError,
+  model_validator,
 )
 from starlette.concurrency import run_in_threadpool
 
@@ -411,7 +412,7 @@ class GenerateLessonRequest(BaseModel):
     default=None,
     description="Optional blueprint or learning outcome guidance for lesson planning.",
   )
-  teaching_style: Literal["Conceptual", "Theoretical", "Practical", "All"] | None = Field(
+  teaching_style: list[Literal["Conceptual", "Theoretical", "Practical", "All"]] | None = Field(
     default=None,
     description="Optional teaching style or pedagogy guidance for lesson planning.",
   )
@@ -427,6 +428,12 @@ class GenerateLessonRequest(BaseModel):
   primary_language: Literal["English", "German", "Urdu"] = Field(
     default="English",
     description="Primary language for lesson output.",
+  )
+  widgets: list[StrictStr] | None = Field(
+    default=None,
+    min_length=3,
+    max_length=8,
+    description="Optional list of allowed widgets (overrides defaults).",
   )
   mode: GenerationMode = Field(
     default=GenerationMode.BALANCED,
@@ -452,6 +459,13 @@ class GenerateLessonRequest(BaseModel):
     ],
   )
   model_config = ConfigDict(extra="forbid")
+
+  @model_validator(mode="after")
+  def validate_depth_style_constraint(self) -> GenerateLessonRequest:
+    if self.depth == "Highlights" and self.teaching_style:
+      if "All" in self.teaching_style or len(self.teaching_style) == 3:
+        raise ValueError("Cannot select 'All' teaching styles when depth is 'Highlights'.")
+    return self
 
 
 class LessonMeta(BaseModel):

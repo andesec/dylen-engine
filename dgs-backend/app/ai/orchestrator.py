@@ -92,9 +92,10 @@ class DgsOrchestrator:
     topic: str,
     details: str | None = None,
     blueprint: str | None = None,
-    teaching_style: str | None = None,
+    teaching_style: list[str] | None = None,
     learner_level: str | None = None,
     depth: str | None = None,
+    widgets: list[str] | None = None,
     schema_version: str | None = None,
     structurer_model: str | None = None,
     gatherer_model: str | None = None,
@@ -161,6 +162,7 @@ class DgsOrchestrator:
       teaching_style=teaching_style,
       learner_level=learner_level,
       language=lang,
+      widgets=widgets,
       constraints=None,
     )
     created_at = datetime.utcnow()

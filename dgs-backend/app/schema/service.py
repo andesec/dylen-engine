@@ -52,6 +52,91 @@ class SchemaService:
     json_schema: dict[str, Any] = SectionBlock.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
     return json_schema
 
+  def subset_section_schema(self, allowed_widgets: list[str]) -> dict[str, Any]:
+    """
+    Return a section schema restricted to a specific list of widgets.
+    
+    Args:
+        allowed_widgets: List of allowed widget keys (e.g. ['p', 'mcqs']).
+    """
+    # Start with the full schema
+    schema = self.section_schema()
+    
+    # 1. Inspect definitions to identify the main Widget union.
+    # We navigate from SectionBlock -> items -> items to find the widget definition.
+    defs = schema.get("$defs", {})
+    widget_def = None
+    
+    # Path: SectionBlock -> items (list) -> items (schema for array elements)
+    props = schema.get("properties", {})
+    items_prop = props.get("items", {})
+    inner_items = items_prop.get("items", {})
+    
+    if "$ref" in inner_items:
+        ref_name = inner_items["$ref"].split("/")[-1]
+        widget_def = defs.get(ref_name)
+    elif "anyOf" in inner_items:
+        widget_def = inner_items
+    
+    if not widget_def or "anyOf" not in widget_def:
+        # Fallback if structure isn't as expected: return full schema
+        return schema
+
+    # 2. Filter the anyOf list
+    original_options = widget_def["anyOf"]
+    filtered_options = []
+    
+    # Always include the string type if "p" (paragraph) is in allowed_widgets,
+    # because the "p" shorthand is a plain string.
+    include_paragraph = "p" in allowed_widgets
+    
+    for option in original_options:
+        # Check simple type (string = paragraph shorthand)
+        if option.get("type") == "string":
+            if include_paragraph:
+                filtered_options.append(option)
+            continue
+            
+        # Check referenced definitions (object widgets)
+        ref = option.get("$ref")
+        if not ref:
+            # Unknown shape, decided to exclude or keep? 
+            # Safest to exclude if we are restricting, but let's keep if unsure? 
+            # No, strict restriction is better.
+            continue
+            
+        # Ref format: #/$defs/ChecklistWidget
+        def_name = ref.split("/")[-1]
+        model_def = defs.get(def_name)
+        
+        if not model_def:
+            continue
+            
+        # Identify widget type by its properties.
+        # Most widgets have a single key like "checklist", "mcqs", "p" (explicit).
+        properties = model_def.get("properties", {})
+        
+        # Check if any of the property keys match our allowed list
+        match = False
+        for prop_key in properties.keys():
+            if prop_key in allowed_widgets:
+                match = True
+                break
+        
+        if match:
+            filtered_options.append(option)
+
+    # 3. Update the schema with filtered options
+    if filtered_options:
+        widget_def["anyOf"] = filtered_options
+    else:
+        # If nothing matches, we shouldn't return an unusable schema.
+        # Fallback for safety, or leave empty which blocks all widgets.
+        # Let's leave it as is, or maybe default to 'p' if allowed list was weird?
+        pass
+
+    return schema
+
   def sanitize_schema(self, schema: dict[str, Any], provider_name: str) -> dict[str, Any]:
     """Sanitize schema for provider-specific structured output requirements."""
     if provider_name.lower() == "gemini":

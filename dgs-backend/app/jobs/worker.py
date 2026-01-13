@@ -274,6 +274,7 @@ class JobProcessor:
             teaching_style=request_model.teaching_style,
             learner_level=learner_level,
             depth=request_model.depth,
+            widgets=request_model.widgets,
             schema_version=schema_version,
             structurer_model=structurer_model,
             gatherer_model=gatherer_model,
