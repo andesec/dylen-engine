@@ -11,6 +11,7 @@ from typing import Any, cast
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.prompts import format_schema_block, render_repair_prompt
 from app.ai.deterministic_repair import attempt_deterministic_repair
+from app.ai.json_parser import parse_json_with_fallback
 from app.ai.pipeline.contracts import JobContext, RepairInput, RepairResult
 from app.schema.lesson_models import normalize_widget
 from app.telemetry.context import llm_call_context
@@ -135,9 +136,10 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=raw.usage)
 
 
+      # Parse the model output with a lenient fallback to reduce retry churn.
       try:
         cleaned = self._model.strip_json_fences(raw.content)
-        repaired_payload = cast(dict[str, Any], json.loads(cleaned))
+        repaired_payload = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       except json.JSONDecodeError as exc:
         logger.error("Repairer failed to parse JSON: %s", exc)
         raise RuntimeError(f"Failed to parse repaired section JSON: {exc}") from exc

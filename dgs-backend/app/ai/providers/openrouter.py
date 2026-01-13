@@ -10,6 +10,7 @@ from typing import Any, Final, cast
 
 from openai import AsyncOpenAI
 
+from app.ai.json_parser import parse_json_with_fallback
 from app.ai.providers.base import (
   AIModel,
   ModelResponse,
@@ -94,7 +95,7 @@ class OpenRouterModel(AIModel):
     dummy = AIModel.load_dummy_response("STRUCTURER")
     if dummy is not None:
       cleaned = AIModel.strip_json_fences(dummy)
-      parsed = cast(dict[str, Any], json.loads(cleaned))
+      parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       response = StructuredModelResponse(content=parsed, usage=None)
       logger.info("OpenRouter dummy structured response:\n%s", dummy)
       return response
@@ -138,11 +139,11 @@ class OpenRouterModel(AIModel):
       }
 
     # Parse the JSON response
+    # Parse the model response with a lenient fallback to reduce retry churn.
     try:
       cleaned = self.strip_json_fences(content)
-      parsed = cast(dict[str, Any], json.loads(cleaned))
+      parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       return StructuredModelResponse(content=parsed, usage=usage)
-
     except json.JSONDecodeError as e:
       raise RuntimeError(f"OpenRouter returned invalid JSON: {e}") from e
 

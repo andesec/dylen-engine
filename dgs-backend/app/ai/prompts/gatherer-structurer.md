@@ -18,7 +18,7 @@ WIDGET_SCHEMA_JSON
 PROCESS (INTERNAL — NEVER OUTPUT)
 1. Read Section Plan as authoritative scope.
 2. Gather concrete, actionable learning material for all goals, data_collection_points, and subsection intents.
-3. Convert gathered material directly into structured widgets per WIDGET_SCHEMA_JSON.
+3. Convert gathered material directly into structured widgets.
 4. Optimize clarity, flow, and pedagogy for teaching style and learner level.
 
 OUTPUT

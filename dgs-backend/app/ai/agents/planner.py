@@ -9,6 +9,7 @@ from typing import Any, cast
 from app.ai.agents.base import BaseAgent
 from app.ai.pipeline.contracts import GenerationRequest, LessonPlan, JobContext
 from app.ai.agents.prompts import render_planner_prompt, format_schema_block
+from app.ai.json_parser import parse_json_with_fallback
 from app.telemetry.context import llm_call_context
 from pydantic import ValidationError
 
@@ -115,11 +116,10 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
 
       self._record_usage(agent=self.name, purpose="plan_lesson", call_index="1/1", usage=raw.usage)
       
+      # Parse the model output with a lenient fallback to reduce retry churn.
       try:
-
         cleaned = self._model.strip_json_fences(raw.content)
-        plan_json = cast(dict[str, Any], json.loads(cleaned))
-
+        plan_json = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       except json.JSONDecodeError as exc:
         logger.error("Planner failed to parse JSON: %s", exc)
         raise RuntimeError(f"Failed to parse planner JSON: {exc}") from exc

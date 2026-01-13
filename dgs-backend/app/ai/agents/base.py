@@ -8,6 +8,7 @@ import json
 from typing import Any, TypeVar, Generic, cast
 
 from app.ai.pipeline.contracts import JobContext
+from app.ai.json_parser import parse_json_with_fallback
 from app.ai.providers.base import AIModel
 from app.progress.tracker import ProgressTracker
 from app.schema.service import SchemaService
@@ -68,7 +69,9 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
       return None
     # Mirror provider parsing to keep dummy responses interchangeable.
     cleaned = self._model.strip_json_fences(dummy)
+
+    # Parse with lenient recovery to keep dummy fixtures tolerant of minor issues.
     try:
-      return cast(dict[str, Any], json.loads(cleaned))
+      return cast(dict[str, Any], parse_json_with_fallback(cleaned))
     except json.JSONDecodeError as exc:
       raise RuntimeError(f"Failed to parse dummy JSON for {self.name}: {exc}") from exc
