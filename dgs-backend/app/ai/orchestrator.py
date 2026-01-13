@@ -24,6 +24,7 @@ from app.ai.pipeline.contracts import (
 from app.ai.providers.base import AIModel
 from app.ai.router import get_model_for_mode
 from app.schema.service import SchemaService
+from app.utils.audit_logging import audit_llm_call
 
 OptStr = str | None
 Msgs = list[str] | None
@@ -86,6 +87,7 @@ class DgsOrchestrator:
     self._schema_service = SchemaService()
     self._merge_gatherer_structurer = merge_gatherer_structurer
 
+  @audit_llm_call
   async def generate_lesson(
     self,
     *,
@@ -103,6 +105,7 @@ class DgsOrchestrator:
     language: str | None = None,
     enable_repair: bool = True,
     progress_callback: ProgressCallback = None,
+    user_id: int | None = None,
   ) -> OrchestrationResult:
     """Run the 5-agent pipeline and return lesson JSON."""
     logger = logging.getLogger(__name__)

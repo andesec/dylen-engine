@@ -42,6 +42,9 @@ from app.storage.jobs_repo import JobsRepository
 from app.storage.postgres_jobs_repo import PostgresJobsRepository
 from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 from app.utils.ids import generate_job_id, generate_lesson_id
+from app.storage.db import init_db
+from app.routers import auth
+from app.dependencies import get_current_user_or_dev_key
 
 settings = get_settings()
 # Track background job worker state for lifecycle management.
@@ -80,6 +83,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _initialize_logging()
     logger.info("Startup complete - logging verified.")
     
+    # Initialize DB (create tables)
+    await init_db()
+    logger.info("Database initialized.")
+
     _start_job_worker(settings)
   
   except Exception:
@@ -95,11 +102,13 @@ app = FastAPI(default_response_class=DecimalJSONResponse, lifespan=lifespan)
 app.add_middleware(
   CORSMiddleware,
   allow_origins=settings.allowed_origins,
-  allow_credentials=False,
+  allow_credentials=True,
   allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
   allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
   expose_headers=["content-length"],
 )
+
+app.include_router(auth.router, prefix="/api", tags=["auth"])
 
 
 @app.exception_handler(Exception)
@@ -900,11 +909,11 @@ async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
   "/v1/lessons/generate",
   response_model=GenerateLessonResponse,
   responses={500: {"model": OrchestrationFailureResponse}},
-  dependencies=[Depends(_require_dev_key)],
 )
 async def generate_lesson(  # noqa: B008
     request: GenerateLessonRequest,
     settings: Settings = Depends(get_settings),  # noqa: B008
+    current_user = Depends(get_current_user_or_dev_key),
 ) -> GenerateLessonResponse:
   """Generate a lesson from a topic using the two-step pipeline."""
   _validate_generate_request(request, settings)
@@ -947,6 +956,7 @@ async def generate_lesson(  # noqa: B008
     gatherer_model=gatherer_model,
     structured_output=True,
     language=language,
+    user_id=current_user.id if current_user else None,
   )
   
   lesson_id = generate_lesson_id()

@@ -46,6 +46,15 @@ class Settings:
     pg_lessons_table: str
     pg_jobs_table: str
     llm_audit_enabled: bool
+    cognito_user_pool_id: str | None
+    cognito_app_client_id: str | None
+    cognito_client_secret: str | None
+    cognito_domain: str | None
+    database_url: str | None
+
+    @property
+    def aws_region(self) -> str:
+        return self.ddb_region
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -88,6 +97,13 @@ def get_settings() -> Settings:
     if max_topic_length <= 0:
         raise ValueError("DGS_MAX_TOPIC_LENGTH must be a positive integer.")
 
+    pg_dsn = os.getenv("DGS_PG_DSN")
+    database_url = os.getenv("DATABASE_URL")
+
+    # Use DATABASE_URL as pg_dsn if DGS_PG_DSN is not set, or just keep them consistent
+    if not pg_dsn and database_url:
+        pg_dsn = database_url
+
     return Settings(
         dev_key=dev_key,
         allowed_origins=_parse_origins(os.getenv("DGS_ALLOWED_ORIGINS")),
@@ -118,11 +134,16 @@ def get_settings() -> Settings:
         jobs_idempotency_index_name=os.getenv("DGS_JOBS_IDEMPOTENCY_INDEX", "jobs_idempotency"),
         jobs_ttl_seconds=_parse_optional_int(os.getenv("DGS_JOBS_TTL_SECONDS")),
         jobs_auto_process=_parse_bool(os.getenv("DGS_JOBS_AUTO_PROCESS")),
-        pg_dsn=os.getenv("DGS_PG_DSN"),
+        pg_dsn=pg_dsn,
         pg_connect_timeout=int(os.getenv("DGS_PG_CONNECT_TIMEOUT", "5")),
         pg_lessons_table=os.getenv("DGS_PG_LESSONS_TABLE", "dgs_lessons"),
         pg_jobs_table=os.getenv("DGS_PG_JOBS_TABLE", "dgs_jobs"),
         llm_audit_enabled=_parse_bool(os.getenv("DGS_LLM_AUDIT_ENABLED")),
+        cognito_user_pool_id=os.getenv("COGNITO_USER_POOL_ID"),
+        cognito_app_client_id=os.getenv("COGNITO_APP_CLIENT_ID"),
+        cognito_client_secret=os.getenv("COGNITO_CLIENT_SECRET"),
+        cognito_domain=os.getenv("COGNITO_DOMAIN"),
+        database_url=database_url,
     )
 
 
