@@ -194,7 +194,7 @@ In Advanced mode, Card 2 supports three paths:
    - Code viewer becomes editable.
    - Provide buttons: Validate (local rules), Format/Prettify, Reset.
 2. **Import JSON**
-   - Paste into code viewer OR upload a `.json` file, using a button in the top right controls of the codeviewer widget
+   - Paste into code viewer OR upload a `.json` file, using a button in the top right controls of the codeEditor widget
    - Parse + show errors in the validation panel as it is now.
 3. **Progressive build using “Partial JSON” widget**
    - Let user assemble JSON in sections.

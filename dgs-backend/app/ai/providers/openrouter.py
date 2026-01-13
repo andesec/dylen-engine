@@ -10,6 +10,7 @@ from typing import Any, Final, cast
 
 from openai import AsyncOpenAI
 
+from app.ai.json_parser import parse_json_with_fallback
 from app.ai.providers.base import (
   AIModel,
   ModelResponse,
@@ -24,7 +25,7 @@ class OpenRouterModel(AIModel):
 
   _STRUCTURED_OUTPUT_MODELS: Final[set[str]] = {
     "openai/gpt-oss-20b:free",
-    "google/gemma-3-27b-it:free",
+    "openai/gpt-oss-120b:free",
   }
 
   def __init__(self, name: str, api_key: str | None = None, base_url: str | None = None) -> None:
@@ -94,9 +95,9 @@ class OpenRouterModel(AIModel):
     dummy = AIModel.load_dummy_response("STRUCTURER")
     if dummy is not None:
       cleaned = AIModel.strip_json_fences(dummy)
-      parsed = cast(dict[str, Any], json.loads(cleaned))
+      parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       response = StructuredModelResponse(content=parsed, usage=None)
-      logger.info("OpenRouter dummy structured response:\n%s", dummy.content)
+      logger.info("OpenRouter dummy structured response:\n%s", dummy)
       return response
 
     # OpenRouter/OpenAI structured output requires a schema in response_format
@@ -138,11 +139,11 @@ class OpenRouterModel(AIModel):
       }
 
     # Parse the JSON response
+    # Parse the model response with a lenient fallback to reduce retry churn.
     try:
       cleaned = self.strip_json_fences(content)
-      parsed = cast(dict[str, Any], json.loads(cleaned))
+      parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       return StructuredModelResponse(content=parsed, usage=usage)
-
     except json.JSONDecodeError as e:
       raise RuntimeError(f"OpenRouter returned invalid JSON: {e}") from e
 
@@ -154,6 +155,7 @@ class OpenRouterProvider(Provider):
   _AVAILABLE_MODELS: Final[set[str]] = {
     # KnowledgeBuilder options (from integration specs).
     "xiaomi/mimo-v2-flash:free",
+    "meta-llama/llama-3.1-405b-instruct:free",
     "deepseek/deepseek-r1-0528:free",
     "openai/gpt-oss-120b:free",
     # Structurer options (from integration specs).

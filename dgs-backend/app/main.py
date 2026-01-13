@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import sys
 import time
@@ -12,10 +13,11 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import (
+  AliasChoices,
   BaseModel,
   ConfigDict,
   Field,
@@ -23,10 +25,11 @@ from pydantic import (
   StrictInt,
   StrictStr,
   ValidationError,
+  model_validator,
 )
 from starlette.concurrency import run_in_threadpool
 
-from app.ai.orchestrator import DgsOrchestrator
+from app.ai.orchestrator import DgsOrchestrator, OrchestrationError
 from app.config import Settings, get_settings
 from app.jobs.guardrails import MAX_ITEM_BYTES, estimate_bytes
 from app.jobs.models import JobRecord, JobStatus
@@ -35,9 +38,15 @@ from app.schema.validate_lesson import validate_lesson
 from app.storage.dynamodb_jobs_repo import DynamoJobsRepository
 from app.storage.dynamodb_repo import DynamoLessonsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
+from app.storage.jobs_repo import JobsRepository
+from app.storage.postgres_jobs_repo import PostgresJobsRepository
+from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 from app.utils.ids import generate_job_id, generate_lesson_id
 
 settings = get_settings()
+# Track background job worker state for lifecycle management.
+_JOB_WORKER_TASK: asyncio.Task[None] | None = None
+_JOB_WORKER_ACTIVE = False
 
 
 class DecimalJSONEncoder(json.JSONEncoder):
@@ -66,9 +75,19 @@ class DecimalJSONResponse(JSONResponse):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
   """Ensure logging is correctly set up after uvicorn starts."""
-  _initialize_logging()
-  logger.info("Startup complete - logging verified.")
+  
+  try:
+    _initialize_logging()
+    logger.info("Startup complete - logging verified.")
+    
+    _start_job_worker(settings)
+  
+  except Exception:
+    logger.warning("Initial logging setup failed; will retry on lifespan.", exc_info=True)
+  
   yield
+  
+  _stop_job_worker()
 
 
 app = FastAPI(default_response_class=DecimalJSONResponse, lifespan=lifespan)
@@ -93,18 +112,23 @@ async def global_exception_handler(request: Request, exc: Exception) -> DecimalJ
     content={"detail": "Internal Server Error", "error": str(exc)},
   )
 
+@app.exception_handler(OrchestrationError)
+async def orchestration_exception_handler(request: Request, exc: OrchestrationError) -> DecimalJSONResponse:
+  """Return a structured failure response for orchestration errors."""
+  # Log orchestration failures with stack traces for diagnostics.
+  logger = logging.getLogger("uvicorn.error")
+  logger.error("Orchestration failure: %s", exc, exc_info=True)
+  # Provide the failure logs so callers can close out the request with context.
+  return DecimalJSONResponse(
+    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    content={"detail": "Orchestration failed", "error": str(exc), "logs": exc.logs},
+  )
 
-# Create logs directory if it doesn't exist
-log_dir = Path("logs")
-log_dir.mkdir(exist_ok=True)
 
-# Generate log filename with timestamp
-log_file = log_dir / f"dgs_app_{time.strftime('%Y%m%d_%H%M%S')}.log"
-
-# Define formatter
-formatter = logging.Formatter(
-  "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
-)
+LOG_LINE_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+LOG_FORMATTER = logging.Formatter(LOG_LINE_FORMAT, datefmt="%H:%M:%S")
+_LOG_FILE_PATH: Path | None = None
+_LOGGING_INITIALIZED = False
 
 
 class TruncatedFormatter(logging.Formatter):
@@ -124,38 +148,45 @@ class TruncatedFormatter(logging.Formatter):
     return "".join(lines)
 
 
-# Configure Root Logger explicitly (safety against uvicorn hijacking)
-root_logger = logging.getLogger()
-# Stream Handler (Console) - Truncated
-stream_handler = logging.StreamHandler(sys.stdout)
-stream_handler.setFormatter(
-  TruncatedFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S")
-)
+def _build_handlers() -> tuple[logging.Handler, logging.Handler, Path]:
+  """Create logging handlers anchored to the backend directory."""
+  log_dir = Path(__file__).resolve().parent.parent / "logs"
+  try:
+    log_dir.mkdir(parents=True, exist_ok=True)
+  except OSError as exc:
+    raise RuntimeError(f"Failed to create log directory at {log_dir}: {exc}") from exc
+  
+  log_path = log_dir / f"dgs_app_{time.strftime('%Y%m%d_%H%M%S')}.log"
+  try:
+    # Touch early so the file exists even if handlers have not flushed yet.
+    log_path.touch(exist_ok=True)
+  except OSError as exc:
+    raise RuntimeError(f"Failed to create log file at {log_path}: {exc}") from exc
+  
+  stream = logging.StreamHandler(sys.stdout)
+  stream.setFormatter(TruncatedFormatter(LOG_LINE_FORMAT, datefmt="%H:%M:%S"))
+  file_handler = logging.FileHandler(log_path, encoding="utf-8")
+  file_handler.setFormatter(LOG_FORMATTER)
+  return stream, file_handler, log_path
 
-# File Handler
-file_handler = logging.FileHandler(log_file)
-file_handler.setFormatter(formatter)
 
-
-def setup_logging():
+def setup_logging() -> Path:
   """Ensure all loggers use our handlers and propagate to root."""
-  # Capture uvicorn loggers
+  stream_handler, file_handler, log_path = _build_handlers()
   for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
     l = logging.getLogger(logger_name)
     l.handlers = [stream_handler, file_handler]
     l.propagate = False
   
-  logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=[stream_handler, file_handler],
-    force=True,
-  )
-  # Re-apply to root just in case
+  logging.basicConfig(level=logging.DEBUG, handlers=[stream_handler, file_handler], force=True)
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
   if not root.handlers:
     root.addHandler(stream_handler)
     root.addHandler(file_handler)
+  if not log_path.exists():
+    raise RuntimeError(f"Logging initialization failed; log file missing at {log_path}")
+  return log_path
 
 
 # Silence noisy libraries
@@ -187,9 +218,80 @@ def _log_widget_registry() -> None:
 
 def _initialize_logging() -> None:
   """Initialize logging and log startup messages."""
-  setup_logging()
-  logger.info(f"Logging initialized. Writing to {log_file}")
+  global _LOG_FILE_PATH, _LOGGING_INITIALIZED
+  if _LOGGING_INITIALIZED:
+    return
+  log_path = setup_logging()
+  _LOG_FILE_PATH = log_path
+  _LOGGING_INITIALIZED = True
+  logger.info("Logging initialized. Writing to %s", _LOG_FILE_PATH)
   _log_widget_registry()
+
+
+def _start_job_worker(active_settings: Settings) -> None:
+  """Start a lightweight job poller to ensure queued jobs are processed."""
+  global _JOB_WORKER_TASK, _JOB_WORKER_ACTIVE
+  
+  # Avoid spawning multiple loops if lifespan runs more than once.
+  
+  if _JOB_WORKER_ACTIVE:
+    return
+  
+  if not active_settings.jobs_auto_process:
+    return
+  
+  # Schedule the worker on the running loop so it survives request lifetimes.
+  
+  loop = asyncio.get_running_loop()
+  _JOB_WORKER_TASK = loop.create_task(_job_worker_loop(active_settings))
+  _JOB_WORKER_TASK.add_done_callback(_log_job_task_failure)
+  _JOB_WORKER_ACTIVE = True
+  logger.info("Job worker loop started.")
+
+
+def _stop_job_worker() -> None:
+  """Stop the job poller when the app shuts down."""
+  global _JOB_WORKER_TASK, _JOB_WORKER_ACTIVE
+  
+  if not _JOB_WORKER_ACTIVE:
+    return
+  
+  if _JOB_WORKER_TASK is None:
+    _JOB_WORKER_ACTIVE = False
+    return
+  
+  # Cancel the task to stop polling promptly on shutdown.
+  
+  _JOB_WORKER_TASK.cancel()
+  _JOB_WORKER_TASK = None
+  _JOB_WORKER_ACTIVE = False
+  logger.info("Job worker loop stopped.")
+
+
+async def _job_worker_loop(active_settings: Settings) -> None:
+  """Poll for queued jobs so processing happens even if kickoff is missed."""
+  from app.jobs.worker import JobProcessor
+  
+  # Reuse a single processor to keep orchestration wiring consistent.
+  
+  repo = _get_jobs_repo(active_settings)
+  processor = JobProcessor(
+    jobs_repo=repo,
+    orchestrator=_get_orchestrator(active_settings),
+    settings=active_settings,
+  )
+  poll_seconds = 2.0
+  
+  while True:
+    
+    try:
+      await processor.process_queue(limit=5)
+    
+    
+    except Exception as exc:  # noqa: BLE001
+      logger.error("Job worker loop failed: %s", exc, exc_info=True)
+    
+    await asyncio.sleep(poll_seconds)
 
 
 @app.middleware("http")
@@ -237,6 +339,7 @@ class KnowledgeModel(str, Enum):
   GEMINI_25_PRO = "gemini-2.5-pro"
   XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash:free"
   DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
+  LLAMA_31_405B = "meta-llama/llama-3.1-405b-instruct:free"
   GPT_OSS_120B = "openai/gpt-oss-120b:free"
 
 
@@ -249,46 +352,33 @@ class StructurerModel(str, Enum):
   LLAMA_33_70B = "meta-llama/llama-3.3-70b-instruct:free"
 
 
-class GenerationConstraints(BaseModel):
-  """Specific constraints for lesson content generation."""
-  
-  primaryLanguage: Literal["English", "German", "Urdu"] | None = Field(
-    default="English", alias="primaryLanguage"
-  )
-  learnerLevel: Literal["Newbie", "Beginner", "Intermediate", "Expert"] | None = Field(
-    default=None, alias="learnerLevel"
-  )
-  depth: (
-      Literal[
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "10",
-      ]
-      | None
-  ) = Field(default="2", alias="depth")
-  
-  model_config = ConfigDict(populate_by_name=True)
-
-
 class ModelsConfig(BaseModel):
   """Per-agent model selection overrides."""
   
-  knowledge_model: KnowledgeModel = Field(
-    default=KnowledgeModel.GEMINI_25_FLASH,
-    description="Model used for knowledge collection.",
+  gatherer_model: StrictStr | None = Field(
+    default=None,
+    validation_alias=AliasChoices("gatherer_model", "knowledge_model"),
+    serialization_alias="gatherer_model",
+    description="Model used for the gatherer agent (provider inferred when possible).",
+    examples=["xiaomi/mimo-v2-flash:free"],
   )
-  structurer_model: StructurerModel = Field(
-    default=StructurerModel.LLAMA_33_70B,
-    description="Model used for lesson structuring.",
+  planner_model: StrictStr | None = Field(
+    default=None,
+    description="Model used for the planner agent (provider inferred when possible).",
+    examples=["openai/gpt-oss-120b:free"],
+  )
+  structurer_model: StrictStr | None = Field(
+    default=None,
+    description="Model used for lesson structuring (provider inferred when possible).",
+    examples=["openai/gpt-oss-20b:free"],
+  )
+  repairer_model: StrictStr | None = Field(
+    default=None,
+    description="Model used for repair validation and fixes (provider inferred when possible).",
+    examples=["google/gemma-3-27b-it:free"],
   )
   
-  model_config = ConfigDict(extra="forbid")
+  model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class GenerateLessonRequest(BaseModel):
@@ -299,11 +389,51 @@ class GenerateLessonRequest(BaseModel):
     description="Topic to generate a lesson for.",
     examples=["Introduction to Python"],
   )
-  prompt: StrictStr | None = Field(
+  details: StrictStr | None = Field(
     default=None,
     min_length=1,
-    description="Optional user-supplied guidance (max 250 words).",
+    description="Optional user-supplied details (max 250 words).",
     examples=["Focus on lists and loops"],
+  )
+  blueprint: (
+      Literal[
+        "Skill Building",
+        "Knowledge & Understanding",
+        "Communication Skills",
+        "Planning and Productivity",
+        "Movement and Fitness",
+        "Growth Mindset",
+        "Critical Thinking",
+        "Creative Skills",
+        "Decision Making & Strategy",
+      ]
+      | None
+  ) = Field(
+    default=None,
+    description="Optional blueprint or learning outcome guidance for lesson planning.",
+  )
+  teaching_style: list[Literal["Conceptual", "Theoretical", "Practical", "All"]] | None = Field(
+    default=None,
+    description="Optional teaching style or pedagogy guidance for lesson planning.",
+  )
+  learner_level: StrictStr | None = Field(
+    default=None,
+    min_length=1,
+    description="Optional learner level hint used for prompt guidance.",
+  )
+  depth: Literal["Highlights", "Detailed", "Training"] = Field(
+    default="Highlights",
+    description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
+  )
+  primary_language: Literal["English", "German", "Urdu"] = Field(
+    default="English",
+    description="Primary language for lesson output.",
+  )
+  widgets: list[StrictStr] | None = Field(
+    default=None,
+    min_length=3,
+    max_length=8,
+    description="Optional list of allowed widgets (overrides defaults).",
   )
   mode: GenerationMode = Field(
     default=GenerationMode.BALANCED,
@@ -316,13 +446,26 @@ class GenerateLessonRequest(BaseModel):
     default=None,
     description="Idempotency key to prevent duplicate lesson generation.",
   )
-  constraints: GenerationConstraints | None = Field(
-    default=None, description="Domain-specific generation constraints."
-  )
   models: ModelsConfig | None = Field(
-    default=None, description="Optional per-agent model selection overrides."
+    default=None,
+    description="Optional per-agent model selection overrides.",
+    examples=[
+      {
+        "gatherer_model": "xiaomi/mimo-v2-flash:free",
+        "planner_model": "openai/gpt-oss-120b:free",
+        "structurer_model": "openai/gpt-oss-20b:free",
+        "repairer_model": "google/gemma-3-27b-it:free",
+      }
+    ],
   )
   model_config = ConfigDict(extra="forbid")
+
+  @model_validator(mode="after")
+  def validate_depth_style_constraint(self) -> GenerateLessonRequest:
+    if self.depth == "Highlights" and self.teaching_style:
+      if "All" in self.teaching_style or len(self.teaching_style) == 3:
+        raise ValueError("Cannot select 'All' teaching styles when depth is 'Highlights'.")
+    return self
 
 
 class LessonMeta(BaseModel):
@@ -342,6 +485,14 @@ class GenerateLessonResponse(BaseModel):
   lesson_json: dict[str, Any]
   meta: LessonMeta
   logs: list[StrictStr]  # New field for orchestration logs
+
+
+class OrchestrationFailureResponse(BaseModel):
+  """Response payload for orchestration failures."""
+  
+  detail: StrictStr
+  error: StrictStr
+  logs: list[StrictStr]
 
 
 class LessonRecordResponse(BaseModel):
@@ -364,20 +515,24 @@ class WritingCheckRequest(BaseModel):
     min_length=1, description="The user-written response to check (max 300 words)."
   )
   criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
+  checker_model: StrictStr | None = Field(
+    default=None,
+    description="Optional model override for writing evaluation (provider inferred when possible).",
+    examples=["openai/gpt-oss-20b:free"],
+  )
   model_config = ConfigDict(extra="forbid")
 
 
 class JobCreateResponse(BaseModel):
   """Response payload for job creation."""
   
-  job_id: StrictStr = Field(serialization_alias="jobId", validation_alias="jobId")
-  model_config = ConfigDict(populate_by_name=True)
+  job_id: StrictStr
 
 
 class JobStatusResponse(BaseModel):
-  """Status payload for an asynchronous lesson generation job."""
+  """Status payload for an asynchronous job."""
   
-  job_id: StrictStr = Field(serialization_alias="jobId", validation_alias="jobId")
+  job_id: StrictStr
   status: JobStatus
   phase: StrictStr | None = None
   subphase: StrictStr | None = None
@@ -398,14 +553,14 @@ class JobStatusResponse(BaseModel):
     description="Progress percent (0-100) when available.",
   )
   logs: list[StrictStr] = Field(default_factory=list)
-  request: GenerateLessonRequest
+  request: GenerateLessonRequest | WritingCheckRequest
   result: dict[str, Any] | None = None
   validation: ValidationResponse | None = None
   cost: dict[str, Any] | None = None
-  created_at: StrictStr = Field(serialization_alias="createdAt", validation_alias="createdAt")
-  updated_at: StrictStr = Field(serialization_alias="updatedAt", validation_alias="updatedAt")
+  created_at: StrictStr
+  updated_at: StrictStr
   completed_at: StrictStr | None = Field(
-    default=None, serialization_alias="completedAt", validation_alias="completedAt"
+    default=None
   )
   model_config = ConfigDict(populate_by_name=True)
 
@@ -418,37 +573,54 @@ def _get_orchestrator(
     *,
     gatherer_provider: str | None = None,
     gatherer_model: str | None = None,
+    planner_provider: str | None = None,
+    planner_model: str | None = None,
     structurer_provider: str | None = None,
     structurer_model: str | None = None,
+    repair_provider: str | None = None,
+    repair_model: str | None = None,
 ) -> DgsOrchestrator:
   return DgsOrchestrator(
     gatherer_provider=gatherer_provider or settings.gatherer_provider,
     gatherer_model=gatherer_model or settings.gatherer_model,
+    planner_provider=planner_provider or settings.planner_provider,
+    planner_model=planner_model or settings.planner_model,
     structurer_provider=structurer_provider or settings.structurer_provider,
     structurer_model=structurer_model or settings.structurer_model,
-    repair_provider=settings.repair_provider,
-    repair_model=settings.repair_model,
+    repair_provider=repair_provider or settings.repair_provider,
+    repair_model=repair_model or settings.repair_model,
     schema_version=settings.schema_version,
+    merge_gatherer_structurer=settings.merge_gatherer_structurer,
   )
 
 
 def _get_repo(settings: Settings) -> LessonsRepository:
-  return DynamoLessonsRepository(
-    table_name=settings.ddb_table,
-    region=settings.ddb_region,
-    endpoint_url=settings.ddb_endpoint_url,
-    tenant_key=settings.tenant_key,
-    lesson_id_index=settings.lesson_id_index_name,
+  """Return the active lessons repository."""
+  
+  # Enforce Postgres-backed storage for lessons.
+  
+  if not settings.pg_dsn:
+    raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
+  
+  return PostgresLessonsRepository(
+    dsn=settings.pg_dsn,
+    connect_timeout=settings.pg_connect_timeout,
+    table_name=settings.pg_lessons_table,
   )
 
 
-def _get_jobs_repo(settings: Settings) -> DynamoJobsRepository:
-  return DynamoJobsRepository(
-    table_name=settings.jobs_table,
-    region=settings.ddb_region,
-    endpoint_url=settings.ddb_endpoint_url,
-    all_jobs_index=settings.jobs_all_jobs_index_name,
-    idempotency_index=settings.jobs_idempotency_index_name,
+def _get_jobs_repo(settings: Settings) -> JobsRepository:
+  """Return the active jobs repository."""
+  
+  # Enforce Postgres-backed storage for jobs.
+  
+  if not settings.pg_dsn:
+    raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
+  
+  return PostgresJobsRepository(
+    dsn=settings.pg_dsn,
+    connect_timeout=settings.pg_connect_timeout,
+    table_name=settings.pg_jobs_table,
   )
 
 
@@ -460,6 +632,7 @@ _GEMINI_KNOWLEDGE_MODELS = {
 _OPENROUTER_KNOWLEDGE_MODELS = {
   KnowledgeModel.XIAOMI_MIMO_V2_FLASH,
   KnowledgeModel.DEEPSEEK_R1_0528,
+  KnowledgeModel.LLAMA_31_405B,
   KnowledgeModel.GPT_OSS_120B,
 }
 
@@ -471,7 +644,7 @@ _OPENROUTER_STRUCTURER_MODELS = {
   StructurerModel.GEMMA_3_27B,
 }
 
-DEFAULT_KNOWLEDGE_MODEL = KnowledgeModel.GEMINI_25_FLASH.value
+DEFAULT_KNOWLEDGE_MODEL = KnowledgeModel.LLAMA_31_405B.value
 
 
 def _resolve_model_selection(
@@ -479,7 +652,7 @@ def _resolve_model_selection(
     *,
     mode: GenerationMode | None,
     models: ModelsConfig | None,
-) -> tuple[str, str | None, str, str | None]:
+) -> tuple[str, str | None, str, str | None, str, str | None, str, str | None]:
   """
   Derive gatherer and structurer providers/models based on request settings.
 
@@ -489,16 +662,34 @@ def _resolve_model_selection(
   selected_mode = mode or GenerationMode.BALANCED
   
   # Respect per-agent overrides when provided, otherwise use environment defaults.
-  if models is not None:
-    knowledge_model = models.knowledge_model.value
-    structurer_model = models.structurer_model.value
-  else:
-    knowledge_model = settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
-    structurer_model = _structurer_model_for_mode(settings, selected_mode)
   
-  gatherer_provider = _provider_for_knowledge_model(settings, knowledge_model)
+  if models is not None:
+    gatherer_model = models.gatherer_model or settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
+    planner_model = models.planner_model or settings.planner_model
+    structurer_model = models.structurer_model or _structurer_model_for_mode(settings, selected_mode)
+    repairer_model = models.repairer_model or settings.repair_model
+  
+  else:
+    gatherer_model = settings.gatherer_model or DEFAULT_KNOWLEDGE_MODEL
+    planner_model = settings.planner_model
+    structurer_model = _structurer_model_for_mode(settings, selected_mode)
+    repairer_model = settings.repair_model
+  
+  # Resolve provider hints to keep routing consistent for each agent.
+  gatherer_provider = _provider_for_knowledge_model(settings, gatherer_model)
+  planner_provider = _provider_for_model_hint(settings, planner_model, settings.planner_provider)
   structurer_provider = _provider_for_structurer_model(settings, structurer_model)
-  return gatherer_provider, knowledge_model, structurer_provider, structurer_model
+  repairer_provider = _provider_for_model_hint(settings, repairer_model, settings.repair_provider)
+  return (
+    gatherer_provider,
+    gatherer_model,
+    planner_provider,
+    planner_model,
+    structurer_provider,
+    structurer_model,
+    repairer_provider,
+    repairer_model,
+  )
 
 
 def _structurer_model_for_mode(settings: Settings, mode: GenerationMode) -> str | None:
@@ -523,13 +714,36 @@ def _provider_for_knowledge_model(settings: Settings, model_name: str | None) ->
 
 def _provider_for_structurer_model(settings: Settings, model_name: str | None) -> str:
   # Keep provider routing consistent even if the model list evolves.
+  
   if not model_name:
     return settings.structurer_provider
+  
   if model_name in {model.value for model in _GEMINI_STRUCTURER_MODELS}:
     return "gemini"
+  
   if model_name in {model.value for model in _OPENROUTER_STRUCTURER_MODELS}:
     return "openrouter"
+  
   return settings.structurer_provider
+
+
+def _provider_for_model_hint(settings: Settings, model_name: str | None, fallback_provider: str) -> str:
+  """Resolve a provider from known model lists with a safe fallback."""
+  # Only route to known providers when the model name matches a known set.
+  
+  if not model_name:
+    return fallback_provider
+  
+  gemini_models = {model.value for model in _GEMINI_KNOWLEDGE_MODELS} | {model.value for model in _GEMINI_STRUCTURER_MODELS}
+  openrouter_models = {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS} | {model.value for model in _OPENROUTER_STRUCTURER_MODELS}
+  
+  if model_name in gemini_models:
+    return "gemini"
+  
+  if model_name in openrouter_models:
+    return "openrouter"
+  
+  return fallback_provider
 
 
 def _require_dev_key(  # noqa: B008
@@ -546,18 +760,19 @@ def _count_words(text: str) -> int:
 
 
 def _validate_generate_request(request: GenerateLessonRequest, settings: Settings) -> None:
-  """Enforce topic/prompt length and persistence size constraints."""
+  """Enforce topic/detail length and persistence size constraints."""
   if len(request.topic) > settings.max_topic_length:
     raise HTTPException(
       status_code=status.HTTP_400_BAD_REQUEST,
       detail=f"Topic exceeds max length of {settings.max_topic_length} chars.",
     )
-  if request.prompt:
-    word_count = _count_words(request.prompt)
+  if request.details:
+    # Guardrail to keep user-provided detail payloads within size limits.
+    word_count = _count_words(request.details)
     if word_count > 250:
       raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail=f"User prompt is too long ({word_count} words). Max 250 words.",
+        detail=f"User details are too long ({word_count} words). Max 250 words.",
       )
   if estimate_bytes(request.model_dump(mode="python", by_alias=True)) > MAX_REQUEST_BYTES:
     raise HTTPException(
@@ -565,13 +780,13 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
       detail="Request payload is too large for persistence.",
     )
   
-  constraints = (
-    request.constraints.model_dump(mode="python", by_alias=True) if request.constraints else {}
-  )
   try:
     from app.jobs.progress import build_call_plan  # Local import to avoid circular deps
     
-    build_call_plan({"constraints": constraints})
+    build_call_plan(
+      request.model_dump(mode="python", by_alias=True),
+      merge_gatherer_structurer=settings.merge_gatherer_structurer,
+    )
   except ValueError as exc:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -596,19 +811,17 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
     )
 
 
-def _build_constraints(constraints: GenerationConstraints | None) -> dict[str, Any] | None:
-  """Translate user constraints into orchestration constraints."""
-  if not constraints:
-    return None
-  # Use aliases to keep API fields aligned with OpenAPI and DLE.
-  return constraints.model_dump(mode="python", by_alias=True, exclude_none=True)
-
-
-def _resolve_primary_language(constraints: GenerationConstraints | None) -> str | None:
+def _resolve_primary_language(request: GenerateLessonRequest) -> str | None:
   """Return the requested primary language for orchestration prompts."""
   # This feeds prompt guidance but does not change response schema.
-  if constraints and constraints.primaryLanguage:
-    return constraints.primaryLanguage
+  return request.primary_language
+
+
+def _resolve_learner_level(request: GenerateLessonRequest) -> str | None:
+  """Return the learner level from the request."""
+  # Prefer the explicit request field for prompt guidance.
+  if request.learner_level:
+    return request.learner_level
   return None
 
 
@@ -620,8 +833,11 @@ def _compute_job_ttl(settings: Settings) -> int | None:
 
 def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
   """Convert a persisted job record into an API response payload."""
+  
+  # Parse the stored payload into the correct request model for the job type.
   try:
-    request = GenerateLessonRequest.model_validate(record.request)
+    request = _parse_job_request(record.request)
+  
   except ValidationError as exc:
     raise HTTPException(
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -629,6 +845,7 @@ def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
     ) from exc
   
   validation = None
+  
   if record.validation is not None:
     validation = ValidationResponse.model_validate(record.validation)
   
@@ -651,6 +868,17 @@ def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
   )
 
 
+def _parse_job_request(payload: dict[str, Any]) -> GenerateLessonRequest | WritingCheckRequest:
+  """Resolve the stored job request to the correct request model."""
+  
+  # Writing checks carry a distinct payload shape (text + criteria).
+  
+  if "text" in payload and "criteria" in payload:
+    return WritingCheckRequest.model_validate(payload)
+  
+  return GenerateLessonRequest.model_validate(payload)
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
   return {"status": "ok"}
@@ -671,6 +899,7 @@ async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
 @app.post(
   "/v1/lessons/generate",
   response_model=GenerateLessonResponse,
+  responses={500: {"model": OrchestrationFailureResponse}},
   dependencies=[Depends(_require_dev_key)],
 )
 async def generate_lesson(  # noqa: B008
@@ -681,26 +910,38 @@ async def generate_lesson(  # noqa: B008
   _validate_generate_request(request, settings)
   
   start = time.monotonic()
-  gatherer_provider, gatherer_model, structurer_provider, structurer_model = (
-    _resolve_model_selection(
-      settings,
-      mode=request.mode,
-      models=request.models,
-    )
-  )
+  # Resolve per-agent model overrides and provider routing for this request.
+  selection = _resolve_model_selection(settings, mode=request.mode, models=request.models)
+  (
+    gatherer_provider,
+    gatherer_model,
+    planner_provider,
+    planner_model,
+    structurer_provider,
+    structurer_model,
+    repairer_provider,
+    repairer_model,
+  ) = selection
   orchestrator = _get_orchestrator(
     settings,
     gatherer_provider=gatherer_provider,
     gatherer_model=gatherer_model,
+    planner_provider=planner_provider,
+    planner_model=planner_model,
     structurer_provider=structurer_provider,
     structurer_model=structurer_model,
+    repair_provider=repairer_provider,
+    repair_model=repairer_model,
   )
-  constraints = _build_constraints(request.constraints)
-  language = _resolve_primary_language(request.constraints)
+  language = _resolve_primary_language(request)
+  learner_level = _resolve_learner_level(request)
   result = await orchestrator.generate_lesson(
     topic=request.topic,
-    prompt=request.prompt,
-    constraints=constraints,
+    details=request.details,
+    blueprint=request.blueprint,
+    teaching_style=request.teaching_style,
+    learner_level=learner_level,
+    depth=request.depth,
     schema_version=request.schema_version or settings.schema_version,
     structurer_model=structurer_model,
     gatherer_model=gatherer_model,
@@ -780,6 +1021,67 @@ async def _create_job_record(
   return JobCreateResponse(job_id=job_id)
 
 
+async def _process_job_async(job_id: str, settings: Settings) -> None:
+  """Run a queued job in-process to update status as work progresses."""
+  
+  from app.jobs.worker import JobProcessor
+  
+  # Fetch the queued record so we can process only if it still exists.
+  repo = _get_jobs_repo(settings)
+  record = await run_in_threadpool(repo.get_job, job_id)
+  
+  if record is None:
+    return
+  
+  # Run the job with a fresh processor to update progress states.
+  processor = JobProcessor(
+    jobs_repo=repo,
+    orchestrator=_get_orchestrator(settings),
+    settings=settings,
+  )
+  # Execute the job asynchronously so progress updates stream back to storage.
+  await processor.process_job(record)
+
+
+def _kickoff_job_processing(background_tasks: BackgroundTasks, job_id: str, settings: Settings) -> None:
+  """Schedule background processing so clients see status updates."""
+  
+  # Fire-and-forget processing to keep the API responsive.
+  # Skip in-process execution when external workers (Lambda) are responsible.
+  
+  if not settings.jobs_auto_process:
+    return
+  
+  # Defer to the shared worker loop to avoid duplicate processing.
+  
+  if _JOB_WORKER_ACTIVE:
+    return
+  
+  # Prefer immediate scheduling on the running loop to start work right away.
+  
+  try:
+    loop = asyncio.get_running_loop()
+  
+  
+  except RuntimeError:
+    background_tasks.add_task(_process_job_async, job_id, settings)
+    return
+  
+  task = loop.create_task(_process_job_async(job_id, settings))
+  task.add_done_callback(_log_job_task_failure)
+
+
+def _log_job_task_failure(task: asyncio.Task[None]) -> None:
+  """Log unexpected failures from background job tasks."""
+  
+  try:
+    task.result()
+  
+  
+  except Exception as exc:  # noqa: BLE001
+    logger.error("Job processing task failed: %s", exc, exc_info=True)
+
+
 @app.post(
   "/v1/jobs",
   response_model=JobCreateResponse,
@@ -787,10 +1089,16 @@ async def _create_job_record(
 )
 async def create_job(  # noqa: B008
     request: GenerateLessonRequest,
+    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> JobCreateResponse:
   """Create a background lesson generation job."""
-  return await _create_job_record(request, settings)
+  response = await _create_job_record(request, settings)
+  
+  # Kick off processing so the client can poll for status immediately.
+  _kickoff_job_processing(background_tasks, response.job_id, settings)
+  
+  return response
 
 
 @app.post(
@@ -800,10 +1108,16 @@ async def create_job(  # noqa: B008
 )
 async def create_lesson_job(  # noqa: B008
     request: GenerateLessonRequest,
+    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> JobCreateResponse:
   """Alias route for creating a background lesson generation job."""
-  return await _create_job_record(request, settings)
+  response = await _create_job_record(request, settings)
+  
+  # Kick off processing so the client can poll for status immediately.
+  _kickoff_job_processing(background_tasks, response.job_id, settings)
+  
+  return response
 
 
 @app.post(
@@ -814,6 +1128,7 @@ async def create_lesson_job(  # noqa: B008
 )
 async def create_writing_check(  # noqa: B008
     request: WritingCheckRequest,
+    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> JobCreateResponse:
   """Create a background job to check a writing task response."""
@@ -832,7 +1147,12 @@ async def create_writing_check(  # noqa: B008
     ttl=_compute_job_ttl(settings),
   )
   await run_in_threadpool(repo.create_job, record)
-  return JobCreateResponse(job_id=job_id)
+  response = JobCreateResponse(job_id=job_id)
+  
+  # Kick off processing so the client can poll for status immediately.
+  _kickoff_job_processing(background_tasks, response.job_id, settings)
+  
+  return response
 
 
 @app.get(

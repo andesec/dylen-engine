@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   dynamodb-local:
     image: amazon/dynamodb-local:latest
@@ -18,6 +16,46 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: dgs-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=dgs
+      - POSTGRES_PASSWORD=dgs_password
+      - POSTGRES_DB=dgs
+    volumes:
+      - dgs_pg_data:/var/lib/postgresql/data
+    networks:
+      - dgs-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dgs -d dgs" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  postgres-init:
+    image: postgres:16-alpine
+    container_name: dgs-postgres-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./scripts/init-postgres.sh:/init-postgres.sh:ro
+      - ./scripts/postgres:/init:ro
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=dgs
+      - POSTGRES_PASSWORD=dgs_password
+      - POSTGRES_DB=dgs
+    networks:
+      - dgs-network
+    entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
+    restart: "no"
 
   dynamodb-init:
     image: amazon/aws-cli:latest
@@ -39,3 +77,6 @@ services:
 networks:
   dgs-network:
     driver: bridge
+
+volumes:
+  dgs_pg_data:

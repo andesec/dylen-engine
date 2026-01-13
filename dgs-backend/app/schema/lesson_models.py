@@ -1,815 +1,611 @@
-"""Typed lesson schema models with strict validation."""
+"""Typed lesson schema models using positional array shorthands."""
 
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal, Union, cast
 
 from pydantic import (
     BaseModel,
-    ConfigDict,
     Field,
     StrictBool,
     StrictInt,
     StrictStr,
+    ValidationError,
     field_validator,
     model_validator,
 )
 
 
-class LessonBaseModel(BaseModel):
-    """Base model for strict lesson schema primitives."""
+# --- Primitive Widgets ---
 
-    # NOTE: Widgets carry their own type discriminator; section blocks do not.
-    # model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
-class WidgetBase(LessonBaseModel):
-    """Base class for all widgets with a type discriminator."""
-
-    type: StrictStr
-
-
-class ParagraphWidget(WidgetBase):
+class ParagraphWidget(BaseModel):
     """Paragraph content widget."""
-
-    type: Literal["p"]
-    text: StrictStr
+    p: StrictStr
 
 
-class CalloutWidget(WidgetBase):
-    """Callout variants for inline emphasis."""
-
-    type: Literal["info", "tip", "warn", "err", "success"]
-    text: StrictStr
+class WarnWidget(BaseModel):
+    """Warning callout."""
+    warn: StrictStr
 
 
-class FlipWidget(WidgetBase):
-    """Flipcard widget with optional hints."""
-
-    type: Literal["flip"]
-    front: StrictStr = Field(min_length=1, max_length=120)
-    back: StrictStr = Field(min_length=1, max_length=160)
-    front_hint: StrictStr | None = None
-    back_hint: StrictStr | None = None
+class ErrorWidget(BaseModel):
+    """Error callout."""
+    err: StrictStr
 
 
-class TranslationWidget(WidgetBase):
-    """Translation pair widget."""
+class SuccessWidget(BaseModel):
+    """Success callout."""
+    success: StrictStr
 
-    type: Literal["tr"]
-    source: StrictStr = Field(min_length=1)
-    target: StrictStr = Field(min_length=1)
 
-    @field_validator("source", "target")
+class FlipWidget(BaseModel):
+    """Flipcard widget: [front, back, front_hint?, back_hint?]"""
+    flip: list[StrictStr]
+
+    @field_validator("flip")
     @classmethod
-    def validate_language_prefix(cls, value: StrictStr) -> StrictStr:
-        if not re.match(r"^[A-Za-z]{2,3}[:-]", value):
-            raise ValueError("translation entries must start with a language code (e.g. EN:)")
-        return value
+    def validate_flip(cls, v: list[str]) -> list[str]:
+        if len(v) < 2:
+            raise ValueError("flip widget must have at least 2 elements: [front, back]")
+        if len(v) > 4:
+            raise ValueError("flip widget must have at most 4 elements")
+        if len(v[0]) > 120:
+             raise ValueError("flip front text must be 120 characters or fewer")
+        if len(v[1]) > 160:
+             raise ValueError("flip back text must be 160 characters or fewer")
+        return v
 
 
-class BlankWidget(WidgetBase):
-    """Fill-in-the-blank widget."""
+class TranslationWidget(BaseModel):
+    """Translation pair widget: [source, target]"""
+    tr: list[StrictStr]
 
-    type: Literal["blank"]
-    prompt: StrictStr = Field(min_length=1)
-    answer: StrictStr = Field(min_length=1)
-    hint: StrictStr = Field(min_length=1)
-    explanation: StrictStr = Field(min_length=1)
-
-    @field_validator("prompt")
+    @field_validator("tr")
     @classmethod
-    def validate_prompt_placeholder(cls, value: StrictStr) -> StrictStr:
-        if "___" not in value:
-            raise ValueError("blank prompt must include ___ placeholder")
-        return value
+    def validate_tr(cls, v: list[str]) -> list[str]:
+        if len(v) != 2:
+            raise ValueError("tr widget must have exactly 2 elements: [source, target]")
+        for item in v:
+            if not re.match(r"^[A-Za-z]{2,3}[:-]", item):
+                raise ValueError("translation entries must start with a language code (e.g. EN:)")
+        return v
 
 
-class ListWidget(WidgetBase):
-    """Ordered or unordered list widget."""
+class FillBlankWidget(BaseModel):
+    """Fill-in-the-blank widget: [prompt, answer, hint, explanation]"""
+    fillblank: list[StrictStr]
 
-    type: Literal["ul", "ol"]
-    items: list[StrictStr]
+    @field_validator("fillblank")
+    @classmethod
+    def validate_blank(cls, v: list[str]) -> list[str]:
+        if len(v) != 4:
+            raise ValueError("fillblank widget must have exactly 4 elements: [prompt, answer, hint, explanation]")
+        if "___" not in v[0]:
+            raise ValueError("fillblank prompt must include ___ placeholder")
+        return v
 
 
-class TableWidget(WidgetBase):
+class UnorderedListWidget(BaseModel):
+    """Unordered list widget."""
+    ul: list[StrictStr]
+
+
+class OrderedListWidget(BaseModel):
+    """Ordered list widget."""
+    ol: list[StrictStr]
+
+
+class TableWidget(BaseModel):
     """Tabular data widget."""
+    table: list[list[StrictStr]]
 
-    type: Literal["table"]
-    rows: list[list[StrictStr]]
-
-    @field_validator("rows")
+    @field_validator("table")
     @classmethod
-    def validate_rows(cls, value: list[list[StrictStr]]) -> list[list[StrictStr]]:
-        if not value:
+    def validate_rows(cls, v: list[list[str]]) -> list[list[str]]:
+        if not v:
             raise ValueError("table requires at least one row")
-        for row in value:
+        for row in v:
             if not row:
                 raise ValueError("table rows must not be empty")
-        return value
+        return v
 
 
-class CompareWidget(WidgetBase):
+class CompareWidget(BaseModel):
     """Two-column comparison widget."""
+    compare: list[list[StrictStr]]
 
-    type: Literal["compare"]
-    rows: list[list[StrictStr]]
-
-    @field_validator("rows")
+    @field_validator("compare")
     @classmethod
-    def validate_rows(cls, value: list[list[StrictStr]]) -> list[list[StrictStr]]:
-        if not value:
+    def validate_rows(cls, v: list[list[str]]) -> list[list[str]]:
+        if not v:
             raise ValueError("compare requires at least one row")
-        for row in value:
+        for row in v:
             if len(row) < 2:
-                raise ValueError("compare rows must include two columns")
-        return value
+                raise ValueError("compare rows must include at least two columns")
+        return v
 
 
-class SwipeCard(LessonBaseModel):
-    """Card entry for swipe widget."""
+class SwipeCardsWidget(BaseModel):
+    """
+    Swipe cards drill widget.
+    Format: [title, [bucket1, bucket2], [[text, bucket_idx, feedback], ...]]
+    """
+    swipecards: list[Any]
 
-    text: StrictStr = Field(min_length=1, max_length=120)
-    correct_bucket: Literal[0, 1]
-    feedback: StrictStr = Field(min_length=1, max_length=150)
-
-
-class SwipeWidget(WidgetBase):
-    """Binary swipe drill widget."""
-
-    type: Literal["swipe"]
-    title: StrictStr = Field(min_length=1)
-    buckets: list[StrictStr]
-    cards: list[SwipeCard]
-
-    @field_validator("buckets")
+    @field_validator("swipecards")
     @classmethod
-    def validate_buckets(cls, value: list[StrictStr]) -> list[StrictStr]:
-        if len(value) != 2:
-            raise ValueError("swipe buckets must contain exactly two labels")
-        if any(not label for label in value):
-            raise ValueError("swipe bucket labels must be non-empty")
-        return value
+    def validate_swipecards(cls, v: list[Any]) -> list[Any]:
+        if len(v) != 3:
+            raise ValueError("swipecards widget must have exactly 3 elements: [title, buckets, cards]")
 
-    @field_validator("cards")
+        title, buckets, cards = v[0], v[1], v[2]
+
+        if not isinstance(title, str) or not title:
+            raise ValueError("swipecards title must be a non-empty string")
+
+        if not isinstance(buckets, list) or len(buckets) != 2 or not all(isinstance(b, str) and b for b in buckets):
+            raise ValueError("swipecards buckets must be a list of two non-empty strings")
+
+        if not isinstance(cards, list) or not cards:
+            raise ValueError("swipecards cards must be a non-empty list")
+
+        for i, card in enumerate(cards):
+            if not isinstance(card, list) or len(card) != 3:
+                raise ValueError(f"swipecards card at index {i} must be [text, correct_bucket_idx, feedback]")
+            text, idx, feedback = card
+            if not isinstance(text, str):
+                raise ValueError(f"swipecards card {i} text must be a string")
+            if not isinstance(idx, int) or idx not in (0, 1):
+                raise ValueError(f"swipecards card {i} correct_bucket_idx must be 0 or 1")
+            if not isinstance(feedback, str):
+                raise ValueError(f"swipecards card {i} feedback must be a string")
+
+            if len(text) > 120:
+                raise ValueError(f"swipecards card {i} text exceeds 120 characters")
+            if len(feedback) > 150:
+                raise ValueError(f"swipecards card {i} feedback exceeds 150 characters")
+
+        return v
+
+
+class FreeTextWidget(BaseModel):
+    """
+    Free text editor widget (Multi-line only).
+    Format: [prompt, seed_locked?, lang?, wordlist_csv?]
+    """
+    freeText: list[Any]
+
+    @field_validator("freeText")
     @classmethod
-    def validate_cards(cls, value: list[SwipeCard]) -> list[SwipeCard]:
-        if not value:
-            raise ValueError("swipe requires at least one card")
-        return value
+    def validate_free_text(cls, v: list[Any]) -> list[Any]:
+
+        if len(v) < 1:
+            raise ValueError("freeText widget must have at least a prompt")
+
+        # 0: prompt
+
+        if not isinstance(v[0], str):
+            raise ValueError("freeText prompt must be a string")
+
+        # 1: seed_locked (optional)
+
+        if len(v) > 1 and v[1] is not None and not isinstance(v[1], str):
+            raise ValueError("freeText seed_locked must be a string or null")
+
+        # 2: lang (optional)
+
+        if len(v) > 2 and v[2] is not None and not isinstance(v[2], str):
+            raise ValueError("freeText lang must be a string or null")
+
+        # 3: wordlist_csv (optional)
+
+        if len(v) > 3 and v[3] is not None and not isinstance(v[3], str):
+            raise ValueError("freeText wordlist_csv must be a string or null")
+
+        # Ensure no more elements
+
+        if len(v) > 4:
+            raise ValueError("freeText widget has too many elements")
+
+        return v
 
 
-class FreeTextWidget(WidgetBase):
-    """Free text editor widget."""
+class InputLineWidget(BaseModel):
+    """
+    Single line input widget.
+    Format: [prompt, lang?, wordlist_csv?]
+    """
+    inputLine: list[Any]
 
-    type: Literal["freeText"]
-    prompt: StrictStr = Field(min_length=1)
-    seed_locked: StrictStr | None = None
-    text: StrictStr
-    lang: StrictStr = "en"
-    wordlist_csv: StrictStr | None = None
-    mode: Literal["single", "multi"] = "multi"
-
-
-FlowNode = Union[StrictStr, "StepFlowBranch"]
-
-
-class StepFlowOption(LessonBaseModel):
-    """Branch option for step flow."""
-
-    label: StrictStr = Field(min_length=1)
-    steps: list[FlowNode]
-
-
-class StepFlowBranch(LessonBaseModel):
-    """Branching node in a step flow."""
-
-    options: list[StepFlowOption]
-
-    @field_validator("options")
+    @field_validator("inputLine")
     @classmethod
-    def validate_options(cls, value: list[StepFlowOption]) -> list[StepFlowOption]:
-        if not value:
-            raise ValueError("stepFlow branch must include at least one option")
-        return value
+    def validate_input_line(cls, v: list[Any]) -> list[Any]:
+        if len(v) < 1:
+            raise ValueError("inputLine widget must have at least a prompt")
+
+        # 0: prompt
+        if not isinstance(v[0], str):
+            raise ValueError("inputLine prompt must be a string")
+
+        # 1: lang (optional)
+        if len(v) > 1 and v[1] is not None and not isinstance(v[1], str):
+             raise ValueError("inputLine lang must be a string or null")
+
+        # 2: wordlist_csv (optional)
+        if len(v) > 2 and v[2] is not None and not isinstance(v[2], str):
+             raise ValueError("inputLine wordlist_csv must be a string or null")
+
+        if len(v) > 3:
+             raise ValueError("inputLine widget has too many elements")
+
+        return v
 
 
-class StepFlowWidget(WidgetBase):
-    """Step-by-step flow widget with optional branching."""
+class StepFlowWidget(BaseModel):
+    """
+    Step-by-step flow.
+    Format: [lead, flow]
+    flow is a list where items are strings or branch nodes: [[label, steps], ...]
+    """
+    stepFlow: list[Any]
 
-    type: Literal["stepFlow"]
+    @field_validator("stepFlow")
+    @classmethod
+    def validate_step_flow(cls, v: list[Any]) -> list[Any]:
+        if len(v) != 2:
+            raise ValueError("stepFlow must have exactly 2 elements: [lead, flow]")
+
+        lead, flow = v[0], v[1]
+        if not isinstance(lead, str) or not lead:
+             raise ValueError("stepFlow lead must be a non-empty string")
+        if not isinstance(flow, list) or not flow:
+             raise ValueError("stepFlow flow must be a non-empty list")
+
+        cls._validate_flow_nodes(flow, depth=0)
+        return v
+
+    @classmethod
+    def _validate_flow_nodes(cls, nodes: list[Any], depth: int):
+        if depth > 5:
+            raise ValueError("stepFlow nesting depth exceeded (max 5)")
+
+        for node in nodes:
+            if isinstance(node, str):
+                continue
+            elif isinstance(node, list):
+                # Branch node: list of options. Each option is [label, steps]
+                if not node:
+                     raise ValueError("stepFlow branch node cannot be empty")
+
+                for option in node:
+                    if not isinstance(option, list) or len(option) != 2:
+                        raise ValueError("stepFlow branch option must be [label, steps]")
+                    label, steps = option
+                    if not isinstance(label, str):
+                        raise ValueError("stepFlow branch label must be a string")
+                    if not isinstance(steps, list):
+                        raise ValueError("stepFlow branch steps must be a list")
+
+                    cls._validate_flow_nodes(steps, depth + 1)
+            else:
+                raise ValueError("stepFlow node must be a string or a branch list")
+
+
+class AsciiDiagramWidget(BaseModel):
+    """Ascii Diagram: [lead, diagram]"""
+    asciiDiagram: list[StrictStr]
+
+    @field_validator("asciiDiagram")
+    @classmethod
+    def validate_diagram(cls, v: list[str]) -> list[str]:
+        if len(v) != 2:
+             raise ValueError("asciiDiagram must have exactly 2 elements: [lead, diagram]")
+        return v
+
+
+class ChecklistWidget(BaseModel):
+    """
+    Checklist: [lead, tree]
+    tree items are strings or groups: [title, children]
+    """
+    checklist: list[Any]
+
+    @field_validator("checklist")
+    @classmethod
+    def validate_checklist(cls, v: list[Any]) -> list[Any]:
+        if len(v) != 2:
+            raise ValueError("checklist must have exactly 2 elements: [lead, tree]")
+
+        lead, tree = v[0], v[1]
+        if not isinstance(lead, str):
+            raise ValueError("checklist lead must be a string")
+        if not isinstance(tree, list) or not tree:
+            raise ValueError("checklist tree must be a non-empty list")
+
+        cls._validate_tree(tree, depth=1)
+        return v
+
+    @classmethod
+    def _validate_tree(cls, nodes: list[Any], depth: int):
+        if depth > 3:
+            raise ValueError("checklist nesting depth exceeded (max 3)")
+
+        for node in nodes:
+            if isinstance(node, str):
+                continue
+            elif isinstance(node, list):
+                if len(node) != 2:
+                    raise ValueError("checklist group must be [title, children]")
+                title, children = node
+                if not isinstance(title, str):
+                     raise ValueError("checklist group title must be a string")
+                if not isinstance(children, list):
+                     raise ValueError("checklist group children must be a list")
+
+                cls._validate_tree(children, depth + 1)
+            else:
+                 raise ValueError("checklist node must be a string or [title, children]")
+
+
+class InteractiveTerminalPayload(BaseModel):
+    """Interactive terminal payload."""
     lead: StrictStr = Field(min_length=1)
-    flow: list[FlowNode]
+    rules: list[list[StrictStr]]
+    guided: list[list[StrictStr]] | None = None
 
-    @field_validator("flow")
+    @field_validator("rules")
     @classmethod
-    def validate_flow(cls, value: list[FlowNode]) -> list[FlowNode]:
-        if not value:
-            raise ValueError("stepFlow requires at least one flow entry")
-        return value
+    def validate_rules(cls, v: list[list[str]]) -> list[list[str]]:
 
-    @field_validator("flow")
+        if not v:
+            raise ValueError("interactiveTerminal rules must be a non-empty list")
+
+        for entry in v:
+
+            if not isinstance(entry, list) or len(entry) != 3:
+                raise ValueError("interactiveTerminal rule must be [pattern, level, output]")
+
+            if not all(isinstance(item, str) for item in entry):
+                raise ValueError("interactiveTerminal rule entries must be strings")
+
+            if entry[1] not in ("ok", "err"):
+                raise ValueError("interactiveTerminal rule level must be 'ok' or 'err'")
+
+        return v
+
+    @field_validator("guided")
     @classmethod
-    def validate_branching_depth(cls, value: list[FlowNode]) -> list[FlowNode]:
-        def max_branch_depth(nodes: list[FlowNode], depth: int = 1) -> int:
-            max_depth = depth
-            for node in nodes:
-                if isinstance(node, StepFlowBranch):
-                    for option in node.options:
-                        max_depth = max(max_depth, max_branch_depth(option.steps, depth + 1))
-            return max_depth
+    def validate_guided(cls, v: list[list[str]] | None) -> list[list[str]] | None:
 
-        if max_branch_depth(value) > 5:
-            raise ValueError("stepFlow branching depth must be 5 or less")
-        return value
+        if v is None:
+            return v
 
+        if not v:
+            raise ValueError("interactiveTerminal guided steps must be a non-empty list")
 
-class AsciiDiagramWidget(WidgetBase):
-    """ASCII diagram widget."""
+        for step in v:
 
-    type: Literal["asciiDiagram"]
-    lead: StrictStr
-    diagram: StrictStr
+            if not isinstance(step, list) or len(step) != 2:
+                raise ValueError("interactiveTerminal guided step must be [task, solution]")
+
+            if not all(isinstance(item, str) for item in step):
+                raise ValueError("interactiveTerminal guided step entries must be strings")
+
+        return v
 
 
-ChecklistNode = Union[StrictStr, "ChecklistGroup"]
+class InteractiveTerminalWidget(BaseModel):
+    """Interactive terminal widget."""
+    interactiveTerminal: InteractiveTerminalPayload
 
 
-class ChecklistGroup(LessonBaseModel):
-    """Nested checklist group."""
-
-    title: StrictStr = Field(min_length=1)
-    children: list[ChecklistNode]
-
-    @field_validator("children")
-    @classmethod
-    def validate_children(cls, value: list[ChecklistNode]) -> list[ChecklistNode]:
-        if not value:
-            raise ValueError("checklist group must include children")
-        return value
-
-
-class ChecklistWidget(WidgetBase):
-    """Nested checklist widget."""
-
-    type: Literal["checklist"]
+class TerminalDemoPayload(BaseModel):
+    """Terminal demo payload."""
     lead: StrictStr = Field(min_length=1)
-    tree: list[ChecklistNode]
+    rules: list[list[Any]]
 
-    @field_validator("tree")
+    @field_validator("rules")
     @classmethod
-    def validate_tree(cls, value: list[ChecklistNode]) -> list[ChecklistNode]:
-        if not value:
-            raise ValueError("checklist requires at least one node")
-        return value
+    def validate_rules(cls, v: list[list[Any]]) -> list[list[Any]]:
 
-    @field_validator("tree")
+        if not v:
+            raise ValueError("terminalDemo rules must be a non-empty list")
+
+        for entry in v:
+
+            if not isinstance(entry, list) or len(entry) != 3:
+                raise ValueError("terminalDemo rule must be [command, delay_ms, output]")
+
+            command, delay_ms, output = entry
+
+            if not isinstance(command, str):
+                raise ValueError("terminalDemo command must be a string")
+
+            if not isinstance(delay_ms, int):
+                raise ValueError("terminalDemo delay_ms must be an integer")
+
+            if not isinstance(output, str):
+                raise ValueError("terminalDemo output must be a string")
+
+        return v
+
+
+class TerminalDemoWidget(BaseModel):
+    """Terminal demo widget."""
+    terminalDemo: TerminalDemoPayload
+
+
+class CodeEditorWidget(BaseModel):
+    """Code Editor: [code, language, readOnly?, highlightedLines?]"""
+    codeEditor: list[Any]
+
+    @field_validator("codeEditor")
     @classmethod
-    def validate_nesting_depth(cls, value: list[ChecklistNode]) -> list[ChecklistNode]:
-        def max_depth(nodes: list[ChecklistNode], depth: int = 1) -> int:
-            max_seen = depth
-            for node in nodes:
-                if isinstance(node, ChecklistGroup):
-                    max_seen = max(max_seen, max_depth(node.children, depth + 1))
-            return max_seen
+    def validate_cv(cls, v: list[Any]) -> list[Any]:
+        # Validate positional schema to keep editor rendering deterministic.
+        if len(v) < 2:
+             raise ValueError("codeEditor must have at least 2 elements: [code, language]")
 
-        if max_depth(value) > 3:
-            raise ValueError("checklist nesting depth must be 3 or less")
-        return value
+        code, lang = v[0], v[1]
+        if not isinstance(code, (str, dict, list)): # code can be object if json
+             pass
 
+        if not isinstance(lang, str):
+             raise ValueError("codeEditor language must be a string")
 
-class ConsoleDemoEntry(LessonBaseModel):
-    """Scripted console entry for demo mode."""
+        if len(v) > 2 and v[2] is not None and not isinstance(v[2], bool):
+             raise ValueError("codeEditor readOnly must be a boolean")
 
-    command: StrictStr
-    delay_ms: StrictInt
-    output: StrictStr
+        if len(v) > 3 and v[3] is not None:
 
+            if not isinstance(v[3], list):
+                raise ValueError("codeEditor highlightedLines must be an array")
 
-class ConsoleInteractiveRule(LessonBaseModel):
-    """Interactive console rule for validation."""
+            for line in v[3]:
 
-    pattern: StrictStr
-    level: StrictStr
-    output: StrictStr
+                if not isinstance(line, int) or line < 1:
+                    raise ValueError("codeEditor highlightedLines must be 1-based integers")
 
+        if len(v) > 4:
+            raise ValueError("codeEditor widget has too many elements")
 
-class ConsoleGuidedStep(LessonBaseModel):
-    """Guided step for interactive console."""
-
-    task: StrictStr
-    solution: StrictStr
+        return v
 
 
-class ConsoleWidget(WidgetBase):
-    """Terminal simulator widget."""
+class TreeViewWidget(BaseModel):
+    """Tree View: [lesson, title?, textareaId?, editorId?]"""
+    treeview: list[Any]
 
-    type: Literal["console"]
-    lead: StrictStr
-    mode: Literal[0, 1]
-    rules_or_script: list[ConsoleDemoEntry | ConsoleInteractiveRule]
-    guided: list[ConsoleGuidedStep] = Field(default_factory=list)
-
-    @field_validator("rules_or_script")
+    @field_validator("treeview")
     @classmethod
-    def validate_rules(
-        cls,
-        value: list[ConsoleDemoEntry | ConsoleInteractiveRule],
-        values: dict[str, Any] | Any,
-    ) -> list[ConsoleDemoEntry | ConsoleInteractiveRule]:
-        mode: int | None = None
-        if hasattr(values, "data"):
-            data = getattr(values, "data", {}) or {}
-            mode = data.get("mode")
-        elif isinstance(values, dict):
-            mode = values.get("mode")
-        if mode == 0:
-            if not all(isinstance(item, ConsoleDemoEntry) for item in value):
-                raise ValueError("console mode 0 requires demo script entries")
-        elif mode == 1:
-            if not all(isinstance(item, ConsoleInteractiveRule) for item in value):
-                raise ValueError("console mode 1 requires interactive rules")
-        else:
-            raise ValueError("console mode must be 0 or 1")
-        if not value:
-            raise ValueError("console requires at least one rule or script entry")
-        return value
+    def validate_tv(cls, v: list[Any]) -> list[Any]:
+        if not v:
+             raise ValueError("treeview must have at least 1 element: [lesson]")
+
+        # v[0] is lesson object or string
+
+        if len(v) > 1 and v[1] is not None and not isinstance(v[1], str):
+             raise ValueError("treeview title must be a string")
+        if len(v) > 2 and v[2] is not None and not isinstance(v[2], str):
+             raise ValueError("treeview textarea_id must be a string")
+        if len(v) > 3 and v[3] is not None and not isinstance(v[3], str):
+             raise ValueError("treeview editor_id must be a string")
+
+        return v
 
 
-class CodeViewerWidget(WidgetBase):
-    """Code viewer/editor widget."""
+class MCQsQuestion(BaseModel):
+    """MCQ question model."""
+    q: StrictStr = Field(min_length=1)
+    c: list[StrictStr] = Field(min_length=2)
+    a: StrictInt
+    e: StrictStr = Field(min_length=1)
 
-    type: Literal["codeviewer"]
-    code: StrictStr
-    language: StrictStr = Field(min_length=1)
-    editable: StrictBool = False
-    textarea_id: StrictStr | None = None
-
-
-class TreeViewWidget(WidgetBase):
-    """Lesson structure viewer widget."""
-
-    type: Literal["treeview"]
-    lesson: StrictStr
-    title: StrictStr | None = None
-    textarea_id: StrictStr | None = None
-    editor_id: StrictStr | None = None
-
-
-class QuizQuestion(LessonBaseModel):
-    """Quiz question model."""
-
-    prompt: StrictStr = Field(..., alias="q", min_length=1)
-    choices: list[StrictStr] = Field(..., alias="c")
-    answer_index: StrictInt = Field(..., alias="a")
-    explanation: StrictStr = Field(..., alias="e", min_length=1)
-
-    @field_validator("choices")
+    @field_validator("c")
     @classmethod
-    def validate_choices(cls, value: list[StrictStr]) -> list[StrictStr]:
-        if len(value) < 2:
-            raise ValueError("quiz choices must include at least two options")
-        if any(not choice for choice in value):
-            raise ValueError("quiz choices must be non-empty strings")
-        return value
+    def validate_choices(cls, v: list[str]) -> list[str]:
+        if any(not c for c in v):
+            raise ValueError("mcqs choices must be non-empty strings")
+        return v
 
     @model_validator(mode="after")
-    def validate_answer_index(self) -> QuizQuestion:
-        if not 0 <= self.answer_index < len(self.choices):
-            raise ValueError("quiz answer index must be within choices range")
+    def validate_answer_index(self) -> MCQsQuestion:
+        if not 0 <= self.a < len(self.c):
+            raise ValueError("mcqs answer index must be within choices range")
         return self
 
 
-class QuizWidget(WidgetBase):
-    """Multiple-choice quiz widget."""
-
-    type: Literal["quiz"]
+class MCQsInner(BaseModel):
     title: StrictStr = Field(min_length=1)
-    questions: list[QuizQuestion]
-
-    @field_validator("questions")
-    @classmethod
-    def validate_questions(cls, value: list[QuizQuestion]) -> list[QuizQuestion]:
-        if not value:
-            raise ValueError("quiz requires at least one question")
-        return value
+    questions: list[MCQsQuestion] = Field(min_length=1)
 
 
-# Widget = Annotated[
-#     ParagraphWidget
-#     | CalloutWidget
-#     # | BlankWidget
-#     # | ListWidget
-#     # | TableWidget
-#     # | CompareWidget
-#     # | SwipeWidget
-#     # | FreeTextWidget
-#     # | StepFlowWidget
-#     # | AsciiDiagramWidget
-#     # | ChecklistWidget
-#     # | ConsoleWidget
-#     # | CodeViewerWidget
-#     # | TreeViewWidget
-#     # | QuizWidget
-#     ,
-#     Field(discriminator="type")
-# ]
+class MCQsWidget(BaseModel):
+    """MCQs widget: { "mcqs": { "title": ..., "questions": ... } }"""
+    mcqs: MCQsInner
 
 
-class SectionBlock(LessonBaseModel):
-    """Primary section block containing content widgets."""
+# --- Union Type ---
 
+Widget = Union[
+    StrictStr,  # Plain string is a paragraph
+    ParagraphWidget,
+    WarnWidget,
+    ErrorWidget,
+    SuccessWidget,
+    FlipWidget,
+    TranslationWidget,
+    FillBlankWidget,
+    UnorderedListWidget,
+    OrderedListWidget,
+    TableWidget,
+    CompareWidget,
+    SwipeCardsWidget,
+    FreeTextWidget,
+    InputLineWidget,
+    StepFlowWidget,
+    AsciiDiagramWidget,
+    ChecklistWidget,
+    InteractiveTerminalWidget,
+    TerminalDemoWidget,
+    CodeEditorWidget,
+    TreeViewWidget,
+    MCQsWidget,
+]
+
+
+def normalize_widget(widget: Any) -> dict[str, Any]:
+    """
+    Normalize a widget payload into canonical shorthand dict form.
+
+    This keeps repair prompts and schema validation stable by converting
+    shorthand inputs into explicit widget objects.
+    """
+
+    # Guard against missing payloads to keep downstream repair logic deterministic.
+    if widget is None:
+        raise ValueError("Widget payload cannot be None.")
+
+    # Convert paragraph shorthand into the explicit widget object.
+    if isinstance(widget, str):
+        return {"p": widget}
+
+    # Convert Pydantic models into their shorthand dict form.
+    if isinstance(widget, BaseModel):
+        # Prefer Pydantic v2's model_dump when available.
+        dump = getattr(widget, "model_dump", None)
+
+        # Use the Pydantic v2 path when present to preserve aliases.
+        if callable(dump):
+            return cast(dict[str, Any], dump(by_alias=True))
+
+        return cast(dict[str, Any], widget.dict(by_alias=True))
+
+    # Pass through mapping payloads that already resemble shorthand widgets.
+    if isinstance(widget, dict):
+        return widget
+
+    # Reject unsupported widget payloads so callers can decide on fallbacks.
+    raise ValueError("Widget payload must be a string or mapping.")
+
+
+# --- Structure Models ---
+
+class SubsectionBlock(BaseModel):
+    """Subsection block."""
+    subsection: StrictStr = Field(min_length=1)
+    items: list[Widget] = Field(default_factory=list)
+
+
+class SectionBlock(BaseModel):
+    """Section block."""
     section: StrictStr = Field(min_length=1)
-    items: list[WidgetBase] = Field(default_factory=list)
+    items: list[Widget] = Field(default_factory=list)
     subsections: list[SubsectionBlock] = Field(default_factory=list)
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_items(cls, data: Any) -> Any:
-        raw_items = data.get("items") if isinstance(data, dict) else None
-        if raw_items is None:
-            return data
-        data = dict(data)
-        data["items"] = [normalize_widget(item) for item in raw_items]
-        return data
 
-
-class SubsectionBlock(LessonBaseModel):
-    """Primary subsection block containing content widgets."""
-
-    subsection: StrictStr = Field(min_length=1)
-    items: list[WidgetBase] = Field(default_factory=list)
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_items(cls, data: Any) -> Any:
-        raw_items = data.get("items") if isinstance(data, dict) else None
-        if raw_items is None:
-            return data
-        data = dict(data)
-        data["items"] = [normalize_widget(item) for item in raw_items]
-        return data
-
-
-class LessonDocument(LessonBaseModel):
-    """Versioned root lesson document."""
-
+class LessonDocument(BaseModel):
+    """Root lesson document."""
     title: StrictStr = Field(min_length=1)
     blocks: list[SectionBlock] = Field(default_factory=list)
-
-
-def _normalize_callout(value: Any, widget_type: str) -> dict[str, Any]:
-    if not isinstance(value, str):
-        raise ValueError(f"{widget_type} widget expects a string message")
-    return {"type": widget_type, "text": value}
-
-
-def _normalize_list(value: Any, widget_type: str) -> dict[str, Any]:
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise ValueError(f"{widget_type} widget expects a list of strings")
-    return {"type": widget_type, "items": value}
-
-
-def _normalize_flip(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) < 2:
-        raise ValueError("flip widget expects at least front and back text")
-    front, back = value[0], value[1]
-    if not isinstance(front, str) or not isinstance(back, str):
-        raise ValueError("flip widget requires string front/back")
-    front_hint = value[2] if len(value) > 2 else None
-    back_hint = value[3] if len(value) > 3 else None
-    return {
-        "type": "flip",
-        "front": front,
-        "back": back,
-        "front_hint": front_hint,
-        "back_hint": back_hint,
-    }
-
-
-def _normalize_tr(value: Any) -> dict[str, Any]:
-    if (
-        not isinstance(value, list)
-        or len(value) != 2
-        or not all(isinstance(item, str) for item in value)
-    ):
-        raise ValueError("tr widget expects two translation strings")
-    return {"type": "tr", "source": value[0], "target": value[1]}
-
-
-def _normalize_blank(value: Any) -> dict[str, Any]:
-    if (
-        not isinstance(value, list)
-        or len(value) != 4
-        or not all(isinstance(item, str) for item in value)
-    ):
-        raise ValueError("blank widget expects four strings: prompt, answer, hint, explanation")
-    prompt, answer, hint, explanation = value
-    return {
-        "type": "blank",
-        "prompt": prompt,
-        "answer": answer,
-        "hint": hint,
-        "explanation": explanation,
-    }
-
-
-def _normalize_table(value: Any, widget_type: str) -> dict[str, Any]:
-    if not isinstance(value, list) or not all(isinstance(row, list) for row in value):
-        raise ValueError(f"{widget_type} widget expects a list of rows")
-    for row in value:
-        if not all(isinstance(cell, str) for cell in row):
-            raise ValueError(f"{widget_type} rows must contain only strings")
-    field_name = "rows" if widget_type in {"table", "compare"} else "items"
-    return {"type": widget_type, field_name: value}
-
-
-def _normalize_swipe(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) < 3:
-        raise ValueError("swipe widget expects [title, buckets, cards]")
-    title, buckets, cards = value[0], value[1], value[2]
-    if not isinstance(title, str):
-        raise ValueError("swipe title must be a string")
-    if (
-        not isinstance(buckets, list)
-        or len(buckets) != 2
-        or not all(isinstance(b, str) for b in buckets)
-    ):
-        raise ValueError("swipe buckets must be a list of two strings")
-    if not isinstance(cards, list):
-        raise ValueError("swipe cards must be a list")
-    normalized_cards: list[dict[str, Any]] = []
-    for entry in cards:
-        if not (isinstance(entry, list) and len(entry) >= 3):
-            raise ValueError("each swipe card must be [text, correctBucket, feedback]")
-        text, correct_bucket, feedback = entry[0], entry[1], entry[2]
-        if (
-            not isinstance(text, str)
-            or not isinstance(correct_bucket, int)
-            or not isinstance(feedback, str)
-        ):
-            raise ValueError("swipe card values must be [str, int, str]")
-        normalized_cards.append(
-            {"text": text, "correct_bucket": int(correct_bucket), "feedback": feedback}
-        )
-    return {"type": "swipe", "title": title, "buckets": buckets, "cards": normalized_cards}
-
-
-def _normalize_free_text(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) < 1:
-        raise ValueError("freeText widget expects at least a prompt entry")
-    prompt = value[0]
-    if not isinstance(prompt, str):
-        raise ValueError("freeText prompt must be a string")
-    seed_locked = value[1] if len(value) > 1 else None
-    text = value[2] if len(value) > 2 else ""
-    lang = value[3] if len(value) > 3 else "en"
-    wordlist_csv = value[4] if len(value) > 4 else None
-    mode = value[5] if len(value) > 5 else "multi"
-    return {
-        "type": "freeText",
-        "prompt": prompt,
-        "seed_locked": seed_locked,
-        "text": text if isinstance(text, str) else str(text),
-        "lang": lang if isinstance(lang, str) else "en",
-        "wordlist_csv": wordlist_csv if isinstance(wordlist_csv, str) else None,
-        "mode": mode if isinstance(mode, str) else "multi",
-    }
-
-
-def _normalize_step_flow(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) < 2:
-        raise ValueError("stepFlow widget expects [lead, flow]")
-    lead, flow = value[0], value[1]
-    if not isinstance(lead, str):
-        raise ValueError("stepFlow lead must be a string")
-    if not isinstance(flow, list):
-        raise ValueError("stepFlow flow must be a list")
-
-    def normalize_node(node: Any) -> StrictStr | dict[str, Any]:
-        if isinstance(node, str):
-            return node
-        if isinstance(node, list):
-            options: list[dict[str, Any]] = []
-            for opt in node:
-                if not (isinstance(opt, list) and len(opt) == 2):
-                    raise ValueError("stepFlow branch option must be [label, steps]")
-                label, steps = opt
-                if not isinstance(label, str) or not isinstance(steps, list):
-                    raise ValueError("stepFlow option requires string label and list of steps")
-                options.append({"label": label, "steps": [normalize_node(s) for s in steps]})
-            return {"options": options}
-        raise ValueError("stepFlow nodes must be strings or branch option lists")
-
-    normalized_flow = [normalize_node(item) for item in flow]
-    return {"type": "stepFlow", "lead": lead, "flow": normalized_flow}
-
-
-def _normalize_ascii_diagram(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) != 2:
-        raise ValueError("asciiDiagram widget expects [lead, diagram]")
-    lead, diagram = value
-    if not isinstance(lead, str) or not isinstance(diagram, str):
-        raise ValueError("asciiDiagram values must be strings")
-    return {"type": "asciiDiagram", "lead": lead, "diagram": diagram}
-
-
-def _normalize_checklist(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) != 2:
-        raise ValueError("checklist widget expects [lead, tree]")
-    lead, tree = value
-    if not isinstance(lead, str) or not isinstance(tree, list):
-        raise ValueError("checklist requires a string lead and list tree")
-
-    def normalize_node(node: Any) -> StrictStr | dict[str, Any]:
-        if isinstance(node, str):
-            return node
-        if isinstance(node, list) and len(node) == 2:
-            title, children = node
-            if not isinstance(title, str) or not isinstance(children, list):
-                raise ValueError("checklist group requires string title and list of children")
-            return {"title": title, "children": [normalize_node(child) for child in children]}
-        raise ValueError("checklist node must be a string or [title, children]")
-
-    normalized_tree = [normalize_node(entry) for entry in tree]
-    return {"type": "checklist", "lead": lead, "tree": normalized_tree}
-
-
-def _normalize_console(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) < 3:
-        raise ValueError("console widget expects [lead, mode, rulesOrScript, guided?]")
-    lead, mode, rules_or_script = value[0], value[1], value[2]
-    guided = value[3] if len(value) > 3 else None
-    if not isinstance(lead, str):
-        raise ValueError("console lead must be a string")
-    if not isinstance(mode, int) or mode not in (0, 1):
-        raise ValueError("console mode must be 0 or 1")
-    if not isinstance(rules_or_script, list):
-        raise ValueError("console rulesOrScript must be a list")
-
-    normalized_entries: list[dict[str, Any]] = []
-    if mode == 0:
-        for entry in rules_or_script:
-            if not (isinstance(entry, list) and len(entry) == 3):
-                raise ValueError("console demo entries must be [command, delayMs, output]")
-            command, delay_ms, output = entry
-            if (
-                not isinstance(command, str)
-                or not isinstance(delay_ms, int)
-                or not isinstance(output, str)
-            ):
-                raise ValueError("console demo entry types must be [str, int, str]")
-            normalized_entries.append({"command": command, "delay_ms": delay_ms, "output": output})
-    else:
-        for entry in rules_or_script:
-            if not (isinstance(entry, list) and len(entry) == 3):
-                raise ValueError("console interactive rules must be [regex, level, output]")
-            pattern, level, output = entry
-            if (
-                not isinstance(pattern, str)
-                or not isinstance(level, str)
-                or not isinstance(output, str)
-            ):
-                raise ValueError("console interactive rule types must be [str, str, str]")
-            normalized_entries.append({"pattern": pattern, "level": level, "output": output})
-
-    normalized_guided: list[dict[str, Any]] | None = None
-    if guided is not None:
-        if not isinstance(guided, list):
-            raise ValueError("console guided steps must be a list")
-        normalized_guided = []
-        for entry in guided:
-            if not (isinstance(entry, list) and len(entry) == 2):
-                raise ValueError("console guided steps must be [task, solution]")
-            task, solution = entry
-            if not isinstance(task, str) or not isinstance(solution, str):
-                raise ValueError("console guided step entries must be strings")
-            normalized_guided.append({"task": task, "solution": solution})
-
-    return {
-        "type": "console",
-        "lead": lead,
-        "mode": mode,
-        "rules_or_script": normalized_entries,
-        "guided": normalized_guided,
-    }
-
-
-def _normalize_codeviewer(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) < 2:
-        raise ValueError("codeviewer widget expects [code, language, editable?, textareaId?]")
-    code, language = value[0], value[1]
-    editable = value[2] if len(value) > 2 else False
-    textarea_id = value[3] if len(value) > 3 else None
-    if not isinstance(language, str):
-        raise ValueError("codeviewer language must be a string")
-    if editable is not None and not isinstance(editable, bool):
-        raise ValueError("codeviewer editable must be a boolean when provided")
-    if textarea_id is not None and not isinstance(textarea_id, str):
-        raise ValueError("codeviewer textareaId must be a string when provided")
-    return {
-        "type": "codeviewer",
-        "code": code,
-        "language": language,
-        "editable": bool(editable),
-        "textarea_id": textarea_id,
-    }
-
-
-def _normalize_treeview(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list) or len(value) < 1:
-        raise ValueError("treeview widget expects [lesson, title?, textareaId?, editorId?]")
-    lesson = value[0]
-    title = value[1] if len(value) > 1 else None
-    textarea_id = value[2] if len(value) > 2 else None
-    editor_id = value[3] if len(value) > 3 else None
-    if title is not None and not isinstance(title, str):
-        raise ValueError("treeview title must be a string when provided")
-    if textarea_id is not None and not isinstance(textarea_id, str):
-        raise ValueError("treeview textareaId must be a string when provided")
-    if editor_id is not None and not isinstance(editor_id, str):
-        raise ValueError("treeview editorId must be a string when provided")
-    return {
-        "type": "treeview",
-        "lesson": lesson,
-        "title": title,
-        "textarea_id": textarea_id,
-        "editor_id": editor_id,
-    }
-
-
-def _normalize_quiz(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError("quiz widget expects an object with title and questions")
-    title = value.get("title")
-    questions = value.get("questions")
-    if not isinstance(title, str) or not isinstance(questions, list):
-        raise ValueError("quiz widget requires string title and list of questions")
-    normalized_questions: list[dict[str, Any]] = []
-    for question in questions:
-        if not isinstance(question, dict):
-            raise ValueError("quiz questions must be objects")
-        normalized_questions.append(question)
-    return {"type": "quiz", "title": title, "questions": normalized_questions}
-
-
-_NORMALIZERS = {
-    "p": lambda value: {"type": "p", "text": value} if isinstance(value, str) else None,
-    "info": lambda value: _normalize_callout(value, "info"),
-    "tip": lambda value: _normalize_callout(value, "tip"),
-    "warn": lambda value: _normalize_callout(value, "warn"),
-    "err": lambda value: _normalize_callout(value, "err"),
-    "success": lambda value: _normalize_callout(value, "success"),
-    "flip": _normalize_flip,
-    "tr": _normalize_tr,
-    "blank": _normalize_blank,
-    "ul": lambda value: _normalize_list(value, "ul"),
-    "ol": lambda value: _normalize_list(value, "ol"),
-    "table": lambda value: _normalize_table(value, "table"),
-    "compare": lambda value: _normalize_table(value, "compare"),
-    "swipe": _normalize_swipe,
-    "freeText": _normalize_free_text,
-    "stepFlow": _normalize_step_flow,
-    "asciiDiagram": _normalize_ascii_diagram,
-    "checklist": _normalize_checklist,
-    "console": _normalize_console,
-    "codeviewer": _normalize_codeviewer,
-    "treeview": _normalize_treeview,
-    "quiz": _normalize_quiz,
-}
-
-
-def normalize_widget(entry: Any) -> dict[str, Any]:
-    """Normalize shorthand widget syntax into discriminated form."""
-
-    if isinstance(entry, str):
-        return {"type": "p", "text": entry}
-
-    if not isinstance(entry, dict):
-        raise ValueError("widget must be a string or object")
-
-    if "type" in entry:
-        return entry
-
-    if len(entry) != 1:
-        raise ValueError("widget objects must include exactly one key")
-
-    key, value = next(iter(entry.items()))
-    normalizer = _NORMALIZERS.get(str(key))
-    if normalizer is None:
-        raise ValueError(f"unsupported widget type: {key}")
-
-    normalized = normalizer(value)
-    if normalized is None:
-        raise ValueError(f"invalid widget payload for {key}")
-    return normalized
-
-
-SectionBlock.update_forward_refs()
-StepFlowBranch.update_forward_refs()
-StepFlowOption.update_forward_refs()
-ChecklistGroup.update_forward_refs()
-ChecklistWidget.update_forward_refs()
-StepFlowWidget.update_forward_refs()
-LessonDocument.update_forward_refs()

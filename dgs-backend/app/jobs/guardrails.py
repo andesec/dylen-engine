@@ -11,6 +11,7 @@ MAX_ITEM_BYTES = 380_000
 MAX_LOG_ENTRY_BYTES = 2_000
 MAX_LOG_ENTRIES = 200
 MAX_RESULT_BYTES = 200_000
+MAX_ARTIFACT_BYTES = 200_000
 
 
 class DecimalEncoder(json.JSONEncoder):
@@ -24,11 +25,8 @@ class DecimalEncoder(json.JSONEncoder):
 
 def estimate_bytes(value: Any) -> int:
     """Approximate the DynamoDB item size using JSON encoding."""
-    return len(
-        json.dumps(value, ensure_ascii=True, separators=(",", ":"), cls=DecimalEncoder).encode(
-            "utf-8"
-        )
-    )
+    payload = json.dumps(value, ensure_ascii=True, separators=(",", ":"), cls=DecimalEncoder)
+    return len(payload.encode("utf-8"))
 
 
 def sanitize_logs(logs: list[str]) -> list[str]:
@@ -50,6 +48,20 @@ def maybe_truncate_result_json(result_json: dict[str, Any] | None) -> dict[str, 
         "truncated": True,
         "preview": preview[:MAX_RESULT_BYTES],
         "message": "Result exceeded DynamoDB item size limit and was truncated.",
+    }
+
+
+def maybe_truncate_artifacts(artifacts: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Keep artifacts payloads under the configured size budget."""
+    if artifacts is None:
+        return None
+    if estimate_bytes(artifacts) <= MAX_ARTIFACT_BYTES:
+        return artifacts
+    preview = json.dumps(artifacts, ensure_ascii=True, cls=DecimalEncoder)
+    return {
+        "truncated": True,
+        "preview": preview[:MAX_ARTIFACT_BYTES],
+        "message": "Artifacts exceeded DynamoDB item size limit and were truncated.",
     }
 
 
