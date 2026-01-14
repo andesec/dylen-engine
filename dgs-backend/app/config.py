@@ -46,6 +46,7 @@ class Settings:
     pg_lessons_table: str
     pg_jobs_table: str
     llm_audit_enabled: bool
+    cache_lesson_catalog: bool
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -123,6 +124,7 @@ def get_settings() -> Settings:
         pg_lessons_table=os.getenv("DGS_PG_LESSONS_TABLE", "dgs_lessons"),
         pg_jobs_table=os.getenv("DGS_PG_JOBS_TABLE", "dgs_jobs"),
         llm_audit_enabled=_parse_bool(os.getenv("DGS_LLM_AUDIT_ENABLED")),
+        cache_lesson_catalog=_parse_bool(os.getenv("DGS_CACHE_LESSON_CATALOG")),
     )
 
 

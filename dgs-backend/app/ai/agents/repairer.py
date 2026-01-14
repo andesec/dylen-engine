@@ -408,27 +408,37 @@ def _coerce_items_list(value: Any) -> list[Any]:
   # Preserve valid lists to avoid reshaping already-correct items.
   if isinstance(value, list):
     return value
+
   # Wrap single widget mappings so subsection items remain iterable.
   if isinstance(value, dict):
     return [value]
+
   # Parse string payloads when they look like JSON, otherwise fallback to a paragraph widget.
   if isinstance(value, str):
     stripped = value.strip()
+
     if not stripped:
       return []
+
     if stripped.startswith("[") or stripped.startswith("{"):
+
       try:
-        parsed = json.loads(stripped)
+        parsed = parse_json_with_fallback(stripped)
       except json.JSONDecodeError:
         parsed = None
+
       if isinstance(parsed, list):
         return parsed
+
       if isinstance(parsed, dict):
         return [parsed]
+
     return [{"p": stripped}]
+
   # Fallback to a paragraph string for scalar values to preserve context.
   if value is None:
     return []
+
   return [{"p": str(value)}]
 
 

@@ -276,18 +276,44 @@ def _build_widget_options() -> list[dict[str, str]]:
     """Build widget option payloads with tooltip guidance."""
     options: list[dict[str, str]] = []
     registry = load_widget_registry(DEFAULT_WIDGETS_PATH)
+    label_map = {
+        "p": "Paragraph",
+        "ul": "Bullet List",
+        "ol": "Numbered List",
+        "table": "Table",
+        "compare": "Comparison Table",
+        "asciidiagram": "ASCII Diagram",
+        "flip": "Flipcard",
+        "mcqs": "Multiple Choice Question",
+        "freetext": "Response Textbox",
+        "inputline": "One liner Textbox",
+        "fillblank": "Fill in the Blank",
+        "swipecards": "Swipe Widget",
+        "stepflow": "Step by Step Flow",
+        "checklist": "Checklist",
+        "warn": "Warning",
+        "success": "Success Callout",
+        "err": "Error Callout",
+        "tr": "Translation Panel",
+        "codeeditor": "Code Editor",
+        "interactiveterminal": "Interactive Terminal",
+        "terminaldemo": "Demo Terminal",
+        "treeview": "Tree View",
+    }
 
     # Convert widget docs into concise tooltip strings.
     for widget_name in registry.available_types():
         # Normalize widget ids for client-friendly option keys.
         widget_id = "".join(ch for ch in widget_name.lower() if ch.isalnum())
+        # Map the normalized id to a friendly label when available.
+        widget_label = label_map.get(widget_id, widget_name)
         # Extract a brief tooltip for each widget entry.
         description = registry.describe(widget_name)
         tooltip = _build_widget_tooltip(description, widget_name)
         options.append(
             {
                 "id": widget_id,
-                "label": widget_name,
+                "label": widget_label,
                 "tooltip": tooltip,
             }
         )

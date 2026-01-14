@@ -1062,8 +1062,9 @@ async def health() -> dict[str, str]:
 )
 async def get_lesson_catalog(response: Response) -> LessonCatalogResponse:
   """Return blueprint, teaching style, and widget metadata for clients."""
-  # Instruct clients to cache since the catalog is static.
-  response.headers["Cache-Control"] = "public, max-age=86400"
+  # Toggle cache control with an environment flag for dynamic refreshes.
+  if settings.cache_lesson_catalog:
+    response.headers["Cache-Control"] = "public, max-age=86400"
   # Build a static payload so the client can cache the response safely.
   payload = build_lesson_catalog(settings)
   return LessonCatalogResponse(**payload)
