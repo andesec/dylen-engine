@@ -104,6 +104,23 @@ app.add_middleware(
 )
 
 
+def _error_payload(detail: str, *, error: str | None = None, logs: list[str] | None = None) -> dict[str, Any]:
+  """Build error payloads with optional debug detail."""
+  payload = {"detail": detail}
+
+  # Only attach diagnostic details when debug mode is enabled.
+  if settings.debug:
+
+    if error is not None:
+      payload["error"] = error
+
+    if logs is not None:
+      payload["logs"] = logs
+
+
+  return payload
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> DecimalJSONResponse:
   """Global exception handler to catch unhandled errors."""
@@ -111,7 +128,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> DecimalJ
   logger.error(f"Global exception: {exc}", exc_info=True)
   return DecimalJSONResponse(
     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    content={"detail": "Internal Server Error", "error": str(exc)},
+    content=_error_payload("Internal Server Error", error=str(exc)),
   )
 
 @app.exception_handler(OrchestrationError)
@@ -123,7 +140,7 @@ async def orchestration_exception_handler(request: Request, exc: OrchestrationEr
   # Provide the failure logs so callers can close out the request with context.
   return DecimalJSONResponse(
     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    content={"detail": "Orchestration failed", "error": str(exc), "logs": exc.logs},
+    content=_error_payload("Orchestration failed", error=str(exc), logs=exc.logs),
   )
 
 
@@ -636,6 +653,53 @@ class JobCreateResponse(BaseModel):
   """Response payload for job creation."""
   
   job_id: StrictStr
+  expected_sections: StrictInt = Field(
+    ge=0,
+    description="Total number of sections expected for the lesson job (0 for non-lesson jobs).",
+  )
+
+
+RetryAgent = Literal["planner", "gatherer", "structurer", "repair", "stitcher"]
+
+
+class JobRetryRequest(BaseModel):
+  """Request payload for retrying a failed job."""
+  
+  sections: list[StrictInt] | None = Field(
+    default=None,
+    description="0-based section indexes to retry (defaults to all sections).",
+  )
+  agents: list[RetryAgent] | None = Field(
+    default=None,
+    description="Pipeline agents to retry (defaults to full pipeline).",
+  )
+  model_config = ConfigDict(extra="forbid")
+
+  @model_validator(mode="after")
+  def validate_retry_targets(self) -> JobRetryRequest:
+    # Enforce non-negative section indexes for retry requests.
+    if self.sections:
+
+      for index in self.sections:
+
+        if index < 0:
+          raise ValueError("Section indexes must be 0 or greater.")
+
+    return self
+
+
+class CurrentSectionStatus(BaseModel):
+  """Section status metadata for streaming job progress."""
+  
+  index: StrictInt = Field(ge=0, description="0-based index of the active section.")
+  title: StrictStr | None = Field(default=None, description="Title of the active section when known.")
+  status: StrictStr = Field(description="Section generation status.")
+  retry_count: StrictInt | None = Field(
+    default=None,
+    ge=0,
+    description="Retry attempts for the active section when applicable.",
+  )
+  model_config = ConfigDict(extra="forbid")
 
 
 class JobStatusResponse(BaseModel):
@@ -645,6 +709,39 @@ class JobStatusResponse(BaseModel):
   status: JobStatus
   phase: StrictStr | None = None
   subphase: StrictStr | None = None
+  expected_sections: StrictInt | None = Field(
+    default=None,
+    ge=0,
+    description="Total number of expected sections for lesson jobs.",
+  )
+  completed_sections: StrictInt | None = Field(
+    default=None,
+    ge=0,
+    description="Number of lesson sections completed so far.",
+  )
+  completed_section_indexes: list[StrictInt] | None = Field(
+    default=None,
+    description="0-based section indexes that have been completed so far.",
+  )
+  current_section: CurrentSectionStatus | None = None
+  retry_count: StrictInt | None = Field(
+    default=None,
+    ge=0,
+    description="Retry attempts already used for this job.",
+  )
+  max_retries: StrictInt | None = Field(
+    default=None,
+    ge=0,
+    description="Maximum retry attempts allowed for this job.",
+  )
+  retry_sections: list[StrictInt] | None = Field(
+    default=None,
+    description="0-based section indexes targeted for retry, when applicable.",
+  )
+  retry_agents: list[StrictStr] | None = Field(
+    default=None,
+    description="Pipeline agents targeted for retry, when applicable.",
+  )
   total_steps: StrictInt | None = Field(
     default=None,
     ge=1,
@@ -1017,11 +1114,38 @@ def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
   if record.validation is not None:
     validation = ValidationResponse.model_validate(record.validation)
   
+  expected_sections = record.expected_sections
+  
+  # Backfill expected section counts for legacy job records.
+  if expected_sections is None and isinstance(request, GenerateLessonRequest):
+    expected_sections = _expected_sections_from_request(request)
+  
+  if expected_sections is None and isinstance(request, WritingCheckRequest):
+    expected_sections = 0
+  
+  current_section = None
+  
+  if record.current_section_index is not None and record.current_section_status is not None:
+    current_section = CurrentSectionStatus(
+      index=record.current_section_index,
+      title=record.current_section_title,
+      status=record.current_section_status,
+      retry_count=record.current_section_retry_count,
+    )
+  
   return JobStatusResponse(
     job_id=record.job_id,
     status=record.status,
     phase=record.phase,
     subphase=record.subphase,
+    expected_sections=expected_sections,
+    completed_sections=record.completed_sections,
+    completed_section_indexes=record.completed_section_indexes,
+    current_section=current_section,
+    retry_count=record.retry_count,
+    max_retries=record.max_retries,
+    retry_sections=record.retry_sections,
+    retry_agents=record.retry_agents,
     total_steps=record.total_steps,
     completed_steps=record.completed_steps,
     progress=record.progress,
@@ -1049,6 +1173,18 @@ def _parse_job_request(payload: dict[str, Any]) -> GenerateLessonRequest | Writi
     payload = {key: value for key, value in payload.items() if key != "mode"}
   
   return GenerateLessonRequest.model_validate(payload)
+
+
+def _expected_sections_from_request(request: GenerateLessonRequest) -> int:
+  """Compute the expected section count for a lesson job."""
+  # Reuse the call plan depth so expected section counts match worker planning.
+  from app.jobs.progress import build_call_plan
+  
+  plan = build_call_plan(
+    request.model_dump(mode="python", by_alias=True),
+    merge_gatherer_structurer=settings.merge_gatherer_structurer,
+  )
+  return plan.depth
 
 
 @app.get("/health")
@@ -1178,10 +1314,15 @@ async def _create_job_record(
 ) -> JobCreateResponse:
   _validate_generate_request(request, settings)
   repo = _get_jobs_repo(settings)
+  # Precompute section count so the client can render placeholders immediately.
+  expected_sections = _expected_sections_from_request(request)
+
   if request.idempotency_key:
     existing = await run_in_threadpool(repo.find_by_idempotency_key, request.idempotency_key)
+
     if existing:
-      return JobCreateResponse(job_id=existing.job_id)
+      response_expected = existing.expected_sections or expected_sections
+      return JobCreateResponse(job_id=existing.job_id, expected_sections=response_expected)
   
   job_id = generate_job_id()
   timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -1192,6 +1333,13 @@ async def _create_job_record(
     status="queued",
     phase="queued",
     subphase=None,
+    expected_sections=expected_sections,
+    completed_sections=0,
+    completed_section_indexes=[],
+    retry_count=0,
+    max_retries=settings.job_max_retries,
+    retry_sections=None,
+    retry_agents=None,
     progress=0.0,
     logs=[],
     result_json=None,
@@ -1204,7 +1352,7 @@ async def _create_job_record(
     idempotency_key=request.idempotency_key,
   )
   await run_in_threadpool(repo.create_job, record)
-  return JobCreateResponse(job_id=job_id)
+  return JobCreateResponse(job_id=job_id, expected_sections=expected_sections)
 
 
 async def _process_job_async(job_id: str, settings: Settings) -> None:
@@ -1328,12 +1476,19 @@ async def create_writing_check(  # noqa: B008
     request=request.model_dump(mode="python"),
     status="queued",
     phase="queued",
+    expected_sections=0,
+    completed_sections=0,
+    completed_section_indexes=[],
+    retry_count=0,
+    max_retries=settings.job_max_retries,
+    retry_sections=None,
+    retry_agents=None,
     created_at=timestamp,
     updated_at=timestamp,
     ttl=_compute_job_ttl(settings),
   )
   await run_in_threadpool(repo.create_job, record)
-  response = JobCreateResponse(job_id=job_id)
+  response = JobCreateResponse(job_id=job_id, expected_sections=0)
   
   # Kick off processing so the client can poll for status immediately.
   _kickoff_job_processing(background_tasks, response.job_id, settings)
@@ -1389,6 +1544,111 @@ async def cancel_job(  # noqa: B008
   )
   if updated is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+  return _job_status_from_record(updated)
+
+
+@app.post(
+  "/v1/jobs/{job_id}/retry",
+  response_model=JobStatusResponse,
+  dependencies=[Depends(_require_dev_key)],
+)
+async def retry_job(  # noqa: B008
+    job_id: str,
+    payload: JobRetryRequest,
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> JobStatusResponse:
+  """Retry a failed job with optional section/agent targeting."""
+  repo = _get_jobs_repo(settings)
+  record = await run_in_threadpool(repo.get_job, job_id)
+
+  if record is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+
+  # Only finalized failures should be eligible for retry.
+  if record.status not in ("error", "canceled"):
+    raise HTTPException(
+      status_code=status.HTTP_409_CONFLICT,
+      detail="Only failed or canceled jobs can be retried.",
+    )
+
+  # Enforce the retry limit to avoid unbounded reprocessing.
+  retry_count = record.retry_count or 0
+  max_retries = record.max_retries if record.max_retries is not None else settings.job_max_retries
+
+  if retry_count >= max_retries:
+    raise HTTPException(
+      status_code=status.HTTP_409_CONFLICT,
+      detail="Retry limit reached for this job.",
+    )
+
+  # Resolve expected sections for validation against retry targets.
+  try:
+    parsed_request = _parse_job_request(record.request)
+
+  except ValidationError as exc:
+    raise HTTPException(
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+      detail="Stored job request failed validation.",
+    ) from exc
+
+  if isinstance(parsed_request, WritingCheckRequest):
+
+    if payload.sections or payload.agents:
+      raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Writing check retries do not support section or agent targeting.",
+      )
+    expected_sections = 0
+
+  else:
+    expected_sections = record.expected_sections or _expected_sections_from_request(parsed_request)
+
+  # Normalize retry sections to a unique, ordered list.
+  retry_sections = None
+
+  if payload.sections:
+
+    # Ensure retry section indexes are within expected bounds.
+    invalid = [index for index in payload.sections if index >= expected_sections]
+
+    if invalid:
+      raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Retry section indexes exceed expected section count.",
+      )
+    retry_sections = sorted(set(payload.sections))
+
+  # Preserve agent order while deduplicating retry targets.
+  retry_agents = list(dict.fromkeys(payload.agents)) if payload.agents else None
+  logs = record.logs + [
+    f"Retry attempt {retry_count + 1} queued.",
+  ]
+  # Requeue the job with retry metadata so the worker can resume.
+  updated = await run_in_threadpool(
+    repo.update_job,
+    job_id,
+    status="queued",
+    phase="queued",
+    subphase="retry",
+    progress=0.0,
+    logs=logs,
+    retry_count=retry_count + 1,
+    max_retries=max_retries,
+    retry_sections=retry_sections,
+    retry_agents=retry_agents,
+    current_section_index=None,
+    current_section_status=None,
+    current_section_retry_count=None,
+    current_section_title=None,
+    completed_at=None,
+  )
+
+  if updated is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+
+  # Kick off processing so retries start immediately when auto-processing is enabled.
+  _kickoff_job_processing(background_tasks, updated.job_id, settings)
   return _job_status_from_record(updated)
 
 

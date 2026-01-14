@@ -19,6 +19,18 @@ class JobRecord:
     updated_at: str
     phase: str | None = None
     subphase: str | None = None
+    expected_sections: int | None = None
+    completed_sections: int | None = None
+    completed_section_indexes: list[int] | None = None
+    current_section_index: int | None = None
+    current_section_status: str | None = None
+    current_section_retry_count: int | None = None
+    current_section_title: str | None = None
+    retry_count: int | None = None
+    max_retries: int | None = None
+    retry_sections: list[int] | None = None
+    retry_agents: list[str] | None = None
+    retry_parent_job_id: str | None = None
     total_steps: int | None = None
     completed_steps: int | None = None
     progress: float | None = None

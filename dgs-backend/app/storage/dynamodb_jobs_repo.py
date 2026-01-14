@@ -69,6 +69,18 @@ def _coerce_optional_int(value: Any) -> int | None:
     return int(value)
 
 
+def _coerce_optional_int_list(value: Any) -> list[int] | None:
+    """Normalize DynamoDB list fields to a list of ints when present."""
+
+    if value is None:
+        return None
+
+    if isinstance(value, list):
+        return [int(item) for item in value]
+
+    return None
+
+
 def _is_local_endpoint(endpoint_url: str | None) -> bool:
     """Return True when pointing at a local DynamoDB endpoint."""
     
@@ -167,6 +179,18 @@ class DynamoJobsRepository(JobsRepository):
         status: JobStatus | None = None,
         phase: str | None = None,
         subphase: str | None = None,
+        expected_sections: int | None = None,
+        completed_sections: int | None = None,
+        completed_section_indexes: list[int] | None = None,
+        current_section_index: int | None = None,
+        current_section_status: str | None = None,
+        current_section_retry_count: int | None = None,
+        current_section_title: str | None = None,
+        retry_count: int | None = None,
+        max_retries: int | None = None,
+        retry_sections: list[int] | None = None,
+        retry_agents: list[str] | None = None,
+        retry_parent_job_id: str | None = None,
         total_steps: int | None = None,
         completed_steps: int | None = None,
         progress: float | None = None,
@@ -193,6 +217,18 @@ class DynamoJobsRepository(JobsRepository):
             "status": status or current.status,
             "phase": phase if phase is not None else current.phase,
             "subphase": subphase if subphase is not None else current.subphase,
+            "expected_sections": expected_sections if expected_sections is not None else current.expected_sections,
+            "completed_sections": completed_sections if completed_sections is not None else current.completed_sections,
+            "completed_section_indexes": completed_section_indexes if completed_section_indexes is not None else current.completed_section_indexes,
+            "current_section_index": current_section_index if current_section_index is not None else current.current_section_index,
+            "current_section_status": current_section_status if current_section_status is not None else current.current_section_status,
+            "current_section_retry_count": current_section_retry_count if current_section_retry_count is not None else current.current_section_retry_count,
+            "current_section_title": current_section_title if current_section_title is not None else current.current_section_title,
+            "retry_count": retry_count if retry_count is not None else current.retry_count,
+            "max_retries": max_retries if max_retries is not None else current.max_retries,
+            "retry_sections": retry_sections if retry_sections is not None else current.retry_sections,
+            "retry_agents": retry_agents if retry_agents is not None else current.retry_agents,
+            "retry_parent_job_id": retry_parent_job_id if retry_parent_job_id is not None else current.retry_parent_job_id,
             "total_steps": total_steps if total_steps is not None else current.total_steps,
             "completed_steps": completed_steps_value,
             "progress": progress if progress is not None else current.progress,
@@ -292,6 +328,18 @@ class DynamoJobsRepository(JobsRepository):
             "status": record.status,
             "phase": record.phase,
             "subphase": record.subphase,
+            "expected_sections": record.expected_sections,
+            "completed_sections": record.completed_sections,
+            "completed_section_indexes": record.completed_section_indexes,
+            "current_section_index": record.current_section_index,
+            "current_section_status": record.current_section_status,
+            "current_section_retry_count": record.current_section_retry_count,
+            "current_section_title": record.current_section_title,
+            "retry_count": record.retry_count,
+            "max_retries": record.max_retries,
+            "retry_sections": record.retry_sections,
+            "retry_agents": record.retry_agents,
+            "retry_parent_job_id": record.retry_parent_job_id,
             "total_steps": record.total_steps,
             "completed_steps": record.completed_steps,
             "progress": Decimal(str(record.progress)) if record.progress is not None else None,
@@ -326,6 +374,18 @@ class DynamoJobsRepository(JobsRepository):
             "status": item["status"],
             "phase": item.get("phase"),
             "subphase": item.get("subphase"),
+            "expected_sections": _coerce_optional_int(item.get("expected_sections")),
+            "completed_sections": _coerce_optional_int(item.get("completed_sections")),
+            "completed_section_indexes": _coerce_optional_int_list(item.get("completed_section_indexes")),
+            "current_section_index": _coerce_optional_int(item.get("current_section_index")),
+            "current_section_status": item.get("current_section_status"),
+            "current_section_retry_count": _coerce_optional_int(item.get("current_section_retry_count")),
+            "current_section_title": item.get("current_section_title"),
+            "retry_count": _coerce_optional_int(item.get("retry_count")),
+            "max_retries": _coerce_optional_int(item.get("max_retries")),
+            "retry_sections": _coerce_optional_int_list(item.get("retry_sections")),
+            "retry_agents": item.get("retry_agents"),
+            "retry_parent_job_id": item.get("retry_parent_job_id"),
             "total_steps": total_steps,
             "completed_steps": completed_steps,
             "progress": progress,

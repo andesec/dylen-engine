@@ -9,6 +9,7 @@ from typing import Any, cast
 from app.ai.agents.base import BaseAgent
 from app.ai.pipeline.contracts import GenerationRequest, LessonPlan, JobContext
 from app.ai.agents.prompts import render_planner_prompt, format_schema_block
+from app.ai.errors import is_output_error
 from app.ai.json_parser import parse_json_with_fallback
 from app.telemetry.context import llm_call_context
 from pydantic import ValidationError
@@ -78,7 +79,6 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
     if self._model.supports_structured_output:
       schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
       # Stamp the provider call with agent context for audit logging.
-
       with llm_call_context(
         agent=self.name,
         lesson_topic=input_data.topic,
@@ -86,8 +86,26 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
         purpose="plan_lesson",
         call_index="1/1",
       ):
-        response = await self._model.generate_structured(prompt_text, schema)
+        try:
+          response = await self._model.generate_structured(prompt_text, schema)
+        except Exception as exc:  # noqa: BLE001
+          if not is_output_error(exc):
+            raise
+          # Retry the same request with the parser error appended.
+          retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
+          retry_purpose = "plan_lesson_retry"
+          retry_call_index = "retry/1"
 
+          with llm_call_context(
+            agent=self.name,
+            lesson_topic=input_data.topic,
+            job_id=ctx.job_id,
+            purpose=retry_purpose,
+            call_index=retry_call_index,
+          ):
+            response = await self._model.generate_structured(retry_prompt, schema)
+
+          self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
 
       self._record_usage(agent=self.name, purpose="plan_lesson", call_index="1/1", usage=response.usage)
       plan_json = response.content
@@ -103,7 +121,6 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
       # raw = await self._model.generate(prompt_with_schema)
       
       # Stamp the provider call with agent context for audit logging.
-
       with llm_call_context(
         agent=self.name,
         lesson_topic=input_data.topic,
@@ -117,12 +134,34 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
       self._record_usage(agent=self.name, purpose="plan_lesson", call_index="1/1", usage=raw.usage)
       
       # Parse the model output with a lenient fallback to reduce retry churn.
+
       try:
         cleaned = self._model.strip_json_fences(raw.content)
         plan_json = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       except json.JSONDecodeError as exc:
         logger.error("Planner failed to parse JSON: %s", exc)
-        raise RuntimeError(f"Failed to parse planner JSON: {exc}") from exc
+        # Retry the same request with the parser error appended.
+        retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
+        retry_purpose = "plan_lesson_retry"
+        retry_call_index = "retry/1"
+
+        with llm_call_context(
+          agent=self.name,
+          lesson_topic=input_data.topic,
+          job_id=ctx.job_id,
+          purpose=retry_purpose,
+          call_index=retry_call_index,
+        ):
+          retry_raw = await self._model.generate(retry_prompt)
+
+        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)
+
+        try:
+          cleaned_retry = self._model.strip_json_fences(retry_raw.content)
+          plan_json = cast(dict[str, Any], parse_json_with_fallback(cleaned_retry))
+        except json.JSONDecodeError as retry_exc:
+          logger.error("Planner retry failed to parse JSON: %s", retry_exc)
+          raise RuntimeError(f"Failed to parse planner JSON after retry: {retry_exc}") from retry_exc
 
     try:
 

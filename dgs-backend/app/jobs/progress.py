@@ -134,6 +134,17 @@ def build_call_plan(request_data: Mapping[str, Any], *, merge_gatherer_structure
     return plan
 
 
+@dataclass(frozen=True)
+class SectionProgress:
+    """Track section-level status for streaming updates."""
+
+    index: int
+    title: str | None
+    status: str
+    retry_count: int | None = None
+    completed_sections: int | None = None
+
+
 class JobProgressTracker:
     """Track job progress, phases, and log updates."""
 
@@ -146,6 +157,7 @@ class JobProgressTracker:
         total_ai_calls: int,
         label_prefix: str,
         initial_logs: Iterable[str] | None = None,
+        completed_section_indexes: Iterable[int] | None = None,
     ) -> None:
         self._job_id = job_id
         self._jobs_repo = jobs_repo
@@ -155,6 +167,8 @@ class JobProgressTracker:
         self._completed_steps = 0
         self._ai_call_index = 1
         self._logs: list[str] = list(initial_logs or [])[-MAX_TRACKED_LOGS:]
+        # Preserve existing completed sections so retries can merge partial output.
+        self._completed_section_indexes = list(completed_section_indexes or [])
 
     def add_logs(self, *messages: str) -> None:
         """Append log lines while preserving the rolling window."""
@@ -179,7 +193,17 @@ class JobProgressTracker:
             return 0.0
         return min(round((self._completed_steps / self._total_steps) * 100, 2), 100.0)
 
-    def _update_job(self, *, status: JobStatus, phase: str, subphase: str | None = None) -> JobRecord | None:
+    def _update_job(
+        self,
+        *,
+        status: JobStatus,
+        phase: str,
+        subphase: str | None = None,
+        result_json: dict[str, Any] | None = None,
+        expected_sections: int | None = None,
+        section_progress: SectionProgress | None = None,
+    ) -> JobRecord | None:
+        # Build the base payload for persistence.
         payload = {
             "status": status,
             "phase": phase,
@@ -189,10 +213,42 @@ class JobProgressTracker:
             "completed_steps": self._completed_steps,
             "logs": self._logs,
         }
+
+        # Attach partial lesson JSON when streaming progress updates.
+        if result_json is not None:
+            payload["result_json"] = result_json
+
+        # Attach section counters when available for UI progress.
+        if expected_sections is not None:
+            payload["expected_sections"] = expected_sections
+
+        # Attach the active section metadata when available.
+        if section_progress is not None:
+            # Record completed section indices for retry merging.
+            if section_progress.status == "completed":
+                self._record_completed_section(section_progress.index)
+
+            payload["completed_sections"] = section_progress.completed_sections
+            payload["current_section_index"] = section_progress.index
+            payload["current_section_status"] = section_progress.status
+            payload["current_section_retry_count"] = section_progress.retry_count
+            payload["current_section_title"] = section_progress.title
+            payload["completed_section_indexes"] = list(self._completed_section_indexes)
+
         record = self._jobs_repo.update_job(self._job_id, **payload)
+
         if record and record.status == "canceled":
             raise JobCanceledError(f"Job {self._job_id} was canceled.")
+
         return record
+
+    def _record_completed_section(self, index: int) -> None:
+        """Track completed sections in completion order while avoiding duplicates."""
+        # Avoid duplicates so section-to-block alignment stays deterministic.
+        if index in self._completed_section_indexes:
+            return
+
+        self._completed_section_indexes.append(index)
 
     def set_cost(self, cost: dict[str, Any]) -> JobRecord | None:
         """Update the job's cost metrics."""
@@ -200,37 +256,98 @@ class JobProgressTracker:
         payload = {"cost": cost, "updated_at": timestamp}
         return self._jobs_repo.update_job(self._job_id, **payload)
 
-    def set_phase(self, *, phase: str, subphase: str | None = None) -> JobRecord | None:
+    def set_phase(
+        self,
+        *,
+        phase: str,
+        subphase: str | None = None,
+        result_json: dict[str, Any] | None = None,
+        expected_sections: int | None = None,
+        section_progress: SectionProgress | None = None,
+    ) -> JobRecord | None:
         """Update the phase without advancing progress."""
 
-        return self._update_job(status="running", phase=phase, subphase=subphase)
+        return self._update_job(
+            status="running",
+            phase=phase,
+            subphase=subphase,
+            result_json=result_json,
+            expected_sections=expected_sections,
+            section_progress=section_progress,
+        )
 
-    def complete_ai_call(self, *, phase: str, message: str | None = None) -> JobRecord | None:
+    def complete_ai_call(
+        self,
+        *,
+        phase: str,
+        message: str | None = None,
+        result_json: dict[str, Any] | None = None,
+        expected_sections: int | None = None,
+        section_progress: SectionProgress | None = None,
+    ) -> JobRecord | None:
         """Mark an AI call as finished and advance progress."""
 
         if message:
             self.add_logs(message)
         subphase = self.current_ai_subphase()
         self._completed_steps = min(self._completed_steps + 1, self._total_steps)
-        record = self._update_job(status="running", phase=phase, subphase=subphase)
+        record = self._update_job(
+            status="running",
+            phase=phase,
+            subphase=subphase,
+            result_json=result_json,
+            expected_sections=expected_sections,
+            section_progress=section_progress,
+        )
         self._ai_call_index = min(self._ai_call_index + 1, self._total_ai_calls)
         return record
 
-    def complete_step(self, *, phase: str, subphase: str | None, message: str | None = None) -> JobRecord | None:
+    def complete_step(
+        self,
+        *,
+        phase: str,
+        subphase: str | None,
+        message: str | None = None,
+        result_json: dict[str, Any] | None = None,
+        expected_sections: int | None = None,
+        section_progress: SectionProgress | None = None,
+    ) -> JobRecord | None:
         """Advance progress with a custom subphase label."""
 
         if message:
             self.add_logs(message)
         self._completed_steps = min(self._completed_steps + 1, self._total_steps)
-        return self._update_job(status="running", phase=phase, subphase=subphase)
+        return self._update_job(
+            status="running",
+            phase=phase,
+            subphase=subphase,
+            result_json=result_json,
+            expected_sections=expected_sections,
+            section_progress=section_progress,
+        )
 
-    def complete_validation(self, *, message: str | None = None, status: JobStatus = "running") -> JobRecord | None:
+    def complete_validation(
+        self,
+        *,
+        message: str | None = None,
+        status: JobStatus = "running",
+        result_json: dict[str, Any] | None = None,
+        expected_sections: int | None = None,
+        section_progress: SectionProgress | None = None,
+    ) -> JobRecord | None:
         """Mark validation as finished and finalize progress."""
 
         if message:
             self.add_logs(message)
         self._completed_steps = self._total_steps
-        return self._update_job(phase="validate", subphase="validation", status=status)
+        return self._update_job(
+            phase="validate",
+            subphase="validation",
+            status=status,
+            result_json=result_json,
+            expected_sections=expected_sections,
+            section_progress=section_progress,
+        )
 
     def fail(self, *, phase: str, message: str) -> JobRecord | None:
         """Set the job to an error state."""

@@ -16,7 +16,9 @@ class Settings:
 
     dev_key: str
     allowed_origins: list[str]
+    debug: bool
     max_topic_length: int
+    job_max_retries: int
     ddb_table: str
     jobs_table: str
     ddb_region: str
@@ -84,15 +86,26 @@ def get_settings() -> Settings:
     if not dev_key:
         raise ValueError("DGS_DEV_KEY must be set to a non-empty value.")
 
+    # Toggle verbose error output and diagnostics in non-production environments.
+    debug = _parse_bool(os.getenv("DGS_DEBUG"))
+
     max_topic_length = int(os.getenv("DGS_MAX_TOPIC_LENGTH", "200"))
 
     if max_topic_length <= 0:
         raise ValueError("DGS_MAX_TOPIC_LENGTH must be a positive integer.")
 
+    # Clamp retry attempts to avoid runaway costs on failed jobs.
+    job_max_retries = int(os.getenv("DGS_JOB_MAX_RETRIES", "1"))
+
+    if job_max_retries < 0:
+        raise ValueError("DGS_JOB_MAX_RETRIES must be zero or a positive integer.")
+
     return Settings(
         dev_key=dev_key,
         allowed_origins=_parse_origins(os.getenv("DGS_ALLOWED_ORIGINS")),
+        debug=debug,
         max_topic_length=max_topic_length,
+        job_max_retries=job_max_retries,
         ddb_table=os.getenv("DGS_DDB_TABLE", "Lessons"),
         jobs_table=os.getenv("DGS_JOBS_TABLE", "dgs_jobs"),
         ddb_region=os.getenv("AWS_REGION", "us-east-1"),

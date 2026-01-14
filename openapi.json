@@ -224,15 +224,113 @@
       "JobCreateResponse": {
         "description": "Response payload for job creation.",
         "properties": {
+          "expected_sections": {
+            "description": "Total number of sections expected for the lesson job (0 for non-lesson jobs).",
+            "minimum": 0.0,
+            "title": "Expected Sections",
+            "type": "integer"
+          },
           "job_id": {
             "title": "Job Id",
             "type": "string"
           }
         },
         "required": [
+          "expected_sections",
           "job_id"
         ],
         "title": "JobCreateResponse",
+        "type": "object"
+      },
+      "JobRetryRequest": {
+        "description": "Request payload for retrying a failed job.",
+        "properties": {
+          "agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "planner",
+                    "gatherer",
+                    "structurer",
+                    "repair",
+                    "stitcher"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline agents to retry (defaults to full pipeline).",
+            "title": "Agents"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-based section indexes to retry (defaults to all sections).",
+            "title": "Sections"
+          }
+        },
+        "title": "JobRetryRequest",
+        "type": "object"
+      },
+      "CurrentSectionStatus": {
+        "description": "Section status metadata for streaming job progress.",
+        "properties": {
+          "index": {
+            "description": "0-based index of the active section.",
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "retry_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retry attempts for the active section when applicable.",
+            "title": "Retry Count"
+          },
+          "status": {
+            "description": "Section generation status.",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Title of the active section when known.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "index",
+          "status"
+        ],
+        "title": "CurrentSectionStatus",
         "type": "object"
       },
       "JobStatusResponse": {
@@ -262,6 +360,35 @@
             "description": "Completed progress steps when available.",
             "title": "Completed Steps"
           },
+          "completed_sections": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of lesson sections completed so far.",
+            "title": "Completed Sections"
+          },
+          "completed_section_indexes": {
+            "anyOf": [
+              {
+                "items": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-based section indexes that have been completed so far.",
+            "title": "Completed Section Indexes"
+          },
           "cost": {
             "anyOf": [
               {
@@ -274,9 +401,32 @@
             ],
             "title": "Cost"
           },
+          "current_section": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CurrentSectionStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "expected_sections": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total number of expected sections for lesson jobs.",
+            "title": "Expected Sections"
           },
           "job_id": {
             "title": "Job Id",
@@ -325,6 +475,50 @@
             ],
             "title": "Request"
           },
+          "retry_agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline agents targeted for retry, when applicable.",
+            "title": "Retry Agents"
+          },
+          "retry_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retry attempts already used for this job.",
+            "title": "Retry Count"
+          },
+          "retry_sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-based section indexes targeted for retry, when applicable.",
+            "title": "Retry Sections"
+          },
           "result": {
             "anyOf": [
               {
@@ -358,6 +552,19 @@
               }
             ],
             "title": "Subphase"
+          },
+          "max_retries": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Maximum retry attempts allowed for this job.",
+            "title": "Max Retries"
           },
           "total_steps": {
             "anyOf": [
@@ -974,6 +1181,64 @@
           }
         },
         "summary": "Cancel Job"
+      }
+    },
+    "/v1/jobs/{job_id}/retry": {
+      "post": {
+        "description": "Retry a failed job with optional section/agent targeting.",
+        "operationId": "retry_job_v1_jobs__job_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-DGS-Dev-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Dgs-Dev-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobRetryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Job"
       }
     },
     "/v1/lessons/generate": {

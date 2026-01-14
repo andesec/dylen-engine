@@ -75,3 +75,15 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
       return cast(dict[str, Any], parse_json_with_fallback(cleaned))
     except json.JSONDecodeError as exc:
       raise RuntimeError(f"Failed to parse dummy JSON for {self.name}: {exc}") from exc
+
+  def _build_json_retry_prompt(self, *, prompt_text: str, error: Exception) -> str:
+    """Append parser errors to prompts so retries can fix invalid JSON."""
+    # Include parser failures so the next attempt avoids repeating the error.
+    suffix = "\n\n".join(
+      [
+        "Previous response could not be parsed as JSON.",
+        f"Parser error: {error}",
+        "Return ONLY valid JSON and ensure the schema is followed exactly.",
+      ]
+    )
+    return f"{prompt_text}\n\n{suffix}"

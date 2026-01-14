@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import logging
 from typing import Any
 
@@ -18,6 +19,11 @@ from app.storage.jobs_repo import JobsRepository
 logger = logging.getLogger(__name__)
 
 _KNOWN_TABLES: set[str] = set()
+
+
+def _now_iso() -> str:
+    """Return a UTC timestamp string for job updates."""
+    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @dataclass(frozen=True)
@@ -46,6 +52,18 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
           status TEXT NOT NULL,
           phase TEXT NOT NULL,
           subphase TEXT,
+          expected_sections INTEGER,
+          completed_sections INTEGER,
+          completed_section_indexes JSONB,
+          current_section_index INTEGER,
+          current_section_status TEXT,
+          current_section_retry_count INTEGER,
+          current_section_title TEXT,
+          retry_count INTEGER,
+          max_retries INTEGER,
+          retry_sections JSONB,
+          retry_agents JSONB,
+          retry_parent_job_id TEXT,
           total_steps INTEGER,
           completed_steps INTEGER,
           progress DOUBLE PRECISION,
@@ -62,6 +80,45 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
         )
         """
     ).format(table=sql.Identifier(table_name))
+
+    alter_statements = [
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS expected_sections INTEGER").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_sections INTEGER").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_section_indexes JSONB").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_index INTEGER").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_status TEXT").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_retry_count INTEGER").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_title TEXT").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_count INTEGER").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS max_retries INTEGER").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_sections JSONB").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_agents JSONB").format(
+            table=sql.Identifier(table_name),
+        ),
+        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_parent_job_id TEXT").format(
+            table=sql.Identifier(table_name),
+        ),
+    ]
     
     # Build supporting indexes for queue polling and idempotency lookups.
     
@@ -86,6 +143,10 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
             cursor.execute(statement)
             cursor.execute(status_index)
             cursor.execute(idempotency_index)
+
+            for alter_statement in alter_statements:
+                cursor.execute(alter_statement)
+
     
     _KNOWN_TABLES.add(table_name)
     logger.info("Ensured Postgres jobs table exists: %s", table_name)
@@ -122,6 +183,18 @@ class PostgresJobsRepository(JobsRepository):
               status,
               phase,
               subphase,
+              expected_sections,
+              completed_sections,
+              completed_section_indexes,
+              current_section_index,
+              current_section_status,
+              current_section_retry_count,
+              current_section_title,
+              retry_count,
+              max_retries,
+              retry_sections,
+              retry_agents,
+              retry_parent_job_id,
               total_steps,
               completed_steps,
               progress,
@@ -142,6 +215,18 @@ class PostgresJobsRepository(JobsRepository):
               %(status)s,
               %(phase)s,
               %(subphase)s,
+              %(expected_sections)s,
+              %(completed_sections)s,
+              %(completed_section_indexes)s,
+              %(current_section_index)s,
+              %(current_section_status)s,
+              %(current_section_retry_count)s,
+              %(current_section_title)s,
+              %(retry_count)s,
+              %(max_retries)s,
+              %(retry_sections)s,
+              %(retry_agents)s,
+              %(retry_parent_job_id)s,
               %(total_steps)s,
               %(completed_steps)s,
               %(progress)s,
@@ -170,6 +255,18 @@ class PostgresJobsRepository(JobsRepository):
             "status": record.status,
             "phase": record.phase,
             "subphase": record.subphase,
+            "expected_sections": record.expected_sections,
+            "completed_sections": record.completed_sections,
+            "completed_section_indexes": _json_value(record.completed_section_indexes),
+            "current_section_index": record.current_section_index,
+            "current_section_status": record.current_section_status,
+            "current_section_retry_count": record.current_section_retry_count,
+            "current_section_title": record.current_section_title,
+            "retry_count": record.retry_count,
+            "max_retries": record.max_retries,
+            "retry_sections": _json_value(record.retry_sections),
+            "retry_agents": _json_value(record.retry_agents),
+            "retry_parent_job_id": record.retry_parent_job_id,
             "total_steps": record.total_steps,
             "completed_steps": record.completed_steps,
             "progress": record.progress,
@@ -222,6 +319,18 @@ class PostgresJobsRepository(JobsRepository):
         status: JobStatus | None = None,
         phase: str | None = None,
         subphase: str | None = None,
+        expected_sections: int | None = None,
+        completed_sections: int | None = None,
+        completed_section_indexes: list[int] | None = None,
+        current_section_index: int | None = None,
+        current_section_status: str | None = None,
+        current_section_retry_count: int | None = None,
+        current_section_title: str | None = None,
+        retry_count: int | None = None,
+        max_retries: int | None = None,
+        retry_sections: list[int] | None = None,
+        retry_agents: list[str] | None = None,
+        retry_parent_job_id: str | None = None,
         total_steps: int | None = None,
         completed_steps: int | None = None,
         progress: float | None = None,
@@ -248,12 +357,26 @@ class PostgresJobsRepository(JobsRepository):
         
         # Merge the incoming changes with persisted values.
         completed_steps_value = completed_steps if completed_steps is not None else current.completed_steps
+        # Always stamp an update timestamp when writing job changes.
+        updated_at_value = updated_at or _now_iso()
         payload = {
             "job_id": current.job_id,
             "request": current.request,
             "status": status or current.status,
             "phase": phase if phase is not None else current.phase,
             "subphase": subphase if subphase is not None else current.subphase,
+            "expected_sections": expected_sections if expected_sections is not None else current.expected_sections,
+            "completed_sections": completed_sections if completed_sections is not None else current.completed_sections,
+            "completed_section_indexes": completed_section_indexes if completed_section_indexes is not None else current.completed_section_indexes,
+            "current_section_index": current_section_index if current_section_index is not None else current.current_section_index,
+            "current_section_status": current_section_status if current_section_status is not None else current.current_section_status,
+            "current_section_retry_count": current_section_retry_count if current_section_retry_count is not None else current.current_section_retry_count,
+            "current_section_title": current_section_title if current_section_title is not None else current.current_section_title,
+            "retry_count": retry_count if retry_count is not None else current.retry_count,
+            "max_retries": max_retries if max_retries is not None else current.max_retries,
+            "retry_sections": retry_sections if retry_sections is not None else current.retry_sections,
+            "retry_agents": retry_agents if retry_agents is not None else current.retry_agents,
+            "retry_parent_job_id": retry_parent_job_id if retry_parent_job_id is not None else current.retry_parent_job_id,
             "total_steps": total_steps if total_steps is not None else current.total_steps,
             "completed_steps": completed_steps_value,
             "progress": progress if progress is not None else current.progress,
@@ -263,7 +386,7 @@ class PostgresJobsRepository(JobsRepository):
             "validation": validation if validation is not None else current.validation,
             "cost": cost if cost is not None else current.cost,
             "created_at": current.created_at,
-            "updated_at": updated_at or current.updated_at,
+            "updated_at": updated_at_value,
             "completed_at": completed_at if completed_at is not None else current.completed_at,
             "ttl": current.ttl,
             "idempotency_key": current.idempotency_key,
@@ -283,6 +406,18 @@ class PostgresJobsRepository(JobsRepository):
               status = %(status)s,
               phase = %(phase)s,
               subphase = %(subphase)s,
+              expected_sections = %(expected_sections)s,
+              completed_sections = %(completed_sections)s,
+              completed_section_indexes = %(completed_section_indexes)s,
+              current_section_index = %(current_section_index)s,
+              current_section_status = %(current_section_status)s,
+              current_section_retry_count = %(current_section_retry_count)s,
+              current_section_title = %(current_section_title)s,
+              retry_count = %(retry_count)s,
+              max_retries = %(max_retries)s,
+              retry_sections = %(retry_sections)s,
+              retry_agents = %(retry_agents)s,
+              retry_parent_job_id = %(retry_parent_job_id)s,
               total_steps = %(total_steps)s,
               completed_steps = %(completed_steps)s,
               progress = %(progress)s,
@@ -305,6 +440,18 @@ class PostgresJobsRepository(JobsRepository):
             "status": updated_record.status,
             "phase": updated_record.phase,
             "subphase": updated_record.subphase,
+            "expected_sections": updated_record.expected_sections,
+            "completed_sections": updated_record.completed_sections,
+            "completed_section_indexes": _json_value(updated_record.completed_section_indexes),
+            "current_section_index": updated_record.current_section_index,
+            "current_section_status": updated_record.current_section_status,
+            "current_section_retry_count": updated_record.current_section_retry_count,
+            "current_section_title": updated_record.current_section_title,
+            "retry_count": updated_record.retry_count,
+            "max_retries": updated_record.max_retries,
+            "retry_sections": _json_value(updated_record.retry_sections),
+            "retry_agents": _json_value(updated_record.retry_agents),
+            "retry_parent_job_id": updated_record.retry_parent_job_id,
             "total_steps": updated_record.total_steps,
             "completed_steps": updated_record.completed_steps,
             "progress": updated_record.progress,
@@ -382,6 +529,18 @@ class PostgresJobsRepository(JobsRepository):
             "status": row["status"],
             "phase": row["phase"],
             "subphase": row.get("subphase"),
+            "expected_sections": row.get("expected_sections"),
+            "completed_sections": row.get("completed_sections"),
+            "completed_section_indexes": row.get("completed_section_indexes"),
+            "current_section_index": row.get("current_section_index"),
+            "current_section_status": row.get("current_section_status"),
+            "current_section_retry_count": row.get("current_section_retry_count"),
+            "current_section_title": row.get("current_section_title"),
+            "retry_count": row.get("retry_count"),
+            "max_retries": row.get("max_retries"),
+            "retry_sections": row.get("retry_sections"),
+            "retry_agents": row.get("retry_agents"),
+            "retry_parent_job_id": row.get("retry_parent_job_id"),
             "total_steps": row.get("total_steps"),
             "completed_steps": row.get("completed_steps"),
             "progress": row.get("progress"),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections.abc import Callable, Iterable
@@ -9,18 +10,20 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult
+from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult, SectionProgressUpdate
 from app.config import Settings
 from app.jobs.models import JobRecord
 from app.jobs.progress import (
     MAX_TRACKED_LOGS,
     JobCanceledError,
     JobProgressTracker,
+    SectionProgress,
     build_call_plan,
 )
 from app.main import (
     GenerateLessonRequest,
     WritingCheckRequest,
+    _get_repo,
     _get_orchestrator,
     _resolve_learner_level,
     _resolve_model_selection,
@@ -29,7 +32,9 @@ from app.main import (
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.storage.jobs_repo import JobsRepository
+from app.storage.lessons_repo import LessonRecord
 from app.writing.orchestrator import WritingCheckOrchestrator
+from app.utils.ids import generate_lesson_id
 
 
 class JobProcessor:
@@ -62,6 +67,7 @@ class JobProcessor:
             return None
 
         total_steps = call_plan.total_steps(include_validation=True, include_repair=True)
+        expected_sections = call_plan.depth
         merge_label = "enabled" if self._settings.merge_gatherer_structurer else "disabled"
         initial_logs = base_logs + [
             f"Planned AI calls: {call_plan.required_calls}/{call_plan.max_calls}",
@@ -72,8 +78,17 @@ class JobProcessor:
             f"Repair calls: {call_plan.repair_calls}",
             f"Merged gatherer+structurer: {merge_label}",
         ]
-        tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=total_steps, total_ai_calls=call_plan.total_ai_calls, label_prefix=call_plan.label_prefix, initial_logs=initial_logs)
-        tracker.set_phase(phase="plan", subphase="planner_start")
+        base_completed_indexes = _infer_completed_section_indexes(job)
+        tracker = JobProgressTracker(
+            job_id=job.job_id,
+            jobs_repo=self._jobs_repo,
+            total_steps=total_steps,
+            total_ai_calls=call_plan.total_ai_calls,
+            label_prefix=call_plan.label_prefix,
+            initial_logs=initial_logs,
+            completed_section_indexes=base_completed_indexes,
+        )
+        tracker.set_phase(phase="plan", subphase="planner_start", expected_sections=expected_sections)
 
         start_time = time.monotonic()
         soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
@@ -96,23 +111,96 @@ class JobProcessor:
             if _check_timeouts():
                 return None
 
-            orchestration_result = await self._run_orchestration(job.job_id, job.request, tracker=tracker, timeout_checker=_check_timeouts)
+            # Normalize retry targeting before invoking orchestration.
+            retry_agents = _normalize_retry_agents(job.retry_agents)
+
+            if retry_agents:
+                tracker.add_logs(f"Retry agents: {', '.join(sorted(retry_agents))}")
+
+            retry_section_indexes = _normalize_retry_section_indexes(job.retry_sections, expected_sections)
+            retry_section_numbers = _to_section_numbers(retry_section_indexes) if retry_section_indexes else None
+            is_retry = job.retry_count is not None and job.retry_count > 0
+            enable_repair = retry_agents is None or "repair" in retry_agents
+            base_result_json = job.result_json
+            base_completed_sections = len(base_completed_indexes)
+            retry_completed_indexes: list[int] = []
+
+            if retry_section_indexes:
+                tracker.add_logs(f"Retry sections: {', '.join(str(i) for i in retry_section_indexes)}")
+
+            orchestration_result = await self._run_orchestration(
+                job.job_id,
+                job.request,
+                tracker=tracker,
+                timeout_checker=_check_timeouts,
+                retry_section_numbers=retry_section_numbers,
+                is_retry=is_retry,
+                base_result_json=base_result_json,
+                base_completed_indexes=base_completed_indexes,
+                retry_completed_indexes=retry_completed_indexes,
+                base_completed_sections=base_completed_sections,
+                enable_repair=enable_repair,
+            )
+
+            # Abort quickly if a cancellation lands after orchestration completes.
+            canceled_record = self._jobs_repo.get_job(job.job_id)
+
+            if canceled_record and canceled_record.status == "canceled":
+                raise JobCanceledError(f"Job {job.job_id} was canceled before validation.")
 
             if _check_timeouts():
                 return None
 
             # Surface orchestration logs even when validation fails.
             tracker.extend_logs(orchestration_result.logs)
-            lesson_model_validation = validate_lesson(orchestration_result.lesson_json)
+            merged_result_json = orchestration_result.lesson_json
+            merged_indexes = list(range(expected_sections))
+            request_model = GenerateLessonRequest.model_validate(job.request)
+
+            if is_retry and retry_section_indexes is not None:
+                merged_result_json, merged_indexes = _merge_retry_result(
+                    base_result_json=base_result_json,
+                    base_completed_indexes=base_completed_indexes,
+                    retry_partial_json=orchestration_result.lesson_json,
+                    retry_completed_indexes=retry_completed_indexes,
+                    topic=request_model.topic,
+                )
+
+            if is_retry and retry_section_indexes is not None and len(merged_indexes) < expected_sections:
+                raise ValueError("Retry did not complete all expected sections.")
+
+            lesson_model_validation = validate_lesson(merged_result_json)
             ok, errors, lesson_model = lesson_model_validation
             validation = {"ok": ok, "errors": errors}
+
             if not ok or lesson_model is None:
                 raise ValueError(f"Validation failed with {len(errors)} error(s).")
 
             shorthand = lesson_to_shorthand(lesson_model)
-            tracker.complete_validation(message="Validate phase complete.", status="done")
+            tracker.complete_validation(message="Validate phase complete.", status="done", expected_sections=expected_sections)
             cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
             tracker.set_cost(cost_summary)
+            # Persist the completed lesson into the lessons repository.
+            lesson_id = generate_lesson_id()
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            lesson_record = LessonRecord(
+                lesson_id=lesson_id,
+                topic=request_model.topic,
+                title=merged_result_json["title"],
+                created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                schema_version=request_model.schema_version or self._settings.schema_version,
+                prompt_version=self._settings.prompt_version,
+                provider_a=orchestration_result.provider_a,
+                model_a=orchestration_result.model_a,
+                provider_b=orchestration_result.provider_b,
+                model_b=orchestration_result.model_b,
+                lesson_json=json.dumps(merged_result_json, ensure_ascii=True),
+                status="ok",
+                latency_ms=latency_ms,
+                idempotency_key=request_model.idempotency_key,
+            )
+            lessons_repo = _get_repo(self._settings)
+            lessons_repo.create_lesson(lesson_record)
             log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
             log_updates.append("Job completed successfully.")
             completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -126,6 +214,9 @@ class JobProcessor:
                 "artifacts": orchestration_result.artifacts,
                 "validation": validation,
                 "cost": cost_summary,
+                "expected_sections": expected_sections,
+                "completed_sections": len(merged_indexes),
+                "completed_section_indexes": merged_indexes,
                 "completed_at": completed_at,
             }
             updated = self._jobs_repo.update_job(job.job_id, **payload)
@@ -188,7 +279,21 @@ class JobProcessor:
                 results.append(processed)
         return results
 
-    async def _run_orchestration(self, job_id: str, request: dict[str, Any], *, tracker: JobProgressTracker | None = None, timeout_checker: Callable[[], bool] | None = None) -> OrchestrationResult:
+    async def _run_orchestration(
+        self,
+        job_id: str,
+        request: dict[str, Any],
+        *,
+        tracker: JobProgressTracker | None = None,
+        timeout_checker: Callable[[], bool] | None = None,
+        retry_section_numbers: set[int] | None = None,
+        is_retry: bool = False,
+        base_result_json: dict[str, Any] | None = None,
+        base_completed_indexes: list[int] | None = None,
+        retry_completed_indexes: list[int] | None = None,
+        base_completed_sections: int = 0,
+        enable_repair: bool = True,
+    ) -> OrchestrationResult:
         """Execute the orchestration pipeline with guarded parameters."""
 
         try:
@@ -248,7 +353,15 @@ class JobProcessor:
         ]
 
         Msgs = list[str] | None
-        def _progress_callback(phase: str, subphase: str | None, messages: Msgs = None, advance: bool = True) -> None:
+        def _progress_callback(
+            phase: str,
+            subphase: str | None,
+            messages: Msgs = None,
+            advance: bool = True,
+            partial_json: dict[str, Any] | None = None,
+            section_progress: SectionProgressUpdate | None = None,
+        ) -> None:
+
             if tracker is None:
                 return
 
@@ -261,16 +374,62 @@ class JobProcessor:
 
             # Check for cancellation
             record = self._jobs_repo.get_job(job_id)
+
             if record and record.status == "canceled":
                 raise JobCanceledError(f"Job {job_id} was canceled during orchestration.")
 
+            # Map orchestrator section updates into tracker-friendly metadata.
+            tracker_section: SectionProgress | None = None
+
+            if section_progress is not None:
+                merged_completed_sections = (section_progress.completed_sections or 0) + base_completed_sections
+                tracker_section = SectionProgress(
+                    index=section_progress.index,
+                    title=section_progress.title,
+                    status=section_progress.status,
+                    retry_count=section_progress.retry_count,
+                    completed_sections=merged_completed_sections,
+                )
+
+                # Keep track of completed retry indexes for partial merge payloads.
+                if retry_completed_indexes is not None and section_progress.status == "completed":
+
+                    if section_progress.index not in retry_completed_indexes:
+                        retry_completed_indexes.append(section_progress.index)
+
             log_message = "; ".join(messages or [])
+            merged_partial = partial_json
+
+            if is_retry and partial_json is not None and retry_completed_indexes is not None:
+                merged_partial = _merge_partial_payload(
+                    base_result_json=base_result_json,
+                    base_completed_indexes=base_completed_indexes or [],
+                    retry_partial_json=partial_json,
+                    retry_completed_indexes=retry_completed_indexes,
+                    topic=topic,
+                )
+
             if advance:
-                tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None)
+                tracker.complete_step(
+                    phase=phase,
+                    subphase=subphase,
+                    message=log_message or None,
+                    result_json=merged_partial,
+                    expected_sections=expected_sections,
+                    section_progress=tracker_section,
+                )
             else:
+
                 if log_message:
                     tracker.add_logs(log_message)
-                tracker.set_phase(phase=phase, subphase=subphase)
+
+                tracker.set_phase(
+                    phase=phase,
+                    subphase=subphase,
+                    result_json=merged_partial,
+                    expected_sections=expected_sections,
+                    section_progress=tracker_section,
+                )
 
         result = await orchestrator.generate_lesson(
             topic=topic,
@@ -286,12 +445,26 @@ class JobProcessor:
             structured_output=True,
             language=language,
             progress_callback=_progress_callback,
+            section_filter=retry_section_numbers,
+            enable_repair=enable_repair,
         )
 
         merged_logs = list(_merge_logs(logs, result.logs))
+
         if tracker is not None:
-            tracker.set_phase(phase="validate", subphase="validation")
-        return result.__class__(lesson_json=result.lesson_json, provider_a=result.provider_a, model_a=result.model_a, provider_b=result.provider_b, model_b=result.model_b, logs=merged_logs)
+            tracker.set_phase(phase="validate", subphase="validation", expected_sections=expected_sections)
+        return OrchestrationResult(
+            lesson_json=result.lesson_json,
+            provider_a=result.provider_a,
+            model_a=result.model_a,
+            provider_b=result.provider_b,
+            model_b=result.model_b,
+            validation_errors=result.validation_errors,
+            logs=merged_logs,
+            usage=result.usage,
+            total_cost=result.total_cost,
+            artifacts=result.artifacts,
+        )
 
 
 def _merge_logs(*log_sets: Iterable[str]) -> Iterable[str]:
@@ -327,3 +500,129 @@ def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str,
         "total_cost": total_cost,
         "calls": usage,
     }
+
+
+_ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair", "stitcher"}
+
+
+def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:
+    """Normalize retry agent names for downstream orchestration controls."""
+
+    if not raw_agents:
+        return None
+
+    # Normalize agent names for consistency in retry logic.
+    normalized = {agent.strip().lower() for agent in raw_agents if agent.strip()}
+    unknown = sorted(normalized - _ALLOWED_RETRY_AGENTS)
+
+    if unknown:
+        raise ValueError(f"Unsupported retry agents: {', '.join(unknown)}")
+
+    return normalized
+
+
+def _normalize_retry_section_indexes(raw_sections: list[int] | None, expected_sections: int) -> list[int] | None:
+    """Normalize 0-based retry section indexes with bounds validation."""
+
+    if raw_sections is None:
+        return None
+
+    # Deduplicate and sort while ensuring indexes are within bounds.
+    unique = sorted(set(raw_sections))
+    invalid = [index for index in unique if index < 0 or index >= expected_sections]
+
+    if invalid:
+        raise ValueError("Retry section indexes are out of range.")
+
+    return unique
+
+
+def _to_section_numbers(indexes: list[int]) -> set[int]:
+    """Convert 0-based indexes into 1-based section numbers."""
+    # Orchestrator expects section numbers (1-based) rather than indexes.
+    return {index + 1 for index in indexes}
+
+
+def _infer_completed_section_indexes(record: JobRecord) -> list[int]:
+    """Infer completed section indexes when explicit tracking is missing."""
+
+    if record.completed_section_indexes:
+        return list(record.completed_section_indexes)
+
+    # Fall back to result_json length when explicit indexes are unavailable.
+    if record.result_json:
+        blocks = record.result_json.get("blocks")
+        if isinstance(blocks, list):
+            return list(range(len(blocks)))
+
+    # Use completed_sections as a last resort when other data is missing.
+    count = record.completed_sections or 0
+    return list(range(count))
+
+
+def _build_block_map(result_json: dict[str, Any] | None, indexes: list[int]) -> dict[int, Any]:
+    """Map section indexes to their block payloads."""
+
+    if not result_json:
+        return {}
+
+    blocks = result_json.get("blocks")
+
+    if not isinstance(blocks, list):
+        return {}
+
+    return {index: block for index, block in zip(indexes, blocks)}
+
+
+def _resolve_result_title(
+    base_result_json: dict[str, Any] | None,
+    retry_partial_json: dict[str, Any] | None,
+    topic: str,
+) -> str:
+    """Pick a stable title for merged retry payloads."""
+
+    if base_result_json and isinstance(base_result_json.get("title"), str):
+        return str(base_result_json["title"])
+
+    if retry_partial_json and isinstance(retry_partial_json.get("title"), str):
+        return str(retry_partial_json["title"])
+
+    return topic
+
+
+def _merge_partial_payload(
+    *,
+    base_result_json: dict[str, Any] | None,
+    base_completed_indexes: list[int],
+    retry_partial_json: dict[str, Any] | None,
+    retry_completed_indexes: list[int],
+    topic: str,
+) -> dict[str, Any]:
+    """Merge partial retry blocks into the existing result payload."""
+    base_map = _build_block_map(base_result_json, base_completed_indexes)
+    retry_map = _build_block_map(retry_partial_json, retry_completed_indexes)
+    merged_map = {**base_map, **retry_map}
+    merged_indexes = sorted(merged_map.keys())
+    merged_blocks = [merged_map[index] for index in merged_indexes]
+    title = _resolve_result_title(base_result_json, retry_partial_json, topic)
+    return {"title": title, "blocks": merged_blocks}
+
+
+def _merge_retry_result(
+    *,
+    base_result_json: dict[str, Any] | None,
+    base_completed_indexes: list[int],
+    retry_partial_json: dict[str, Any] | None,
+    retry_completed_indexes: list[int],
+    topic: str,
+) -> tuple[dict[str, Any], list[int]]:
+    """Merge retry partial payloads into the base result."""
+    merged_payload = _merge_partial_payload(
+        base_result_json=base_result_json,
+        base_completed_indexes=base_completed_indexes,
+        retry_partial_json=retry_partial_json,
+        retry_completed_indexes=retry_completed_indexes,
+        topic=topic,
+    )
+    merged_indexes = sorted(set(base_completed_indexes) | set(retry_completed_indexes))
+    return merged_payload, merged_indexes

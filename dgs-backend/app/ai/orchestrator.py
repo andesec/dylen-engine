@@ -9,7 +9,7 @@ from datetime import datetime
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from app.ai.agents import GathererAgent, GathererStructurerAgent, PlannerAgent, RepairerAgent, StructurerAgent, StitcherAgent
 from app.ai.pipeline.contracts import (
@@ -27,7 +27,11 @@ from app.schema.service import SchemaService
 
 OptStr = str | None
 Msgs = list[str] | None
-ProgressCallback = Callable[[str, OptStr, Msgs, bool], None] | None
+SectionStatus = Literal["generating", "retrying", "completed"]
+ProgressCallback = (
+  Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, SectionProgressUpdate | None], None]
+  | None
+)
 MERGED_DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"
 
 
@@ -55,6 +59,17 @@ class OrchestrationError(RuntimeError):
     super().__init__(message)
     # Keep a snapshot of logs to surface in API/job responses.
     self.logs = logs
+
+
+@dataclass(frozen=True)
+class SectionProgressUpdate:
+  """Section-level metadata for streaming job progress."""
+
+  index: int
+  title: str | None
+  status: SectionStatus
+  retry_count: int | None = None
+  completed_sections: int | None = None
 
 
 class DgsOrchestrator:
@@ -103,6 +118,7 @@ class DgsOrchestrator:
     language: str | None = None,
     enable_repair: bool = True,
     progress_callback: ProgressCallback = None,
+    section_filter: set[int] | None = None,
   ) -> OrchestrationResult:
     """Run the 5-agent pipeline and return lesson JSON."""
     logger = logging.getLogger(__name__)
@@ -115,9 +131,43 @@ class DgsOrchestrator:
     structured_artifacts: list[dict[str, Any]] = []
     repair_artifacts: list[dict[str, Any]] = []
 
-    def _report_progress(phase_name: str, subphase: OptStr, messages: Msgs = None, advance: bool = True) -> None:
+    def _report_progress(
+      phase_name: str,
+      subphase: OptStr,
+      messages: Msgs = None,
+      advance: bool = True,
+      partial_json: dict[str, Any] | None = None,
+      section_progress: SectionProgressUpdate | None = None,
+    ) -> None:
+      # Stream progress updates to the worker when configured.
       if progress_callback:
-        progress_callback(phase_name, subphase, messages, advance)
+        progress_callback(phase_name, subphase, messages, advance, partial_json, section_progress)
+
+    def _build_partial_lesson(sections: list[StructuredSection]) -> dict[str, Any]:
+      """Build a partial lesson JSON from the completed sections."""
+      # Preserve section order while streaming the latest structured payloads.
+      ordered_sections = sorted(sections, key=lambda section: section.section_number)
+      shorthand_sections = StitcherAgent._output_dle_shorthand(ordered_sections)
+      return {"title": topic, "blocks": [section.payload for section in shorthand_sections]}
+
+    def _section_progress(
+      section_index: int,
+      *,
+      title: str | None,
+      status: SectionStatus,
+      retry_count: int | None = None,
+      completed_sections: int | None = None,
+    ) -> SectionProgressUpdate:
+      """Normalize section progress updates with 0-based indexing."""
+      # Convert 1-based section numbers to the 0-based indices expected by the client.
+      zero_based_index = section_index - 1
+      return SectionProgressUpdate(
+        index=zero_based_index,
+        title=title,
+        status=status,
+        retry_count=retry_count,
+        completed_sections=completed_sections,
+      )
 
     gatherer_model_name = gatherer_model or self._gatherer_model_name
     structurer_model_name = structurer_model or self._structurer_model_name
@@ -176,14 +226,16 @@ class DgsOrchestrator:
 
     
     if merge_enabled:
-      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, merged_model_name)
+      gatherer_model_instance = get_model_for_mode(
+        self._gatherer_provider, merged_model_name, agent="gatherer_structurer"
+      )
 
     else:
-      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name)
+      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name, agent="gatherer")
 
-    planner_model_instance = get_model_for_mode(self._planner_provider, planner_model_name)
-    structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name)
-    repairer_model_instance = get_model_for_mode(self._repair_provider, self._repair_model_name)
+    planner_model_instance = get_model_for_mode(self._planner_provider, planner_model_name, agent="planner")
+    structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name, agent="structurer")
+    repairer_model_instance = get_model_for_mode(self._repair_provider, self._repair_model_name, agent="repairer")
 
     schema = self._schema_service
     use = usage_sink
@@ -233,6 +285,23 @@ class DgsOrchestrator:
       if enable_repair:
         # Attempt repair to avoid failing on transient schema errors.
         repair_input = RepairInput(section=draft, structured=structured)
+
+        # Mark the section as retrying when structured validation reports errors.
+        if structured.validation_errors:
+          _report_progress(
+            "transform",
+            f"repair_section_{section_index}_of_{section_count}",
+            [f"Retrying section {section_index}/{section_count} after validation failure."],
+            advance=False,
+            partial_json=_build_partial_lesson(structured_sections),
+            section_progress=_section_progress(
+              section_index,
+              title=draft.title,
+              status="retrying",
+              retry_count=1,
+              completed_sections=len(structured_sections),
+            ),
+          )
 
         try:
           repair_result = await repairer_agent.run(repair_input, ctx)
@@ -292,14 +361,30 @@ class DgsOrchestrator:
     structured_sections: list[StructuredSection] = []
     
     section_count = len(lesson_plan.sections)
+    # Restrict orchestration to a subset of sections when retrying.
+    target_sections = set(section_filter) if section_filter else None
+    target_section_count = len(target_sections) if target_sections is not None else section_count
 
     for plan_section in lesson_plan.sections:
       section_index = plan_section.section_number
 
+      if target_sections is not None and section_index not in target_sections:
+        continue
+
       if merge_enabled:
         merge_subphase = f"gather_struct_section_{section_index}_of_{section_count}"
         merge_msg = f"Gathering+structuring section {section_index}/{section_count}: {plan_section.title}"
-        _report_progress("transform", merge_subphase, [merge_msg])
+        _report_progress(
+          "transform",
+          merge_subphase,
+          [merge_msg],
+          section_progress=_section_progress(
+            section_index,
+            title=plan_section.title,
+            status="generating",
+            completed_sections=len(structured_sections),
+          ),
+        )
 
         try:
           structured = await gatherer_structurer_agent.run(plan_section, ctx)
@@ -346,11 +431,34 @@ class DgsOrchestrator:
 
         if structured_section is not None:
           structured_sections.append(structured_section)
+          _report_progress(
+            "transform",
+            f"section_{section_index}_ready",
+            [f"Section {section_index}/{section_count} ready."],
+            advance=False,
+            partial_json=_build_partial_lesson(structured_sections),
+            section_progress=_section_progress(
+              section_index,
+              title=draft.title,
+              status="completed",
+              completed_sections=len(structured_sections),
+            ),
+          )
 
       else:
         gather_subphase = f"gather_section_{section_index}_of_{section_count}"
         gather_msg = f"Gathering section {section_index}/{section_count}: {plan_section.title}"
-        _report_progress("collect", gather_subphase, [gather_msg])
+        _report_progress(
+          "collect",
+          gather_subphase,
+          [gather_msg],
+          section_progress=_section_progress(
+            section_index,
+            title=plan_section.title,
+            status="generating",
+            completed_sections=len(structured_sections),
+          ),
+        )
 
         try:
           draft = await gatherer_agent.run(plan_section, ctx)
@@ -386,14 +494,28 @@ class DgsOrchestrator:
         draft_artifacts.append(draft.model_dump(mode="python"))
         extract_subphase = f"extract_section_{section_index}_of_{section_count}"
         extract_msg = f"Extracted section {section_index}/{section_count}"
-        _report_progress("collect", extract_subphase, [extract_msg])
+        _report_progress(
+          "collect",
+          extract_subphase,
+          [extract_msg],
+          section_progress=_section_progress(
+            section_index,
+            title=draft.title,
+            status="generating",
+            completed_sections=len(structured_sections),
+          ),
+        )
         section_index += 1
 
     # Ensure we collected all requested sections before structuring.
 
-    if len(sections) < section_count:
+    if len(sections) < target_section_count:
       # Treat missing sections as fatal to avoid returning partial lessons.
       missing = sorted(set(range(1, section_count + 1)) - set(sections.keys()))
+
+      if target_sections is not None:
+        missing = sorted(set(target_sections) - set(sections.keys()))
+
       error_message = f"Missing extracted sections: {missing}"
       logs.append(error_message)
       logger.error("Missing extracted sections: %s", missing)
@@ -407,7 +529,12 @@ class DgsOrchestrator:
 
     if not merge_enabled:
 
-      for section_index in range(1, section_count + 1):
+      section_indexes = list(range(1, section_count + 1))
+
+      if target_sections is not None:
+        section_indexes = sorted(target_sections)
+
+      for section_index in section_indexes:
         draft = sections.get(section_index)
 
         if draft is None:
@@ -417,7 +544,17 @@ class DgsOrchestrator:
 
         struct_subphase = f"struct_section_{section_index}_of_{section_count}"
         struct_msg = f"Structuring section {section_index}/{section_count}: {draft.title}"
-        _report_progress("transform", struct_subphase, [struct_msg])
+        _report_progress(
+          "transform",
+          struct_subphase,
+          [struct_msg],
+          section_progress=_section_progress(
+            section_index,
+            title=draft.title,
+            status="generating",
+            completed_sections=len(structured_sections),
+          ),
+        )
 
         try:
           structured = await structurer_agent.run(draft, ctx)
@@ -446,6 +583,19 @@ class DgsOrchestrator:
 
         if structured_section is not None:
           structured_sections.append(structured_section)
+          _report_progress(
+            "transform",
+            f"section_{section_index}_ready",
+            [f"Section {section_index}/{section_count} ready."],
+            advance=False,
+            partial_json=_build_partial_lesson(structured_sections),
+            section_progress=_section_progress(
+              section_index,
+              title=draft.title,
+              status="completed",
+              completed_sections=len(structured_sections),
+            ),
+          )
 
     _report_progress("transform", "stitch_sections", ["Stitching sections..."])
     stitch_log = "Stitching sections..."

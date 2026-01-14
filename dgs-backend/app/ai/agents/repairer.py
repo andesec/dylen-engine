@@ -11,6 +11,7 @@ from typing import Any, cast
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.prompts import format_schema_block, render_repair_prompt
 from app.ai.deterministic_repair import attempt_deterministic_repair
+from app.ai.errors import is_output_error
 from app.ai.json_parser import parse_json_with_fallback
 from app.ai.pipeline.contracts import JobContext, RepairInput, RepairResult
 from app.schema.lesson_models import normalize_widget
@@ -97,7 +98,6 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       call_index = f"{section.section_number}/{request.depth}"
 
       # Stamp the provider call with agent context for audit logging.
-
       with llm_call_context(
         agent=self.name,
         lesson_topic=request.topic,
@@ -105,8 +105,26 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
         purpose=purpose,
         call_index=call_index,
       ):
-        response = await self._model.generate_structured(prompt_text, schema)
+        try:
+          response = await self._model.generate_structured(prompt_text, schema)
+        except Exception as exc:  # noqa: BLE001
+          if not is_output_error(exc):
+            raise
+          # Retry the same request with the parser error appended.
+          retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
+          retry_purpose = f"repair_section_retry_{section.section_number}_of_{request.depth}"
+          retry_call_index = f"retry/{section.section_number}/{request.depth}"
 
+          with llm_call_context(
+            agent=self.name,
+            lesson_topic=request.topic,
+            job_id=ctx.job_id,
+            purpose=retry_purpose,
+            call_index=retry_call_index,
+          ):
+            response = await self._model.generate_structured(retry_prompt, schema)
+
+          self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
 
       self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
       repaired_payload = response.content
@@ -122,7 +140,6 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       call_index = f"{section.section_number}/{request.depth}"
 
       # Stamp the provider call with agent context for audit logging.
-
       with llm_call_context(
         agent=self.name,
         lesson_topic=request.topic,
@@ -137,12 +154,34 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
 
       # Parse the model output with a lenient fallback to reduce retry churn.
+
       try:
         cleaned = self._model.strip_json_fences(raw.content)
         repaired_payload = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       except json.JSONDecodeError as exc:
         logger.error("Repairer failed to parse JSON: %s", exc)
-        raise RuntimeError(f"Failed to parse repaired section JSON: {exc}") from exc
+        # Retry the same request with the parser error appended.
+        retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_with_schema, error=exc)
+        retry_purpose = f"repair_section_retry_{section.section_number}_of_{request.depth}"
+        retry_call_index = f"retry/{section.section_number}/{request.depth}"
+
+        with llm_call_context(
+          agent=self.name,
+          lesson_topic=request.topic,
+          job_id=ctx.job_id,
+          purpose=retry_purpose,
+          call_index=retry_call_index,
+        ):
+          retry_raw = await self._model.generate(retry_prompt)
+
+        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)
+
+        try:
+          cleaned_retry = self._model.strip_json_fences(retry_raw.content)
+          repaired_payload = cast(dict[str, Any], parse_json_with_fallback(cleaned_retry))
+        except json.JSONDecodeError as retry_exc:
+          logger.error("Repairer retry failed to parse JSON: %s", retry_exc)
+          raise RuntimeError(f"Failed to parse repaired section JSON after retry: {retry_exc}") from retry_exc
 
     # Apply only the repaired widget payloads back into their original positions.
     repaired_json = _apply_repairs(section_json, repaired_payload, repair_targets)
