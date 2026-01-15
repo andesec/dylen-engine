@@ -37,8 +37,6 @@ from app.jobs.models import JobRecord, JobStatus
 from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
-from app.storage.dynamodb_jobs_repo import DynamoJobsRepository
-from app.storage.dynamodb_repo import DynamoLessonsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.jobs_repo import JobsRepository
 from app.storage.postgres_jobs_repo import PostgresJobsRepository
@@ -145,9 +143,16 @@ async def orchestration_exception_handler(request: Request, exc: OrchestrationEr
 
 
 LOG_LINE_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-LOG_FORMATTER = logging.Formatter(LOG_LINE_FORMAT, datefmt="%H:%M:%S")
+LOG_LINE_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+LOG_DATE_FORMAT = "%H:%M:%S"
+LOG_FORMATTER = logging.Formatter(LOG_LINE_FORMAT, datefmt=LOG_DATE_FORMAT)
 _LOG_FILE_PATH: Path | None = None
 _LOGGING_INITIALIZED = False
+
+_JOB_NOT_FOUND_MSG = "Job not found."
+_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
 
 
 class TruncatedFormatter(logging.Formatter):
@@ -209,8 +214,6 @@ def setup_logging() -> Path:
 
 
 # Silence noisy libraries
-logging.getLogger("botocore").setLevel(logging.ERROR)
-logging.getLogger("boto3").setLevel(logging.ERROR)
 logging.getLogger("urllib3").setLevel(logging.ERROR)
 
 logger = logging.getLogger("app.main")
@@ -870,6 +873,9 @@ def _get_jobs_repo(settings: Settings) -> JobsRepository:
   )
 
 
+_GEMINI_PROVIDER = "gemini"
+_OPENROUTER_PROVIDER = "openrouter"
+
 _GEMINI_KNOWLEDGE_MODELS = {
   KnowledgeModel.GEMINI_25_FLASH,
   KnowledgeModel.GEMINI_25_PRO,
@@ -941,9 +947,9 @@ def _resolve_model_selection(
   
   # Resolve provider hints to keep routing consistent for each agent.
   gatherer_provider = _provider_for_knowledge_model(settings, gatherer_model)
-  planner_provider = _provider_for_model_hint(settings, planner_model, settings.planner_provider)
+  planner_provider = _provider_for_model_hint(planner_model, settings.planner_provider)
   structurer_provider = _provider_for_structurer_model(settings, structurer_model)
-  repairer_provider = _provider_for_model_hint(settings, repairer_model, settings.repair_provider)
+  repairer_provider = _provider_for_model_hint(repairer_model, settings.repair_provider)
   return (
     gatherer_provider,
     gatherer_model,
@@ -961,9 +967,9 @@ def _provider_for_knowledge_model(settings: Settings, model_name: str | None) ->
   if not model_name:
     return settings.gatherer_provider
   if model_name in {model.value for model in _GEMINI_KNOWLEDGE_MODELS}:
-    return "gemini"
+    return _GEMINI_PROVIDER
   if model_name in {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS}:
-    return "openrouter"
+    return _OPENROUTER_PROVIDER
   return settings.gatherer_provider
 
 
@@ -974,15 +980,15 @@ def _provider_for_structurer_model(settings: Settings, model_name: str | None) -
     return settings.structurer_provider
   
   if model_name in {model.value for model in _GEMINI_STRUCTURER_MODELS}:
-    return "gemini"
+    return _GEMINI_PROVIDER
   
   if model_name in {model.value for model in _OPENROUTER_STRUCTURER_MODELS}:
-    return "openrouter"
+    return _OPENROUTER_PROVIDER
   
   return settings.structurer_provider
 
 
-def _provider_for_model_hint(settings: Settings, model_name: str | None, fallback_provider: str) -> str:
+def _provider_for_model_hint(model_name: str | None, fallback_provider: str) -> str:
   """Resolve a provider from known model lists with a safe fallback."""
   # Only route to known providers when the model name matches a known set.
   
@@ -1003,10 +1009,10 @@ def _provider_for_model_hint(settings: Settings, model_name: str | None, fallbac
   )
   
   if model_name in gemini_models:
-    return "gemini"
+    return _GEMINI_PROVIDER
   
   if model_name in openrouter_models:
-    return "openrouter"
+    return _OPENROUTER_PROVIDER
   
   return fallback_provider
 
@@ -1274,12 +1280,12 @@ async def generate_lesson(  # noqa: B008
   lesson_id = generate_lesson_id()
   # lesson_json = lesson_to_shorthand(result.lesson_json)
   latency_ms = int((time.monotonic() - start) * 1000)
-  
+
   record = LessonRecord(
     lesson_id=lesson_id,
     topic=request.topic,
     title=result.lesson_json["title"],
-    created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    created_at=time.strftime(_DATE_FORMAT, time.gmtime()),
     schema_version=request.schema_version or settings.schema_version,
     prompt_version=settings.prompt_version,
     provider_a=result.provider_a,
@@ -1325,7 +1331,7 @@ async def _create_job_record(
       return JobCreateResponse(job_id=existing.job_id, expected_sections=response_expected)
   
   job_id = generate_job_id()
-  timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+  timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
   request_payload = request.model_dump(mode="python", by_alias=True)
   record = JobRecord(
     job_id=job_id,
@@ -1469,7 +1475,7 @@ async def create_writing_check(  # noqa: B008
   _validate_writing_request(request)
   repo = _get_jobs_repo(settings)
   job_id = generate_job_id()
-  timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+  timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
   
   record = JobRecord(
     job_id=job_id,
@@ -1509,7 +1515,7 @@ async def get_job_status(  # noqa: B008
   repo = _get_jobs_repo(settings)
   record = await run_in_threadpool(repo.get_job, job_id)
   if record is None:
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
   return _job_status_from_record(record)
 
 
@@ -1526,7 +1532,7 @@ async def cancel_job(  # noqa: B008
   repo = _get_jobs_repo(settings)
   record = await run_in_threadpool(repo.get_job, job_id)
   if record is None:
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
   if record.status in ("done", "error", "canceled"):
     raise HTTPException(
       status_code=status.HTTP_409_CONFLICT,
@@ -1540,10 +1546,10 @@ async def cancel_job(  # noqa: B008
     subphase=None,
     progress=100.0,
     logs=record.logs + ["Job cancellation requested by client."],
-    completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    completed_at=time.strftime(_DATE_FORMAT, time.gmtime()),
   )
   if updated is None:
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
   return _job_status_from_record(updated)
 
 
@@ -1563,7 +1569,7 @@ async def retry_job(  # noqa: B008
   record = await run_in_threadpool(repo.get_job, job_id)
 
   if record is None:
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
 
   # Only finalized failures should be eligible for retry.
   if record.status not in ("error", "canceled"):

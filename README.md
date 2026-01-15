@@ -46,9 +46,7 @@ Provider secrets (required when wiring real providers or deploying with SAM):
 
 Storage and tuning:
 
-- `DGS_DDB_TABLE`: DynamoDB table name (default: `Lessons`).
-- `AWS_REGION`: AWS region for DynamoDB (default: `us-east-1`).
-- `DGS_DDB_ENDPOINT_URL`: Optional DynamoDB endpoint (for local testing).
+- `DGS_PG_DSN`: Postgres connection string (default: `postgresql://dgs:dgs_password@localhost:5432/dgs`).
 - `DGS_MAX_TOPIC_LENGTH`: Max topic length (default: `200`).
 - `DGS_GATHERER_PROVIDER`: Provider for the gatherer step (default: `gemini`).
 - `DGS_GATHERER_MODEL`: Optional model override for the gatherer step.
@@ -59,8 +57,6 @@ Storage and tuning:
 - `DGS_STRUCTURER_MODEL_BEST`: Optional override when `mode=best`.
 - `DGS_PROMPT_VERSION`: Prompt version tag (default: `v1`).
 - `DGS_SCHEMA_VERSION`: Schema version tag (default: `1.0`).
-- `DGS_TENANT_KEY`: DynamoDB partition key (default: `TENANT#default`).
-- `DGS_LESSON_ID_INDEX`: GSI name for lookups (default: `lesson_id_index`).
 
 ## Running locally
 
@@ -88,36 +84,4 @@ make typecheck
 make test
 ```
 
-## Local SAM emulation
 
-To emulate the Lambda/API Gateway locally with SAM, ensure the SAM CLI is installed and then run:
-
-```bash
-make sam-local
-```
-
-This uses the settings from `.env` to set the stage, log level, and port for the local API Gateway emulator.
-
-For templates that use the Function URL, you can also start the local emulator directly:
-
-```bash
-sam local start-api \
-  --template infra/sam-template.yaml \
-  --parameter-overrides Stage=local LogLevel=debug AllowedOrigins=http://localhost:3000 OpenRouterApiKey=dev-openrouter GeminiApiKey=dev-gemini \
-  --port 8000
-```
-
-## Deploying with AWS SAM
-
-Use the dedicated template for deploying the FastAPI Lambda with a Function URL:
-
-```bash
-sam build --template-file infra/sam-template.yaml
-sam deploy \
-  --template-file infra/sam-template.yaml \
-  --stack-name dgs-fastapi \
-  --capabilities CAPABILITY_IAM \
-  --parameter-overrides Stage=prod LogLevel=info AllowedOrigins=https://example.com OpenRouterApiKey=your-openrouter-key GeminiApiKey=your-gemini-key
-```
-
-The `AllowedOrigins` parameter accepts a comma-delimited list; avoid permissive values such as `*` to keep CORS strict. SAM will provision a Function URL secured by the specified origins while retaining the API Gateway-style event for local emulation.

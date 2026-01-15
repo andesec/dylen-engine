@@ -19,10 +19,6 @@ class Settings:
     debug: bool
     max_topic_length: int
     job_max_retries: int
-    ddb_table: str
-    jobs_table: str
-    ddb_region: str
-    ddb_endpoint_url: str | None
     gatherer_provider: str
     gatherer_model: str | None
     planner_provider: str
@@ -37,11 +33,6 @@ class Settings:
     prompt_version: str
     schema_version: str
     merge_gatherer_structurer: bool
-    tenant_key: str
-    lesson_id_index_name: str
-    jobs_all_jobs_index_name: str | None
-    jobs_idempotency_index_name: str | None
-    jobs_ttl_seconds: int | None
     jobs_auto_process: bool
     pg_dsn: str | None
     pg_connect_timeout: int
@@ -106,10 +97,6 @@ def get_settings() -> Settings:
         debug=debug,
         max_topic_length=max_topic_length,
         job_max_retries=job_max_retries,
-        ddb_table=os.getenv("DGS_DDB_TABLE", "Lessons"),
-        jobs_table=os.getenv("DGS_JOBS_TABLE", "dgs_jobs"),
-        ddb_region=os.getenv("AWS_REGION", "us-east-1"),
-        ddb_endpoint_url=os.getenv("DGS_DDB_ENDPOINT_URL"),
         gatherer_provider=os.getenv("DGS_GATHERER_PROVIDER", "openrouter"),
         gatherer_model=os.getenv("DGS_GATHERER_MODEL", "xiaomi/mimo-v2-flash:free"),
         planner_provider=os.getenv("DGS_PLANNER_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter")),
@@ -126,11 +113,6 @@ def get_settings() -> Settings:
         prompt_version=os.getenv("DGS_PROMPT_VERSION", "v1"),
         schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
         merge_gatherer_structurer=_parse_bool(os.getenv("MERGE_GATHERER_STRUCTURER")),
-        tenant_key=os.getenv("DGS_TENANT_KEY", "TENANT#default"),
-        lesson_id_index_name=os.getenv("DGS_LESSON_ID_INDEX", "lesson_id_index"),
-        jobs_all_jobs_index_name=os.getenv("DGS_JOBS_ALL_JOBS_INDEX", "jobs_all_jobs"),
-        jobs_idempotency_index_name=os.getenv("DGS_JOBS_IDEMPOTENCY_INDEX", "jobs_idempotency"),
-        jobs_ttl_seconds=_parse_optional_int(os.getenv("DGS_JOBS_TTL_SECONDS")),
         jobs_auto_process=_parse_bool(os.getenv("DGS_JOBS_AUTO_PROCESS")),
         pg_dsn=os.getenv("DGS_PG_DSN"),
         pg_connect_timeout=int(os.getenv("DGS_PG_CONNECT_TIMEOUT", "5")),

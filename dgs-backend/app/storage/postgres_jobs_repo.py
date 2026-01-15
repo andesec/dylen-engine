@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+import time
+import random
 from typing import Any
 
 import psycopg
@@ -136,16 +138,28 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
     )
     
     # Run schema creation using a short-lived connection for safety.
-    
-    with psycopg.connect(config.dsn, connect_timeout=config.connect_timeout) as conn:
-        
-        with conn.cursor() as cursor:
-            cursor.execute(statement)
-            cursor.execute(status_index)
-            cursor.execute(idempotency_index)
+    max_retries = 5
+    base_delay = 1.0
 
-            for alter_statement in alter_statements:
-                cursor.execute(alter_statement)
+    for attempt in range(max_retries):
+        try:
+            with psycopg.connect(config.dsn, connect_timeout=config.connect_timeout) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(statement)
+                    cursor.execute(status_index)
+                    cursor.execute(idempotency_index)
+
+                    for alter_statement in alter_statements:
+                        cursor.execute(alter_statement)
+            break
+        except psycopg.OperationalError as exc:
+            if attempt == max_retries - 1:
+                logger.error("Failed to ensure jobs table after %d attempts: %s", max_retries, exc)
+                raise
+            
+            delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+            logger.warning("Database connection failed (attempt %d/%d), retrying in %.2fs: %s", attempt + 1, max_retries, delay, exc)
+            time.sleep(delay)
 
     
     _KNOWN_TABLES.add(table_name)

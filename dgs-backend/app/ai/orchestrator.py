@@ -9,7 +9,7 @@ from datetime import datetime
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, Optional
 
 from app.ai.agents import GathererAgent, GathererStructurerAgent, PlannerAgent, RepairerAgent, StructurerAgent, StitcherAgent
 from app.ai.pipeline.contracts import (
@@ -29,7 +29,7 @@ OptStr = str | None
 Msgs = list[str] | None
 SectionStatus = Literal["generating", "retrying", "completed"]
 ProgressCallback = (
-  Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, SectionProgressUpdate | None], None]
+  Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], None]
   | None
 )
 MERGED_DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"
