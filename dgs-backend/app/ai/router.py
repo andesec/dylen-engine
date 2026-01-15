@@ -10,7 +10,7 @@ from typing import Any
 
 from app.ai.errors import is_provider_error
 from app.ai.providers.base import AIModel, ModelResponse, Provider, StructuredModelResponse
-from app.ai.providers.audit import instrument_model
+from app.ai.providers.audit import AuditedModel
 from app.schema.lesson_catalog import _GATHERER_MODELS, _PLANNER_MODELS, _REPAIRER_MODELS, _STRUCTURER_MODELS
 
 if TYPE_CHECKING:
@@ -39,12 +39,13 @@ def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
     raise ValueError(f"Unsupported provider mode '{mode}'.")
 
 
-def get_model_for_mode(mode: str | ProviderMode, model: str | None = None, *, agent: str | None = None) -> AIModel:
+def get_model_for_mode(mode: str | ProviderMode, model: str | None = None, *, agent: str | None = None, user_id: int | None = None) -> AIModel:
     """Return a model client for the given mode and model name."""
     provider = get_provider_for_mode(mode)
     provider_name = getattr(provider, "name", mode.value if isinstance(mode, ProviderMode) else str(mode))
     model_sequence = _build_model_sequence(provider=provider, model=model, agent=agent)
-    return FallbackModel(provider=provider, provider_name=provider_name, model_sequence=model_sequence)
+    # Pass user_id to FallbackModel so it can wrap individual models
+    return FallbackModel(provider=provider, provider_name=provider_name, model_sequence=model_sequence, user_id=user_id)
 
 
 def _build_model_sequence(provider: Provider, model: str | None, agent: str | None) -> list[str]:
@@ -111,10 +112,11 @@ _AGENT_MODEL_ORDER: dict[str, list[str]] = {
 class FallbackModel(AIModel):
     """Model wrapper that retries with fallback models on provider errors."""
 
-    def __init__(self, *, provider: Provider, provider_name: str, model_sequence: list[str]) -> None:
+    def __init__(self, *, provider: Provider, provider_name: str, model_sequence: list[str], user_id: int | None = None) -> None:
         self._provider = provider
         self._provider_name = provider_name
         self._model_sequence = model_sequence
+        self._user_id = user_id
         self._active_index = -1
         self._active_model: AIModel | None = None
         # Prime the first available model before serving requests.
@@ -159,7 +161,11 @@ class FallbackModel(AIModel):
                 continue
 
             # Wrap provider models to capture audit telemetry without changing call sites.
-            self._active_model = instrument_model(model_client, self._provider_name)
+            if self._user_id:
+                self._active_model = AuditedModel(model_client, user_id=self._user_id)
+            else:
+                self._active_model = model_client
+
             self.name = getattr(self._active_model, "name", model_name)
             self.supports_structured_output = getattr(self._active_model, "supports_structured_output", False)
             self._active_index = next_index

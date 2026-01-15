@@ -28,6 +28,19 @@ from app.schema.service import SchemaService
 OptStr = str | None
 Msgs = list[str] | None
 SectionStatus = Literal["generating", "retrying", "completed"]
+
+
+@dataclass(frozen=True)
+class SectionProgressUpdate:
+  """Section-level metadata for streaming job progress."""
+
+  index: int
+  title: str | None
+  status: SectionStatus
+  retry_count: int | None = None
+  completed_sections: int | None = None
+
+
 ProgressCallback = (
   Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, SectionProgressUpdate | None], None]
   | None
@@ -59,17 +72,6 @@ class OrchestrationError(RuntimeError):
     super().__init__(message)
     # Keep a snapshot of logs to surface in API/job responses.
     self.logs = logs
-
-
-@dataclass(frozen=True)
-class SectionProgressUpdate:
-  """Section-level metadata for streaming job progress."""
-
-  index: int
-  title: str | None
-  status: SectionStatus
-  retry_count: int | None = None
-  completed_sections: int | None = None
 
 
 class DgsOrchestrator:
@@ -104,6 +106,7 @@ class DgsOrchestrator:
   async def generate_lesson(
     self,
     *,
+    user_id: int | None = None,
     topic: str,
     details: str | None = None,
     blueprint: str | None = None,
@@ -227,15 +230,15 @@ class DgsOrchestrator:
     
     if merge_enabled:
       gatherer_model_instance = get_model_for_mode(
-        self._gatherer_provider, merged_model_name, agent="gatherer_structurer"
+        self._gatherer_provider, merged_model_name, agent="gatherer_structurer", user_id=user_id
       )
 
     else:
-      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name, agent="gatherer")
+      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name, agent="gatherer", user_id=user_id)
 
-    planner_model_instance = get_model_for_mode(self._planner_provider, planner_model_name, agent="planner")
-    structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name, agent="structurer")
-    repairer_model_instance = get_model_for_mode(self._repair_provider, self._repair_model_name, agent="repairer")
+    planner_model_instance = get_model_for_mode(self._planner_provider, planner_model_name, agent="planner", user_id=user_id)
+    structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name, agent="structurer", user_id=user_id)
+    repairer_model_instance = get_model_for_mode(self._repair_provider, self._repair_model_name, agent="repairer", user_id=user_id)
 
     schema = self._schema_service
     use = usage_sink

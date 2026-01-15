@@ -43,6 +43,9 @@ from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.jobs_repo import JobsRepository
 from app.storage.postgres_jobs_repo import PostgresJobsRepository
 from app.storage.postgres_lessons_repo import PostgresLessonsRepository
+from app.storage.database import init_db
+from app.storage.models import User
+from app.auth import router as auth_router, get_current_active_user, get_db
 from app.utils.ids import generate_job_id, generate_lesson_id
 
 settings = get_settings()
@@ -81,6 +84,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
   try:
     _initialize_logging()
     logger.info("Startup complete - logging verified.")
+
+    # Initialize DB tables
+    await init_db()
     
     _start_job_worker(settings)
   
@@ -94,10 +100,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(default_response_class=DecimalJSONResponse, lifespan=lifespan)
 
+app.include_router(auth_router)
+
 app.add_middleware(
   CORSMiddleware,
   allow_origins=settings.allowed_origins,
-  allow_credentials=False,
+  allow_credentials=True, # Changed to True for cookies
   allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
   allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
   expose_headers=["content-length"],
@@ -1011,6 +1019,7 @@ def _provider_for_model_hint(settings: Settings, model_name: str | None, fallbac
   return fallback_provider
 
 
+# Replaced by get_current_active_user
 def _require_dev_key(  # noqa: B008
     x_dgs_dev_key: str = Header(..., alias="X-DGS-Dev-Key"),
     settings: Settings = Depends(get_settings),  # noqa: B008
@@ -1195,6 +1204,7 @@ async def health() -> dict[str, str]:
 @app.get(
   "/v1/lessons/catalog",
   response_model=LessonCatalogResponse,
+  dependencies=[Depends(get_current_active_user)],
 )
 async def get_lesson_catalog(response: Response) -> LessonCatalogResponse:
   """Return blueprint, teaching style, and widget metadata for clients."""
@@ -1209,7 +1219,7 @@ async def get_lesson_catalog(response: Response) -> LessonCatalogResponse:
 @app.post(
   "/v1/lessons/validate",
   response_model=ValidationResponse,
-  dependencies=[Depends(_require_dev_key)],
+  dependencies=[Depends(get_current_active_user)],
 )
 async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
   """Validate lesson payloads from stored lessons or job results against schema and widgets."""
@@ -1222,11 +1232,11 @@ async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
   "/v1/lessons/generate",
   response_model=GenerateLessonResponse,
   responses={500: {"model": OrchestrationFailureResponse}},
-  dependencies=[Depends(_require_dev_key)],
 )
 async def generate_lesson(  # noqa: B008
     request: GenerateLessonRequest,
     settings: Settings = Depends(get_settings),  # noqa: B008
+    current_user: User = Depends(get_current_active_user),
 ) -> GenerateLessonResponse:
   """Generate a lesson from a topic using the two-step pipeline."""
   _validate_generate_request(request, settings)
@@ -1258,6 +1268,7 @@ async def generate_lesson(  # noqa: B008
   language = _resolve_primary_language(request)
   learner_level = _resolve_learner_level(request)
   result = await orchestrator.generate_lesson(
+    user_id=current_user.id,
     topic=request.topic,
     details=request.details,
     blueprint=request.blueprint,
@@ -1310,7 +1321,7 @@ async def generate_lesson(  # noqa: B008
 
 
 async def _create_job_record(
-    request: GenerateLessonRequest, settings: Settings
+    request: GenerateLessonRequest, settings: Settings, user_id: int
 ) -> JobCreateResponse:
   _validate_generate_request(request, settings)
   repo = _get_jobs_repo(settings)
@@ -1327,6 +1338,14 @@ async def _create_job_record(
   job_id = generate_job_id()
   timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
   request_payload = request.model_dump(mode="python", by_alias=True)
+  # Inject user_id into request payload metadata if needed, or rely on another mechanism.
+  # Since JobRecord doesn't have user_id, we might want to add it to the request payload
+  # or update JobRecord. The requirement says "Every call to an LLM endpoint must be logged... including the ID of the user".
+  # The orchestrator calls LLMs. We need to pass user_id to orchestrator.
+  # The worker picks up the job and calls orchestrator.
+  # So we should store user_id in the job record or request payload.
+  request_payload["user_id"] = user_id
+
   record = JobRecord(
     job_id=job_id,
     request=request_payload,
@@ -1419,15 +1438,15 @@ def _log_job_task_failure(task: asyncio.Task[None]) -> None:
 @app.post(
   "/v1/jobs",
   response_model=JobCreateResponse,
-  dependencies=[Depends(_require_dev_key)],
 )
 async def create_job(  # noqa: B008
     request: GenerateLessonRequest,
     background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
+    current_user: User = Depends(get_current_active_user),
 ) -> JobCreateResponse:
   """Create a background lesson generation job."""
-  response = await _create_job_record(request, settings)
+  response = await _create_job_record(request, settings, current_user.id)
   
   # Kick off processing so the client can poll for status immediately.
   _kickoff_job_processing(background_tasks, response.job_id, settings)
@@ -1438,15 +1457,15 @@ async def create_job(  # noqa: B008
 @app.post(
   "/v1/lessons/jobs",
   response_model=JobCreateResponse,
-  dependencies=[Depends(_require_dev_key)],
 )
 async def create_lesson_job(  # noqa: B008
     request: GenerateLessonRequest,
     background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
+    current_user: User = Depends(get_current_active_user),
 ) -> JobCreateResponse:
   """Alias route for creating a background lesson generation job."""
-  response = await _create_job_record(request, settings)
+  response = await _create_job_record(request, settings, current_user.id)
   
   # Kick off processing so the client can poll for status immediately.
   _kickoff_job_processing(background_tasks, response.job_id, settings)
@@ -1458,12 +1477,12 @@ async def create_lesson_job(  # noqa: B008
   "/v1/writing/check",
   response_model=JobCreateResponse,
   status_code=status.HTTP_202_ACCEPTED,
-  dependencies=[Depends(_require_dev_key)],
 )
 async def create_writing_check(  # noqa: B008
     request: WritingCheckRequest,
     background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),  # noqa: B008
+    current_user: User = Depends(get_current_active_user),
 ) -> JobCreateResponse:
   """Create a background job to check a writing task response."""
   _validate_writing_request(request)
@@ -1499,7 +1518,7 @@ async def create_writing_check(  # noqa: B008
 @app.get(
   "/v1/jobs/{job_id}",
   response_model=JobStatusResponse,
-  dependencies=[Depends(_require_dev_key)],
+  dependencies=[Depends(get_current_active_user)],
 )
 async def get_job_status(  # noqa: B008
     job_id: str,
@@ -1516,7 +1535,7 @@ async def get_job_status(  # noqa: B008
 @app.post(
   "/v1/jobs/{job_id}/cancel",
   response_model=JobStatusResponse,
-  dependencies=[Depends(_require_dev_key)],
+  dependencies=[Depends(get_current_active_user)],
 )
 async def cancel_job(  # noqa: B008
     job_id: str,
@@ -1550,7 +1569,7 @@ async def cancel_job(  # noqa: B008
 @app.post(
   "/v1/jobs/{job_id}/retry",
   response_model=JobStatusResponse,
-  dependencies=[Depends(_require_dev_key)],
+  dependencies=[Depends(get_current_active_user)],
 )
 async def retry_job(  # noqa: B008
     job_id: str,
@@ -1655,7 +1674,7 @@ async def retry_job(  # noqa: B008
 @app.get(
   "/v1/lessons/{lesson_id}",
   response_model=LessonRecordResponse,
-  dependencies=[Depends(_require_dev_key)],
+  dependencies=[Depends(get_current_active_user)],
 )
 async def get_lesson(  # noqa: B008
     lesson_id: str,

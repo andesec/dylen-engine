@@ -1,77 +1,88 @@
-"""Audit wrapper for AI model calls."""
+"""Audit wrapper for AI models."""
 
 from __future__ import annotations
 
-import sys
-import time
-from typing import Any, cast
+import logging
+from typing import Any
 
-from app.ai.providers.base import AIModel, ModelResponse, StructuredModelResponse
-from app.telemetry.llm_audit import finalize_llm_call, serialize_request, serialize_response, start_llm_call, utc_now
+from app.ai.providers.base import (
+  AIModel,
+  ModelResponse,
+  StructuredModelResponse,
+)
+from app.utils.logging_helper import log_llm_interaction
+from app.storage.database import get_db
 
+logger = logging.getLogger(__name__)
 
-class AuditModel(AIModel):
-  """Wrap an AI model so every call is captured for audit storage."""
+class AuditedModel(AIModel):
+  """Wraps an AIModel to audit interactions."""
 
-  def __init__(self, model: AIModel, provider_name: str) -> None:
-    self._model = model
-    self._provider_name = provider_name
-    self.name = getattr(model, "name", "unknown")
-    self.supports_structured_output = getattr(model, "supports_structured_output", False)
+  def __init__(self, inner: AIModel, user_id: int | None = None) -> None:
+    self.inner = inner
+    self.name = inner.name
+    self.supports_structured_output = inner.supports_structured_output
+    self.user_id = user_id
 
   async def generate(self, prompt: str) -> ModelResponse:
-    """Generate a response while capturing an audit trail."""
-    return cast(ModelResponse, await self._capture(prompt=prompt, schema=None))
-
-  async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
-    """Generate a structured response while capturing an audit trail."""
-    return cast(StructuredModelResponse, await self._capture(prompt=prompt, schema=schema))
-
-  async def _capture(self, *, prompt: str, schema: dict[str, Any] | None) -> ModelResponse:
-    """Call the underlying model while capturing audit metadata."""
-    started_at = utc_now()
-    start_time = time.monotonic()
-    response: ModelResponse | StructuredModelResponse | None = None
-    # Serialize prompt + schema so the request can be stored before any network call.
-    request_payload = serialize_request(prompt, schema)
-    request_type = "generate_structured" if schema is not None else "generate"
-    # Insert the pending call record so failures are still tracked.
-    call_id = await start_llm_call(
-      provider=self._provider_name,
-      model=self.name,
-      request_type=request_type,
-      request_payload=request_payload,
-      started_at=started_at,
-    )
-
-    # Capture timing and usage even when the provider raises.
-
     try:
+        response = await self.inner.generate(prompt)
+        status = "success"
+    except Exception:
+        status = "error"
+        # Log failure even if we re-raise
+        if self.user_id:
+             await log_llm_interaction(
+                user_id=self.user_id,
+                prompt_summary=prompt[:100] + "..." if len(prompt) > 100 else prompt,
+                model_name=self.name,
+                tokens_used=None, # Usage might not be available on error
+                status=status
+            )
+        raise
 
-      if schema is None:
-        response = await self._model.generate(prompt)
+    if self.user_id:
+        usage = response.usage
+        tokens_used = usage.get("total_tokens") if usage else None
 
-      else:
-        response = await self._model.generate_structured(prompt, schema)
+        await log_llm_interaction(
+            user_id=self.user_id,
+            prompt_summary=prompt[:100] + "..." if len(prompt) > 100 else prompt,
+            model_name=self.name,
+            tokens_used=tokens_used,
+            status=status
+        )
 
-      return response
+    return response
 
-    finally:
-      # Always update the audit row, even when downstream parsing fails.
-      duration_ms = int((time.monotonic() - start_time) * 1000)
-      error = cast(BaseException | None, sys.exc_info()[1])
-      usage = getattr(response, "usage", None) if response is not None else None
-      content = getattr(response, "content", None) if response is not None else None
-      response_payload = serialize_response(content)
-      await finalize_llm_call(
-        call_id=call_id,
-        response_payload=response_payload,
-        usage=usage,
-        duration_ms=duration_ms,
-        error=error,
-      )
+  async def generate_structured(
+      self, prompt: str, schema: dict[str, Any]
+  ) -> StructuredModelResponse:
+    try:
+        response = await self.inner.generate_structured(prompt, schema)
+        status = "success"
+    except Exception:
+        status = "error"
+        if self.user_id:
+             await log_llm_interaction(
+                user_id=self.user_id,
+                prompt_summary=prompt[:100] + "..." if len(prompt) > 100 else prompt,
+                model_name=self.name,
+                tokens_used=None,
+                status=status
+            )
+        raise
 
+    if self.user_id:
+        usage = response.usage
+        tokens_used = usage.get("total_tokens") if usage else None
 
-def instrument_model(model: AIModel, provider_name: str) -> AIModel:
-  """Wrap a model with audit logging while preserving the original interface."""
-  return AuditModel(model, provider_name)
+        await log_llm_interaction(
+            user_id=self.user_id,
+            prompt_summary=prompt[:100] + "..." if len(prompt) > 100 else prompt,
+            model_name=self.name,
+            tokens_used=tokens_used,
+            status=status
+        )
+
+    return response

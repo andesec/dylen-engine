@@ -302,6 +302,10 @@ class JobProcessor:
             if "mode" in request:
                 request = {key: value for key, value in request.items() if key != "mode"}
 
+            # Extract user_id if present - handle both dict and Pydantic model cases if necessary
+            # The request here is a dict because we are in _run_orchestration called from process_job which passes job.request (dict)
+            user_id = request.get("user_id")
+
             request_model = GenerateLessonRequest.model_validate(request)
 
         except ValidationError as exc:
@@ -432,6 +436,7 @@ class JobProcessor:
                 )
 
         result = await orchestrator.generate_lesson(
+            user_id=user_id,
             topic=topic,
             details=request_model.details,
             blueprint=request_model.blueprint,
