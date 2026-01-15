@@ -1,25 +1,36 @@
-# For more information, please refer to https://aka.ms/vscode-docker-python
-FROM python:3-slim
+FROM python:3.12-slim-bookworm
 
-EXPOSE 8002
+# The installer requires curl (and certificates) to download the release archive
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
 
-# Keeps Python from generating .pyc files in the container
-ENV PYTHONDONTWRITEBYTECODE=1
+# Download the latest installer
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
 
-# Turns off buffering for easier container logging
-ENV PYTHONUNBUFFERED=1
+# Run the installer then remove it
+RUN sh /uv-installer.sh && rm /uv-installer.sh
 
-# Install pip requirements
-COPY requirements.txt .
-RUN python -m pip install -r requirements.txt
+# Ensure the installed binary is on the `PATH`
+ENV PATH="/root/.local/bin/:$PATH"
 
 WORKDIR /app
-COPY . /app
 
-# Creates a non-root user with an explicit UID and adds permission to access the /app folder
-# For more info, please refer to https://aka.ms/vscode-docker-python-configure-containers
-RUN adduser -u 5678 --disabled-password --gecos "" appuser && chown -R appuser /app
-USER appuser
+# Copy the project configuration
+COPY pyproject.toml uv.lock ./
 
-# During debugging, this entry point will be overridden. For more information, please refer to https://aka.ms/vscode-docker-python-debug
-CMD ["gunicorn", "--bind", "0.0.0.0:8002", "-k", "uvicorn.workers.UvicornWorker", "dgs-backend.app/main:app"]
+# Install dependencies
+RUN uv sync --frozen --no-install-project --no-dev
+
+# Copy the application code
+COPY . .
+
+# Install the project itself
+RUN uv sync --frozen --no-dev
+
+# Place executables in the environment at the front of the path
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Set the python path to include the backend directory
+ENV PYTHONPATH="/app/dgs-backend"
+
+# Run the application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]

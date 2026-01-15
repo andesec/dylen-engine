@@ -1,10 +1,27 @@
 {
     "configurations": [
         {
+            "name": "Python: Local API",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "app.main:app",
+                "--reload",
+                "--port",
+                "8002"
+            ],
+            "cwd": "${workspaceFolder}/dgs-backend",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/dgs-backend"
+            },
+            "justMyCode": true
+        },
+        {
             "name": "Containers: Python - Fastapi",
             "type": "docker",
             "request": "launch",
-            "preLaunchTask": "docker-run: debug",
+            "preLaunchTask": "docker-compose: debug",
             "python": {
                 "pathMappings": [
                     {

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.utils.env import default_env_path, load_env_file
-from botocore.signers import add_generate_db_auth_token
+
 
 _ENV_LOADED = False
 
