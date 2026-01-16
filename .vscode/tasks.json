@@ -1,21 +1,21 @@
 {
-	"version": "2.0.0",
-	"tasks": [
-		{
-			"type": "docker-compose",
-			"label": "docker-compose: debug",
-			"dockerCompose": {
-				"up": {
-					"detached": true,
-					"build": true,
-					"services": [
-						"backend"
-					]
-				},
-				"files": [
-					"${workspaceFolder}/docker-compose.yml"
-				]
-			}
-		}
-	]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "docker-compose",
+      "label": "docker-compose: debug",
+      "dockerCompose": {
+        "up": {
+          "detached": true,
+          "build": true,
+          "services": [
+            "backend"
+          ]
+        },
+        "files": [
+          "${workspaceFolder}/docker-compose.debug.yml"
+        ]
+      }
+    }
+  ]
 }

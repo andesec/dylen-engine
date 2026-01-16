@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dgs-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=dgs
+      - POSTGRES_PASSWORD=dgs_password
+      - POSTGRES_DB=dgs
+    volumes:
+      - dgs_pg_data:/var/lib/postgresql/data
+    networks:
+      - dgs-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dgs -d dgs" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  postgres-init:
+    image: postgres:16-alpine
+    container_name: dgs-postgres-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./scripts/init-postgres.sh:/init-postgres.sh:ro
+      - ./scripts/postgres:/init:ro
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=dgs
+      - POSTGRES_PASSWORD=dgs_password
+      - POSTGRES_DB=dgs
+    networks:
+      - dgs-network
+    entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
+    restart: "no"
+
+  backend:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - DGS_PG_DSN=postgresql://dgs:dgs_password@postgres:5432/dgs
+    networks:
+      - dgs-network
+    ports:
+      - "8002:8002"
+      - "5678:5678"  # debug port
+    command: >
+      python -m debugpy --listen 0.0.0.0:5678 --wait-for-client
+      -m uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8002
+      --reload
+
+networks:
+  dgs-network:
+    driver: bridge
+
+volumes:
+  dgs_pg_data:

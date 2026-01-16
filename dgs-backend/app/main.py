@@ -1275,6 +1275,7 @@ async def generate_lesson(  # noqa: B008
     gatherer_model=gatherer_model,
     structured_output=True,
     language=language,
+    widgets=request.widgets,
   )
   
   lesson_id = generate_lesson_id()

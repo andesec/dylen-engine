@@ -32,5 +32,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Set the python path to include the backend directory
 ENV PYTHONPATH="/app/dgs-backend"
 
+# Install debugpy for remote debugging
+RUN uv pip install debugpy
+ENV PYDEVD_DISABLE_FILE_VALIDATION=1
+
 # Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]

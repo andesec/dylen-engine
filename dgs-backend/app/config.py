@@ -34,6 +34,7 @@ class Settings:
     schema_version: str
     merge_gatherer_structurer: bool
     jobs_auto_process: bool
+    jobs_ttl_seconds: int | None
     pg_dsn: str | None
     pg_connect_timeout: int
     pg_lessons_table: str
@@ -114,6 +115,7 @@ def get_settings() -> Settings:
         schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
         merge_gatherer_structurer=_parse_bool(os.getenv("MERGE_GATHERER_STRUCTURER")),
         jobs_auto_process=_parse_bool(os.getenv("DGS_JOBS_AUTO_PROCESS")),
+        jobs_ttl_seconds=_parse_optional_int(os.getenv("DGS_JOBS_TTL_SECONDS")),
         pg_dsn=os.getenv("DGS_PG_DSN"),
         pg_connect_timeout=int(os.getenv("DGS_PG_CONNECT_TIMEOUT", "5")),
         pg_lessons_table=os.getenv("DGS_PG_LESSONS_TABLE", "dgs_lessons"),

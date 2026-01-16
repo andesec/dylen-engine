@@ -70,7 +70,7 @@ class JobProcessor:
         expected_sections = call_plan.depth
         merge_label = "enabled" if self._settings.merge_gatherer_structurer else "disabled"
         initial_logs = base_logs + [
-            f"Planned AI calls: {call_plan.required_calls}/{call_plan.max_calls}",
+            f"Planned AI calls: {call_plan.required_calls}",
             f"Depth: {call_plan.depth}",
             f"Planner calls: {call_plan.planner_calls}",
             f"Gatherer calls: {call_plan.gather_calls}",
@@ -131,6 +131,7 @@ class JobProcessor:
             orchestration_result = await self._run_orchestration(
                 job.job_id,
                 job.request,
+                expected_sections=expected_sections,
                 tracker=tracker,
                 timeout_checker=_check_timeouts,
                 retry_section_numbers=retry_section_numbers,
@@ -284,6 +285,7 @@ class JobProcessor:
         job_id: str,
         request: dict[str, Any],
         *,
+        expected_sections: int,
         tracker: JobProgressTracker | None = None,
         timeout_checker: Callable[[], bool] | None = None,
         retry_section_numbers: set[int] | None = None,

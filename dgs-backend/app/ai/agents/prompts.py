@@ -104,7 +104,12 @@ def render_planner_prompt(request: Req) -> str:
   """Render the planner prompt for lesson planning with concrete substitutions."""
   prompt_template = _load_prompt(_resolve_planner_prompt_name(request.blueprint))
   primary_language = request.language or "English"
-  supported_widgets = ", ".join(_supported_widgets())
+  
+  if request.widgets:
+    supported_widgets = ", ".join(request.widgets)
+  else:
+    supported_widgets = ", ".join(_supported_widgets())
+
   teaching_style = _teaching_style_addendum(request.teaching_style)
   details = request.prompt or "-"
   learner_level = request.learner_level or "Beginner"
