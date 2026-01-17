@@ -92,6 +92,12 @@ jobs:
       - name: Install Snyk CLI
         run: npm install -g snyk
 
+      - name: Install keys
+        run: uv sync
+
+      - name: Add .venv to PATH
+        run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
+
       - name: Run SCA scan
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -116,7 +122,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
-
+      - name: Install Bandit
+        run: uv pip install bandit
 
       - name: Run Bandit scan
         run: make security-sast-bandit
@@ -147,6 +154,9 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --dev
+
+      - name: Install Semgrep
+        run: uv pip install semgrep
 
       - name: Run Semgrep scan
         env:
