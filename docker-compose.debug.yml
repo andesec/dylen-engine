@@ -52,13 +52,9 @@ services:
       - dgs-network
     ports:
       - "8002:8002"
-      - "5678:5678"  # debug port
+      - "5678:5678" # debug port
     command: >
-      python -m debugpy --listen 0.0.0.0:5678 --wait-for-client
-      -m uvicorn app.main:app
-      --host 0.0.0.0
-      --port 8002
-      --reload
+      python -m debugpy --listen 0.0.0.0:5678 --wait-for-client -m uvicorn app.main:app --host 0.0.0.0 --port 8002
 
 networks:
   dgs-network:

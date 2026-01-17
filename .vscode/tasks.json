@@ -2,19 +2,15 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "docker-compose",
+      "type": "shell",
       "label": "docker-compose: debug",
-      "dockerCompose": {
-        "up": {
-          "detached": true,
-          "build": true,
-          "services": [
-            "backend"
-          ]
-        },
-        "files": [
-          "${workspaceFolder}/docker-compose.debug.yml"
-        ]
+      "command": "docker compose -f docker-compose.debug.yml up -d --build && ./scripts/wait_for_debugger.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
       }
     }
   ]
