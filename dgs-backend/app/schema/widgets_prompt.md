@@ -213,7 +213,7 @@ Notes:
 ```
 
 Schema (array positions):
-1. `lead` (string): title shown above the flow.
+1. `title` (string): title shown above the flow.
 2. `flow` (array): steps and/or branch nodes.
 
 Branch node format:
@@ -234,7 +234,7 @@ Where to use:
 ```
 
 Schema (array positions):
-1. `lead` (string): title shown above the diagram.
+1. `title` (string): title shown above the diagram.
 2. `diagram` (string): raw ASCII text (whitespace preserved).
 
 Where to use:
@@ -249,7 +249,7 @@ Where to use:
 ```
 
 Schema (array positions):
-1. `lead` (string): title shown above the checklist.
+1. `title` (string): title shown above the checklist.
 2. `tree` (array): nested items and groups.
 
 Node formats:
@@ -269,7 +269,7 @@ Where to use:
 ```json
 {
   "interactiveTerminal": {
-    "lead": "Try these commands:",
+    "title": "Try these commands:",
     "rules": [
       ["^help$", "ok", "Commands: help, list, open <name>\\n"],
       [".*", "err", "Unknown command."]
@@ -282,7 +282,7 @@ Where to use:
 ```
 
 Schema:
-- `lead` (string): Title shown above the terminal.
+- `title` (string): Title shown above the terminal.
 - `rules` (array): List of `[regexString, level, outputString]` tuples.
   - `regexString`: matching pattern for user input.
   - `level`: `ok` (standard output) or `err` (error styling).
@@ -302,7 +302,7 @@ Where to use:
 ```json
 {
   "terminalDemo": {
-    "lead": "Watch the Git flow:",
+    "title": "Watch the Git flow:",
     "rules": [
       ["git status", 400, "On branch main\\nnothing to commit"],
       ["git log --oneline", 600, "a1b2c3 add tests"]
@@ -312,7 +312,7 @@ Where to use:
 ```
 
 Schema:
-- `lead` (string): Title.
+- `title` (string): Title.
 - `rules` (array): List of `[commandString, delayMs, outputString]` tuples.
   - `commandString`: The command to simulate typing.
   - `delayMs`: Time in milliseconds to wait before showing output (simulates processing).

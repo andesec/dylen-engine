@@ -112,19 +112,23 @@ def _normalize_section_block(section: dict[str, Any], idx: int, depth: int) -> d
     # Normalize each item and flatten multi-key splits.
     for item in raw_items:
         normalized_items.extend(_normalize_widget_item(item))
-    if not normalized_items:
-        return None
-    cleaned: dict[str, Any] = {"section": title, "items": normalized_items}
+
     # Normalize subsections within depth limits to avoid runaway nesting.
     subsections = section.get("subsections")
+    normalized_subs: list[dict[str, Any]] = []
     if isinstance(subsections, list) and depth < MAX_NESTING_DEPTH:
-        normalized_subs: list[dict[str, Any]] = []
         for sub_idx, sub in enumerate(subsections):
             normalized = _normalize_block(sub, sub_idx, depth + 1)
             if normalized is not None:
                 normalized_subs.append(normalized)
-        if normalized_subs:
-            cleaned["subsections"] = normalized_subs
+
+    # Return None only if both items and subsections are empty.
+    if not normalized_items and not normalized_subs:
+        return None
+
+    cleaned: dict[str, Any] = {"section": title, "items": normalized_items}
+    if normalized_subs:
+        cleaned["subsections"] = normalized_subs
     if "id" in section:
         cleaned["id"] = section["id"]
     return cleaned
@@ -315,9 +319,17 @@ def _normalize_widget_item(item: Any) -> list[dict[str, Any]]:
         return [{"checklist": checklist}]
     # Pass through interactive terminal and demo widgets when shaped correctly.
     if "interactiveTerminal" in item and isinstance(item.get("interactiveTerminal"), dict):
-        return [{"interactiveTerminal": item.get("interactiveTerminal")}]
+        payload = item.get("interactiveTerminal")
+        # Repair: migrate 'lead' to 'title'
+        if "lead" in payload and "title" not in payload:
+            payload["title"] = payload.pop("lead")
+        return [{"interactiveTerminal": payload}]
     if "terminalDemo" in item and isinstance(item.get("terminalDemo"), dict):
-        return [{"terminalDemo": item.get("terminalDemo")}]
+        payload = item.get("terminalDemo")
+        # Repair: migrate 'lead' to 'title'
+        if "lead" in payload and "title" not in payload:
+            payload["title"] = payload.pop("lead")
+        return [{"terminalDemo": payload}]
     # Pass through codeEditor and treeview widgets when they are arrays.
     if "codeEditor" in item and isinstance(item.get("codeEditor"), list):
         return [{"codeEditor": item.get("codeEditor")}]
@@ -554,18 +566,18 @@ def _normalize_input_line_widget(input_line: Any) -> list[Any] | None:
 
 
 def _normalize_step_flow_widget(step_flow: Any) -> list[Any] | None:
-    """Normalize stepFlow widgets into [lead, flow]."""
-    # Accept list payloads with lead and flow data.
+    """Normalize stepFlow widgets into [title, flow]."""
+    # Accept list payloads with title and flow data.
     if not isinstance(step_flow, list) or len(step_flow) < 2:
         return None
-    lead = _sanitize_text(step_flow[0])
+    title = _sanitize_text(step_flow[0])
     flow = step_flow[1]
-    if not lead or not isinstance(flow, list) or not flow:
+    if not title or not isinstance(flow, list) or not flow:
         return None
     normalized_flow = _normalize_flow_nodes(flow, 0)
     if not normalized_flow:
         return None
-    return [lead, normalized_flow]
+    return [title, normalized_flow]
 
 
 def _normalize_flow_nodes(nodes: list[Any], depth: int) -> list[Any] | None:
@@ -603,30 +615,72 @@ def _normalize_flow_nodes(nodes: list[Any], depth: int) -> list[Any] | None:
 
 
 def _normalize_ascii_diagram_widget(ascii_diagram: Any) -> list[str] | None:
-    """Normalize asciiDiagram widgets into [lead, diagram]."""
-    # Require exactly two elements to satisfy the schema.
-    if not isinstance(ascii_diagram, list) or len(ascii_diagram) < 2:
+    """Normalize asciiDiagram widgets into [title, diagram]."""
+    # Require at least one element (if it's a headless diagram) or two (title + diagram).
+    if not isinstance(ascii_diagram, list) or not ascii_diagram:
         return None
-    lead = _sanitize_text(ascii_diagram[0])
-    diagram = _sanitize_text(ascii_diagram[1])
-    if not lead or not diagram:
+
+    # Heuristic: Check if the first element looks like a diagram line rather than a title.
+    # If the first element starts with box-drawing characters or has a high symbol density,
+    # we assume the LLM omitted the title and started straight with the diagram.
+    first_elem = str(ascii_diagram[0])
+    is_headless = False
+    
+    # Common box drawing characters and non-alphanumeric symbols often found in diagrams
+    diagram_start_chars = {'+', '|', '┌', '└', '─', '│', '├', '┤', '┬', '┴', '┼', '*', '#', '<', '>', '/'}
+    
+    if first_elem:
+        stripped_start = first_elem.strip()
+        if stripped_start and (stripped_start[0] in diagram_start_chars):
+            is_headless = True
+        
+        # Fallback: formatting characters vs text ratio? 
+        # For now, the start char check is usually sufficient for "┌" or "+" style boxes.
+
+    if is_headless:
+        title = "Diagram"
+        # Join ALL elements as lines
+        diagram_lines = [str(item) for item in ascii_diagram]
+        diagram = "\n".join(diagram_lines)
+    elif len(ascii_diagram) < 2:
+        # Not headless, but only 1 element? If it's just a title, we have no diagram.
         return None
-    return [lead, diagram]
+    else:
+        # Standard case: [title, (diagram...)]
+        title = _sanitize_text(ascii_diagram[0])
+        
+        # Handle nested list (Repairer output: [title, [lines...]])
+        if isinstance(ascii_diagram[1], list):
+            diagram_lines = [str(line) for line in ascii_diagram[1]]
+            diagram = "\n".join(diagram_lines)
+        
+        # Handle flat list (Gatherer output: [title, line1, line2, ...])
+        else:
+            # Join all subsequent elements as lines
+            diagram_lines = [str(item) for item in ascii_diagram[1:]]
+            diagram = "\n".join(diagram_lines)
+
+    if not title:
+        title = "Diagram"
+    if not diagram:
+        return None
+        
+    return [title, diagram]
 
 
 def _normalize_checklist_widget(checklist: Any) -> list[Any] | None:
-    """Normalize checklist widgets into [lead, tree]."""
-    # Require checklist arrays with a lead and tree list.
+    """Normalize checklist widgets into [title, tree]."""
+    # Require checklist arrays with a title and tree list.
     if not isinstance(checklist, list) or len(checklist) < 2:
         return None
-    lead = _sanitize_text(checklist[0])
+    title = _sanitize_text(checklist[0])
     tree = checklist[1]
-    if not lead or not isinstance(tree, list) or not tree:
+    if not title or not isinstance(tree, list) or not tree:
         return None
     normalized_tree = _normalize_checklist_tree(tree, 1)
     if normalized_tree is None:
         return None
-    return [lead, normalized_tree]
+    return [title, normalized_tree]
 
 
 def _normalize_checklist_tree(nodes: list[Any], depth: int) -> list[Any] | None:

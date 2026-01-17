@@ -139,7 +139,7 @@ def render_gatherer_prompt(request: Req, section: PlanSection) -> str:
   
   tokens = {
     "PLANNER_SECTION_JSON": plan_json,
-    "STYLE": _format_style(request.teaching_style) or "Default to learner needs.",
+    "STYLE": _teaching_style_addendum(request.teaching_style),
     "BLUEPRINT": request.blueprint,
     "LEARNER_LEVEL": request.learner_level or "Beginner",
     "DEPTH": request.depth,
@@ -171,7 +171,7 @@ def render_structurer_prompt(request: Req, section: Section, _schema_version: st
     "GATHERER_CONTENT": section.raw_text or "Gatherer content missing.",
     "PLANNER_SECTION_JSON": plan_json,
     "WIDGET_SCHEMA_JSON": widget_schema,
-    "STYLE": _format_style(request.teaching_style) or "Default to learner needs.",
+    "STYLE": _teaching_style_addendum(request.teaching_style),
     "LEARNER_LEVEL": request.learner_level or "Unspecified",
   }
   
@@ -204,9 +204,7 @@ def render_gatherer_structurer_prompt(request: Req, section: PlanSection, _schem
   replacements = {
     "PLANNER_SECTION_JSON": plan_json,
     "WIDGET_SCHEMA_JSON": widget_schema,
-    "WIDGET_SCHEMA_JSON": widget_schema,
-    "STYLE": _format_style(request.teaching_style) or "Default to learner needs.",
-    "LEARNER_LEVEL": request.learner_level or "Unspecified",
+    "STYLE": _teaching_style_addendum(request.teaching_style),
     "LEARNER_LEVEL": request.learner_level or "Unspecified",
     "DEPTH": request.depth,
     "BLUEPRINT": request.blueprint,

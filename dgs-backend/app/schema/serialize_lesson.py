@@ -22,6 +22,7 @@ from .lesson_models import (
     ParagraphWidget,
     MCQsWidget,
     SectionBlock,
+    SubsectionBlock,
     StepFlowWidget,
     SwipeCardsWidget,
     TableWidget,
@@ -53,13 +54,21 @@ def _widget_to_shorthand(widget: Widget) -> Any:
     return _dump_model(widget, by_alias=True)
 
 
+def _subsection_to_shorthand(subsection: SubsectionBlock) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "subsection": subsection.subsection or subsection.section,
+        "items": [_widget_to_shorthand(widget) for widget in subsection.items],
+    }
+    return data
+
+
 def _section_to_shorthand(section: SectionBlock) -> dict[str, Any]:
     data: dict[str, Any] = {
         "section": section.section,
         "items": [_widget_to_shorthand(widget) for widget in section.items],
     }
     if section.subsections:
-        data["subsections"] = [_section_to_shorthand(sub) for sub in section.subsections]
+        data["subsections"] = [_subsection_to_shorthand(sub) for sub in section.subsections]
     return data
 
 

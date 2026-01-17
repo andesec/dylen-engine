@@ -103,9 +103,9 @@ def get_widget_preference(blueprint: str, teaching_style: str | list[str] | None
         return None
 
     if not teaching_style:
-        return blueprint_config.get("all")
-
-    styles = [teaching_style] if isinstance(teaching_style, str) else teaching_style
+        styles = []
+    else:
+        styles = [teaching_style] if isinstance(teaching_style, str) else teaching_style
     
     # Use a set to merge widgets from multiple styles without duplicates
     merged_widgets: set[str] = set()
@@ -122,7 +122,15 @@ def get_widget_preference(blueprint: str, teaching_style: str | list[str] | None
     # If explicit styles yielded no widgets (e.g. unknown style), fallback to 'all'?
     # Or just return whatever we found. If we found nothing, maybe return None to default to all?
     # Let's say if we found nothing from explicit styles, we fall back to 'all'.
+    # Collect widgets from all styles if no specific style is requested or matched.
     if not found_any:
-        return blueprint_config.get("all")
+        # Fallback: compute the union of all styles defined for this blueprint.
+        # This ensures we restrict to the blueprint's capabilities rather than allowing everything.
+        all_widgets: set[str] = set()
+        for style_widgets in blueprint_config.values():
+            if isinstance(style_widgets, list):
+                all_widgets.update(style_widgets)
+        
+        return list(all_widgets)
 
     return list(merged_widgets)

@@ -20,6 +20,8 @@ from app.jobs.progress import (
     SectionProgress,
     build_call_plan,
 )
+import logging
+
 from app.main import (
     GenerateLessonRequest,
     WritingCheckRequest,
@@ -44,6 +46,7 @@ class JobProcessor:
         self._jobs_repo = jobs_repo
         self._orchestrator = orchestrator
         self._settings = settings
+        self._logger = logging.getLogger(__name__)
 
     async def process_job(self, job: JobRecord) -> JobRecord | None:
         """Execute a single queued job, routing by type."""
@@ -230,6 +233,7 @@ class JobProcessor:
             # Preserve pipeline logs when orchestration fails fast.
             tracker.extend_logs(exc.logs)
             error_log = f"Job failed: {exc}"
+            self._logger.error(error_log)
             tracker.fail(phase="failed", message=error_log)
             payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
             self._jobs_repo.update_job(job.job_id, **payload)
@@ -237,6 +241,7 @@ class JobProcessor:
 
         except Exception as exc:  # noqa: BLE001
             error_log = f"Job failed: {exc}"
+            self._logger.error("Job processing failed unexpectedly", exc_info=True)
             tracker.fail(phase="failed", message=error_log)
             payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
             self._jobs_repo.update_job(job.job_id, **payload)
@@ -267,6 +272,7 @@ class JobProcessor:
             return self._jobs_repo.get_job(job.job_id)
 
         except Exception as exc:
+            self._logger.error("Writing check processing failed", exc_info=True)
             tracker.fail(phase="failed", message=f"Writing check failed: {exc}")
             return None
 

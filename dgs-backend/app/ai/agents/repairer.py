@@ -89,7 +89,14 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     widget_schemas = self._schema_service.widget_schemas_for_types(widget_types)
     # Provide minimal context for targeted repairs instead of the full section payload.
     prompt_targets = _serialize_repair_targets(repair_targets)
-    prompt_text = render_repair_prompt(request, section, prompt_targets, errors, widget_schemas)
+
+    # Use the cleaned/collapsed errors from the targets for the prompt "Errors" section,
+    # rather than the raw massive list.
+    cleaned_prompt_errors = []
+    for target in repair_targets:
+        cleaned_prompt_errors.extend(target.errors)
+
+    prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors, widget_schemas)
     schema = _build_repair_schema(widget_schemas)
 
     if self._model.supports_structured_output:
@@ -238,15 +245,53 @@ def _collect_repair_targets(section_json: JsonDict, errors: Errors) -> list[Repa
     if payload is None:
       continue
 
+    # Attempt to collapse massive union errors into a single actionable message.
+    # This prevents the repair prompt from being flooded with "Field required" for every possible widget.
+    cleaned_messages = _collapse_union_errors(messages, payload)
+
     normalized = _safe_normalize_widget(payload)
 
     if normalized is None:
       continue
 
     widget_type = _detect_widget_type(normalized)
-    targets.append(RepairTarget(path=target_path, widget=normalized, errors=messages, widget_type=widget_type))
+    targets.append(RepairTarget(path=target_path, widget=normalized, errors=cleaned_messages, widget_type=widget_type))
 
   return targets
+
+
+def _collapse_union_errors(errors: list[str], payload: Any) -> list[str]:
+  """Filter noise when Pydantic reports validation failure against every Union member.
+
+  If we see too many 'Field required' errors, it usually means the widget is malformed
+  or unrecognized, and Pydantic tried to match it against all 20+ widget types.
+  """
+  # If the error list is small, it's likely specific and useful. Keep it.
+  if len(errors) < 10:
+    return errors
+
+  # Check if the payload has a recognizable single key (typical for DGS widgets).
+  # If so, we can try to filter errors to only those relevant to that key.
+  guessed_type = None
+  if isinstance(payload, dict) and len(payload) == 1:
+      guessed_type = next(iter(payload.keys()))
+
+  if guessed_type:
+      # Keep errors that mention the guessed type or are generic "Input should be..."
+      relevant_errors = [
+          e for e in errors
+          if guessed_type in e or "Input should be" in e or "Field required" not in e
+      ]
+      if relevant_errors:
+          return relevant_errors
+
+  # If we couldn't filter by type, and it's still a massive list, likely a formatting disaster.
+  # Return a summary error.
+  field_required_count = sum(1 for e in errors if "Field required" in e)
+  if field_required_count > 5:
+      return ["Invalid widget format: payload does not match any supported widget schema."]
+
+  return errors
 
 
 def _parse_error_entries(errors: Errors) -> list[tuple[str, str]]:
@@ -266,11 +311,45 @@ def _parse_error_entries(errors: Errors) -> list[tuple[str, str]]:
 
 
 def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple[JsonDict, list[str]]:
-  """Apply local subsection fixes based on error paths to avoid extra AI calls."""
+  """Apply local subsection fixes based on error paths to avoid extra AI calls.
+
+  Also proactively scans for 'misplaced subsections' (subsection blocks inside the 'items' list)
+  and moves them to the 'subsections' list where they belong.
+  """
   repaired = copy.deepcopy(section_json)
   changes: list[str] = []
 
-  # Inspect validation errors for subsection-level issues that can be fixed locally.
+  # 1. Detect and fix misplaced subsections (Subsections put inside 'items' list)
+  # This happens when Structurer confuses section.items vs section.subsections.
+  section_items = repaired.get("items")
+  if isinstance(section_items, list) and section_items:
+    new_items = []
+    misplaced_subsections = []
+
+    for item in section_items:
+      # If an item looks like a SubsectionBlock (has 'subsection' or 'section' title + 'items' list),
+      # it's likely misplaced.
+      is_subsection_block = isinstance(item, dict) and (
+        ("subsection" in item or "section" in item) and isinstance(item.get("items"), list)
+      )
+
+      if is_subsection_block:
+        misplaced_subsections.append(item)
+      else:
+        new_items.append(item)
+
+    if misplaced_subsections:
+      # Move them to the main subsections list
+      current_subsections = repaired.get("subsections", [])
+      if not isinstance(current_subsections, list):
+        current_subsections = []
+
+      current_subsections.extend(misplaced_subsections)
+      repaired["subsections"] = current_subsections
+      repaired["items"] = new_items
+      changes.append("moved_misplaced_subsections")
+
+  # 2. Inspect validation errors for other subsection-level issues
   for path, _message in _parse_error_entries(errors):
     tokens = [token for token in path.split(".") if token]
 

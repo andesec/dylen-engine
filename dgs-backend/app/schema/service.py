@@ -129,10 +129,33 @@ class SchemaService:
     # 3. Update the schema with filtered options
     if filtered_options:
         widget_def["anyOf"] = filtered_options
+        
+        # 4. Prune unused definitions to prevent context leakage
+        reachable = set()
+        # Initialize stack with the filtered options to find initial refs
+        stack = list(filtered_options)
+        
+        while stack:
+            item = stack.pop()
+            if isinstance(item, dict):
+                for k, v in item.items():
+                    if k == "$ref" and isinstance(v, str):
+                        # Extract definition name from reference (e.g. "#/$defs/MyWidget")
+                        ref_name = v.split("/")[-1]
+                        if ref_name not in reachable and ref_name in defs:
+                            reachable.add(ref_name)
+                            # Add the definition itself to stack to find nested refs
+                            stack.append(defs[ref_name])
+                    elif isinstance(v, (dict, list)):
+                        stack.append(v)
+            elif isinstance(item, list):
+                stack.extend(item)
+        
+        # Apply pruning
+        if "$defs" in schema:
+            schema["$defs"] = {k: v for k, v in defs.items() if k in reachable}
     else:
         # If nothing matches, we shouldn't return an unusable schema.
-        # Fallback for safety, or leave empty which blocks all widgets.
-        # Let's leave it as is, or maybe default to 'p' if allowed list was weird?
         pass
 
     return schema

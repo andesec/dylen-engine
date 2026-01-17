@@ -762,7 +762,6 @@ class JobStatusResponse(BaseModel):
     description="Progress percent (0-100) when available.",
   )
   logs: list[StrictStr] = Field(default_factory=list)
-  request: GenerateLessonRequest | WritingCheckRequest
   result: dict[str, Any] | None = None
   validation: ValidationResponse | None = None
   cost: dict[str, Any] | None = None
@@ -1156,7 +1155,6 @@ def _job_status_from_record(record: JobRecord) -> JobStatusResponse:
     completed_steps=record.completed_steps,
     progress=record.progress,
     logs=record.logs or [],
-    request=request,
     result=record.result_json,
     validation=validation,
     cost=record.cost,
