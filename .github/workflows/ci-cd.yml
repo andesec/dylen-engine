@@ -116,6 +116,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
+      - name: Install security tools
+        run: uv pip install bandit semgrep
+
       - name: Run Bandit scan
         run: make security-sast-bandit
         continue-on-error: true
@@ -126,6 +129,7 @@ jobs:
         with:
           name: bandit-reports
           path: reports/bandit-report.*
+
 
   security-sast-semgrep:
     name: Security - SAST (Semgrep)
