@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm AS base
 
 # The installer requires curl (and certificates) to download the release archive
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
@@ -32,9 +32,31 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Set the python path to include the backend directory
 ENV PYTHONPATH="/app/dgs-backend"
 
+# Production stage - minimal, secure, no debug tools
+FROM base AS production
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Run the application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+
+# Debug stage - includes debugpy for development
+FROM production AS debug
+
+# Switch back to root to install debug tools
+USER root
+
 # Install debugpy for remote debugging
 RUN uv pip install debugpy
 ENV PYDEVD_DISABLE_FILE_VALIDATION=1
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+# Switch back to appuser
+USER appuser
+
+# Run the application with debugpy
+CMD ["python", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--wait-for-client", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]

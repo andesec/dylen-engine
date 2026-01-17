@@ -40,7 +40,9 @@ services:
     restart: "no"
 
   backend:
-    build: .
+    build:
+      context: .
+      target: production
     ports:
       - "8002:8002"
     depends_on:
