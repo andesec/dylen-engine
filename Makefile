@@ -62,7 +62,7 @@ security-sca:
 security-sast-bandit:
 	@echo "Running Bandit SAST scan..."
 	@mkdir -p reports
-	bandit -r $(APP_DIR)/app \
+	uv run bandit -r $(APP_DIR)/app \
 		-f json -o reports/bandit-report.json \
 		--severity-level medium || true
 	@echo "Bandit report saved to reports/bandit-report.json"
@@ -72,7 +72,7 @@ security-sast-semgrep:
 	@echo "Running Semgrep SAST scan..."
 	@mkdir -p reports
 	@echo "Generating JSON report..."
-	semgrep scan \
+	uv run semgrep scan \
 		--config p/security-audit \
 		--config p/python \
 		--config p/owasp-top-ten \
@@ -80,7 +80,7 @@ security-sast-semgrep:
 		--json --output reports/semgrep-report.json \
 		$(APP_DIR) || true
 	@echo "Generating SARIF report..."
-	semgrep scan \
+	uv run semgrep scan \
 		--config p/security-audit \
 		--config p/python \
 		--config p/owasp-top-ten \

@@ -3,6 +3,7 @@
 **/.classpath
 **/.dockerignore
 **/.env
+**/.env.example
 **/.git
 **/.gitignore
 **/.project
@@ -25,3 +26,19 @@
 **/values.dev.yaml
 LICENSE
 README.md
+
+# Python-specific
+.python-version
+.ruff_cache
+.pytest_cache
+.mypy_cache
+.cache/
+
+# Project-specific
+**/tests/
+**/docs/
+**/scripts/
+.github/
+
+# uv-specific
+.uv

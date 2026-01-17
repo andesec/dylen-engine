@@ -1,62 +1,72 @@
-FROM python:3.12-slim-bookworm AS base
+# ---------- Builder Stage ----------
+FROM python:3.11-slim-bookworm AS builder
 
-# The installer requires curl (and certificates) to download the release archive
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+# Install only the minimal system packages required to build wheels.
+# `build-essential` provides gcc, make, etc.; `curl` is needed for the uv installer.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# Download the latest installer
-ADD https://astral.sh/uv/install.sh /uv-installer.sh
-
-# Run the installer then remove it
-RUN sh /uv-installer.sh && rm /uv-installer.sh
-
-# Ensure the installed binary is on the `PATH`
-ENV PATH="/root/.local/bin/:$PATH"
+# Install uv (fast Python package manager) and add it to PATH.
+ADD https://astral.sh/uv/install.sh /tmp/uv-installer.sh
+RUN sh /tmp/uv-installer.sh && rm /tmp/uv-installer.sh
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 
-# Copy the project configuration
+# Copy only the lock files needed for deterministic installs.
 COPY pyproject.toml uv.lock ./
+COPY dgs-backend/ ./dgs-backend/
 
-# Install dependencies
-RUN uv sync --frozen --no-install-project --no-dev
+# Create a virtual environment and install dependencies (exclude dev deps for prod).
+RUN uv venv .venv && \
+    . .venv/bin/activate && \
+    uv sync --frozen --no-dev
 
-# Copy the application code
-COPY . .
+# ---------- Runtime Stage (Distroless) ----------
+FROM gcr.io/distroless/python3-debian12 AS production
 
-# Install the project itself
-RUN uv sync --frozen --no-dev
+# Copy the virtual environment from the builder.
+COPY --from=builder /app/.venv /app/.venv
 
-# Place executables in the environment at the front of the path
+# Copy only the application source needed at runtime.
+COPY --from=builder /app/dgs-backend /app/dgs-backend
+
+# Set PYTHONPATH to include the backend package and site-packages.
+ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.11/site-packages"
+
+# Add venv bin to PATH (though we use direct path in CMD for clarity).
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Set the python path to include the backend directory
-ENV PYTHONPATH="/app/dgs-backend"
+# Expose the service port.
+EXPOSE 8002
 
-# Production stage - minimal, secure, no debug tools
-FROM base AS production
+# Run the application using the full path to the uvicorn binary.
+# Using exec form (JSON array) because Distroless has no shell.
+CMD ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
 
-# Create non-root user
+# ---------- Debug Stage (Debian-based) ----------
+# We base debug off 'builder' (Debian-slim) so we have a shell and tools.
+FROM builder AS debug
+
+# Install debugpy into the existing venv.
+RUN . .venv/bin/activate && uv pip install debugpy
+
+# Create a non-root user (optional but good practice to match prod user ID if needed).
+# Distroless uses 'nonroot' (65532). We'll stick to 'appuser' (1000) for local debug convenience or match it.
+# For simplicity in debug, we'll run as root or create appuser. Let's create appuser.
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
-# Switch to non-root user
 USER appuser
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
-
-# Debug stage - includes debugpy for development
-FROM production AS debug
-
-# Switch back to root to install debug tools
-USER root
-
-# Install debugpy for remote debugging
-RUN uv pip install debugpy
+# Set PYTHONPATH same as prod.
+ENV PYTHONPATH="/app/dgs-backend"
+ENV PATH="/app/.venv/bin:$PATH"
 ENV PYDEVD_DISABLE_FILE_VALIDATION=1
 
-# Switch back to appuser
-USER appuser
+# Expose service and debug ports.
+EXPOSE 8002 5678
 
-# Run the application with debugpy
-CMD ["python", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--wait-for-client", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+# Run the application with debugpy.
+CMD ["python", "-m", "debugpy", "--listen", "0.0.0.0:5678", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
