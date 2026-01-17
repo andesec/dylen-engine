@@ -51,8 +51,9 @@ security-sca:
 	@command -v snyk >/dev/null 2>&1 || { echo "Error: snyk CLI not found. Install with: brew install snyk or npm install -g snyk"; exit 1; }
 	@echo "Exporting dependencies to requirements.txt..."
 	uv export --format requirements-txt --no-hashes --output-file requirements.txt
-	@# Remove editable install (-e .) from requirements.txt to satisfy Snyk
+	@# Remove editable install (-e .) and local packages from requirements.txt to satisfy Snyk
 	@sed -i.bak '/^-e/d' requirements.txt && rm requirements.txt.bak
+	@sed -i.bak '/^myapplication/d' requirements.txt && rm requirements.txt.bak
 	@echo "Running Snyk test..."
 	snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high || true
 	@echo "Uploading results to Snyk dashboard..."
@@ -98,7 +99,7 @@ security-sast: security-sast-bandit security-sast-semgrep
 .PHONY: security-container
 security-container:
 	@echo "Building Docker image for scanning (production target)..."
-	docker build --target production -t dgs-backend:security-scan .
+	docker build --pull --target production -t dgs-backend:security-scan .
 	@echo "Running Snyk Container scan..."
 	@command -v snyk >/dev/null 2>&1 || { echo "Error: snyk CLI not found. Install with: brew install snyk or npm install -g snyk"; exit 1; }
 	snyk container test dgs-backend:security-scan \

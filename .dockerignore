@@ -40,5 +40,9 @@ README.md
 **/scripts/
 .github/
 
+.DS_Store
+verify_fixes.py
+reproduce_crash.py
+
 # uv-specific
 .uv

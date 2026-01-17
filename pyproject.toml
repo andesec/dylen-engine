@@ -7,7 +7,7 @@ name = "dgs-backend"
 version = "0.1.0"
 description = "Data Generation Service backend for DLE."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 authors = [{ name = "DGS Team" }]
 dependencies = [
     "fastapi>=0.115.0,<1.0.0",
@@ -37,11 +37,11 @@ py-modules = ["lambda_handler"]
 
 [tool.black]
 line-length = 100
-target-version = ["py311"]
+target-version = ["py313"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 src = ["dgs-backend"]
 
 [tool.ruff.lint]
@@ -49,7 +49,7 @@ select = ["E", "F", "I", "B", "N", "UP"]
 ignore = ["B905"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 warn_unused_configs = true
 warn_return_any = true
 warn_unused_ignores = true
