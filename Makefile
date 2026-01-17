@@ -139,3 +139,15 @@ security-all: security-sca security-sast security-container
 	@echo "Note: DAST scan (security-dast) not run automatically."
 	@echo "Run 'make security-dast' separately to test running application."
 
+.PHONY: git-push
+
+git-push:
+	@echo "Committing and pushing changes..."
+	@git add -A
+	@msg="$(m)"; \
+	if [ -z "$$msg" ]; then \
+		msg="Auto commit $$(date '+%Y-%m-%d %H:%M:%S') - $$(git diff --name-only --cached)"; \
+	fi; \
+	git commit -m "$$msg" || echo "No changes to commit"; \
+	git push
+

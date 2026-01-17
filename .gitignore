@@ -214,7 +214,7 @@ marimo/_lsp/
 __marimo__/
 
 # DGS Local Development
-# DynamoDB Local data directory
-dynamodb-data/
+# Postgres Local data directory
+postgres-data/
 
 logs/
