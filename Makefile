@@ -49,9 +49,14 @@ run: install
 security-sca:
 	@echo "Running Snyk SCA (Software Composition Analysis)..."
 	@command -v snyk >/dev/null 2>&1 || { echo "Error: snyk CLI not found. Install with: brew install snyk or npm install -g snyk"; exit 1; }
-	snyk test --file=pyproject.toml --package-manager=pip --severity-threshold=high || true
+	@echo "Exporting dependencies to requirements.txt..."
+	uv export --format requirements-txt --no-hashes --output-file requirements.txt
+	@echo "Running Snyk test..."
+	snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high || true
 	@echo "Uploading results to Snyk dashboard..."
-	snyk monitor --file=pyproject.toml --package-manager=pip --project-name=dgs-backend || true
+	snyk monitor --file=requirements.txt --package-manager=pip --project-name=dgs-backend || true
+	@echo "Cleaning up requirements.txt..."
+	@rm -f requirements.txt
 
 .PHONY: security-sast-bandit
 security-sast-bandit:
@@ -59,24 +64,30 @@ security-sast-bandit:
 	@mkdir -p reports
 	uv run bandit -r $(APP_DIR)/app \
 		-f json -o reports/bandit-report.json \
-		-f sarif -o reports/bandit-report.sarif \
 		--severity-level medium || true
-	@echo "Bandit report saved to reports/bandit-report.json and reports/bandit-report.sarif"
+	@echo "Bandit report saved to reports/bandit-report.json"
 
 .PHONY: security-sast-semgrep
 security-sast-semgrep:
 	@echo "Running Semgrep SAST scan..."
 	@mkdir -p reports
-	@command -v semgrep >/dev/null 2>&1 || { echo "Error: semgrep not found. Install with: pip install semgrep or brew install semgrep"; exit 1; }
-	semgrep scan \
+	@echo "Generating JSON report..."
+	uv run semgrep scan \
 		--config p/security-audit \
 		--config p/python \
 		--config p/owasp-top-ten \
 		--config p/fastapi \
 		--json --output reports/semgrep-report.json \
-		--sarif --sarif-output reports/semgrep-report.sarif \
 		$(APP_DIR) || true
-	@echo "Semgrep report saved to reports/semgrep-report.json and reports/semgrep-report.sarif"
+	@echo "Generating SARIF report..."
+	uv run semgrep scan \
+		--config p/security-audit \
+		--config p/python \
+		--config p/owasp-top-ten \
+		--config p/fastapi \
+		--sarif --output reports/semgrep-report.sarif \
+		$(APP_DIR) || true
+	@echo "Semgrep reports saved to reports/semgrep-report.json and reports/semgrep-report.sarif"
 
 .PHONY: security-sast
 security-sast: security-sast-bandit security-sast-semgrep

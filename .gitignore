@@ -1,6 +1,9 @@
 # Security scanning reports
 reports/
 
+# Generated dependency files
+requirements.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
