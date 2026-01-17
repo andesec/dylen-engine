@@ -1,13 +1,17 @@
 {
   "version": "0.2.0",
   "configurations": [
-    
     {
       "name": "Python: Local API",
       "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
-      "args": ["app.main:app", "--reload", "--port", "8082"],
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--port",
+        "8082"
+      ],
       "cwd": "${workspaceFolder}/dgs-backend",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/dgs-backend"
@@ -30,6 +34,17 @@
       ],
       "preLaunchTask": "docker-compose: debug",
       "justMyCode": true
+    },
+    {
+      "name": "Docker Production (no debug)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "docker-compose: production",
+      "serverReadyAction": {
+        "pattern": "Application startup complete",
+        "uriFormat": "http://localhost:8002/docs",
+        "action": "openExternally"
+      }
     }
   ]
 }

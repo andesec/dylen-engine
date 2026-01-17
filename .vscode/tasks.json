@@ -12,6 +12,18 @@
         "reveal": "always",
         "panel": "shared"
       }
+    },
+    {
+      "type": "shell",
+      "label": "docker-compose: production",
+      "command": "docker compose up -d --build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
     }
   ]
 }

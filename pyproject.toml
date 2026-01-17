@@ -60,3 +60,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", ".vscode", ".idea", "postgres-data"]
+skips = ["B101"]  # Skip assert_used check in tests
+severity_level = "medium"

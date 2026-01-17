@@ -3,7 +3,9 @@ VENV_DIR := .venv
 APP_DIR := dgs-backend
 PORT ?= 8080
 
-.PHONY: install dev dev-stop lint format typecheck test openapi run
+.PHONY: install dev dev-stop lint format typecheck test openapi run \
+        security-sca security-sast-bandit security-sast-semgrep security-sast \
+        security-container security-dast security-all
 
 install:
 	uv sync
@@ -41,8 +43,88 @@ openapi:
 run: install
 	@$(MAKE) dev
 
-snyk-test: install
-	uv export --format requirements-txt --output-file requirements.txt
-	@echo "Running Snyk test..."
-	. $(VENV_DIR)/bin/activate && snyk test --file=requirements.txt --package-manager=pip
-	@rm requirements.txt
+
+# Security scanning targets
+.PHONY: security-sca
+security-sca:
+	@echo "Running Snyk SCA (Software Composition Analysis)..."
+	@command -v snyk >/dev/null 2>&1 || { echo "Error: snyk CLI not found. Install with: brew install snyk or npm install -g snyk"; exit 1; }
+	snyk test --file=pyproject.toml --package-manager=pip --severity-threshold=high || true
+	@echo "Uploading results to Snyk dashboard..."
+	snyk monitor --file=pyproject.toml --package-manager=pip --project-name=dgs-backend || true
+
+.PHONY: security-sast-bandit
+security-sast-bandit:
+	@echo "Running Bandit SAST scan..."
+	@mkdir -p reports
+	uv run bandit -r $(APP_DIR)/app \
+		-f json -o reports/bandit-report.json \
+		-f sarif -o reports/bandit-report.sarif \
+		--severity-level medium || true
+	@echo "Bandit report saved to reports/bandit-report.json and reports/bandit-report.sarif"
+
+.PHONY: security-sast-semgrep
+security-sast-semgrep:
+	@echo "Running Semgrep SAST scan..."
+	@mkdir -p reports
+	@command -v semgrep >/dev/null 2>&1 || { echo "Error: semgrep not found. Install with: pip install semgrep or brew install semgrep"; exit 1; }
+	semgrep scan \
+		--config p/security-audit \
+		--config p/python \
+		--config p/owasp-top-ten \
+		--config p/fastapi \
+		--json --output reports/semgrep-report.json \
+		--sarif --sarif-output reports/semgrep-report.sarif \
+		$(APP_DIR) || true
+	@echo "Semgrep report saved to reports/semgrep-report.json and reports/semgrep-report.sarif"
+
+.PHONY: security-sast
+security-sast: security-sast-bandit security-sast-semgrep
+	@echo "SAST scanning complete. Check reports/ directory for results."
+
+.PHONY: security-container
+security-container:
+	@echo "Building Docker image for scanning..."
+	docker build -t dgs-backend:security-scan .
+	@echo "Running Snyk Container scan..."
+	@command -v snyk >/dev/null 2>&1 || { echo "Error: snyk CLI not found. Install with: brew install snyk or npm install -g snyk"; exit 1; }
+	snyk container test dgs-backend:security-scan \
+		--file=Dockerfile \
+		--severity-threshold=high || true
+	@echo "Uploading container scan to Snyk dashboard..."
+	snyk container monitor dgs-backend:security-scan \
+		--file=Dockerfile \
+		--project-name=dgs-backend-container || true
+
+.PHONY: security-dast
+security-dast:
+	@echo "Starting application for DAST scan..."
+	@docker-compose up -d
+	@echo "Waiting for application to be ready..."
+	@sleep 15
+	@echo "Running OWASP ZAP baseline scan..."
+	@mkdir -p reports
+	docker run --rm --network host \
+		-v $(PWD)/.zap:/zap/wrk:rw \
+		-v $(PWD)/reports:/zap/reports:rw \
+		ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+		-t http://localhost:8002 \
+		-c .zap/rules.tsv \
+		-r /zap/reports/zap-report.html \
+		-J /zap/reports/zap-report.json || true
+	@echo "DAST scan complete. Report saved to reports/zap-report.html"
+	@echo "Stopping application..."
+	@docker-compose down
+
+.PHONY: security-all
+security-all: security-sca security-sast security-container
+	@echo ""
+	@echo "=========================================="
+	@echo "All security scans complete!"
+	@echo "=========================================="
+	@echo "Reports available in reports/ directory:"
+	@ls -lh reports/ 2>/dev/null || echo "No reports generated"
+	@echo ""
+	@echo "Note: DAST scan (security-dast) not run automatically."
+	@echo "Run 'make security-dast' separately to test running application."
+
