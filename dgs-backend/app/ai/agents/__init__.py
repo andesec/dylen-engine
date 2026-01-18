@@ -9,11 +9,11 @@ from app.ai.agents.stitcher import StitcherAgent
 from app.ai.agents.structurer import StructurerAgent
 
 __all__ = [
-    "BaseAgent",
-    "GathererAgent",
-    "GathererStructurerAgent",
-    "PlannerAgent",
-    "RepairerAgent",
-    "StructurerAgent",
-    "StitcherAgent",
+  "BaseAgent",
+  "GathererAgent",
+  "GathererStructurerAgent",
+  "PlannerAgent",
+  "RepairerAgent",
+  "StructurerAgent",
+  "StitcherAgent",
 ]

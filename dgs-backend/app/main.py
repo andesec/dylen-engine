@@ -16,12 +16,12 @@ settings = get_settings()
 app = FastAPI(default_response_class=DecimalJSONResponse, lifespan=lifespan)
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-    allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
-    expose_headers=["content-length"],
+  CORSMiddleware,
+  allow_origins=settings.allowed_origins,
+  allow_credentials=False,
+  allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+  allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
+  expose_headers=["content-length"],
 )
 
 app.middleware("http")(log_requests)

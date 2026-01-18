@@ -10,26 +10,26 @@ from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 
 
 def _get_repo(settings: Settings) -> LessonsRepository:
-    """Return the active lessons repository."""
-    # Enforce Postgres-backed storage for lessons.
-    if not settings.pg_dsn:
-        raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
+  """Return the active lessons repository."""
+  # Enforce Postgres-backed storage for lessons.
+  if not settings.pg_dsn:
+    raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
 
-    return PostgresLessonsRepository(
-        dsn=settings.pg_dsn,
-        connect_timeout=settings.pg_connect_timeout,
-        table_name=settings.pg_lessons_table,
-    )
+  return PostgresLessonsRepository(
+    dsn=settings.pg_dsn,
+    connect_timeout=settings.pg_connect_timeout,
+    table_name=settings.pg_lessons_table,
+  )
 
 
 def _get_jobs_repo(settings: Settings) -> JobsRepository:
-    """Return the active jobs repository."""
-    # Enforce Postgres-backed storage for jobs.
-    if not settings.pg_dsn:
-        raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
+  """Return the active jobs repository."""
+  # Enforce Postgres-backed storage for jobs.
+  if not settings.pg_dsn:
+    raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
 
-    return PostgresJobsRepository(
-        dsn=settings.pg_dsn,
-        connect_timeout=settings.pg_connect_timeout,
-        table_name=settings.pg_jobs_table,
-    )
+  return PostgresJobsRepository(
+    dsn=settings.pg_dsn,
+    connect_timeout=settings.pg_connect_timeout,
+    table_name=settings.pg_jobs_table,
+  )
