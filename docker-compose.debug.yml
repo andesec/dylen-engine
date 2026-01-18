@@ -55,6 +55,8 @@ services:
     ports:
       - "8002:8002"
       - "5678:5678" # debug port
+    volumes:
+      - ./dgs-backend/logs:/app/dgs-backend/logs
 
 networks:
   dgs-network:

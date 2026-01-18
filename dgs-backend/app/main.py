@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
+import logging.handlers
 import sys
 import time
 from functools import lru_cache
@@ -189,7 +190,30 @@ def _build_handlers() -> tuple[logging.Handler, logging.Handler, Path]:
   
   stream = logging.StreamHandler(sys.stdout)
   stream.setFormatter(TruncatedFormatter(LOG_LINE_FORMAT, datefmt="%H:%M:%S"))
-  file_handler = logging.FileHandler(log_path, encoding="utf-8")
+
+  file_handler = logging.handlers.RotatingFileHandler(
+      log_path,
+      encoding="utf-8",
+      maxBytes=settings.log_max_bytes,
+      backupCount=settings.log_backup_count,
+  )
+
+  # Custom namer to format backup files as filename-x (e.g., app.log-1) instead of app.log.1
+  def custom_namer(default_name: str) -> str:
+      # default_name is something like /path/to/app.log.1
+      # We want /path/to/app.log-1
+      base_filename, ext, num = default_name.rpartition(".")
+      if ext == "log" and num.isdigit():
+          return f"{base_filename}.{ext}-{num}"
+      # Fallback for unexpected formats, though RotatingFileHandler usually does .1, .2
+      # If the rotation results in something like app.log.1, we want app.log-1
+      # Let's handle the specific standard format: filename.1 -> filename-1
+      parts = default_name.rsplit(".", 1)
+      if len(parts) == 2 and parts[1].isdigit():
+          return f"{parts[0]}-{parts[1]}"
+      return default_name
+
+  file_handler.namer = custom_namer
   file_handler.setFormatter(LOG_FORMATTER)
   return stream, file_handler, log_path
 

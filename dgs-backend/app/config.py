@@ -19,6 +19,8 @@ class Settings:
     debug: bool
     max_topic_length: int
     job_max_retries: int
+    log_max_bytes: int
+    log_backup_count: int
     gatherer_provider: str
     gatherer_model: str | None
     planner_provider: str
@@ -92,12 +94,22 @@ def get_settings() -> Settings:
     if job_max_retries < 0:
         raise ValueError("DGS_JOB_MAX_RETRIES must be zero or a positive integer.")
 
+    log_max_bytes = int(os.getenv("DGS_LOG_MAX_BYTES", "5242880"))  # 5MB default
+    if log_max_bytes <= 0:
+        raise ValueError("DGS_LOG_MAX_BYTES must be a positive integer.")
+
+    log_backup_count = int(os.getenv("DGS_LOG_BACKUP_COUNT", "10"))
+    if log_backup_count < 0:
+        raise ValueError("DGS_LOG_BACKUP_COUNT must be zero or a positive integer.")
+
     return Settings(
         dev_key=dev_key,
         allowed_origins=_parse_origins(os.getenv("DGS_ALLOWED_ORIGINS")),
         debug=debug,
         max_topic_length=max_topic_length,
         job_max_retries=job_max_retries,
+        log_max_bytes=log_max_bytes,
+        log_backup_count=log_backup_count,
         gatherer_provider=os.getenv("DGS_GATHERER_PROVIDER", "openrouter"),
         gatherer_model=os.getenv("DGS_GATHERER_MODEL", "xiaomi/mimo-v2-flash:free"),
         planner_provider=os.getenv("DGS_PLANNER_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter")),
