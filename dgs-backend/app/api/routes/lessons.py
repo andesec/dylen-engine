@@ -22,8 +22,6 @@ router = APIRouter()
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-
-
 @router.get("/catalog", response_model=LessonCatalogResponse)
 async def get_lesson_catalog(response: Response, settings: Settings = Depends(get_settings)) -> LessonCatalogResponse:  # noqa: B008
   """Return blueprint, teaching style, and widget metadata for clients."""
