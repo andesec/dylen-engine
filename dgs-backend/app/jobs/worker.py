@@ -22,15 +22,11 @@ from app.jobs.progress import (
 )
 import logging
 
-from app.main import (
-    GenerateLessonRequest,
-    WritingCheckRequest,
-    _get_repo,
-    _get_orchestrator,
-    _resolve_learner_level,
-    _resolve_model_selection,
-    _resolve_primary_language,
-)
+from app.api.models import GenerateLessonRequest, WritingCheckRequest
+from app.storage.factory import _get_repo
+from app.services.orchestrator import _get_orchestrator
+from app.services.validation import _resolve_learner_level, _resolve_primary_language
+from app.services.model_routing import _resolve_model_selection
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.storage.jobs_repo import JobsRepository

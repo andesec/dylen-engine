@@ -12,6 +12,7 @@ from app.core.logging import _initialize_logging, logger
 from app.services.jobs import _log_job_task_failure
 from app.storage.factory import _get_jobs_repo
 from app.services.orchestrator import _get_orchestrator
+from app.jobs.worker import JobProcessor
 
 settings = get_settings()
 
@@ -26,7 +27,6 @@ def is_job_worker_active() -> bool:
 
 async def _job_worker_loop(active_settings: Settings) -> None:
   """Poll for queued jobs so processing happens even if kickoff is missed."""
-  from app.jobs.worker import JobProcessor
 
   # Reuse a single processor to keep orchestration wiring consistent.
 
