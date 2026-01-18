@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-import json
-from typing import Any, TypeVar, Generic, cast
+from typing import Any, TypeVar, cast
 
-from app.ai.pipeline.contracts import JobContext
 from app.ai.json_parser import parse_json_with_fallback
+from app.ai.pipeline.contracts import JobContext
 from app.ai.providers.base import AIModel
 from app.progress.tracker import ProgressTracker
 from app.schema.service import SchemaService
@@ -25,7 +25,7 @@ OptInt = int | None
 Usage = UsageSink
 
 
-class BaseAgent(ABC, Generic[InputT, OutputT]):
+class BaseAgent[InputT, OutputT](ABC):
   """Base agent with shared dependencies."""
 
   name: str
@@ -48,13 +48,7 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
   def _record_usage(self, *, agent: str, purpose: str, call_index: str, usage: dict[str, int] | None) -> None:
     if not usage or not self._usage_sink:
       return
-    payload = {
-      "model": getattr(self._model, "name", "unknown"),
-      "agent": agent,
-      "purpose": purpose,
-      "call_index": call_index,
-      **usage,
-    }
+    payload = {"model": getattr(self._model, "name", "unknown"), "agent": agent, "purpose": purpose, "call_index": call_index, **usage}
     self._usage_sink(payload)
 
   def _load_dummy_text(self) -> str | None:
@@ -79,11 +73,5 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
   def _build_json_retry_prompt(self, *, prompt_text: str, error: Exception) -> str:
     """Append parser errors to prompts so retries can fix invalid JSON."""
     # Include parser failures so the next attempt avoids repeating the error.
-    suffix = "\n\n".join(
-      [
-        "Previous response could not be parsed as JSON.",
-        f"Parser error: {error}",
-        "Return ONLY valid JSON and ensure the schema is followed exactly.",
-      ]
-    )
+    suffix = "\n\n".join(["Previous response could not be parsed as JSON.", f"Parser error: {error}", "Return ONLY valid JSON and ensure the schema is followed exactly."])
     return f"{prompt_text}\n\n{suffix}"

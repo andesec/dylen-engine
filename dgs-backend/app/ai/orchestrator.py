@@ -5,22 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import lru_cache
-from typing import Any, Literal, cast, Optional
+from typing import Any, Literal, Optional
 
-from app.ai.agents import GathererAgent, GathererStructurerAgent, PlannerAgent, RepairerAgent, StructurerAgent, StitcherAgent
-from app.ai.pipeline.contracts import (
-  GenerationRequest,
-  JobContext,
-  RepairInput,
-  SectionDraft,
-  LessonPlan,
-  StructuredSection,
-  StructuredSectionBatch,
-)
+from app.ai.agents import GathererAgent, GathererStructurerAgent, PlannerAgent, RepairerAgent, StitcherAgent, StructurerAgent
+from app.ai.pipeline.contracts import GenerationRequest, JobContext, LessonPlan, RepairInput, SectionDraft, StructuredSection, StructuredSectionBatch
 from app.ai.providers.base import AIModel
 from app.ai.router import get_model_for_mode
 from app.schema.service import SchemaService
@@ -28,10 +20,7 @@ from app.schema.service import SchemaService
 OptStr = str | None
 Msgs = list[str] | None
 SectionStatus = Literal["generating", "retrying", "completed"]
-ProgressCallback = (
-  Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], None]
-  | None
-)
+ProgressCallback = Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], None] | None
 MERGED_DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"
 
 
@@ -132,12 +121,7 @@ class DgsOrchestrator:
     repair_artifacts: list[dict[str, Any]] = []
 
     def _report_progress(
-      phase_name: str,
-      subphase: OptStr,
-      messages: Msgs = None,
-      advance: bool = True,
-      partial_json: dict[str, Any] | None = None,
-      section_progress: SectionProgressUpdate | None = None,
+      phase_name: str, subphase: OptStr, messages: Msgs = None, advance: bool = True, partial_json: dict[str, Any] | None = None, section_progress: SectionProgressUpdate | None = None
     ) -> None:
       # Stream progress updates to the worker when configured.
       if progress_callback:
@@ -150,24 +134,11 @@ class DgsOrchestrator:
       shorthand_sections = StitcherAgent._output_dle_shorthand(ordered_sections)
       return {"title": topic, "blocks": [section.payload for section in shorthand_sections]}
 
-    def _section_progress(
-      section_index: int,
-      *,
-      title: str | None,
-      status: SectionStatus,
-      retry_count: int | None = None,
-      completed_sections: int | None = None,
-    ) -> SectionProgressUpdate:
+    def _section_progress(section_index: int, *, title: str | None, status: SectionStatus, retry_count: int | None = None, completed_sections: int | None = None) -> SectionProgressUpdate:
       """Normalize section progress updates with 0-based indexing."""
       # Convert 1-based section numbers to the 0-based indices expected by the client.
       zero_based_index = section_index - 1
-      return SectionProgressUpdate(
-        index=zero_based_index,
-        title=title,
-        status=status,
-        retry_count=retry_count,
-        completed_sections=completed_sections,
-      )
+      return SectionProgressUpdate(index=zero_based_index, title=title, status=status, retry_count=retry_count, completed_sections=completed_sections)
 
     gatherer_model_name = gatherer_model or self._gatherer_model_name
     structurer_model_name = structurer_model or self._structurer_model_name
@@ -181,7 +152,6 @@ class DgsOrchestrator:
     logs.append(log_msg)
     logger.info(log_msg)
 
-    
     if merge_enabled:
       log_msg = f"Gatherer+Structurer (merged): {self._gatherer_provider}/{merged_model_name or 'default'}"
       logs.append(log_msg)
@@ -192,12 +162,10 @@ class DgsOrchestrator:
       logs.append(log_msg)
       logger.info(log_msg)
 
-
     log_msg = f"Planner: {self._planner_provider}/{planner_model_name or 'default'}"
     logs.append(log_msg)
     logger.info(log_msg)
 
-    
     log_msg = f"Structurer: {self._structurer_provider}/{structurer_model_name or 'default'}"
     logs.append(log_msg)
     logger.info(log_msg)
@@ -224,11 +192,8 @@ class DgsOrchestrator:
     ctx = JobContext(job_id=jid, created_at=created_at, provider=prov, model=mod, request=request, metadata=meta)
     usage_sink = all_usage.append
 
-    
     if merge_enabled:
-      gatherer_model_instance = get_model_for_mode(
-        self._gatherer_provider, merged_model_name, agent="gatherer_structurer"
-      )
+      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, merged_model_name, agent="gatherer_structurer")
 
     else:
       gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name, agent="gatherer")
@@ -244,15 +209,10 @@ class DgsOrchestrator:
     structurer_prov = self._structurer_provider
     repair_prov = self._repair_provider
     planner_agent = PlannerAgent(model=planner_model_instance, prov=planner_prov, schema=schema, use=use)
-    
+
     if merge_enabled:
       gatherer_agent = None
-      gatherer_structurer_agent = GathererStructurerAgent(
-        model=gatherer_model_instance,
-        prov=gatherer_prov,
-        schema=schema,
-        use=use,
-      )
+      gatherer_structurer_agent = GathererStructurerAgent(model=gatherer_model_instance, prov=gatherer_prov, schema=schema, use=use)
 
     else:
       gatherer_agent = GathererAgent(model=gatherer_model_instance, prov=gatherer_prov, schema=schema, use=use)
@@ -262,12 +222,7 @@ class DgsOrchestrator:
     repairer_agent = RepairerAgent(model=repairer_model_instance, prov=repair_prov, schema=schema, use=use)
     stitcher_agent = StitcherAgent(model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use)
 
-    async def _process_structured_section(
-      *,
-      draft: SectionDraft,
-      structured: StructuredSection,
-      section_index: int,
-    ) -> StructuredSection | None:
+    async def _process_structured_section(*, draft: SectionDraft, structured: StructuredSection, section_index: int) -> StructuredSection | None:
       """Validate, optionally repair, and finalize a structured section."""
       nonlocal validation_errors
 
@@ -294,13 +249,7 @@ class DgsOrchestrator:
             [f"Retrying section {section_index}/{section_count} after validation failure."],
             advance=False,
             partial_json=_build_partial_lesson(structured_sections),
-            section_progress=_section_progress(
-              section_index,
-              title=draft.title,
-              status="retrying",
-              retry_count=1,
-              completed_sections=len(structured_sections),
-            ),
+            section_progress=_section_progress(section_index, title=draft.title, status="retrying", retry_count=1, completed_sections=len(structured_sections)),
           )
 
         try:
@@ -349,7 +298,9 @@ class DgsOrchestrator:
       # Fail fast when the planner cannot produce a valid plan.
       planner_model = _model_name(planner_model_instance)
       _log_request_failure(logger=logger, logs=logs, agent="Planner", provider=planner_prov, model=planner_model, prompt=None, response=None, error=exc)
-      _log_pipeline_snapshot(logger=logger, logs=logs, agent="Planner", error=exc, lesson_plan=lesson_plan, draft_artifacts=draft_artifacts, structured_artifacts=structured_artifacts, repair_artifacts=repair_artifacts)
+      _log_pipeline_snapshot(
+        logger=logger, logs=logs, agent="Planner", error=exc, lesson_plan=lesson_plan, draft_artifacts=draft_artifacts, structured_artifacts=structured_artifacts, repair_artifacts=repair_artifacts
+      )
       error_message = f"Planner failed: {exc}"
       logs.append(error_message)
       _report_progress("plan", "planner_failed", [error_message], advance=False)
@@ -359,7 +310,7 @@ class DgsOrchestrator:
 
     sections: dict[int, SectionDraft] = {}
     structured_sections: list[StructuredSection] = []
-    
+
     section_count = len(lesson_plan.sections)
     # Restrict orchestration to a subset of sections when retrying.
     target_sections = set(section_filter) if section_filter else None
@@ -375,15 +326,7 @@ class DgsOrchestrator:
         merge_subphase = f"gather_struct_section_{section_index}_of_{section_count}"
         merge_msg = f"Gathering+structuring section {section_index}/{section_count}: {plan_section.title}"
         _report_progress(
-          "transform",
-          merge_subphase,
-          [merge_msg],
-          section_progress=_section_progress(
-            section_index,
-            title=plan_section.title,
-            status="generating",
-            completed_sections=len(structured_sections),
-          ),
+          "transform", merge_subphase, [merge_msg], section_progress=_section_progress(section_index, title=plan_section.title, status="generating", completed_sections=len(structured_sections))
         )
 
         try:
@@ -418,11 +361,7 @@ class DgsOrchestrator:
 
         # Preserve draft context for repair by synthesizing a minimal SectionDraft.
         draft = SectionDraft(
-          section_number=section_index,
-          title=plan_section.title,
-          plan_section=plan_section,
-          raw_text="Merged gatherer-structurer output (raw gatherer text unavailable).",
-          extracted_parts=None,
+          section_number=section_index, title=plan_section.title, plan_section=plan_section, raw_text="Merged gatherer-structurer output (raw gatherer text unavailable).", extracted_parts=None
         )
         sections[section_index] = draft
         draft_artifacts.append(draft.model_dump(mode="python"))
@@ -437,27 +376,14 @@ class DgsOrchestrator:
             [f"Section {section_index}/{section_count} ready."],
             advance=False,
             partial_json=_build_partial_lesson(structured_sections),
-            section_progress=_section_progress(
-              section_index,
-              title=draft.title,
-              status="completed",
-              completed_sections=len(structured_sections),
-            ),
+            section_progress=_section_progress(section_index, title=draft.title, status="completed", completed_sections=len(structured_sections)),
           )
 
       else:
         gather_subphase = f"gather_section_{section_index}_of_{section_count}"
         gather_msg = f"Gathering section {section_index}/{section_count}: {plan_section.title}"
         _report_progress(
-          "collect",
-          gather_subphase,
-          [gather_msg],
-          section_progress=_section_progress(
-            section_index,
-            title=plan_section.title,
-            status="generating",
-            completed_sections=len(structured_sections),
-          ),
+          "collect", gather_subphase, [gather_msg], section_progress=_section_progress(section_index, title=plan_section.title, status="generating", completed_sections=len(structured_sections))
         )
 
         try:
@@ -495,15 +421,7 @@ class DgsOrchestrator:
         extract_subphase = f"extract_section_{section_index}_of_{section_count}"
         extract_msg = f"Extracted section {section_index}/{section_count}"
         _report_progress(
-          "collect",
-          extract_subphase,
-          [extract_msg],
-          section_progress=_section_progress(
-            section_index,
-            title=draft.title,
-            status="generating",
-            completed_sections=len(structured_sections),
-          ),
+          "collect", extract_subphase, [extract_msg], section_progress=_section_progress(section_index, title=draft.title, status="generating", completed_sections=len(structured_sections))
         )
         section_index += 1
 
@@ -528,7 +446,6 @@ class DgsOrchestrator:
       logger.info("Repair is disabled; pipeline will stop on invalid sections.")
 
     if not merge_enabled:
-
       section_indexes = list(range(1, section_count + 1))
 
       if target_sections is not None:
@@ -545,15 +462,7 @@ class DgsOrchestrator:
         struct_subphase = f"struct_section_{section_index}_of_{section_count}"
         struct_msg = f"Structuring section {section_index}/{section_count}: {draft.title}"
         _report_progress(
-          "transform",
-          struct_subphase,
-          [struct_msg],
-          section_progress=_section_progress(
-            section_index,
-            title=draft.title,
-            status="generating",
-            completed_sections=len(structured_sections),
-          ),
+          "transform", struct_subphase, [struct_msg], section_progress=_section_progress(section_index, title=draft.title, status="generating", completed_sections=len(structured_sections))
         )
 
         try:
@@ -589,12 +498,7 @@ class DgsOrchestrator:
             [f"Section {section_index}/{section_count} ready."],
             advance=False,
             partial_json=_build_partial_lesson(structured_sections),
-            section_progress=_section_progress(
-              section_index,
-              title=draft.title,
-              status="completed",
-              completed_sections=len(structured_sections),
-            ),
+            section_progress=_section_progress(section_index, title=draft.title, status="completed", completed_sections=len(structured_sections)),
           )
 
     _report_progress("transform", "stitch_sections", ["Stitching sections..."])
@@ -610,14 +514,7 @@ class DgsOrchestrator:
       stitch_model = _model_name(structurer_model_instance)
       _log_request_failure(logger=logger, logs=logs, agent="Stitcher", provider=self._structurer_provider, model=stitch_model, prompt=None, response=None, error=exc)
       _log_pipeline_snapshot(
-        logger=logger,
-        logs=logs,
-        agent="Stitcher",
-        error=exc,
-        lesson_plan=lesson_plan,
-        draft_artifacts=draft_artifacts,
-        structured_artifacts=structured_artifacts,
-        repair_artifacts=repair_artifacts,
+        logger=logger, logs=logs, agent="Stitcher", error=exc, lesson_plan=lesson_plan, draft_artifacts=draft_artifacts, structured_artifacts=structured_artifacts, repair_artifacts=repair_artifacts
       )
       error_message = f"Stitcher failed: {exc}"
       logs.append(error_message)
@@ -627,7 +524,7 @@ class DgsOrchestrator:
     lesson_json = stitch_result.lesson_json
     metadata = stitch_result.metadata or {}
     validation_errors = metadata.get("validation_errors") or None
-    
+
     if validation_errors:
       # Treat stitcher validation errors as fatal to avoid returning invalid lessons.
       error_message = f"Stitcher validation failed: {validation_errors}"
@@ -642,17 +539,22 @@ class DgsOrchestrator:
 
     total_cost = self._calculate_total_cost(all_usage)
 
-    artifacts = {
-      "plan": lesson_plan.model_dump(mode="python"),
-      "drafts": draft_artifacts,
-      "structured_sections": structured_artifacts,
-      "repairs": repair_artifacts,
-      "final_lesson": lesson_json,
-    }
+    artifacts = {"plan": lesson_plan.model_dump(mode="python"), "drafts": draft_artifacts, "structured_sections": structured_artifacts, "repairs": repair_artifacts, "final_lesson": lesson_json}
     gatherer_model = _model_name(gatherer_model_instance)
     structurer_model = _model_name(structurer_model_instance)
     validation = validation_errors if validation_errors else None
-    return OrchestrationResult(lesson_json=lesson_json, provider_a=self._gatherer_provider, model_a=gatherer_model, provider_b=self._structurer_provider, model_b=structurer_model, validation_errors=validation, logs=logs, usage=all_usage, total_cost=total_cost, artifacts=artifacts)
+    return OrchestrationResult(
+      lesson_json=lesson_json,
+      provider_a=self._gatherer_provider,
+      model_a=gatherer_model,
+      provider_b=self._structurer_provider,
+      model_b=structurer_model,
+      validation_errors=validation,
+      logs=logs,
+      usage=all_usage,
+      total_cost=total_cost,
+      artifacts=artifacts,
+    )
 
   def _calculate_total_cost(self, usage: list[dict[str, Any]]) -> float:
     """Estimate total cost based on token usage."""
@@ -677,32 +579,20 @@ class DgsOrchestrator:
       total += call_cost
 
     return round(total, 6)
-  
+
+
 def _depth_profile(depth: str) -> int:
   """Map numeric depth to DLE labels and section counts for prompt rendering."""
   # Keep prompt depth labels aligned with the API depth tiers.
-  mapping = {
-    "highlights": 2,
-    "detailed": 6,
-    "training": 10,
-  }
-  
+  mapping = {"highlights": 2, "detailed": 6, "training": 10}
+
   if depth.lower() in mapping:
     return mapping[depth.lower()]
-  
+
   raise ValueError("Depth must be one of the following: Highlights, Detailed or Training.")
 
-def _log_request_failure(
-  *,
-  logger: logging.Logger,
-  logs: list[str] | None,
-  agent: str,
-  provider: str,
-  model: str,
-  prompt: str | None,
-  response: str | None,
-  error: Exception,
-) -> None:
+
+def _log_request_failure(*, logger: logging.Logger, logs: list[str] | None, agent: str, provider: str, model: str, prompt: str | None, response: str | None, error: Exception) -> None:
   """Log request failures with prompt/response details."""
   message = f"{agent} request failed (provider={provider}, model={model}): {error}"
 
@@ -721,11 +611,9 @@ def _log_request_failure(
   else:
     logger.error("%s response:\n%s", agent, response)
 
+
 def _build_failure_snapshot(
-  lesson_plan: LessonPlan | None,
-  draft_artifacts: list[dict[str, Any]],
-  structured_artifacts: list[dict[str, Any]],
-  repair_artifacts: list[dict[str, Any]],
+  lesson_plan: LessonPlan | None, draft_artifacts: list[dict[str, Any]], structured_artifacts: list[dict[str, Any]], repair_artifacts: list[dict[str, Any]]
 ) -> dict[str, Any]:
   """Capture the newest artifacts so partial pipeline output is visible during failures."""
   # Surface the newest data only to keep logs readable while still debugging failures.
@@ -759,12 +647,7 @@ def _log_pipeline_snapshot(
 ) -> None:
   """Log the latest available artifacts so failed pipelines retain context."""
   # Serialize a focused snapshot for operational debugging.
-  snapshot = _build_failure_snapshot(
-    lesson_plan=lesson_plan,
-    draft_artifacts=draft_artifacts,
-    structured_artifacts=structured_artifacts,
-    repair_artifacts=repair_artifacts,
-  )
+  snapshot = _build_failure_snapshot(lesson_plan=lesson_plan, draft_artifacts=draft_artifacts, structured_artifacts=structured_artifacts, repair_artifacts=repair_artifacts)
   snapshot_json = json.dumps(snapshot, ensure_ascii=True)
   message = f"{agent} failure snapshot (error={error}): {snapshot_json}"
 

@@ -6,23 +6,16 @@ from fastapi.responses import JSONResponse
 
 
 class DecimalJSONEncoder(json.JSONEncoder):
-    """Custom JSON encoder that handles Decimal types."""
+  """Custom JSON encoder that handles Decimal types."""
 
-    def default(self, obj: Any) -> Any:
-        if isinstance(obj, Decimal):
-            return int(obj) if obj % 1 == 0 else float(obj)
-        return super().default(obj)
+  def default(self, obj: Any) -> Any:
+    if isinstance(obj, Decimal):
+      return int(obj) if obj % 1 == 0 else float(obj)
+    return super().default(obj)
 
 
 class DecimalJSONResponse(JSONResponse):
-    """Custom JSONResponse that uses DecimalJSONEncoder."""
+  """Custom JSONResponse that uses DecimalJSONEncoder."""
 
-    def render(self, content: Any) -> bytes:
-        return json.dumps(
-            content,
-            ensure_ascii=False,
-            allow_nan=False,
-            indent=None,
-            separators=(",", ":"),
-            cls=DecimalJSONEncoder,
-        ).encode("utf-8")
+  def render(self, content: Any) -> bytes:
+    return json.dumps(content, ensure_ascii=False, allow_nan=False, indent=None, separators=(",", ":"), cls=DecimalJSONEncoder).encode("utf-8")

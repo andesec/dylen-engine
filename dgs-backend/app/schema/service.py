@@ -9,7 +9,6 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.schema.lesson_models import LessonDocument, SectionBlock
-from app.schema.widgets_loader import load_widget_registry
 
 DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets_prompt.md")
 SchemaDict = dict[str, Any]
@@ -55,108 +54,108 @@ class SchemaService:
   def subset_section_schema(self, allowed_widgets: list[str]) -> dict[str, Any]:
     """
     Return a section schema restricted to a specific list of widgets.
-    
+
     Args:
         allowed_widgets: List of allowed widget keys (e.g. ['p', 'mcqs']).
     """
     # Start with the full schema
     schema = self.section_schema()
-    
+
     # 1. Inspect definitions to identify the main Widget union.
     # We navigate from SectionBlock -> items -> items to find the widget definition.
     defs = schema.get("$defs", {})
     widget_def = None
-    
+
     # Path: SectionBlock -> items (list) -> items (schema for array elements)
     props = schema.get("properties", {})
     items_prop = props.get("items", {})
     inner_items = items_prop.get("items", {})
-    
+
     if "$ref" in inner_items:
-        ref_name = inner_items["$ref"].split("/")[-1]
-        widget_def = defs.get(ref_name)
+      ref_name = inner_items["$ref"].split("/")[-1]
+      widget_def = defs.get(ref_name)
     elif "anyOf" in inner_items:
-        widget_def = inner_items
-    
+      widget_def = inner_items
+
     if not widget_def or "anyOf" not in widget_def:
-        # Fallback if structure isn't as expected: return full schema
-        return schema
+      # Fallback if structure isn't as expected: return full schema
+      return schema
 
     # 2. Filter the anyOf list
     original_options = widget_def["anyOf"]
     filtered_options = []
-    
+
     # Always include the string type if "p" (paragraph) is in allowed_widgets,
     # because the "p" shorthand is a plain string.
     include_paragraph = "p" in allowed_widgets
-    
+
     for option in original_options:
-        # Check simple type (string = paragraph shorthand)
-        if option.get("type") == "string":
-            if include_paragraph:
-                filtered_options.append(option)
-            continue
-            
-        # Check referenced definitions (object widgets)
-        ref = option.get("$ref")
-        if not ref:
-            # Unknown shape, decided to exclude or keep? 
-            # Safest to exclude if we are restricting, but let's keep if unsure? 
-            # No, strict restriction is better.
-            continue
-            
-        # Ref format: #/$defs/ChecklistWidget
-        def_name = ref.split("/")[-1]
-        model_def = defs.get(def_name)
-        
-        if not model_def:
-            continue
-            
-        # Identify widget type by its properties.
-        # Most widgets have a single key like "checklist", "mcqs", "p" (explicit).
-        properties = model_def.get("properties", {})
-        
-        # Check if any of the property keys match our allowed list
-        match = False
-        for prop_key in properties.keys():
-            if prop_key in allowed_widgets:
-                match = True
-                break
-        
-        if match:
-            filtered_options.append(option)
+      # Check simple type (string = paragraph shorthand)
+      if option.get("type") == "string":
+        if include_paragraph:
+          filtered_options.append(option)
+        continue
+
+      # Check referenced definitions (object widgets)
+      ref = option.get("$ref")
+      if not ref:
+        # Unknown shape, decided to exclude or keep?
+        # Safest to exclude if we are restricting, but let's keep if unsure?
+        # No, strict restriction is better.
+        continue
+
+      # Ref format: #/$defs/ChecklistWidget
+      def_name = ref.split("/")[-1]
+      model_def = defs.get(def_name)
+
+      if not model_def:
+        continue
+
+      # Identify widget type by its properties.
+      # Most widgets have a single key like "checklist", "mcqs", "p" (explicit).
+      properties = model_def.get("properties", {})
+
+      # Check if any of the property keys match our allowed list
+      match = False
+      for prop_key in properties.keys():
+        if prop_key in allowed_widgets:
+          match = True
+          break
+
+      if match:
+        filtered_options.append(option)
 
     # 3. Update the schema with filtered options
     if filtered_options:
-        widget_def["anyOf"] = filtered_options
-        
-        # 4. Prune unused definitions to prevent context leakage
-        reachable = set()
-        # Initialize stack with the filtered options to find initial refs
-        stack = list(filtered_options)
-        
-        while stack:
-            item = stack.pop()
-            if isinstance(item, dict):
-                for k, v in item.items():
-                    if k == "$ref" and isinstance(v, str):
-                        # Extract definition name from reference (e.g. "#/$defs/MyWidget")
-                        ref_name = v.split("/")[-1]
-                        if ref_name not in reachable and ref_name in defs:
-                            reachable.add(ref_name)
-                            # Add the definition itself to stack to find nested refs
-                            stack.append(defs[ref_name])
-                    elif isinstance(v, (dict, list)):
-                        stack.append(v)
-            elif isinstance(item, list):
-                stack.extend(item)
-        
-        # Apply pruning
-        if "$defs" in schema:
-            schema["$defs"] = {k: v for k, v in defs.items() if k in reachable}
+      widget_def["anyOf"] = filtered_options
+
+      # 4. Prune unused definitions to prevent context leakage
+      reachable = set()
+      # Initialize stack with the filtered options to find initial refs
+      stack = list(filtered_options)
+
+      while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+          for k, v in item.items():
+            if k == "$ref" and isinstance(v, str):
+              # Extract definition name from reference (e.g. "#/$defs/MyWidget")
+              ref_name = v.split("/")[-1]
+              if ref_name not in reachable and ref_name in defs:
+                reachable.add(ref_name)
+                # Add the definition itself to stack to find nested refs
+                stack.append(defs[ref_name])
+            elif isinstance(v, (dict, list)):
+              stack.append(v)
+        elif isinstance(item, list):
+          stack.extend(item)
+
+      # Apply pruning
+      if "$defs" in schema:
+        schema["$defs"] = {k: v for k, v in defs.items() if k in reachable}
     else:
-        # If nothing matches, we shouldn't return an unusable schema.
-        pass
+      # If nothing matches, we shouldn't return an unusable schema.
+      pass
 
     return schema
 
@@ -209,42 +208,59 @@ class SchemaService:
     # If the prompts need the schema for "tr", we return TranslationWidget.model_json_schema()
 
     from app.schema.lesson_models import (
-        TranslationWidget, FlipWidget, FillBlankWidget, SwipeCardsWidget, FreeTextWidget, InputLineWidget,
-        StepFlowWidget, AsciiDiagramWidget, ChecklistWidget, InteractiveTerminalWidget, TerminalDemoWidget,
-        CodeEditorWidget, TreeViewWidget, MCQsWidget,
-        UnorderedListWidget, OrderedListWidget, TableWidget, CompareWidget,
-        ParagraphWidget, WarnWidget, ErrorWidget, SuccessWidget
+      AsciiDiagramWidget,
+      ChecklistWidget,
+      CodeEditorWidget,
+      CompareWidget,
+      ErrorWidget,
+      FillBlankWidget,
+      FlipWidget,
+      FreeTextWidget,
+      InputLineWidget,
+      InteractiveTerminalWidget,
+      MCQsWidget,
+      OrderedListWidget,
+      ParagraphWidget,
+      StepFlowWidget,
+      SuccessWidget,
+      SwipeCardsWidget,
+      TableWidget,
+      TerminalDemoWidget,
+      TranslationWidget,
+      TreeViewWidget,
+      UnorderedListWidget,
+      WarnWidget,
     )
 
-    TYPE_TO_MODEL = {
-        "tr": TranslationWidget,
-        "flip": FlipWidget,
-        "fillblank": FillBlankWidget,
-        "swipecards": SwipeCardsWidget,
-        "freeText": FreeTextWidget,
-        "inputLine": InputLineWidget,
-        "stepFlow": StepFlowWidget,
-        "asciiDiagram": AsciiDiagramWidget,
-        "checklist": ChecklistWidget,
-        "interactiveTerminal": InteractiveTerminalWidget,
-        "terminalDemo": TerminalDemoWidget,
-        "codeEditor": CodeEditorWidget,
-        "treeview": TreeViewWidget,
-        "mcqs": MCQsWidget,
-        "ul": UnorderedListWidget,
-        "ol": OrderedListWidget,
-        "table": TableWidget,
-        "compare": CompareWidget,
-        "p": ParagraphWidget,
-        "warn": WarnWidget,
-        "err": ErrorWidget,
-        "success": SuccessWidget
+    TYPE_TO_MODEL = {  # noqa: N806
+      "tr": TranslationWidget,
+      "flip": FlipWidget,
+      "fillblank": FillBlankWidget,
+      "swipecards": SwipeCardsWidget,
+      "freeText": FreeTextWidget,
+      "inputLine": InputLineWidget,
+      "stepFlow": StepFlowWidget,
+      "asciiDiagram": AsciiDiagramWidget,
+      "checklist": ChecklistWidget,
+      "interactiveTerminal": InteractiveTerminalWidget,
+      "terminalDemo": TerminalDemoWidget,
+      "codeEditor": CodeEditorWidget,
+      "treeview": TreeViewWidget,
+      "mcqs": MCQsWidget,
+      "ul": UnorderedListWidget,
+      "ol": OrderedListWidget,
+      "table": TableWidget,
+      "compare": CompareWidget,
+      "p": ParagraphWidget,
+      "warn": WarnWidget,
+      "err": ErrorWidget,
+      "success": SuccessWidget,
     }
 
     for widget_type in dict.fromkeys(widget_types):
-        model = TYPE_TO_MODEL.get(widget_type)
-        if model:
-             schemas[widget_type] = model.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
+      model = TYPE_TO_MODEL.get(widget_type)
+      if model:
+        schemas[widget_type] = model.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
 
     return schemas
 
@@ -307,32 +323,14 @@ def _sanitize_schema_for_gemini(schema: Any, root_schema: SchemaDict | None = No
             return _sanitize_schema_for_gemini(defs[def_name], root_schema, new_visited)
     return {"type": "object", "properties": {}}
 
-  allowed_keys: set[str] = {
-    "type",
-    "properties",
-    "items",
-    "anyOf",
-    "oneOf",
-    "allOf",
-    "enum",
-    "format",
-    "minimum",
-    "maximum",
-    "minItems",
-    "maxItems",
-    "minLength",
-    "maxLength",
-    "pattern",
-  }
+  allowed_keys: set[str] = {"type", "properties", "items", "anyOf", "oneOf", "allOf", "enum", "format", "minimum", "maximum", "minItems", "maxItems", "minLength", "maxLength", "pattern"}
 
   sanitized: dict[str, Any] = {k: v for k, v in schema.items() if k in allowed_keys}
 
   if "properties" in sanitized:
     props = sanitized.get("properties")
     if isinstance(props, dict):
-      sanitized["properties"] = {
-        key: _sanitize_schema_for_gemini(value, root_schema, visited) for key, value in props.items()
-      }
+      sanitized["properties"] = {key: _sanitize_schema_for_gemini(value, root_schema, visited) for key, value in props.items()}
     elif not props:
       sanitized["properties"] = {}
 

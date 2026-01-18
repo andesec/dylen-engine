@@ -5,28 +5,17 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import warnings
 from typing import Any, Final, cast
 
 from pydantic.warnings import ArbitraryTypeWarning
 
 with warnings.catch_warnings():
-  warnings.filterwarnings(
-    "ignore",
-    message=r"<built-in function any> is not a Python type.*",
-    category=ArbitraryTypeWarning,
-  )
+  warnings.filterwarnings("ignore", message=r"<built-in function any> is not a Python type.*", category=ArbitraryTypeWarning)
   from google import genai
 
 from app.ai.json_parser import parse_json_with_fallback
-from app.ai.providers.base import (
-  AIModel,
-  ModelResponse,
-  Provider,
-  SimpleModelResponse,
-  StructuredModelResponse,
-)
+from app.ai.providers.base import AIModel, ModelResponse, Provider, SimpleModelResponse, StructuredModelResponse
 
 
 class GeminiModel(AIModel):

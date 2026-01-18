@@ -24,7 +24,6 @@ def parse_json_with_fallback(raw: str) -> Any:
 
   # Fail fast when no JSON-shaped payload is present in the response.
   if candidate is None:
-
     if last_error is None:
       raise json.JSONDecodeError("Invalid JSON payload", raw, 0)
 
@@ -76,9 +75,7 @@ def _extract_json_block(raw: str) -> str | None:
 
   # Scan the text for a balanced JSON payload while honoring string escapes.
   for index, char in enumerate(raw):
-
     if start_index is None:
-
       if char in "{[":
         start_index = index
         depth = 1
@@ -86,7 +83,6 @@ def _extract_json_block(raw: str) -> str | None:
       continue
 
     if in_string:
-
       if escape:
         escape = False
         continue
@@ -136,7 +132,6 @@ def _quote_unquoted_keys(raw: str) -> str:
     char = raw[index]
 
     if in_string:
-
       # Preserve escaped characters while inside string literals.
       if escape:
         output.append(char)
@@ -225,7 +220,7 @@ def _quote_unquoted_keys(raw: str) -> str:
         probe += 1
 
       if probe < len(raw) and raw[probe] == ":":
-        output.append(f"\"{key}\"")
+        output.append(f'"{key}"')
         output.append(raw[index:probe])
         output.append(":")
         expecting_key = False
@@ -308,7 +303,7 @@ def _insert_missing_commas(raw: str) -> str:
     if char == '"':
       output.append(char)
       in_string = True
-      last_non_space = "\""
+      last_non_space = '"'
       index += 1
       continue
 
@@ -418,7 +413,7 @@ def _insert_missing_commas(raw: str) -> str:
 
 def _is_value_start(char: str) -> bool:
   """Identify token starts so missing commas are inserted safely."""
-  if char in "\"{[":
+  if char in '"{[':
     return True
 
   if char.isdigit() or char == "-":

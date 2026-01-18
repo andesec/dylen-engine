@@ -5,28 +5,18 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from typing import Any, Final, cast
 
 from openai import AsyncOpenAI
 
 from app.ai.json_parser import parse_json_with_fallback
-from app.ai.providers.base import (
-  AIModel,
-  ModelResponse,
-  Provider,
-  SimpleModelResponse,
-  StructuredModelResponse,
-)
+from app.ai.providers.base import AIModel, ModelResponse, Provider, SimpleModelResponse, StructuredModelResponse
 
 
 class OpenRouterModel(AIModel):
   """OpenRouter model client with structured output support."""
 
-  _STRUCTURED_OUTPUT_MODELS: Final[set[str]] = {
-    "openai/gpt-oss-20b:free",
-    "openai/gpt-oss-120b:free",
-  }
+  _STRUCTURED_OUTPUT_MODELS: Final[set[str]] = {"openai/gpt-oss-20b:free", "openai/gpt-oss-120b:free"}
 
   def __init__(self, name: str, api_key: str | None = None, base_url: str | None = None) -> None:
     self.name: str = name
@@ -46,11 +36,7 @@ class OpenRouterModel(AIModel):
     if title:
       default_headers["X-Title"] = title
 
-    self._client = AsyncOpenAI(
-      api_key=api_key,
-      base_url=base_url or "https://openrouter.ai/api/v1",
-      default_headers=default_headers or None,
-    )
+    self._client = AsyncOpenAI(api_key=api_key, base_url=base_url or "https://openrouter.ai/api/v1", default_headers=default_headers or None)
 
   async def generate(self, prompt: str) -> ModelResponse:
     """Generate text response from OpenRouter."""
@@ -63,28 +49,18 @@ class OpenRouterModel(AIModel):
       logger.info("OpenRouter GATHERER dummy response:\n%s", response.content)
       return response
 
-    response = await self._client.chat.completions.create(
-      model=self.name,
-      messages=[{"role": "user", "content": prompt}],
-    )
+    response = await self._client.chat.completions.create(model=self.name, messages=[{"role": "user", "content": prompt}])
 
     content = response.choices[0].message.content or ""
     logger.info("OpenRouter response:\n%s", content)
     usage = None
 
     if response.usage:
-      usage = {
-        "prompt_tokens": response.usage.prompt_tokens,
-        "completion_tokens": response.usage.completion_tokens,
-        "total_tokens": response.usage.total_tokens,
-      }
+      usage = {"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens, "total_tokens": response.usage.total_tokens}
 
     return SimpleModelResponse(content=content, usage=usage)
 
-  async def generate_structured(
-    self, prompt: str, schema: dict[str, Any]
-  ) -> StructuredModelResponse:
-
+  async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
     """Generate structured JSON output using OpenAI's JSON mode."""
     logger = logging.getLogger("app.ai.providers.openrouter")
 
@@ -106,17 +82,12 @@ class OpenRouterModel(AIModel):
     # Serialize schema for prompt injection (reinforcement)
     schema_str = json.dumps(schema, indent=2)
     system_msg = (
-      "You are a helpful assistant that outputs valid JSON.\n"
-      f"You MUST strictly output JSON adhering to this schema:\n```json\n{schema_str}\n```\n"
-      "Output valid JSON only, no markdown formatting."
+      f"You are a helpful assistant that outputs valid JSON.\nYou MUST strictly output JSON adhering to this schema:\n```json\n{schema_str}\n```\nOutput valid JSON only, no markdown formatting."
     )
 
     response = await self._client.chat.completions.create(
       model=self.name,
-      messages=[
-        {"role": "system", "content": system_msg},
-        {"role": "user", "content": prompt},
-      ],
+      messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
       response_format={
         "type": "json_schema",
         "json_schema": {
@@ -132,11 +103,7 @@ class OpenRouterModel(AIModel):
     usage = None
 
     if response.usage:
-      usage = {
-        "prompt_tokens": response.usage.prompt_tokens,
-        "completion_tokens": response.usage.completion_tokens,
-        "total_tokens": response.usage.total_tokens,
-      }
+      usage = {"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens, "total_tokens": response.usage.total_tokens}
 
     # Parse the JSON response
     # Parse the model response with a lenient fallback to reduce retry churn.

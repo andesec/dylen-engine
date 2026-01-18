@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.14-dev"]
     defaults:
       run:
         shell: bash
@@ -58,13 +58,13 @@ jobs:
             pip install -r ../requirements-dev.txt
           fi
 
-          pip install black ruff mypy pytest
+          pip install ruff mypy pytest
 
       - name: Ruff
         run: ruff check .
 
-      - name: Black
-        run: black --check .
+      - name: Ruff Format
+        run: ruff format --check .
 
       - name: Mypy
         run: mypy .

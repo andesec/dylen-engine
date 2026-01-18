@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from app.ai.providers.base import AIModel, ModelResponse, StructuredModelResponse
 
@@ -47,7 +48,6 @@ class PolicyModel(AIModel):
     # Keep calls single-shot to prevent retries from masking model failures.
 
     try:
-
       if self._policy.timeout_seconds is None:
         return await func()
 

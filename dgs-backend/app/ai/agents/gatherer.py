@@ -39,18 +39,11 @@ class GathererAgent(BaseAgent[PlanSection, SectionDraft]):
 
     # Stamp the provider call with agent context so audit logs include request metadata.
 
-    with llm_call_context(
-      agent=self.name,
-      lesson_topic=request.topic,
-      job_id=ctx.job_id,
-      purpose=purpose,
-      call_index=call_index,
-    ):
+    with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
       response = await self._model.generate(prompt_text)
 
-
     self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
-    
+
     # Surface empty responses so downstream repair can be triggered.
 
     if not response.content.strip():
@@ -59,5 +52,5 @@ class GathererAgent(BaseAgent[PlanSection, SectionDraft]):
     raw_text = response.content.strip()
     section_number = input_data.section_number
     title = input_data.title
-    
+
     return SectionDraft(section_number=section_number, title=title, plan_section=input_data, raw_text=raw_text, extracted_parts=None)

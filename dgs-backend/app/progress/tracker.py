@@ -18,19 +18,9 @@ class ProgressTracker:
   def __init__(self, sink: ProgressSink = None) -> None:
     self._sink = sink
 
-  def emit(
-    self, *, phase: str, step: str | None = None, section_id: int | None = None, message: str | None = None,
-    metrics: Metrics = None
-  ) -> ProgressEvent:
+  def emit(self, *, phase: str, step: str | None = None, section_id: int | None = None, message: str | None = None, metrics: Metrics = None) -> ProgressEvent:
     """Emit and return a progress event."""
-    payload = {
-      "phase": phase,
-      "step": step,
-      "section_id": section_id,
-      "message": message,
-      "metrics": metrics,
-      "timestamp": datetime.utcnow(),
-    }
+    payload = {"phase": phase, "step": step, "section_id": section_id, "message": message, "metrics": metrics, "timestamp": datetime.utcnow()}
     event = ProgressEvent(**payload)
     if self._sink:
       self._sink(event)

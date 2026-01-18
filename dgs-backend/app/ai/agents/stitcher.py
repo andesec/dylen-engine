@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from app.ai.agents.base import BaseAgent
-from app.ai.pipeline.contracts import FinalLesson, JobContext, StructuredSectionBatch, StructuredSection
 from copy import deepcopy
 from typing import Any
+
+from app.ai.agents.base import BaseAgent
+from app.ai.pipeline.contracts import FinalLesson, JobContext, StructuredSection, StructuredSectionBatch
+
 
 class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
   """Merge structured sections into the final lesson JSON."""
@@ -20,7 +22,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
     messages = [f"{issue.path}: {issue.message}" for issue in result.issues]
     metadata = {"validation_errors": messages} if messages else None
     return FinalLesson(lesson_json=lesson_json, metadata=metadata)
-  
+
   @staticmethod
   def _output_dle_shorthand(sections: list[StructuredSection]) -> list[StructuredSection]:
     """Convert full-form widgets in each section payload into DLE shorthand where safe.
@@ -110,9 +112,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
           return item
 
         matrix = item.get("matrix") or item.get("rows")
-        if isinstance(matrix, list) and matrix and all(
-          isinstance(r, list) and r and all(isinstance(c, str) for c in r) for r in matrix
-        ):
+        if isinstance(matrix, list) and matrix and all(isinstance(r, list) and r and all(isinstance(c, str) for c in r) for r in matrix):
           return {"compare": matrix}
         return item
 
@@ -131,12 +131,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
           if isinstance(title, str) and title.strip():
             prompt_text = f"{title.strip()}: {prompt}"
 
-          arr: list[Any] = [
-            prompt_text,
-            _as_str(item.get("seedLocked") or ""),
-            _as_str(item.get("lang") or "en"),
-            _as_str(item.get("wordlistCsv") or ""),
-          ]
+          arr: list[Any] = [prompt_text, _as_str(item.get("seedLocked") or ""), _as_str(item.get("lang") or "en"), _as_str(item.get("wordlistCsv") or "")]
           return {"freeText": arr}
 
         # Some models incorrectly emit {type: freeText, content: "..."} as a generic text blob.
@@ -348,7 +343,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
       new_payload = _convert_block(payload)
 
       try:
-        setattr(sec, "payload", new_payload)
+        sec.payload = new_payload
       except Exception:
         # Fallback: if payload is a mutable dict, update in place
         if isinstance(payload, dict) and isinstance(new_payload, dict):
