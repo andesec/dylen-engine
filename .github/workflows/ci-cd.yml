@@ -58,13 +58,13 @@ jobs:
             pip install -r ../requirements-dev.txt
           fi
 
-          pip install black ruff mypy pytest
+          pip install ruff mypy pytest
 
       - name: Ruff
         run: ruff check .
 
-      - name: Black
-        run: black --check .
+      - name: Ruff Format
+        run: ruff format --check .
 
       - name: Mypy
         run: mypy .

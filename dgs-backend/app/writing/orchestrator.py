@@ -88,10 +88,10 @@ class WritingCheckOrchestrator:
   def _calculate_total_cost(self, usage: list[dict[str, Any]]) -> float:
     """Estimate total cost based on token usage. Simplified prices."""
     PRICES = {  # noqa: N806
-        "openai/gpt-4o-mini": (0.15, 0.60),
-        "openai/gpt-4o": (5.0, 15.0),
-        "gemini-2.0-flash": (0.075, 0.30),
-        "gemini-2.0-flash-exp": (0.075, 0.30),
+      "openai/gpt-4o-mini": (0.15, 0.60),
+      "openai/gpt-4o": (5.0, 15.0),
+      "gemini-2.0-flash": (0.075, 0.30),
+      "gemini-2.0-flash-exp": (0.075, 0.30),
     }
     total = 0.0
 

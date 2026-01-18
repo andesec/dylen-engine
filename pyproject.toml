@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "black>=24.8.0",
+
     "ruff>=0.6.0",
     "mypy>=1.11.0",
     "pytest>=8.3.0",
@@ -35,10 +35,7 @@ package-dir = {"" = "dgs-backend"}
 packages = ["app"]
 py-modules = ["lambda_handler"]
 
-[tool.black]
-line-length = 200
-target-version = ["py313"]
-skip-magic-trailing-comma = true
+
 
 [tool.ruff]
 line-length = 200
