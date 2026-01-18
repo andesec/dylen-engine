@@ -94,7 +94,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     # rather than the raw massive list.
     cleaned_prompt_errors = []
     for target in repair_targets:
-        cleaned_prompt_errors.extend(target.errors)
+      cleaned_prompt_errors.extend(target.errors)
 
     prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors, widget_schemas)
     schema = _build_repair_schema(widget_schemas)
@@ -105,13 +105,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       call_index = f"{section.section_number}/{request.depth}"
 
       # Stamp the provider call with agent context for audit logging.
-      with llm_call_context(
-        agent=self.name,
-        lesson_topic=request.topic,
-        job_id=ctx.job_id,
-        purpose=purpose,
-        call_index=call_index,
-      ):
+      with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
         try:
           response = await self._model.generate_structured(prompt_text, schema)
         except Exception as exc:  # noqa: BLE001
@@ -122,13 +116,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
           retry_purpose = f"repair_section_retry_{section.section_number}_of_{request.depth}"
           retry_call_index = f"retry/{section.section_number}/{request.depth}"
 
-          with llm_call_context(
-            agent=self.name,
-            lesson_topic=request.topic,
-            job_id=ctx.job_id,
-            purpose=retry_purpose,
-            call_index=retry_call_index,
-          ):
+          with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
             response = await self._model.generate_structured(retry_prompt, schema)
 
           self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
@@ -137,28 +125,16 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       repaired_payload = response.content
 
     else:
-      prompt_parts = [
-        prompt_text,
-        format_schema_block(schema, label="JSON SCHEMA (Repair Output)"),
-        "Output ONLY valid JSON.",
-      ]
+      prompt_parts = [prompt_text, format_schema_block(schema, label="JSON SCHEMA (Repair Output)"), "Output ONLY valid JSON."]
       prompt_with_schema = "\n\n".join(prompt_parts)
       purpose = f"repair_section_{section.section_number}_of_{request.depth}"
       call_index = f"{section.section_number}/{request.depth}"
 
       # Stamp the provider call with agent context for audit logging.
-      with llm_call_context(
-        agent=self.name,
-        lesson_topic=request.topic,
-        job_id=ctx.job_id,
-        purpose=purpose,
-        call_index=call_index,
-      ):
+      with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
         raw = await self._model.generate(prompt_with_schema)
 
-
       self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=raw.usage)
-
 
       # Parse the model output with a lenient fallback to reduce retry churn.
 
@@ -172,13 +148,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
         retry_purpose = f"repair_section_retry_{section.section_number}_of_{request.depth}"
         retry_call_index = f"retry/{section.section_number}/{request.depth}"
 
-        with llm_call_context(
-          agent=self.name,
-          lesson_topic=request.topic,
-          job_id=ctx.job_id,
-          purpose=retry_purpose,
-          call_index=retry_call_index,
-        ):
+        with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
           retry_raw = await self._model.generate(retry_prompt)
 
         self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)
@@ -274,22 +244,19 @@ def _collapse_union_errors(errors: list[str], payload: Any) -> list[str]:
   # If so, we can try to filter errors to only those relevant to that key.
   guessed_type = None
   if isinstance(payload, dict) and len(payload) == 1:
-      guessed_type = next(iter(payload.keys()))
+    guessed_type = next(iter(payload.keys()))
 
   if guessed_type:
-      # Keep errors that mention the guessed type or are generic "Input should be..."
-      relevant_errors = [
-          e for e in errors
-          if guessed_type in e or "Input should be" in e or "Field required" not in e
-      ]
-      if relevant_errors:
-          return relevant_errors
+    # Keep errors that mention the guessed type or are generic "Input should be..."
+    relevant_errors = [e for e in errors if guessed_type in e or "Input should be" in e or "Field required" not in e]
+    if relevant_errors:
+      return relevant_errors
 
   # If we couldn't filter by type, and it's still a massive list, likely a formatting disaster.
   # Return a summary error.
   field_required_count = sum(1 for e in errors if "Field required" in e)
   if field_required_count > 5:
-      return ["Invalid widget format: payload does not match any supported widget schema."]
+    return ["Invalid widget format: payload does not match any supported widget schema."]
 
   return errors
 
@@ -300,7 +267,6 @@ def _parse_error_entries(errors: Errors) -> list[tuple[str, str]]:
 
   # Preserve the original ordering to keep repairs deterministic.
   for error in errors:
-
     if ":" in error:
       path, message = error.split(":", 1)
       entries.append((path.strip(), message.strip()))
@@ -329,9 +295,7 @@ def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple
     for item in section_items:
       # If an item looks like a SubsectionBlock (has 'subsection' or 'section' title + 'items' list),
       # it's likely misplaced.
-      is_subsection_block = isinstance(item, dict) and (
-        ("subsection" in item or "section" in item) and isinstance(item.get("items"), list)
-      )
+      is_subsection_block = isinstance(item, dict) and (("subsection" in item or "section" in item) and isinstance(item.get("items"), list))
 
       if is_subsection_block:
         misplaced_subsections.append(item)
@@ -429,7 +393,6 @@ def _target_path_from_error(path: str) -> str | None:
 
   # Prefer item-level repairs for section items and subsections.
   for index, token in enumerate(tokens):
-
     if token == "items" and index + 1 < len(tokens):
       return ".".join(tokens[: index + 2])
 
@@ -448,7 +411,6 @@ def _value_at_path(section_json: JsonDict, path: str) -> Any | None:
   # Walk dict/list containers based on token shape.
 
   for token in tokens:
-
     if isinstance(current, list) and token.isdigit():
       index = int(token)
 
@@ -459,7 +421,6 @@ def _value_at_path(section_json: JsonDict, path: str) -> Any | None:
       continue
 
     if isinstance(current, dict):
-
       if token not in current:
         return None
 
@@ -483,7 +444,6 @@ def _set_value_at_path(section_json: JsonDict, path: str, value: Any) -> bool:
   # Walk to the parent container so we can replace the target node.
 
   for token in tokens[:-1]:
-
     if isinstance(current, list) and token.isdigit():
       index = int(token)
 
@@ -494,7 +454,6 @@ def _set_value_at_path(section_json: JsonDict, path: str, value: Any) -> bool:
       continue
 
     if isinstance(current, dict):
-
       if token not in current:
         return False
 
@@ -539,7 +498,6 @@ def _coerce_items_list(value: Any) -> list[Any]:
       return []
 
     if stripped.startswith("[") or stripped.startswith("{"):
-
       try:
         parsed = parse_json_with_fallback(stripped)
       except json.JSONDecodeError:
@@ -584,7 +542,6 @@ def _safe_normalize_widget(widget: Any) -> JsonDict | None:
   try:
     normalized = normalize_widget(widget)
   except ValueError:
-
     if isinstance(widget, dict):
       return widget
 
@@ -614,21 +571,8 @@ def _build_repair_schema(widget_schemas: dict[str, Any]) -> dict[str, Any]:
   if not any_of:
     any_of.append({"type": "object"})
 
-  repair_item_schema = {
-    "type": "object",
-    "properties": {
-      "path": {"type": "string"},
-      "widget": {"anyOf": any_of},
-    },
-    "required": ["path", "widget"],
-    "additionalProperties": False,
-  }
-  output_schema = {
-    "type": "object",
-    "properties": {"repairs": {"type": "array", "items": repair_item_schema}},
-    "required": ["repairs"],
-    "additionalProperties": False,
-  }
+  repair_item_schema = {"type": "object", "properties": {"path": {"type": "string"}, "widget": {"anyOf": any_of}}, "required": ["path", "widget"], "additionalProperties": False}
+  output_schema = {"type": "object", "properties": {"repairs": {"type": "array", "items": repair_item_schema}}, "required": ["repairs"], "additionalProperties": False}
 
   if defs:
     output_schema["$defs"] = defs
@@ -655,7 +599,6 @@ def _apply_repairs(section_json: JsonDict, repair_payload: Any, targets: list[Re
   # Only apply repairs that match known target paths.
 
   for repair in repairs:
-
     if not isinstance(repair, dict):
       continue
 

@@ -20,11 +20,4 @@ class ProgressEvent:
 
   def as_dict(self) -> dict[str, Any]:
     """Serialize the event for logging or persistence."""
-    return {
-      "phase": self.phase,
-      "step": self.step,
-      "section_id": self.section_id,
-      "message": self.message,
-      "metrics": self.metrics,
-      "timestamp": self.timestamp.isoformat(),
-    }
+    return {"phase": self.phase, "step": self.step, "section_id": self.section_id, "message": self.message, "metrics": self.metrics, "timestamp": self.timestamp.isoformat()}

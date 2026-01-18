@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class GenerationRequest(BaseModel):
@@ -32,7 +32,8 @@ class JobContext(BaseModel):
   model: str
   request: GenerationRequest
   metadata: dict[str, Any] | None = None
-  
+
+
 class PlanSubsection(BaseModel):
   """Plan metadata for an individual lesson subsection."""
 
@@ -42,6 +43,7 @@ class PlanSubsection(BaseModel):
 
 class PlanSection(BaseModel):
   """Plan metadata for an individual lesson section."""
+
   section_number: int = Field(ge=1, le=10)
   title: str
   subsections: list[PlanSubsection]
@@ -52,7 +54,9 @@ class PlanSection(BaseModel):
 
 class LessonPlan(BaseModel):
   """Structured plan for a lesson."""
+
   sections: list[PlanSection]
+
 
 class SectionDraft(BaseModel):
   """Raw content captured for a section along with the originating planner context to guide structuring."""
@@ -68,11 +72,7 @@ class StructuredSection(BaseModel):
   """Structured section output with validation metadata."""
 
   section_number: int = Field(ge=1)
-  payload: dict[str, Any] = Field(
-    serialization_alias="json",
-    validation_alias="json",
-    description="Validated section payload",
-  )
+  payload: dict[str, Any] = Field(serialization_alias="json", validation_alias="json", description="Validated section payload")
   validation_errors: list[str] = Field(default_factory=list)
   model_config = ConfigDict(populate_by_name=True)
 

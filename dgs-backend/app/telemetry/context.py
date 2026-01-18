@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Iterator
 
 
 @dataclass(frozen=True)
@@ -28,18 +28,10 @@ def get_llm_call_context() -> LlmCallContext | None:
 
 
 @contextmanager
-def llm_call_context(
-  *, agent: str, lesson_topic: str | None, job_id: str | None, purpose: str | None, call_index: str | None
-) -> Iterator[LlmCallContext]:
+def llm_call_context(*, agent: str, lesson_topic: str | None, job_id: str | None, purpose: str | None, call_index: str | None) -> Iterator[LlmCallContext]:
   """Set contextual metadata for downstream LLM calls and reset it afterward."""
   # Store the call metadata in a contextvar so nested calls can access it.
-  context = LlmCallContext(
-    agent=agent,
-    lesson_topic=lesson_topic,
-    job_id=job_id,
-    purpose=purpose,
-    call_index=call_index,
-  )
+  context = LlmCallContext(agent=agent, lesson_topic=lesson_topic, job_id=job_id, purpose=purpose, call_index=call_index)
   token = _CURRENT_LLM_CONTEXT.set(context)
 
   try:

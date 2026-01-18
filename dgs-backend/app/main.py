@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 import logging
 import logging.handlers
 import sys
 import time
-from functools import lru_cache
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal
@@ -22,17 +22,16 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictFloat, St
 from starlette.concurrency import run_in_threadpool
 
 from app.ai.orchestrator import DgsOrchestrator, OrchestrationError
+from app.api.routes import admin
 from app.config import Settings, get_settings
 from app.jobs.guardrails import MAX_ITEM_BYTES, estimate_bytes
 from app.jobs.models import JobRecord, JobStatus
 from app.schema.lesson_catalog import build_lesson_catalog
-from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
-from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.jobs_repo import JobsRepository
+from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.postgres_jobs_repo import PostgresJobsRepository
 from app.storage.postgres_lessons_repo import PostgresLessonsRepository
-from app.api.routes import admin
 from app.utils.ids import generate_job_id, generate_lesson_id
 
 settings = get_settings()
@@ -189,7 +188,7 @@ def setup_logging() -> Path:
   """Ensure all loggers use our handlers and propagate to root."""
   stream_handler, file_handler, log_path = _build_handlers()
   for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
-    l = logging.getLogger(logger_name)
+    l = logging.getLogger(logger_name)  # noqa: E741
     l.handlers = [stream_handler, file_handler]
     l.propagate = False
 

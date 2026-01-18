@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import logging
-from functools import lru_cache
-from typing import Any, TYPE_CHECKING
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any
 
 from app.config import get_settings
 from app.telemetry.context import get_llm_call_context
@@ -61,14 +61,7 @@ def _get_repository() -> PostgresLlmAuditRepository | None:
   return PostgresLlmAuditRepository(dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout)
 
 
-async def start_llm_call(
-  *,
-  provider: str,
-  model: str,
-  request_type: str,
-  request_payload: str,
-  started_at: datetime,
-) -> str | None:
+async def start_llm_call(*, provider: str, model: str, request_type: str, request_payload: str, started_at: datetime) -> str | None:
   """Insert a pending LLM call row before the network request."""
   # Exit early when audit logging is disabled to keep calls fast.
 
@@ -83,26 +76,13 @@ async def start_llm_call(
     return None
 
   # Build the pending record and insert off-thread to avoid blocking the loop.
-  event = LlmAuditStart(
-    provider=provider,
-    model=model,
-    request_type=request_type,
-    request_payload=request_payload,
-    started_at=started_at,
-  )
+  event = LlmAuditStart(provider=provider, model=model, request_type=request_type, request_payload=request_payload, started_at=started_at)
   record = _build_pending_record(event)
   await asyncio.to_thread(_insert_record, repo, record)
   return record.record_id
 
 
-async def finalize_llm_call(
-  *,
-  call_id: str | None,
-  response_payload: str | None,
-  usage: dict[str, int] | None,
-  duration_ms: int,
-  error: BaseException | None,
-) -> None:
+async def finalize_llm_call(*, call_id: str | None, response_payload: str | None, usage: dict[str, int] | None, duration_ms: int, error: BaseException | None) -> None:
   """Update the pending LLM call row after the response or failure."""
   # Avoid update attempts when the insert did not happen.
 
@@ -315,4 +295,4 @@ def serialize_response(value: Any) -> str | None:
 
 def utc_now() -> datetime:
   """Return a UTC timestamp for audit records."""
-  return datetime.now(tz=timezone.utc)
+  return datetime.now(tz=UTC)

@@ -36,18 +36,11 @@ class AuditModel(AIModel):
     request_payload = serialize_request(prompt, schema)
     request_type = "generate_structured" if schema is not None else "generate"
     # Insert the pending call record so failures are still tracked.
-    call_id = await start_llm_call(
-      provider=self._provider_name,
-      model=self.name,
-      request_type=request_type,
-      request_payload=request_payload,
-      started_at=started_at,
-    )
+    call_id = await start_llm_call(provider=self._provider_name, model=self.name, request_type=request_type, request_payload=request_payload, started_at=started_at)
 
     # Capture timing and usage even when the provider raises.
 
     try:
-
       if schema is None:
         response = await self._model.generate(prompt)
 
@@ -63,13 +56,7 @@ class AuditModel(AIModel):
       usage = getattr(response, "usage", None) if response is not None else None
       content = getattr(response, "content", None) if response is not None else None
       response_payload = serialize_response(content)
-      await finalize_llm_call(
-        call_id=call_id,
-        response_payload=response_payload,
-        usage=usage,
-        duration_ms=duration_ms,
-        error=error,
-      )
+      await finalize_llm_call(call_id=call_id, response_payload=response_payload, usage=usage, duration_ms=duration_ms, error=error)
 
 
 def instrument_model(model: AIModel, provider_name: str) -> AIModel:

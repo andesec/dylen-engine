@@ -47,13 +47,7 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
       call_index = f"{input_data.section_number}/{request.depth}"
 
       # Apply context to correlate provider calls with the agent and lesson topic.
-      with llm_call_context(
-        agent=self.name,
-        lesson_topic=request.topic,
-        job_id=ctx.job_id,
-        purpose=purpose,
-        call_index=call_index,
-      ):
+      with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
         try:
           response = await self._model.generate_structured(prompt_text, schema)
         except Exception as exc:  # noqa: BLE001
@@ -64,44 +58,25 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
           retry_purpose = f"struct_section_retry_{input_data.section_number}_of_{request.depth}"
           retry_call_index = f"retry/{input_data.section_number}/{request.depth}"
 
-          with llm_call_context(
-            agent=self.name,
-            lesson_topic=request.topic,
-            job_id=ctx.job_id,
-            purpose=retry_purpose,
-            call_index=retry_call_index,
-          ):
+          with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
             response = await self._model.generate_structured(retry_prompt, schema)
 
           self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
-
 
       self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
       section_json = response.content
 
     else:
-      prompt_parts = [
-        prompt_text,
-        format_schema_block(schema, label="JSON SCHEMA (Section)"),
-        "Output ONLY valid JSON.",
-      ]
+      prompt_parts = [prompt_text, format_schema_block(schema, label="JSON SCHEMA (Section)"), "Output ONLY valid JSON."]
       prompt_with_schema = "\n\n".join(prompt_parts)
       purpose = f"struct_section_{input_data.section_number}_of_{request.depth}"
       call_index = f"{input_data.section_number}/{request.depth}"
 
       # Apply context to correlate provider calls with the agent and lesson topic.
-      with llm_call_context(
-        agent=self.name,
-        lesson_topic=request.topic,
-        job_id=ctx.job_id,
-        purpose=purpose,
-        call_index=call_index,
-      ):
+      with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
         raw = await self._model.generate(prompt_with_schema)
 
-
       self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=raw.usage)
-
 
       # Parse the model output with a lenient fallback to reduce retry churn.
 
@@ -115,13 +90,7 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
         retry_purpose = f"struct_section_retry_{input_data.section_number}_of_{request.depth}"
         retry_call_index = f"retry/{input_data.section_number}/{request.depth}"
 
-        with llm_call_context(
-          agent=self.name,
-          lesson_topic=request.topic,
-          job_id=ctx.job_id,
-          purpose=retry_purpose,
-          call_index=retry_call_index,
-        ):
+        with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
           retry_raw = await self._model.generate(retry_prompt)
 
         self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)

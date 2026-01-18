@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-import json
 import os
 import re
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from app.utils.env import default_env_path, load_env_file
-
 
 _ENV_LOADED = False
 
@@ -73,9 +71,7 @@ class AIModel(ABC):
     """Generate a response for the given prompt."""
 
   @abstractmethod
-  async def generate_structured(
-      self, prompt: str, schema: dict[str, Any]
-  ) -> StructuredModelResponse:
+  async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
     """Generate structured output that conforms to the provided JSON schema."""
     raise RuntimeError("Structured output is not supported by this model.")
 
@@ -104,8 +100,9 @@ class AIModel(ABC):
 
     path = _resolve_dummy_path(agent, os.getenv(f"DGS_DUMMY_{agent}_RESPONSE_PATH"))
 
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
       return handle.read().strip()
+
 
 class Provider(ABC):
   """Abstract base class for AI providers."""
