@@ -93,13 +93,13 @@ _DEPTH_OPTIONS: list[dict[str, str]] = [
   {"id": "training", "label": "Training", "tooltip": "Ten sections with per-section practice and a comprehensive final exam."},
 ]
 
-_GATHERER_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "xiaomi/mimo-v2-flash:free", "deepseek/deepseek-r1-0528:free", "meta-llama/llama-3.1-405b-instruct:free", "openai/gpt-oss-120b:free"]
+_GATHERER_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "xiaomi/mimo-v2-flash:free", "deepseek/deepseek-r1-0528:free", "meta-llama/llama-3.1-405b-instruct:free", "openai/gpt-oss-120b:free", "vertex-gemini-3.0-flash", "vertex-gemini-3.0-pro"]
 
-_STRUCTURER_MODELS = ["gemini-2.5-flash", "openai/gpt-oss-20b:free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemma-3-27b-it:free"]
+_STRUCTURER_MODELS = ["gemini-2.5-flash", "openai/gpt-oss-20b:free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemma-3-27b-it:free", "vertex-gemini-3.0-pro"]
 
-_PLANNER_MODELS = ["gemini-2.5-pro", "gemini-pro-latest", "openai/gpt-oss-120b:free", "xiaomi/mimo-v2-flash:free", "meta-llama/llama-3.1-405b-instruct:free", "deepseek/deepseek-r1-0528:free"]
+_PLANNER_MODELS = ["gemini-2.5-pro", "gemini-pro-latest", "openai/gpt-oss-120b:free", "xiaomi/mimo-v2-flash:free", "meta-llama/llama-3.1-405b-instruct:free", "deepseek/deepseek-r1-0528:free", "vertex-gemini-3.0-pro"]
 
-_REPAIRER_MODELS = ["openai/gpt-oss-20b:free", "google/gemma-3-27b-it:free", "deepseek/deepseek-r1-0528:free", "gemini-2.5-flash"]
+_REPAIRER_MODELS = ["openai/gpt-oss-20b:free", "google/gemma-3-27b-it:free", "deepseek/deepseek-r1-0528:free", "gemini-2.5-flash", "vertex-gemini-3.0-flash", "vertex-gemini-3.0-pro"]
 
 
 def _merge_widgets(groups: list[list[str]]) -> list[str]:
