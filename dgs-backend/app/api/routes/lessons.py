@@ -12,7 +12,7 @@ from app.config import Settings, get_settings
 from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.validate_lesson import validate_lesson
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
-from app.services.request_validation import _validate_generate_request
+from app.services.request_validation import _resolve_learner_level, _resolve_primary_language, _validate_generate_request
 from app.storage.factory import _get_repo
 from app.storage.lessons_repo import LessonRecord
 from app.utils.ids import generate_lesson_id
@@ -22,18 +22,6 @@ router = APIRouter()
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-def _resolve_primary_language(request: GenerateLessonRequest) -> str | None:
-  """Return the requested primary language for orchestration prompts."""
-  # This feeds prompt guidance but does not change response schema.
-  return request.primary_language
-
-
-def _resolve_learner_level(request: GenerateLessonRequest) -> str | None:
-  """Return the learner level from the request."""
-  # Prefer the explicit request field for prompt guidance.
-  if request.learner_level:
-    return request.learner_level
-  return None
 
 
 @router.get("/catalog", response_model=LessonCatalogResponse)
@@ -96,7 +84,6 @@ async def generate_lesson(  # noqa: B008
   )
 
   lesson_id = generate_lesson_id()
-  # lesson_json = lesson_to_shorthand(result.lesson_json)
   latency_ms = int((time.monotonic() - start) * 1000)
 
   record = LessonRecord(

@@ -39,3 +39,17 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Evaluation criteria are required.")
   if estimate_bytes(request.model_dump(mode="python")) > MAX_REQUEST_BYTES:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request payload is too large for persistence.")
+
+
+def _resolve_primary_language(request: GenerateLessonRequest) -> str | None:
+  """Return the requested primary language for orchestration prompts."""
+  # This feeds prompt guidance but does not change response schema.
+  return request.primary_language
+
+
+def _resolve_learner_level(request: GenerateLessonRequest) -> str | None:
+  """Return the learner level from the request."""
+  # Prefer the explicit request field for prompt guidance.
+  if request.learner_level:
+    return request.learner_level
+  return None

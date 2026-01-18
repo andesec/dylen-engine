@@ -15,7 +15,10 @@ from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, Orchestrati
 from app.config import Settings
 from app.jobs.models import JobRecord
 from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
-from app.main import GenerateLessonRequest, WritingCheckRequest, _get_orchestrator, _get_repo, _resolve_learner_level, _resolve_model_selection, _resolve_primary_language
+from app.api.models import GenerateLessonRequest, WritingCheckRequest
+from app.services.model_routing import _get_orchestrator, _resolve_model_selection
+from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
+from app.storage.factory import _get_repo
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.storage.jobs_repo import JobsRepository
