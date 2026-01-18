@@ -10,15 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import _require_dev_key
-from app.api.models import (
-  GenerateLessonRequest,
-  GenerateLessonResponse,
-  LessonCatalogResponse,
-  LessonMeta,
-  LessonRecordResponse,
-  OrchestrationFailureResponse,
-  ValidationResponse,
-)
+from app.api.models import GenerateLessonRequest, GenerateLessonResponse, LessonCatalogResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
 from app.config import Settings, get_settings
 from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.validate_lesson import validate_lesson

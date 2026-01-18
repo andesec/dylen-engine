@@ -11,14 +11,7 @@ from fastapi import BackgroundTasks, HTTPException, status
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from app.api.models import (
-  CurrentSectionStatus,
-  GenerateLessonRequest,
-  JobCreateResponse,
-  JobStatusResponse,
-  ValidationResponse,
-  WritingCheckRequest,
-)
+from app.api.models import CurrentSectionStatus, GenerateLessonRequest, JobCreateResponse, JobStatusResponse, ValidationResponse, WritingCheckRequest
 from app.config import Settings
 from app.jobs.models import JobRecord
 from app.services.orchestrator import _get_orchestrator
@@ -43,9 +36,7 @@ def _expected_sections_from_request(request: GenerateLessonRequest, settings: Se
   # Reuse the call plan depth so expected section counts match worker planning.
   from app.jobs.progress import build_call_plan
 
-  plan = build_call_plan(
-    request.model_dump(mode="python", by_alias=True), merge_gatherer_structurer=settings.merge_gatherer_structurer
-  )
+  plan = build_call_plan(request.model_dump(mode="python", by_alias=True), merge_gatherer_structurer=settings.merge_gatherer_structurer)
   return plan.depth
 
 
@@ -71,9 +62,7 @@ def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusR
   try:
     request = _parse_job_request(record.request)
   except ValidationError as exc:
-    raise HTTPException(
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stored job request failed validation."
-    ) from exc
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stored job request failed validation.") from exc
 
   validation = None
 
@@ -92,12 +81,7 @@ def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusR
   current_section = None
 
   if record.current_section_index is not None and record.current_section_status is not None:
-    current_section = CurrentSectionStatus(
-      index=record.current_section_index,
-      title=record.current_section_title,
-      status=record.current_section_status,
-      retry_count=record.current_section_retry_count,
-    )
+    current_section = CurrentSectionStatus(index=record.current_section_index, title=record.current_section_title, status=record.current_section_status, retry_count=record.current_section_retry_count)
 
   return JobStatusResponse(
     job_id=record.job_id,
@@ -195,9 +179,7 @@ def _log_job_task_failure(task: asyncio.Task[None]) -> None:
     logger.error("Job processing task failed: %s", exc, exc_info=True)
 
 
-def _kickoff_job_processing(
-  background_tasks: BackgroundTasks, job_id: str, settings: Settings, job_worker_active: bool = False
-) -> None:
+def _kickoff_job_processing(background_tasks: BackgroundTasks, job_id: str, settings: Settings, job_worker_active: bool = False) -> None:
   """Schedule background processing so clients see status updates."""
 
   # Fire-and-forget processing to keep the API responsive.

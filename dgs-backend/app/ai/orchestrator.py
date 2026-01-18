@@ -11,23 +11,8 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Any, Literal, Optional
 
-from app.ai.agents import (
-  GathererAgent,
-  GathererStructurerAgent,
-  PlannerAgent,
-  RepairerAgent,
-  StitcherAgent,
-  StructurerAgent,
-)
-from app.ai.pipeline.contracts import (
-  GenerationRequest,
-  JobContext,
-  LessonPlan,
-  RepairInput,
-  SectionDraft,
-  StructuredSection,
-  StructuredSectionBatch,
-)
+from app.ai.agents import GathererAgent, GathererStructurerAgent, PlannerAgent, RepairerAgent, StitcherAgent, StructurerAgent
+from app.ai.pipeline.contracts import GenerationRequest, JobContext, LessonPlan, RepairInput, SectionDraft, StructuredSection, StructuredSectionBatch
 from app.ai.providers.base import AIModel
 from app.ai.router import get_model_for_mode
 from app.schema.service import SchemaService
