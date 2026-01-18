@@ -30,9 +30,7 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
 
   name: str
 
-  def __init__(
-    self, *, model: Model, prov: str, schema: Schema, prog: Progress = None, use: Usage = None
-  ) -> None:
+  def __init__(self, *, model: Model, prov: str, schema: Schema, prog: Progress = None, use: Usage = None) -> None:
     self._model = model
     self._provider_name = prov
     self._schema_service = schema
@@ -43,9 +41,7 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
   async def run(self, input_data: InputT, ctx: JobContext) -> OutputT:
     """Run the agent on input data."""
 
-  def _emit_progress(
-    self, *, p: str, s: OptStr = None, i: OptInt = None, m: OptStr = None, mt: Metrics = None
-  ) -> None:
+  def _emit_progress(self, *, p: str, s: OptStr = None, i: OptInt = None, m: OptStr = None, mt: Metrics = None) -> None:
     if self._progress:
       self._progress.emit(phase=p, step=s, section_id=i, message=m, metrics=mt)
 
