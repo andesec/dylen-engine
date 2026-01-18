@@ -55,7 +55,7 @@ jobs:
             pip install -r ../requirements-dev.txt
           fi
 
-          pip install ruff mypy pytest
+          pip install ruff mypy pytest httpx
 
       - name: Ruff
         run: ruff check .
