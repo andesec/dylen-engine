@@ -4,6 +4,9 @@
         "connectionId": "andesec",
         "projectKey": "andesec_dgs"
     },
+    "files.exclude": {
+        "**/*.egg-info": true
+    },
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.formatOnSave": true,
