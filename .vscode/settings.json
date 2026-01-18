@@ -5,7 +5,11 @@
         "projectKey": "andesec_dgs"
     },
     "files.exclude": {
-        "**/*.egg-info": true
+        "**/*.egg-info": true,
+        "**/__pycache__": true,
+        "**/.*": true,
+        ".vscode": false,
+        ".github": false
     },
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",

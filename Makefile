@@ -145,6 +145,8 @@ security-all: security-sca security-sast security-container
 .PHONY: gp
 
 gp:
+	@echo "Formatting with Ruff"
+	@$(MAKE) format
 	@echo "Committing and pushing changes..."
 	@git add -A
 	@msg="$(m)"; \
