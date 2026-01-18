@@ -3,12 +3,13 @@ VENV_DIR := .venv
 APP_DIR := dgs-backend
 PORT ?= 8080
 
-.PHONY: install dev dev-stop lint format typecheck test openapi run \
+.PHONY: install dev dev-stop lint format format-check typecheck test openapi run \
         security-sca security-sast-bandit security-sast-semgrep security-sast \
         security-container security-dast security-all
 
 install:
 	uv sync
+	uv pip install ruff mypy pytest httpx
 
 dev: openapi
 	@echo "Starting Postgres..."
@@ -26,6 +27,9 @@ dev-stop:
 
 format:
 	uv run ruff format .
+
+format-check:
+	uv run ruff format --check .
 
 lint:
 	uv run ruff check .
