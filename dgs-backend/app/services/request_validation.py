@@ -1,0 +1,73 @@
+from fastapi import HTTPException, status
+
+from app.api.models import (
+    MAX_REQUEST_BYTES,
+    GenerateLessonRequest,
+    WritingCheckRequest,
+)
+from app.config import Settings
+from app.jobs.guardrails import estimate_bytes
+
+
+def _count_words(text: str) -> int:
+    """Approximate word count by splitting on whitespace."""
+    return len(text.split())
+
+
+def _validate_generate_request(
+    request: GenerateLessonRequest, settings: Settings
+) -> None:
+    """Enforce topic/detail length and persistence size constraints."""
+    if len(request.topic) > settings.max_topic_length:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Topic exceeds max length of {settings.max_topic_length} chars.",
+        )
+    if request.details:
+        # Guardrail to keep user-provided detail payloads within size limits.
+        word_count = _count_words(request.details)
+        if word_count > 250:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"User details are too long ({word_count} words). Max 250 words.",
+            )
+    if (
+        estimate_bytes(request.model_dump(mode="python", by_alias=True))
+        > MAX_REQUEST_BYTES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request payload is too large for persistence.",
+        )
+
+    try:
+        from app.jobs.progress import (
+            build_call_plan,
+        )  # Local import to avoid circular deps
+
+        build_call_plan(
+            request.model_dump(mode="python", by_alias=True),
+            merge_gatherer_structurer=settings.merge_gatherer_structurer,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _validate_writing_request(request: WritingCheckRequest) -> None:
+    """Validate writing check inputs."""
+    word_count = _count_words(request.text)
+    if word_count > 300:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User text is too long ({word_count} words). Max 300 words.",
+        )
+    if not request.criteria:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Evaluation criteria are required.",
+        )
+    if estimate_bytes(request.model_dump(mode="python")) > MAX_REQUEST_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request payload is too large for persistence.",
+        )
