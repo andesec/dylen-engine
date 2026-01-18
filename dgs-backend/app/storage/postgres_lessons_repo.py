@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import psycopg
@@ -27,14 +27,13 @@ class _PostgresConfig:
 
 def _ensure_lessons_table(config: _PostgresConfig, table_name: str) -> None:
     """Create the lessons table and indexes if they are missing."""
-    
+
     # Avoid repeated DDL within the same process.
     if table_name in _KNOWN_TABLES:
         return
-    
-    
+
     # Define the base schema for lesson storage.
-    
+
     statement = sql.SQL(
         """
         CREATE TABLE IF NOT EXISTS {table} (
@@ -62,15 +61,14 @@ def _ensure_lessons_table(config: _PostgresConfig, table_name: str) -> None:
         index=sql.Identifier(f"{table_name}_idempotency_idx"),
         table=sql.Identifier(table_name),
     )
-    
+
     # Run schema creation using a short-lived connection for safety.
-    
+
     with psycopg.connect(config.dsn, connect_timeout=config.connect_timeout) as conn:
-        
         with conn.cursor() as cursor:
             cursor.execute(statement)
             cursor.execute(idempotency_index)
-    
+
     _KNOWN_TABLES.add(table_name)
     logger.info("Ensured Postgres lessons table exists: %s", table_name)
 
@@ -81,9 +79,9 @@ class PostgresLessonsRepository(LessonsRepository):
     def __init__(self, *, dsn: str, connect_timeout: int, table_name: str = "dgs_lessons") -> None:
         self._config = _PostgresConfig(dsn=dsn, connect_timeout=connect_timeout)
         self._table_name = table_name
-        
+
         # Ensure the storage tables are present before serving requests.
-        
+
         _ensure_lessons_table(self._config, self._table_name)
 
     def create_lesson(self, record: LessonRecord) -> None:
@@ -126,9 +124,9 @@ class PostgresLessonsRepository(LessonsRepository):
             )
             """
         ).format(table=sql.Identifier(self._table_name))
-        
+
         # Normalize tags for Postgres array storage.
-        
+
         tags = sorted(record.tags) if record.tags else None
         payload: dict[str, Any] = {
             "lesson_id": record.lesson_id,
@@ -147,36 +145,37 @@ class PostgresLessonsRepository(LessonsRepository):
             "idempotency_key": record.idempotency_key,
             "tags": tags,
         }
-        
+
         # Use a short-lived connection to keep DB access isolated.
-        
-        with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-            
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(statement, payload)
 
     def get_lesson(self, lesson_id: str) -> LessonRecord | None:
         """Fetch a lesson record by lesson identifier."""
-        statement = sql.SQL(
-            "SELECT * FROM {table} WHERE lesson_id = %(lesson_id)s"
-        ).format(table=sql.Identifier(self._table_name))
-        
+        statement = sql.SQL("SELECT * FROM {table} WHERE lesson_id = %(lesson_id)s").format(
+            table=sql.Identifier(self._table_name)
+        )
+
         # Query with a dict row factory for clarity in mapping fields.
-        
-        with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-            
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(statement, {"lesson_id": lesson_id})
                 row = cursor.fetchone()
-        
-        
+
         # Return None when the lesson does not exist.
-        
+
         if row is None:
             return None
-        
+
         # Normalize optional tags for the domain record.
-        
+
         tags = set(row["tags"]) if row.get("tags") else None
         payload = {
             "lesson_id": row["lesson_id"],

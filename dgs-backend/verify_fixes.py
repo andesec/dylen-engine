@@ -1,10 +1,14 @@
-
 from pydantic import ValidationError
+
 from app.schema.lesson_models import (
-    TreeViewWidget, ParagraphWidget, UnorderedListWidget, 
-    AsciiDiagramWidget, TableWidget, StepFlowWidget,
-    TerminalDemoWidget
+    AsciiDiagramWidget,
+    ParagraphWidget,
+    TableWidget,
+    TerminalDemoWidget,
+    TreeViewWidget,
+    UnorderedListWidget,
 )
+
 
 def test_robust_widgets():
     print("\n--- Testing Robust Widget Validators ---")
@@ -16,8 +20,8 @@ def test_robust_widgets():
     except ValidationError as e:
         print(f"Paragraph Coercion FAILED: {e}")
     else:
-        if w.p != 'Line 1\nLine 2':
-             print(f"Paragraph Coercion FAILED value mismatch: repr(w.p)={repr(w.p)}")
+        if w.p != "Line 1\nLine 2":
+            print(f"Paragraph Coercion FAILED value mismatch: repr(w.p)={repr(w.p)}")
 
     # 2. UnorderedListWidget (String to List)
     try:
@@ -38,7 +42,9 @@ def test_robust_widgets():
     # 4. TableWidget (String rows)
     try:
         w = TableWidget(table=["Row 1", "Row 2"])
-        print(f"Table Relaxed Input: {'SUCCESS' if w.table == [['Row 1'], ['Row 2']] else 'FAILURE'}")
+        print(
+            f"Table Relaxed Input: {'SUCCESS' if w.table == [['Row 1'], ['Row 2']] else 'FAILURE'}"
+        )
     except ValidationError as e:
         print(f"Table Relaxed Input FAILED: {e}")
 
@@ -48,14 +54,15 @@ def test_robust_widgets():
         w = TerminalDemoWidget(terminalDemo={"lead": "Demo", "rules": [["ls", "file.txt"]]})
         rules = w.terminalDemo.rules
         if len(rules) > 0 and len(rules[0]) == 3 and rules[0][1] == 100:
-             print("TerminalDemo Auto-delay: SUCCESS")
+            print("TerminalDemo Auto-delay: SUCCESS")
         else:
-             print(f"TerminalDemo Auto-delay: FAILURE (rules={rules})")
+            print(f"TerminalDemo Auto-delay: FAILURE (rules={rules})")
     except ValidationError as e:
         print(f"TerminalDemo Auto-delay FAILED: {e}")
 
     # Retest TreeView just in case
     test_treeview_fix()
+
 
 def test_treeview_fix():
     print("--- Testing TreeView Validation Fix ---")
@@ -68,6 +75,7 @@ def test_treeview_fix():
             print("TreeView Auto-swap: FAILURE")
     except ValidationError:
         print("TreeView Auto-swap: CRASHED")
+
 
 if __name__ == "__main__":
     test_robust_widgets()

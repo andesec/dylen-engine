@@ -1,6 +1,8 @@
-from app.schema.lesson_models import LessonDocument, SectionBlock, SubsectionBlock, ParagraphWidget
-from app.schema.serialize_lesson import lesson_to_shorthand
 import json
+
+from app.schema.lesson_models import LessonDocument, ParagraphWidget, SectionBlock, SubsectionBlock
+from app.schema.serialize_lesson import lesson_to_shorthand
+
 
 def test_serialization():
     # Construct a lesson with subsections, which triggered the bug
@@ -12,12 +14,11 @@ def test_serialization():
                 items=[ParagraphWidget(p="Intro")],
                 subsections=[
                     SubsectionBlock(
-                        subsection="Subsection 1.1",
-                        items=[ParagraphWidget(p="Details")]
+                        subsection="Subsection 1.1", items=[ParagraphWidget(p="Details")]
                     )
-                ]
+                ],
             )
-        ]
+        ],
     )
 
     print("Attempting validation and serialization...")
@@ -30,6 +31,7 @@ def test_serialization():
         print(f"Serialization FAILED with AttributeError: {e}")
     except Exception as e:
         print(f"Serialization FAILED with unexpected error: {e}")
+
 
 if __name__ == "__main__":
     test_serialization()

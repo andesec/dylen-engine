@@ -161,17 +161,14 @@ def _merge_widgets(groups: list[list[str]]) -> list[str]:
 
     # Merge widgets while keeping the original order stable.
     for widgets in groups:
-
         # Iterate each widget in the group to preserve ordering.
         for widget in widgets:
-
             # Skip duplicates to keep the payload concise.
             if widget in seen:
                 continue
 
             seen.add(widget)
             merged.append(widget)
-
 
     return merged
 
@@ -182,11 +179,9 @@ def _first_sentence(text: str) -> str:
 
     # Prefer a short first sentence when possible.
     for delimiter in (". ", ".\n"):
-
         # Return early when we find a sentence boundary.
         if delimiter in cleaned:
             return cleaned.split(delimiter)[0].rstrip(".") + "."
-
 
     # Fall back to the cleaned string if no delimiter is found.
     return cleaned.strip()

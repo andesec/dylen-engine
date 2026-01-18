@@ -3,28 +3,25 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ai.orchestrator import OrchestrationError
+from app.api.routes import health, jobs, lessons, writing
 from app.config import get_settings
+from app.core.exceptions import global_exception_handler, orchestration_exception_handler
 from app.core.json import DecimalJSONResponse
 from app.core.lifespan import lifespan
 from app.core.middleware import log_requests
-from app.core.exceptions import (
-    global_exception_handler,
-    orchestration_exception_handler
-)
-from app.ai.orchestrator import OrchestrationError
-from app.api.routes import health, lessons, jobs, writing
 
 settings = get_settings()
 
 app = FastAPI(default_response_class=DecimalJSONResponse, lifespan=lifespan)
 
 app.add_middleware(
-  CORSMiddleware,
-  allow_origins=settings.allowed_origins,
-  allow_credentials=False,
-  allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-  allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
-  expose_headers=["content-length"],
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["content-type", "authorization", "x-dgs-dev-key"],
+    expose_headers=["content-length"],
 )
 
 app.middleware("http")(log_requests)

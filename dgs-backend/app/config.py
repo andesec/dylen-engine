@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+
 from app.utils.env import default_env_path, load_env_file
 
 load_env_file(default_env_path(), override=False)
@@ -44,7 +45,6 @@ class Settings:
 
 
 def _parse_origins(raw: str | None) -> list[str]:
-
     if not raw:
         raise ValueError("DGS_ALLOWED_ORIGINS must be set to one or more origins.")
 
@@ -100,7 +100,9 @@ def get_settings() -> Settings:
         job_max_retries=job_max_retries,
         gatherer_provider=os.getenv("DGS_GATHERER_PROVIDER", "openrouter"),
         gatherer_model=os.getenv("DGS_GATHERER_MODEL", "xiaomi/mimo-v2-flash:free"),
-        planner_provider=os.getenv("DGS_PLANNER_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter")),
+        planner_provider=os.getenv(
+            "DGS_PLANNER_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter")
+        ),
         planner_model=os.getenv("DGS_PLANNER_MODEL", "openai/gpt-oss-120b:free"),
         structurer_provider=os.getenv("DGS_STRUCTURER_PROVIDER", "openrouter"),
         structurer_model=os.getenv("DGS_STRUCTURER_MODEL", "openai/gpt-oss-20b:free"),
@@ -126,7 +128,6 @@ def get_settings() -> Settings:
 
 
 def _parse_optional_int(raw: str | None) -> int | None:
-
     if raw is None or raw.strip() == "":
         return None
 

@@ -74,7 +74,9 @@ def _coerce_depth(raw_depth: Any) -> int:
     try:
         depth = int(raw_depth)
     except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-        raise ValueError("Depth must be Highlights, Detailed, Training, or an integer between 2 and 10.") from exc
+        raise ValueError(
+            "Depth must be Highlights, Detailed, Training, or an integer between 2 and 10."
+        ) from exc
     if depth < 2:
         raise ValueError("Depth must be at least 2.")
     if depth > 10:
@@ -82,7 +84,9 @@ def _coerce_depth(raw_depth: Any) -> int:
     return depth
 
 
-def build_call_plan(request_data: Mapping[str, Any], *, merge_gatherer_structurer: bool = False) -> CallPlan:
+def build_call_plan(
+    request_data: Mapping[str, Any], *, merge_gatherer_structurer: bool = False
+) -> CallPlan:
     """Derive an AI call plan from the raw job request payload."""
 
     # Normalize depth input before computing call counts.
@@ -106,19 +110,15 @@ def build_call_plan(request_data: Mapping[str, Any], *, merge_gatherer_structure
     max_total_calls = 35
 
     if gather_calls > max_gather_calls:
-
         raise ValueError("Lower depth to reduce gatherer calls.")
 
     if structurer_calls > max_structurer_calls:
-
         raise ValueError("Lower depth to reduce structurer calls.")
 
     if repair_calls > max_repair_calls:
-
         raise ValueError("Lower depth to reduce repair calls.")
 
     if total_calls > max_total_calls:
-
         raise ValueError("Lower depth to reduce total calls.")
 
     plan = CallPlan(
@@ -354,7 +354,13 @@ class JobProgressTracker:
 
         self.add_logs(message)
         self._completed_steps = self._total_steps
-        payload = {"status": "error", "phase": phase, "subphase": "error", "progress": self._progress_percent(), "logs": self._logs}
+        payload = {
+            "status": "error",
+            "phase": phase,
+            "subphase": "error",
+            "progress": self._progress_percent(),
+            "logs": self._logs,
+        }
         return self._jobs_repo.update_job(self._job_id, **payload)
 
     @property

@@ -37,7 +37,8 @@ WIDGET_PREFERENCES: dict[str, dict[str, list[str]]] = {
     "Planning and Productivity": {
         "conceptual": CORE_UL_WARN + ["table", "compare"],
         "theoretical": CORE_UL_WARN + ["table", "compare", "flip"],
-        "practical": CORE_UL_WARN + ["ol", "stepFlow", "checklist", "table", "inputLine", "freeText"],
+        "practical": CORE_UL_WARN
+        + ["ol", "stepFlow", "checklist", "table", "inputLine", "freeText"],
     },
     "Growth Mindset": {
         "conceptual": CORE_UL + ["compare"],
@@ -60,19 +61,35 @@ WIDGET_PREFERENCES: dict[str, dict[str, list[str]]] = {
         "practical": CORE + ["freeText", "inputLine", "checklist", "swipecards"],
     },
     "Web Dev and Coding": {
-        "conceptual": CORE_UL_WARN + ["table", "compare", "checklist", "terminalDemo",  "codeEditor"],
-        "theoretical": CORE_UL_WARN + ["table", "compare", "asciiDiagram", "terminalDemo",  "codeEditor"],
-        "practical": CORE_UL_WARN + ["ol", "stepFlow", "checklist", "codeEditor", "interactiveTerminal", "terminalDemo", "swipecards", "err", "success"],
+        "conceptual": CORE_UL_WARN
+        + ["table", "compare", "checklist", "terminalDemo", "codeEditor"],
+        "theoretical": CORE_UL_WARN
+        + ["table", "compare", "asciiDiagram", "terminalDemo", "codeEditor"],
+        "practical": CORE_UL_WARN
+        + [
+            "ol",
+            "stepFlow",
+            "checklist",
+            "codeEditor",
+            "interactiveTerminal",
+            "terminalDemo",
+            "swipecards",
+            "err",
+            "success",
+        ],
     },
     "Language Practice": {
         "conceptual": CORE_UL + ["tr", "flip", "fillblank", "inputLine"],
         "theoretical": CORE_UL + ["tr", "table", "compare", "fillblank", "flip"],
-        "practical": CORE_UL_WARN + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText", "ol"],
+        "practical": CORE_UL_WARN
+        + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText", "ol"],
     },
 }
 
 
-def get_widget_preference(blueprint: str, teaching_style: str | list[str] | None) -> list[str] | None:
+def get_widget_preference(
+    blueprint: str, teaching_style: str | list[str] | None
+) -> list[str] | None:
     """
     Return the list of allowed widgets for a given blueprint and teaching style.
 
@@ -98,7 +115,7 @@ def get_widget_preference(blueprint: str, teaching_style: str | list[str] | None
         if key_normalized == normalized or key.lower() == blueprint.lower():
             blueprint_config = val
             break
-    
+
     if not blueprint_config:
         return None
 
@@ -106,7 +123,7 @@ def get_widget_preference(blueprint: str, teaching_style: str | list[str] | None
         styles = []
     else:
         styles = [teaching_style] if isinstance(teaching_style, str) else teaching_style
-    
+
     # Use a set to merge widgets from multiple styles without duplicates
     merged_widgets: set[str] = set()
     found_any = False
@@ -114,11 +131,11 @@ def get_widget_preference(blueprint: str, teaching_style: str | list[str] | None
     for style in styles:
         style_key = "".join(ch for ch in style.lower().strip() if ch.isalnum())
         widgets = blueprint_config.get(style_key)
-        
+
         if widgets:
             merged_widgets.update(widgets)
             found_any = True
-    
+
     # If explicit styles yielded no widgets (e.g. unknown style), fallback to 'all'?
     # Or just return whatever we found. If we found nothing, maybe return None to default to all?
     # Let's say if we found nothing from explicit styles, we fall back to 'all'.
@@ -130,7 +147,7 @@ def get_widget_preference(blueprint: str, teaching_style: str | list[str] | None
         for style_widgets in blueprint_config.values():
             if isinstance(style_widgets, list):
                 all_widgets.update(style_widgets)
-        
+
         return list(all_widgets)
 
     return list(merged_widgets)

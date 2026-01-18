@@ -97,7 +97,9 @@ def _is_section_like(block: dict[str, Any]) -> bool:
     return "items" in block or "subsections" in block
 
 
-def _normalize_section_block(section: dict[str, Any], idx: int, depth: int) -> dict[str, Any] | None:
+def _normalize_section_block(
+    section: dict[str, Any], idx: int, depth: int
+) -> dict[str, Any] | None:
     """Normalize section fields, items, and nested subsections."""
     # Require a dictionary payload for section normalization.
     if not isinstance(section, dict):
@@ -415,7 +417,12 @@ def _normalize_fillblank_widget(fillblank: Any) -> list[str] | None:
     """Normalize fillblank widgets into the required 4-element array."""
     # Accept list or dict-based fillblank payloads.
     if isinstance(fillblank, dict):
-        fillblank = [fillblank.get("sentence"), fillblank.get("answer"), fillblank.get("hint"), fillblank.get("explanation")]
+        fillblank = [
+            fillblank.get("sentence"),
+            fillblank.get("answer"),
+            fillblank.get("hint"),
+            fillblank.get("explanation"),
+        ]
     if not isinstance(fillblank, list) or len(fillblank) < 4:
         return None
     cleaned = [_sanitize_text(entry) for entry in fillblank[:4]]
@@ -446,12 +453,32 @@ def _normalize_mcqs_widget(mcqs: Any) -> dict[str, Any] | None:
     for question in questions:
         if not isinstance(question, dict):
             continue
-        q_text = _sanitize_text(question.get("q") or question.get("question") or question.get("prompt") or question.get("text"))
-        choices = _normalize_list_items(question.get("c") or question.get("choices") or question.get("options") or question.get("answers"))
-        explanation = _sanitize_text(question.get("e") or question.get("explanation") or question.get("why") or question.get("reason"))
+        q_text = _sanitize_text(
+            question.get("q")
+            or question.get("question")
+            or question.get("prompt")
+            or question.get("text")
+        )
+        choices = _normalize_list_items(
+            question.get("c")
+            or question.get("choices")
+            or question.get("options")
+            or question.get("answers")
+        )
+        explanation = _sanitize_text(
+            question.get("e")
+            or question.get("explanation")
+            or question.get("why")
+            or question.get("reason")
+        )
         if not q_text or len(choices) < 2 or not explanation:
             return None
-        answer = question.get("a") or question.get("answer") or question.get("correct") or question.get("correctIndex")
+        answer = (
+            question.get("a")
+            or question.get("answer")
+            or question.get("correct")
+            or question.get("correctIndex")
+        )
         answer_index = _coerce_mcqs_answer_index(answer, choices)
         if answer_index is None:
             return None
@@ -489,8 +516,15 @@ def _normalize_swipecards_widget(swipecards: Any) -> list[Any] | None:
         if len(swipecards) >= 3:
             cards = swipecards[2]
     elif isinstance(swipecards, dict):
-        title = swipecards.get("title") or swipecards.get("instructions") or swipecards.get("prompt") or ""
-        labels = swipecards.get("labels") or swipecards.get("buckets") or swipecards.get("bucketLabels")
+        title = (
+            swipecards.get("title")
+            or swipecards.get("instructions")
+            or swipecards.get("prompt")
+            or ""
+        )
+        labels = (
+            swipecards.get("labels") or swipecards.get("buckets") or swipecards.get("bucketLabels")
+        )
         cards = swipecards.get("cards")
     title = _sanitize_text(title) or "Swipe Drill"
     labels_list = _normalize_list_items(labels)
@@ -504,7 +538,12 @@ def _normalize_swipecards_widget(swipecards: Any) -> list[Any] | None:
             text, idx, feedback = card[0], card[1], card[2]
         elif isinstance(card, dict):
             text = card.get("text") or card.get("front") or card.get("prompt") or card.get("card")
-            idx = card.get("correct") or card.get("answer") or card.get("bucket") or card.get("correctIndex")
+            idx = (
+                card.get("correct")
+                or card.get("answer")
+                or card.get("bucket")
+                or card.get("correctIndex")
+            )
             feedback = card.get("feedback") or card.get("explanation") or card.get("reason")
         else:
             text, idx, feedback = card, 0, ""
@@ -625,16 +664,33 @@ def _normalize_ascii_diagram_widget(ascii_diagram: Any) -> list[str] | None:
     # we assume the LLM omitted the title and started straight with the diagram.
     first_elem = str(ascii_diagram[0])
     is_headless = False
-    
+
     # Common box drawing characters and non-alphanumeric symbols often found in diagrams
-    diagram_start_chars = {'+', '|', '┌', '└', '─', '│', '├', '┤', '┬', '┴', '┼', '*', '#', '<', '>', '/'}
-    
+    diagram_start_chars = {
+        "+",
+        "|",
+        "┌",
+        "└",
+        "─",
+        "│",
+        "├",
+        "┤",
+        "┬",
+        "┴",
+        "┼",
+        "*",
+        "#",
+        "<",
+        ">",
+        "/",
+    }
+
     if first_elem:
         stripped_start = first_elem.strip()
         if stripped_start and (stripped_start[0] in diagram_start_chars):
             is_headless = True
-        
-        # Fallback: formatting characters vs text ratio? 
+
+        # Fallback: formatting characters vs text ratio?
         # For now, the start char check is usually sufficient for "┌" or "+" style boxes.
 
     if is_headless:
@@ -648,12 +704,12 @@ def _normalize_ascii_diagram_widget(ascii_diagram: Any) -> list[str] | None:
     else:
         # Standard case: [title, (diagram...)]
         title = _sanitize_text(ascii_diagram[0])
-        
+
         # Handle nested list (Repairer output: [title, [lines...]])
         if isinstance(ascii_diagram[1], list):
             diagram_lines = [str(line) for line in ascii_diagram[1]]
             diagram = "\n".join(diagram_lines)
-        
+
         # Handle flat list (Gatherer output: [title, line1, line2, ...])
         else:
             # Join all subsequent elements as lines
@@ -664,7 +720,7 @@ def _normalize_ascii_diagram_widget(ascii_diagram: Any) -> list[str] | None:
         title = "Diagram"
     if not diagram:
         return None
-        
+
     return [title, diagram]
 
 

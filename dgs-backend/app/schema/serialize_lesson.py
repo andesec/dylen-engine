@@ -5,29 +5,10 @@ from __future__ import annotations
 from typing import Any, cast
 
 from .lesson_models import (
-    AsciiDiagramWidget,
-    FillBlankWidget,
-    WarnWidget,
-    ErrorWidget,
-    SuccessWidget,
-    ChecklistWidget,
-    CodeEditorWidget,
-    CompareWidget,
-    FlipWidget,
-    FreeTextWidget,
-    InputLineWidget,
     LessonDocument,
-    UnorderedListWidget,
-    OrderedListWidget,
     ParagraphWidget,
-    MCQsWidget,
     SectionBlock,
     SubsectionBlock,
-    StepFlowWidget,
-    SwipeCardsWidget,
-    TableWidget,
-    TranslationWidget,
-    TreeViewWidget,
     Widget,
 )
 
@@ -49,7 +30,9 @@ def _widget_to_shorthand(widget: Widget) -> Any:
     # but usually we might want to convert to string if possible?
     # The user requirements didn't say we MUST convert {p: "..."} to "...", but it's cleaner.
     if isinstance(widget, ParagraphWidget):
-        return widget.p  # Convert explicit p-widget to string shorthand if preferred, or keep as object
+        return (
+            widget.p
+        )  # Convert explicit p-widget to string shorthand if preferred, or keep as object
 
     return _dump_model(widget, by_alias=True)
 

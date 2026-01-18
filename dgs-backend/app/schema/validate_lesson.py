@@ -24,8 +24,8 @@ def validate_lesson(payload: Any) -> tuple[bool, list[str], LessonDocument | Non
 
     model_validator = getattr(LessonDocument, "model_validate", None)
     if model_validator is None:
-         # Fallback for older Pydantic or if not present (unlikely)
-         raise RuntimeError("LessonDocument does not expose a validation entrypoint.")
+        # Fallback for older Pydantic or if not present (unlikely)
+        raise RuntimeError("LessonDocument does not expose a validation entrypoint.")
 
     try:
         lesson_model = model_validator(payload)

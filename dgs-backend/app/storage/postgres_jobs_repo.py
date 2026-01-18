@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import random
+import time
 from dataclasses import dataclass
 from datetime import datetime
-import logging
-import time
-import random
 from typing import Any
 
 import psycopg
@@ -38,14 +38,13 @@ class _PostgresConfig:
 
 def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
     """Create the jobs table and indexes if they are missing."""
-    
+
     # Avoid repeated DDL within the same process.
     if table_name in _KNOWN_TABLES:
         return
-    
-    
+
     # Define the base schema for job storage.
-    
+
     statement = sql.SQL(
         """
         CREATE TABLE IF NOT EXISTS {table} (
@@ -90,16 +89,22 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
         sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_sections INTEGER").format(
             table=sql.Identifier(table_name),
         ),
-        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_section_indexes JSONB").format(
+        sql.SQL(
+            "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_section_indexes JSONB"
+        ).format(
             table=sql.Identifier(table_name),
         ),
-        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_index INTEGER").format(
+        sql.SQL(
+            "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_index INTEGER"
+        ).format(
             table=sql.Identifier(table_name),
         ),
         sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_status TEXT").format(
             table=sql.Identifier(table_name),
         ),
-        sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_retry_count INTEGER").format(
+        sql.SQL(
+            "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_retry_count INTEGER"
+        ).format(
             table=sql.Identifier(table_name),
         ),
         sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_title TEXT").format(
@@ -121,9 +126,9 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
             table=sql.Identifier(table_name),
         ),
     ]
-    
+
     # Build supporting indexes for queue polling and idempotency lookups.
-    
+
     status_index = sql.SQL(
         "CREATE INDEX IF NOT EXISTS {index} ON {table} (status, created_at)"
     ).format(
@@ -136,7 +141,7 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
         index=sql.Identifier(f"{table_name}_idempotency_idx"),
         table=sql.Identifier(table_name),
     )
-    
+
     # Run schema creation using a short-lived connection for safety.
     max_retries = 5
     base_delay = 1.0
@@ -156,23 +161,28 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
             if attempt == max_retries - 1:
                 logger.error("Failed to ensure jobs table after %d attempts: %s", max_retries, exc)
                 raise
-            
-            delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
-            logger.warning("Database connection failed (attempt %d/%d), retrying in %.2fs: %s", attempt + 1, max_retries, delay, exc)
+
+            delay = base_delay * (2**attempt) + random.uniform(0, 0.5)
+            logger.warning(
+                "Database connection failed (attempt %d/%d), retrying in %.2fs: %s",
+                attempt + 1,
+                max_retries,
+                delay,
+                exc,
+            )
             time.sleep(delay)
 
-    
     _KNOWN_TABLES.add(table_name)
     logger.info("Ensured Postgres jobs table exists: %s", table_name)
 
 
 def _json_value(value: Any) -> Json | None:
     """Wrap Python values for JSONB storage when present."""
-    
+
     # Preserve NULLs to keep optional columns unset.
     if value is None:
         return None
-    
+
     return Json(value)
 
 
@@ -182,9 +192,9 @@ class PostgresJobsRepository(JobsRepository):
     def __init__(self, *, dsn: str, connect_timeout: int, table_name: str = "dgs_jobs") -> None:
         self._config = _PostgresConfig(dsn=dsn, connect_timeout=connect_timeout)
         self._table_name = table_name
-        
+
         # Ensure the storage tables are present before serving requests.
-        
+
         _ensure_jobs_table(self._config, self._table_name)
 
     def create_job(self, record: JobRecord) -> None:
@@ -257,9 +267,9 @@ class PostgresJobsRepository(JobsRepository):
             )
             """
         ).format(table=sql.Identifier(self._table_name))
-        
+
         # Apply guardrails to keep logs and payload sizes consistent.
-        
+
         safe_logs = sanitize_logs(record.logs)
         safe_result = maybe_truncate_result_json(record.result_json)
         safe_artifacts = maybe_truncate_artifacts(record.artifacts)
@@ -295,34 +305,35 @@ class PostgresJobsRepository(JobsRepository):
             "ttl": record.ttl,
             "idempotency_key": record.idempotency_key,
         }
-        
+
         # Use a short-lived connection to keep DB access isolated.
-        
-        with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-            
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(statement, payload)
 
     def get_job(self, job_id: str) -> JobRecord | None:
         """Fetch a job record by identifier."""
-        statement = sql.SQL(
-            "SELECT * FROM {table} WHERE job_id = %(job_id)s"
-        ).format(table=sql.Identifier(self._table_name))
-        
+        statement = sql.SQL("SELECT * FROM {table} WHERE job_id = %(job_id)s").format(
+            table=sql.Identifier(self._table_name)
+        )
+
         # Query with a dict row factory for clarity in mapping fields.
-        
-        with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-            
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(statement, {"job_id": job_id})
                 row = cursor.fetchone()
-        
-        
+
         # Return None when the job does not exist.
-        
+
         if row is None:
             return None
-        
+
         # Map the database row into the domain record.
         return self._row_to_record(row)
 
@@ -358,19 +369,20 @@ class PostgresJobsRepository(JobsRepository):
     ) -> JobRecord | None:
         """Apply partial updates to a job record."""
         current = self.get_job(job_id)
-        
-        
+
         # Stop early if the job does not exist.
-        
+
         if current is None:
             return None
-        
+
         # Preserve canceled status if already set.
         if current.status == "canceled" and status is not None and status != "canceled":
             return current
-        
+
         # Merge the incoming changes with persisted values.
-        completed_steps_value = completed_steps if completed_steps is not None else current.completed_steps
+        completed_steps_value = (
+            completed_steps if completed_steps is not None else current.completed_steps
+        )
         # Always stamp an update timestamp when writing job changes.
         updated_at_value = updated_at or _now_iso()
         payload = {
@@ -379,18 +391,36 @@ class PostgresJobsRepository(JobsRepository):
             "status": status or current.status,
             "phase": phase if phase is not None else current.phase,
             "subphase": subphase if subphase is not None else current.subphase,
-            "expected_sections": expected_sections if expected_sections is not None else current.expected_sections,
-            "completed_sections": completed_sections if completed_sections is not None else current.completed_sections,
-            "completed_section_indexes": completed_section_indexes if completed_section_indexes is not None else current.completed_section_indexes,
-            "current_section_index": current_section_index if current_section_index is not None else current.current_section_index,
-            "current_section_status": current_section_status if current_section_status is not None else current.current_section_status,
-            "current_section_retry_count": current_section_retry_count if current_section_retry_count is not None else current.current_section_retry_count,
-            "current_section_title": current_section_title if current_section_title is not None else current.current_section_title,
+            "expected_sections": expected_sections
+            if expected_sections is not None
+            else current.expected_sections,
+            "completed_sections": completed_sections
+            if completed_sections is not None
+            else current.completed_sections,
+            "completed_section_indexes": completed_section_indexes
+            if completed_section_indexes is not None
+            else current.completed_section_indexes,
+            "current_section_index": current_section_index
+            if current_section_index is not None
+            else current.current_section_index,
+            "current_section_status": current_section_status
+            if current_section_status is not None
+            else current.current_section_status,
+            "current_section_retry_count": current_section_retry_count
+            if current_section_retry_count is not None
+            else current.current_section_retry_count,
+            "current_section_title": current_section_title
+            if current_section_title is not None
+            else current.current_section_title,
             "retry_count": retry_count if retry_count is not None else current.retry_count,
             "max_retries": max_retries if max_retries is not None else current.max_retries,
-            "retry_sections": retry_sections if retry_sections is not None else current.retry_sections,
+            "retry_sections": retry_sections
+            if retry_sections is not None
+            else current.retry_sections,
             "retry_agents": retry_agents if retry_agents is not None else current.retry_agents,
-            "retry_parent_job_id": retry_parent_job_id if retry_parent_job_id is not None else current.retry_parent_job_id,
+            "retry_parent_job_id": retry_parent_job_id
+            if retry_parent_job_id is not None
+            else current.retry_parent_job_id,
             "total_steps": total_steps if total_steps is not None else current.total_steps,
             "completed_steps": completed_steps_value,
             "progress": progress if progress is not None else current.progress,
@@ -406,9 +436,9 @@ class PostgresJobsRepository(JobsRepository):
             "idempotency_key": current.idempotency_key,
         }
         updated_record = JobRecord(**payload)
-        
+
         # Apply guardrails to keep logs and payload sizes consistent.
-        
+
         safe_logs = sanitize_logs(updated_record.logs)
         safe_result = maybe_truncate_result_json(updated_record.result_json)
         safe_artifacts = maybe_truncate_artifacts(updated_record.artifacts)
@@ -480,14 +510,15 @@ class PostgresJobsRepository(JobsRepository):
             "ttl": updated_record.ttl,
             "idempotency_key": updated_record.idempotency_key,
         }
-        
+
         # Persist the merged record back into Postgres.
-        
-        with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-            
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(statement, db_payload)
-        
+
         return updated_record
 
     def find_queued(self, limit: int = 5) -> list[JobRecord]:
@@ -495,18 +526,18 @@ class PostgresJobsRepository(JobsRepository):
         statement = sql.SQL(
             "SELECT * FROM {table} WHERE status = %(status)s ORDER BY created_at ASC LIMIT %(limit)s"
         ).format(table=sql.Identifier(self._table_name))
-        
+
         # Fetch queued jobs in a deterministic order.
-        
-        with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-            
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(statement, {"status": "queued", "limit": limit})
                 rows = cursor.fetchall()
-        
-        
+
         # Map queued rows into domain records.
-        
+
         return [self._row_to_record(row) for row in rows]
 
     def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
@@ -514,23 +545,23 @@ class PostgresJobsRepository(JobsRepository):
         statement = sql.SQL(
             "SELECT * FROM {table} WHERE idempotency_key = %(key)s ORDER BY created_at ASC LIMIT 1"
         ).format(table=sql.Identifier(self._table_name))
-        
+
         # Look up the earliest job with the requested idempotency key.
-        
-        with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-            
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(statement, {"key": idempotency_key})
                 row = cursor.fetchone()
-        
-        
+
         # Return None when the job does not exist.
-        
+
         if row is None:
             return None
-        
+
         # Map the database row into the domain record.
-        
+
         return self._row_to_record(row)
 
     def _row_to_record(self, row: dict[str, Any]) -> JobRecord:

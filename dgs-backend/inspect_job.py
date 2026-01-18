@@ -1,4 +1,3 @@
-import os
 from app.config import get_settings
 from app.storage.postgres_jobs_repo import PostgresJobsRepository
 
@@ -11,7 +10,7 @@ if not settings.pg_dsn:
 repo = PostgresJobsRepository(
     dsn=settings.pg_dsn,
     connect_timeout=settings.pg_connect_timeout,
-    table_name=settings.pg_jobs_table
+    table_name=settings.pg_jobs_table,
 )
 
 job_id = "66976cb7-d9e9-4042-8b27-e7c8076201e0"

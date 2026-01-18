@@ -1,10 +1,9 @@
 import asyncio
 import json
-import os
-from pathlib import Path
 
 # Add project root to sys.path
 import sys
+from pathlib import Path
 
 project_root = Path(__file__).parents[2]  # dgs root
 sys.path.insert(0, str(project_root / "dgs-backend"))
@@ -21,6 +20,8 @@ async def test_generation():
     orchestrator = DgsOrchestrator(
         gatherer_provider="gemini",
         gatherer_model="gemini-2.0-flash",
+        planner_provider="gemini",
+        planner_model="gemini-2.0-flash",
         structurer_provider="gemini",
         structurer_model="gemini-2.0-flash",
         repair_provider="gemini",

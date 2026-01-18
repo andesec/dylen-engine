@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
-import logging
 from typing import Any
 
 import psycopg
@@ -121,7 +121,6 @@ class PostgresLlmAuditRepository:
         # Open a short-lived connection to keep async usage safe and predictable.
 
         with psycopg.connect(self._dsn, connect_timeout=self._connect_timeout) as conn:
-
             with conn.cursor() as cursor:
                 cursor.execute(statement, payload)
 
@@ -172,7 +171,6 @@ class PostgresLlmAuditRepository:
         # Open a short-lived connection to keep async usage safe and predictable.
 
         with psycopg.connect(self._dsn, connect_timeout=self._connect_timeout) as conn:
-
             with conn.cursor() as cursor:
                 cursor.execute(statement, payload)
 

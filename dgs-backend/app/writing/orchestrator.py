@@ -48,7 +48,6 @@ class WritingCheckOrchestrator:
         # Wrap provider calls to capture audit context while preserving fallback flow.
 
         try:
-
             if model.supports_structured_output:
                 # Stamp the provider call with a writing-check context for audit logging.
 

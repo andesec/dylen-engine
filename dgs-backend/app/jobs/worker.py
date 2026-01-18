@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from collections.abc import Callable, Iterable
@@ -10,7 +11,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult, SectionProgressUpdate
+from app.ai.orchestrator import (
+    DgsOrchestrator,
+    OrchestrationError,
+    OrchestrationResult,
+    SectionProgressUpdate,
+)
+from app.api.models import GenerateLessonRequest, WritingCheckRequest
 from app.config import Settings
 from app.jobs.models import JobRecord
 from app.jobs.progress import (
@@ -20,25 +27,24 @@ from app.jobs.progress import (
     SectionProgress,
     build_call_plan,
 )
-import logging
-
-from app.api.models import GenerateLessonRequest, WritingCheckRequest
-from app.storage.factory import _get_repo
-from app.services.orchestrator import _get_orchestrator
-from app.services.validation import _resolve_learner_level, _resolve_primary_language
-from app.services.model_routing import _resolve_model_selection
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
+from app.services.model_routing import _resolve_model_selection
+from app.services.orchestrator import _get_orchestrator
+from app.services.validation import _resolve_learner_level, _resolve_primary_language
+from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord
-from app.writing.orchestrator import WritingCheckOrchestrator
 from app.utils.ids import generate_lesson_id
+from app.writing.orchestrator import WritingCheckOrchestrator
 
 
 class JobProcessor:
     """Coordinates execution of queued jobs."""
 
-    def __init__(self, *, jobs_repo: JobsRepository, orchestrator: DgsOrchestrator, settings: Settings) -> None:
+    def __init__(
+        self, *, jobs_repo: JobsRepository, orchestrator: DgsOrchestrator, settings: Settings
+    ) -> None:
         self._jobs_repo = jobs_repo
         self._orchestrator = orchestrator
         self._settings = settings
@@ -55,13 +61,20 @@ class JobProcessor:
 
     async def _process_lesson_generation(self, job: JobRecord) -> JobRecord | None:
         """Execute a single queued lesson generation job."""
-
         base_logs = job.logs + ["Job acknowledged by worker."]
         try:
-            call_plan = build_call_plan(job.request, merge_gatherer_structurer=self._settings.merge_gatherer_structurer)
+            call_plan = build_call_plan(
+                job.request, merge_gatherer_structurer=self._settings.merge_gatherer_structurer
+            )
         except ValueError as exc:
             error_log = f"Validation failed: {exc}"
-            payload = {"status": "error", "phase": "failed", "subphase": "validation", "progress": 100.0, "logs": base_logs + [error_log]}
+            payload = {
+                "status": "error",
+                "phase": "failed",
+                "subphase": "validation",
+                "progress": 100.0,
+                "logs": base_logs + [error_log],
+            }
             self._jobs_repo.update_job(job.job_id, **payload)
             return None
 
@@ -87,7 +100,9 @@ class JobProcessor:
             initial_logs=initial_logs,
             completed_section_indexes=base_completed_indexes,
         )
-        tracker.set_phase(phase="plan", subphase="planner_start", expected_sections=expected_sections)
+        tracker.set_phase(
+            phase="plan", subphase="planner_start", expected_sections=expected_sections
+        )
 
         start_time = time.monotonic()
         soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
@@ -116,8 +131,12 @@ class JobProcessor:
             if retry_agents:
                 tracker.add_logs(f"Retry agents: {', '.join(sorted(retry_agents))}")
 
-            retry_section_indexes = _normalize_retry_section_indexes(job.retry_sections, expected_sections)
-            retry_section_numbers = _to_section_numbers(retry_section_indexes) if retry_section_indexes else None
+            retry_section_indexes = _normalize_retry_section_indexes(
+                job.retry_sections, expected_sections
+            )
+            retry_section_numbers = (
+                _to_section_numbers(retry_section_indexes) if retry_section_indexes else None
+            )
             is_retry = job.retry_count is not None and job.retry_count > 0
             enable_repair = retry_agents is None or "repair" in retry_agents
             base_result_json = job.result_json
@@ -125,7 +144,9 @@ class JobProcessor:
             retry_completed_indexes: list[int] = []
 
             if retry_section_indexes:
-                tracker.add_logs(f"Retry sections: {', '.join(str(i) for i in retry_section_indexes)}")
+                tracker.add_logs(
+                    f"Retry sections: {', '.join(str(i) for i in retry_section_indexes)}"
+                )
 
             orchestration_result = await self._run_orchestration(
                 job.job_id,
@@ -166,7 +187,11 @@ class JobProcessor:
                     topic=request_model.topic,
                 )
 
-            if is_retry and retry_section_indexes is not None and len(merged_indexes) < expected_sections:
+            if (
+                is_retry
+                and retry_section_indexes is not None
+                and len(merged_indexes) < expected_sections
+            ):
                 raise ValueError("Retry did not complete all expected sections.")
 
             lesson_model_validation = validate_lesson(merged_result_json)
@@ -177,8 +202,14 @@ class JobProcessor:
                 raise ValueError(f"Validation failed with {len(errors)} error(s).")
 
             shorthand = lesson_to_shorthand(lesson_model)
-            tracker.complete_validation(message="Validate phase complete.", status="done", expected_sections=expected_sections)
-            cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
+            tracker.complete_validation(
+                message="Validate phase complete.",
+                status="done",
+                expected_sections=expected_sections,
+            )
+            cost_summary = _summarize_cost(
+                orchestration_result.usage, orchestration_result.total_cost
+            )
             tracker.set_cost(cost_summary)
             # Persist the completed lesson into the lessons repository.
             lesson_id = generate_lesson_id()
@@ -231,7 +262,12 @@ class JobProcessor:
             error_log = f"Job failed: {exc}"
             self._logger.error(error_log)
             tracker.fail(phase="failed", message=error_log)
-            payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+            payload = {
+                "status": "error",
+                "phase": "failed",
+                "progress": 100.0,
+                "logs": tracker.logs,
+            }
             self._jobs_repo.update_job(job.job_id, **payload)
             return None
 
@@ -239,28 +275,52 @@ class JobProcessor:
             error_log = f"Job failed: {exc}"
             self._logger.error("Job processing failed unexpectedly", exc_info=True)
             tracker.fail(phase="failed", message=error_log)
-            payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+            payload = {
+                "status": "error",
+                "phase": "failed",
+                "progress": 100.0,
+                "logs": tracker.logs,
+            }
             self._jobs_repo.update_job(job.job_id, **payload)
             return None
 
     async def _process_writing_check(self, job: JobRecord) -> JobRecord | None:
         """Execute a background writing task evaluation."""
-        tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="check", initial_logs=["Writing check acknowledged."])
+        tracker = JobProgressTracker(
+            job_id=job.job_id,
+            jobs_repo=self._jobs_repo,
+            total_steps=1,
+            total_ai_calls=1,
+            label_prefix="check",
+            initial_logs=["Writing check acknowledged."],
+        )
         tracker.set_phase(phase="evaluating", subphase="ai_check")
 
         try:
             # Validate and hydrate the request so optional model overrides are honored.
             request_model = WritingCheckRequest.model_validate(job.request)
             checker_model = request_model.checker_model or self._settings.structurer_model
-            orchestrator = WritingCheckOrchestrator(provider=self._settings.structurer_provider, model=checker_model)
-            result = await orchestrator.check_response(text=request_model.text, criteria=request_model.criteria)
+            orchestrator = WritingCheckOrchestrator(
+                provider=self._settings.structurer_provider, model=checker_model
+            )
+            result = await orchestrator.check_response(
+                text=request_model.text, criteria=request_model.criteria
+            )
 
             tracker.extend_logs(result.logs)
             cost_summary = _summarize_cost(result.usage, result.total_cost)
             tracker.set_cost(cost_summary)
             completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             result_json = {"ok": result.ok, "issues": result.issues, "feedback": result.feedback}
-            payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
+            payload = {
+                "status": "done",
+                "phase": "complete",
+                "progress": 100.0,
+                "logs": tracker.logs,
+                "result_json": result_json,
+                "cost": cost_summary,
+                "completed_at": completed_at,
+            }
             updated = self._jobs_repo.update_job(job.job_id, **payload)
             return updated
 
@@ -299,15 +359,12 @@ class JobProcessor:
         enable_repair: bool = True,
     ) -> OrchestrationResult:
         """Execute the orchestration pipeline with guarded parameters."""
-
         try:
-
             # Drop deprecated fields so legacy records can still be parsed.
             if "mode" in request:
                 request = {key: value for key, value in request.items() if key != "mode"}
 
             request_model = GenerateLessonRequest.model_validate(request)
-
         except ValidationError as exc:
             raise ValueError("Stored job request is invalid.") from exc
         topic = request_model.topic
@@ -357,6 +414,7 @@ class JobProcessor:
         ]
 
         Msgs = list[str] | None
+
         def _progress_callback(
             phase: str,
             subphase: str | None,
@@ -365,7 +423,6 @@ class JobProcessor:
             partial_json: dict[str, Any] | None = None,
             section_progress: SectionProgressUpdate | None = None,
         ) -> None:
-
             if tracker is None:
                 return
 
@@ -386,7 +443,9 @@ class JobProcessor:
             tracker_section: SectionProgress | None = None
 
             if section_progress is not None:
-                merged_completed_sections = (section_progress.completed_sections or 0) + base_completed_sections
+                merged_completed_sections = (
+                    section_progress.completed_sections or 0
+                ) + base_completed_sections
                 tracker_section = SectionProgress(
                     index=section_progress.index,
                     title=section_progress.title,
@@ -397,7 +456,6 @@ class JobProcessor:
 
                 # Keep track of completed retry indexes for partial merge payloads.
                 if retry_completed_indexes is not None and section_progress.status == "completed":
-
                     if section_progress.index not in retry_completed_indexes:
                         retry_completed_indexes.append(section_progress.index)
 
@@ -423,7 +481,6 @@ class JobProcessor:
                     section_progress=tracker_section,
                 )
             else:
-
                 if log_message:
                     tracker.add_logs(log_message)
 
@@ -456,7 +513,9 @@ class JobProcessor:
         merged_logs = list(_merge_logs(logs, result.logs))
 
         if tracker is not None:
-            tracker.set_phase(phase="validate", subphase="validation", expected_sections=expected_sections)
+            tracker.set_phase(
+                phase="validate", subphase="validation", expected_sections=expected_sections
+            )
         return OrchestrationResult(
             lesson_json=result.lesson_json,
             provider_a=result.provider_a,
@@ -478,7 +537,6 @@ def _merge_logs(*log_sets: Iterable[str]) -> Iterable[str]:
 
 def _parse_timeout_env(var_name: str) -> int:
     """Parse a timeout value from the environment."""
-
     raw_value = os.getenv(var_name)
     if not raw_value:
         return 0
@@ -511,7 +569,6 @@ _ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair", "stitche
 
 def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:
     """Normalize retry agent names for downstream orchestration controls."""
-
     if not raw_agents:
         return None
 
@@ -525,9 +582,10 @@ def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:
     return normalized
 
 
-def _normalize_retry_section_indexes(raw_sections: list[int] | None, expected_sections: int) -> list[int] | None:
+def _normalize_retry_section_indexes(
+    raw_sections: list[int] | None, expected_sections: int
+) -> list[int] | None:
     """Normalize 0-based retry section indexes with bounds validation."""
-
     if raw_sections is None:
         return None
 
@@ -549,7 +607,6 @@ def _to_section_numbers(indexes: list[int]) -> set[int]:
 
 def _infer_completed_section_indexes(record: JobRecord) -> list[int]:
     """Infer completed section indexes when explicit tracking is missing."""
-
     if record.completed_section_indexes:
         return list(record.completed_section_indexes)
 
@@ -566,7 +623,6 @@ def _infer_completed_section_indexes(record: JobRecord) -> list[int]:
 
 def _build_block_map(result_json: dict[str, Any] | None, indexes: list[int]) -> dict[int, Any]:
     """Map section indexes to their block payloads."""
-
     if not result_json:
         return {}
 
@@ -584,7 +640,6 @@ def _resolve_result_title(
     topic: str,
 ) -> str:
     """Pick a stable title for merged retry payloads."""
-
     if base_result_json and isinstance(base_result_json.get("title"), str):
         return str(base_result_json["title"])
 
