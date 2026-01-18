@@ -20,6 +20,7 @@ class ProviderMode(str, Enum):
 
   GEMINI = "gemini"
   OPENROUTER = "openrouter"
+  VERTEXAI = "vertexai"
 
 
 def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
@@ -33,6 +34,10 @@ def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
     from app.ai.providers.openrouter import OpenRouterProvider
 
     return OpenRouterProvider()
+  if key == ProviderMode.VERTEXAI.value:
+    from app.ai.providers.vertex_ai import VertexAIProvider
+
+    return VertexAIProvider()
   raise ValueError(f"Unsupported provider mode '{mode}'.")
 
 
