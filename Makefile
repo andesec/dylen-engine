@@ -8,7 +8,9 @@ PORT ?= 8080
         security-container security-dast security-all
 
 install:
-	uv sync
+	uv sync --all-extras
+	@# Remove conflicting 'app' package from myapplication to prevent import conflicts
+	@rm -rf .venv/lib/python*/site-packages/app 2>/dev/null || true
 
 dev: openapi
 	@echo "Starting Postgres..."
