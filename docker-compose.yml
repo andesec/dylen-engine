@@ -52,6 +52,7 @@ services:
       - .env
     environment:
       - DGS_PG_DSN=postgresql://dgs:dgs_password@postgres:5432/dgs
+      - GOOGLE_APPLICATION_CREDENTIALS=/root/.config/gcloud/application_default_credentials.json
     networks:
       - dgs-network
 

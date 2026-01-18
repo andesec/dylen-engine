@@ -139,16 +139,19 @@ def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
 We will define explicit **Vertex-specific model identifiers** to map to the available Vertex AI models (available 2025/2026).
 
 **Vertex AI Models:**
-*   **Planner** (Reasoning): `vertex-gemini-3.0-pro` (Latest), `vertex-gemini-2.5-pro` (Stable)
-*   **Gatherer/Structurer** (Reasoning + Context): `vertex-gemini-3.0-pro`
-    *   *Note: Using 'Pro' as this agent requires high fidelity for complex extraction and structuring.*
-*   **Repairer** (Coding/Logic): `vertex-gemini-3.0-flash` (Fast coding) or `vertex-gemini-3.0-pro` (Deep fixes)
+*   **Planner** (Reasoning): `vertex-gemini-2.5-pro`, `vertex-gemini-3.0-pro`
+*   **Gatherer** (Knowledge Extraction): `vertex-gemini-2.5-pro` (Default), `vertex-gemini-3.0-pro`
+    *   *Note: Using 'Pro' variants only as this agent requires high fidelity for complex extraction. Default is 2.5 pro for stability.*
+*   **Structurer** (Content Structuring): `vertex-gemini-2.5-pro` (Default), `vertex-gemini-3.0-pro`
+    *   *Note: Using 'Pro' variants only as this agent requires high fidelity for complex structuring. Default is 2.5 pro for stability.*
+*   **Repairer** (Coding/Logic): `vertex-gemini-2.5-flash`, `vertex-gemini-3.0-flash`
+    *   *Note: Using 'Flash' variants only for fast coding and repair tasks. Pro models are not available for this agent.*
 
 **Implementation Strategy:**
 The system will expose these with the `vertex-` prefix. The `VertexAIProvider` will look up the specific backend model ID (e.g. `gemini-3.0-pro`).
 
 **`app/schema/lesson_catalog.py` Updates:**
-*   `_GATHERER_MODELS`: Add `vertex-gemini-3.0-flash`, `vertex-gemini-3.0-pro`
-*   `_PLANNER_MODELS`: Add `vertex-gemini-3.0-pro` (Default)
-*   `_STRUCTURER_MODELS`: Add `vertex-gemini-3.0-pro` (Default)
-*   `_REPAIRER_MODELS`: Add `vertex-gemini-3.0-flash`, `vertex-gemini-3.0-pro`
+*   `_GATHERER_MODELS`: Add `vertex-gemini-2.5-pro`, `vertex-gemini-3.0-pro` (no flash variants)
+*   `_PLANNER_MODELS`: Add `vertex-gemini-2.5-pro`, `vertex-gemini-3.0-pro` (no flash variants)
+*   `_STRUCTURER_MODELS`: Add `vertex-gemini-2.5-pro`, `vertex-gemini-3.0-pro` (no flash variants)
+*   `_REPAIRER_MODELS`: Add `vertex-gemini-2.5-flash`, `vertex-gemini-3.0-flash` (no pro variants)

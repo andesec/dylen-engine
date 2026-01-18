@@ -6,6 +6,8 @@ from app.config import Settings
 
 _GEMINI_PROVIDER = "gemini"
 _OPENROUTER_PROVIDER = "openrouter"
+_VERTEXAI_PROVIDER = "vertexai"
+_VERTEX_MODEL_PREFIX = "vertex-"
 
 _GEMINI_KNOWLEDGE_MODELS = {KnowledgeModel.GEMINI_25_FLASH, KnowledgeModel.GEMINI_25_PRO}
 
@@ -26,10 +28,19 @@ _OPENROUTER_REPAIRER_MODELS = {RepairerModel.GPT_OSS_20B, RepairerModel.GEMMA_3_
 DEFAULT_KNOWLEDGE_MODEL = KnowledgeModel.LLAMA_31_405B.value
 
 
+def _is_vertex_model(model_name: str | None) -> bool:
+  """Return True when a model id is explicitly routed to Vertex AI."""
+  if not model_name:
+    return False
+  return model_name.startswith(_VERTEX_MODEL_PREFIX)
+
+
 def _provider_for_knowledge_model(settings: Settings, model_name: str | None) -> str:
   # Keep provider routing consistent even if the model list evolves.
   if not model_name:
     return settings.gatherer_provider
+  if _is_vertex_model(model_name):
+    return _VERTEXAI_PROVIDER
   if model_name in {model.value for model in _GEMINI_KNOWLEDGE_MODELS}:
     return _GEMINI_PROVIDER
   if model_name in {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS}:
@@ -42,6 +53,9 @@ def _provider_for_structurer_model(settings: Settings, model_name: str | None) -
 
   if not model_name:
     return settings.structurer_provider
+
+  if _is_vertex_model(model_name):
+    return _VERTEXAI_PROVIDER
 
   if model_name in {model.value for model in _GEMINI_STRUCTURER_MODELS}:
     return _GEMINI_PROVIDER
@@ -58,6 +72,9 @@ def _provider_for_model_hint(model_name: str | None, fallback_provider: str) -> 
 
   if not model_name:
     return fallback_provider
+
+  if _is_vertex_model(model_name):
+    return _VERTEXAI_PROVIDER
 
   gemini_models = (
     {model.value for model in _GEMINI_KNOWLEDGE_MODELS}

@@ -35,6 +35,7 @@ class StructurerModel(str, Enum):
 
   GEMMA_3_27B = "google/gemma-3-27b-it:free"
   GEMINI_25_FLASH = "gemini-2.5-flash"
+  GEMINI_25_PRO = "gemini-2.5-pro"
   GPT_OSS_20B = "openai/gpt-oss-20b:free"
   LLAMA_33_70B = "meta-llama/llama-3.3-70b-instruct:free"
 
