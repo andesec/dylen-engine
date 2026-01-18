@@ -16,84 +16,78 @@ from app.main import app
 
 
 class InMemoryJobsRepo:
-    """In-memory jobs repository for streaming status tests."""
+  """In-memory jobs repository for streaming status tests."""
 
-    def __init__(self) -> None:
-        self._jobs: dict[str, JobRecord] = {}
+  def __init__(self) -> None:
+    self._jobs: dict[str, JobRecord] = {}
 
-    def create_job(self, record: JobRecord) -> None:
-        self._jobs[record.job_id] = record
+  def create_job(self, record: JobRecord) -> None:
+    self._jobs[record.job_id] = record
 
-    def get_job(self, job_id: str) -> JobRecord | None:
-        return self._jobs.get(job_id)
+  def get_job(self, job_id: str) -> JobRecord | None:
+    return self._jobs.get(job_id)
 
-    def update_job(self, job_id: str, **kwargs: object) -> JobRecord | None:
-        record = self._jobs.get(job_id)
+  def update_job(self, job_id: str, **kwargs: object) -> JobRecord | None:
+    record = self._jobs.get(job_id)
 
-        if record is None:
-            return None
+    if record is None:
+      return None
 
-        # Apply partial updates to mimic repository behavior.
-        updated = replace(record, **{key: value for key, value in kwargs.items() if value is not None})
-        self._jobs[job_id] = updated
-        return updated
+    # Apply partial updates to mimic repository behavior.
+    updated = replace(record, **{key: value for key, value in kwargs.items() if value is not None})
+    self._jobs[job_id] = updated
+    return updated
 
-    def find_queued(self, limit: int = 5) -> list[JobRecord]:
-        return []
+  def find_queued(self, limit: int = 5) -> list[JobRecord]:
+    return []
 
-    def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
-        return None
+  def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
+    return None
 
 
 def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    repo = InMemoryJobsRepo()
+  repo = InMemoryJobsRepo()
 
-    def _fake_repo(_settings: object) -> InMemoryJobsRepo:
-        return repo
+  def _fake_repo(_settings: object) -> InMemoryJobsRepo:
+    return repo
 
-    monkeypatch.setattr("app.api.routes.jobs._get_jobs_repo", _fake_repo)
+  monkeypatch.setattr("app.api.routes.jobs._get_jobs_repo", _fake_repo)
 
-    # Override get_settings to ensure DGS_DEV_KEY is set correctly.
-    from app.config import get_settings
+  # Override get_settings to ensure DGS_DEV_KEY is set correctly.
+  from app.config import get_settings
 
-    # We can just use the real get_settings since env vars are set at module level
-    # But to be safe and avoid cached values:
-    def _get_settings_override():
-        return get_settings.__wrapped__()
+  # We can just use the real get_settings since env vars are set at module level
+  # But to be safe and avoid cached values:
+  def _get_settings_override():
+    return get_settings.__wrapped__()
 
-    app.dependency_overrides[get_settings] = _get_settings_override
+  app.dependency_overrides[get_settings] = _get_settings_override
 
-    client = TestClient(app)
-    headers = {"X-DGS-Dev-Key": "test-key"}
-    payload = {"topic": "Streaming Test", "depth": "highlights"}
-    create_resp = client.post("/v1/jobs", json=payload, headers=headers)
-    assert create_resp.status_code == 200
-    job_id = create_resp.json()["job_id"]
-    assert create_resp.json()["expected_sections"] == 2
+  client = TestClient(app)
+  headers = {"X-DGS-Dev-Key": "test-key"}
+  payload = {"topic": "Streaming Test", "depth": "highlights"}
+  create_resp = client.post("/v1/jobs", json=payload, headers=headers)
+  assert create_resp.status_code == 200
+  job_id = create_resp.json()["job_id"]
+  assert create_resp.json()["expected_sections"] == 2
 
-    # Simulate the worker streaming partial results over time.
-    repo.update_job(
-        job_id,
-        status="running",
-        result_json={"title": "Streaming Test", "blocks": []},
-        completed_sections=0,
-        expected_sections=2,
-        current_section_index=0,
-        current_section_status="generating",
-    )
-    status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
-    assert status_resp.status_code == 200
-    assert status_resp.json()["result"]["blocks"] == []
+  # Simulate the worker streaming partial results over time.
+  repo.update_job(
+    job_id, status="running", result_json={"title": "Streaming Test", "blocks": []}, completed_sections=0, expected_sections=2, current_section_index=0, current_section_status="generating"
+  )
+  status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
+  assert status_resp.status_code == 200
+  assert status_resp.json()["result"]["blocks"] == []
 
-    repo.update_job(
-        job_id,
-        status="running",
-        result_json={"title": "Streaming Test", "blocks": [{"section": "Intro", "items": []}]},
-        completed_sections=1,
-        expected_sections=2,
-        current_section_index=1,
-        current_section_status="generating",
-    )
-    status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
-    assert status_resp.status_code == 200
-    assert len(status_resp.json()["result"]["blocks"]) == 1
+  repo.update_job(
+    job_id,
+    status="running",
+    result_json={"title": "Streaming Test", "blocks": [{"section": "Intro", "items": []}]},
+    completed_sections=1,
+    expected_sections=2,
+    current_section_index=1,
+    current_section_status="generating",
+  )
+  status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
+  assert status_resp.status_code == 200
+  assert len(status_resp.json()["result"]["blocks"]) == 1

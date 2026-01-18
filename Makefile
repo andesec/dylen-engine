@@ -25,13 +25,13 @@ dev-stop:
 	@docker-compose down
 
 format:
-	uv run ruff format $(APP_DIR)
+	uv run ruff format .
 
 lint:
-	uv run ruff check $(APP_DIR)
+	uv run ruff check .
 
 typecheck:
-	uv run mypy $(APP_DIR)
+	uv run mypy .
 
 test:
 	uv run pytest
