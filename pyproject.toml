@@ -36,13 +36,20 @@ packages = ["app"]
 py-modules = ["lambda_handler"]
 
 [tool.black]
-line-length = 100
+line-length = 120
 target-version = ["py313"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
+indent-width = 2
 target-version = "py313"
 src = ["dgs-backend"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = true
+line-ending = "auto"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "N", "UP"]

@@ -23,10 +23,5 @@ class DecimalJSONResponse(JSONResponse):
 
   def render(self, content: Any) -> bytes:
     return json.dumps(
-      content,
-      ensure_ascii=False,
-      allow_nan=False,
-      indent=None,
-      separators=(",", ":"),
-      cls=DecimalJSONEncoder,
+      content, ensure_ascii=False, allow_nan=False, indent=None, separators=(",", ":"), cls=DecimalJSONEncoder
     ).encode("utf-8")

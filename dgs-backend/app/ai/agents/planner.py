@@ -66,19 +66,13 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
 
     # Build the prompt and schema to request a structured plan.
     prompt_text = render_planner_prompt(input_data)
-    schema = LessonPlan.model_json_schema(
-      by_alias=True, ref_template="#/$defs/{model}", mode="validation"
-    )
+    schema = LessonPlan.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
 
     if self._model.supports_structured_output:
       schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
       # Stamp the provider call with agent context for audit logging.
       with llm_call_context(
-        agent=self.name,
-        lesson_topic=input_data.topic,
-        job_id=ctx.job_id,
-        purpose="plan_lesson",
-        call_index="1/1",
+        agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="plan_lesson", call_index="1/1"
       ):
         try:
           response = await self._model.generate_structured(prompt_text, schema)
@@ -99,16 +93,9 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
           ):
             response = await self._model.generate_structured(retry_prompt, schema)
 
-          self._record_usage(
-            agent=self.name,
-            purpose=retry_purpose,
-            call_index=retry_call_index,
-            usage=response.usage,
-          )
+          self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
 
-      self._record_usage(
-        agent=self.name, purpose="plan_lesson", call_index="1/1", usage=response.usage
-      )
+      self._record_usage(agent=self.name, purpose="plan_lesson", call_index="1/1", usage=response.usage)
       plan_json = response.content
 
     else:
@@ -123,11 +110,7 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
 
       # Stamp the provider call with agent context for audit logging.
       with llm_call_context(
-        agent=self.name,
-        lesson_topic=input_data.topic,
-        job_id=ctx.job_id,
-        purpose="plan_lesson",
-        call_index="1/1",
+        agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="plan_lesson", call_index="1/1"
       ):
         raw = await self._model.generate(prompt_text)
 
@@ -154,21 +137,14 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
         ):
           retry_raw = await self._model.generate(retry_prompt)
 
-        self._record_usage(
-          agent=self.name,
-          purpose=retry_purpose,
-          call_index=retry_call_index,
-          usage=retry_raw.usage,
-        )
+        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)
 
         try:
           cleaned_retry = self._model.strip_json_fences(retry_raw.content)
           plan_json = cast(dict[str, Any], parse_json_with_fallback(cleaned_retry))
         except json.JSONDecodeError as retry_exc:
           logger.error("Planner retry failed to parse JSON: %s", retry_exc)
-          raise RuntimeError(
-            f"Failed to parse planner JSON after retry: {retry_exc}"
-          ) from retry_exc
+          raise RuntimeError(f"Failed to parse planner JSON after retry: {retry_exc}") from retry_exc
 
     try:
       plan = LessonPlan.model_validate(plan_json)
@@ -183,9 +159,7 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
 
     # Ensure we respect depth rules from the caller.
     if len(plan.sections) != input_data.section_count:
-      message = (
-        f"Planner returned {len(plan.sections)} sections; expected {input_data.section_count}."
-      )
+      message = f"Planner returned {len(plan.sections)} sections; expected {input_data.section_count}."
       logger.error(message)
       raise RuntimeError(message)
 

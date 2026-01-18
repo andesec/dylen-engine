@@ -5,14 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Union, cast
 
-from pydantic import (
-  BaseModel,
-  Field,
-  StrictInt,
-  StrictStr,
-  field_validator,
-  model_validator,
-)
+from pydantic import BaseModel, Field, StrictInt, StrictStr, field_validator, model_validator
 
 # --- Reusable Validators ---
 
@@ -147,9 +140,7 @@ class FillBlankWidget(BaseModel):
   @classmethod
   def validate_blank(cls, v: list[str]) -> list[str]:
     if len(v) != 4:
-      raise ValueError(
-        "fillblank widget must have exactly 4 elements: [prompt, answer, hint, explanation]"
-      )
+      raise ValueError("fillblank widget must have exactly 4 elements: [prompt, answer, hint, explanation]")
     if "___" not in v[0]:
       raise ValueError("fillblank prompt must include ___ placeholder")
     return v
@@ -293,9 +284,7 @@ class SwipeCardsWidget(BaseModel):
         if isinstance(card, list) and len(card) == 2:
           card.append("Correct!" if card[1] == 1 else "Incorrect.")  # default feedback
         else:
-          raise ValueError(
-            f"swipecards card at index {i} must be [text, correct_bucket_idx, feedback]"
-          )
+          raise ValueError(f"swipecards card at index {i} must be [text, correct_bucket_idx, feedback]")
 
       text, idx, feedback = card[0], card[1], card[2]
 
@@ -629,9 +618,7 @@ class TerminalDemoPayload(BaseModel):
       # Ensure types
       if len(entry) >= 3:
         cmd = str(entry[0])
-        delay = (
-          int(entry[1]) if isinstance(entry[1], (int, str)) and str(entry[1]).isdigit() else 100
-        )
+        delay = int(entry[1]) if isinstance(entry[1], (int, str)) and str(entry[1]).isdigit() else 100
         out = str(entry[2])
         v[i] = [cmd, delay, out]
 

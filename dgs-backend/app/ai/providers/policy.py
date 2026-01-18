@@ -39,13 +39,9 @@ class PolicyModel(AIModel):
     """Generate text with timeouts applied and retries disabled."""
     return await self._execute(lambda: self._model.generate(prompt), "generate")
 
-  async def generate_structured(
-    self, prompt: str, schema: dict[str, Any]
-  ) -> StructuredModelResponse:
+  async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
     """Generate structured output with timeouts applied and retries disabled."""
-    return await self._execute(
-      lambda: self._model.generate_structured(prompt, schema), "generate_structured"
-    )
+    return await self._execute(lambda: self._model.generate_structured(prompt, schema), "generate_structured")
 
   async def _execute(self, func: Callable[[], Any], action: str) -> Any:
     """Run a single model call to avoid retries during pipeline failures."""

@@ -171,9 +171,7 @@ class SchemaService:
 
   def validate_lesson_payload(self, payload: Any) -> ValidationResult:
     """Validate a lesson payload and return structured issues."""
-    parse_method = getattr(LessonDocument, "model_validate", None) or getattr(
-      LessonDocument, "parse_obj", None
-    )
+    parse_method = getattr(LessonDocument, "model_validate", None) or getattr(LessonDocument, "parse_obj", None)
     if parse_method is None:
       raise RuntimeError("LessonDocument does not expose a validation entrypoint.")
 
@@ -268,16 +266,12 @@ class SchemaService:
     for widget_type in dict.fromkeys(widget_types):
       model = TYPE_TO_MODEL.get(widget_type)
       if model:
-        schemas[widget_type] = model.model_json_schema(
-          by_alias=True, ref_template="#/$defs/{model}", mode="validation"
-        )
+        schemas[widget_type] = model.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
 
     return schemas
 
   @staticmethod
-  def _wrap_section_for_validation(
-    section_json: dict[str, Any], *, topic: str, section_index: int
-  ) -> dict[str, Any]:
+  def _wrap_section_for_validation(section_json: dict[str, Any], *, topic: str, section_index: int) -> dict[str, Any]:
     return {"title": f"{topic} - Section {section_index}", "blocks": [section_json]}
 
 
@@ -291,9 +285,7 @@ def _issues_to_messages(issues: list[ValidationIssue]) -> list[str]:
   return [f"{issue.path}: {issue.message}" for issue in issues]
 
 
-def _sanitize_schema_for_gemini(
-  schema: Any, root_schema: SchemaDict | None = None, visited: VisitedRefs = None
-) -> Any:
+def _sanitize_schema_for_gemini(schema: Any, root_schema: SchemaDict | None = None, visited: VisitedRefs = None) -> Any:
   """
   Sanitize a JSON Schema for Gemini structured output.
 
@@ -361,8 +353,7 @@ def _sanitize_schema_for_gemini(
     props = sanitized.get("properties")
     if isinstance(props, dict):
       sanitized["properties"] = {
-        key: _sanitize_schema_for_gemini(value, root_schema, visited)
-        for key, value in props.items()
+        key: _sanitize_schema_for_gemini(value, root_schema, visited) for key, value in props.items()
       }
     elif not props:
       sanitized["properties"] = {}
@@ -372,8 +363,6 @@ def _sanitize_schema_for_gemini(
 
   for key in ("anyOf", "oneOf", "allOf"):
     if key in sanitized and isinstance(sanitized[key], list):
-      sanitized[key] = [
-        _sanitize_schema_for_gemini(item, root_schema, visited) for item in sanitized[key]
-      ]
+      sanitized[key] = [_sanitize_schema_for_gemini(item, root_schema, visited) for item in sanitized[key]]
 
   return sanitized

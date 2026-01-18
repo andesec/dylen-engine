@@ -61,8 +61,7 @@ WIDGET_PREFERENCES: dict[str, dict[str, list[str]]] = {
   },
   "Web Dev and Coding": {
     "conceptual": CORE_UL_WARN + ["table", "compare", "checklist", "terminalDemo", "codeEditor"],
-    "theoretical": CORE_UL_WARN
-    + ["table", "compare", "asciiDiagram", "terminalDemo", "codeEditor"],
+    "theoretical": CORE_UL_WARN + ["table", "compare", "asciiDiagram", "terminalDemo", "codeEditor"],
     "practical": CORE_UL_WARN
     + [
       "ol",
@@ -79,15 +78,12 @@ WIDGET_PREFERENCES: dict[str, dict[str, list[str]]] = {
   "Language Practice": {
     "conceptual": CORE_UL + ["tr", "flip", "fillblank", "inputLine"],
     "theoretical": CORE_UL + ["tr", "table", "compare", "fillblank", "flip"],
-    "practical": CORE_UL_WARN
-    + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText", "ol"],
+    "practical": CORE_UL_WARN + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText", "ol"],
   },
 }
 
 
-def get_widget_preference(
-  blueprint: str, teaching_style: str | list[str] | None
-) -> list[str] | None:
+def get_widget_preference(blueprint: str, teaching_style: str | list[str] | None) -> list[str] | None:
   """
   Return the list of allowed widgets for a given blueprint and teaching style.
 

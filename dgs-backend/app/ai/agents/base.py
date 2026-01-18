@@ -45,9 +45,7 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
     if self._progress:
       self._progress.emit(phase=p, step=s, section_id=i, message=m, metrics=mt)
 
-  def _record_usage(
-    self, *, agent: str, purpose: str, call_index: str, usage: dict[str, int] | None
-  ) -> None:
+  def _record_usage(self, *, agent: str, purpose: str, call_index: str, usage: dict[str, int] | None) -> None:
     if not usage or not self._usage_sink:
       return
     payload = {

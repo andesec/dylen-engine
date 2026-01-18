@@ -54,10 +54,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       ok, repaired_errors, _ = validator(dummy_json, topic=topic, section_index=section_number)
       err_list = [] if ok else repaired_errors
       return RepairResult(
-        section_number=section_number,
-        fixed_json=dummy_json,
-        changes=["dummy_fixture"],
-        errors=err_list,
+        section_number=section_number, fixed_json=dummy_json, changes=["dummy_fixture"], errors=err_list
       )
 
     if errors:
@@ -67,12 +64,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
       if ok:
         changes = ["deterministic_repair"]
-        return RepairResult(
-          section_number=section_number,
-          fixed_json=section_json,
-          changes=changes,
-          errors=[],
-        )
+        return RepairResult(section_number=section_number, fixed_json=section_json, changes=changes, errors=[])
 
     if errors:
       # Apply manual subsection fixes (titles/items) before invoking AI repair.
@@ -84,25 +76,16 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
         ok, errors, _ = validator(section_json, topic=topic, section_index=section_number)
 
         if ok:
-          return RepairResult(
-            section_number=section_number,
-            fixed_json=section_json,
-            changes=manual_changes,
-            errors=[],
-          )
+          return RepairResult(section_number=section_number, fixed_json=section_json, changes=manual_changes, errors=[])
 
     if not errors:
-      return RepairResult(
-        section_number=section_number, fixed_json=section_json, changes=[], errors=[]
-      )
+      return RepairResult(section_number=section_number, fixed_json=section_json, changes=[], errors=[])
 
     # Identify only the widget entries tied to validation failures.
     repair_targets = _collect_repair_targets(section_json, errors)
 
     if not repair_targets:
-      return RepairResult(
-        section_number=section_number, fixed_json=section_json, changes=[], errors=errors
-      )
+      return RepairResult(section_number=section_number, fixed_json=section_json, changes=[], errors=errors)
 
     widget_types = [target.widget_type for target in repair_targets if target.widget_type]
     widget_schemas = self._schema_service.widget_schemas_for_types(widget_types)
@@ -115,9 +98,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     for target in repair_targets:
       cleaned_prompt_errors.extend(target.errors)
 
-    prompt_text = render_repair_prompt(
-      request, section, prompt_targets, cleaned_prompt_errors, widget_schemas
-    )
+    prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors, widget_schemas)
     schema = _build_repair_schema(widget_schemas)
 
     if self._model.supports_structured_output:
@@ -127,11 +108,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
       # Stamp the provider call with agent context for audit logging.
       with llm_call_context(
-        agent=self.name,
-        lesson_topic=request.topic,
-        job_id=ctx.job_id,
-        purpose=purpose,
-        call_index=call_index,
+        agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index
       ):
         try:
           response = await self._model.generate_structured(prompt_text, schema)
@@ -152,16 +129,9 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
           ):
             response = await self._model.generate_structured(retry_prompt, schema)
 
-          self._record_usage(
-            agent=self.name,
-            purpose=retry_purpose,
-            call_index=retry_call_index,
-            usage=response.usage,
-          )
+          self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
 
-      self._record_usage(
-        agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage
-      )
+      self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
       repaired_payload = response.content
 
     else:
@@ -176,11 +146,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
       # Stamp the provider call with agent context for audit logging.
       with llm_call_context(
-        agent=self.name,
-        lesson_topic=request.topic,
-        job_id=ctx.job_id,
-        purpose=purpose,
-        call_index=call_index,
+        agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index
       ):
         raw = await self._model.generate(prompt_with_schema)
 
@@ -207,21 +173,14 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
         ):
           retry_raw = await self._model.generate(retry_prompt)
 
-        self._record_usage(
-          agent=self.name,
-          purpose=retry_purpose,
-          call_index=retry_call_index,
-          usage=retry_raw.usage,
-        )
+        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)
 
         try:
           cleaned_retry = self._model.strip_json_fences(retry_raw.content)
           repaired_payload = cast(dict[str, Any], parse_json_with_fallback(cleaned_retry))
         except json.JSONDecodeError as retry_exc:
           logger.error("Repairer retry failed to parse JSON: %s", retry_exc)
-          raise RuntimeError(
-            f"Failed to parse repaired section JSON after retry: {retry_exc}"
-          ) from retry_exc
+          raise RuntimeError(f"Failed to parse repaired section JSON after retry: {retry_exc}") from retry_exc
 
     # Apply only the repaired widget payloads back into their original positions.
     repaired_json = _apply_repairs(section_json, repaired_payload, repair_targets)
@@ -229,17 +188,10 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     ok, repaired_errors, _ = validator(repaired_json, topic=topic, section_index=section_number)
     changes = ["ai_repair"]
     err_list = [] if ok else repaired_errors
-    return RepairResult(
-      section_number=section_number,
-      fixed_json=repaired_json,
-      changes=changes,
-      errors=err_list,
-    )
+    return RepairResult(section_number=section_number, fixed_json=repaired_json, changes=changes, errors=err_list)
 
   @staticmethod
-  def _deterministic_repair(
-    section_json: JsonDict, errors: Errors, topic: str, section_number: int
-  ) -> JsonDict:
+  def _deterministic_repair(section_json: JsonDict, errors: Errors, topic: str, section_number: int) -> JsonDict:
     payload = {"title": f"{topic} - Section {section_number}", "blocks": [section_json]}
     repaired = attempt_deterministic_repair(payload, errors)
     blocks = repaired.get("blocks")
@@ -295,14 +247,7 @@ def _collect_repair_targets(section_json: JsonDict, errors: Errors) -> list[Repa
       continue
 
     widget_type = _detect_widget_type(normalized)
-    targets.append(
-      RepairTarget(
-        path=target_path,
-        widget=normalized,
-        errors=cleaned_messages,
-        widget_type=widget_type,
-      )
-    )
+    targets.append(RepairTarget(path=target_path, widget=normalized, errors=cleaned_messages, widget_type=widget_type))
 
   return targets
 
@@ -325,9 +270,7 @@ def _collapse_union_errors(errors: list[str], payload: Any) -> list[str]:
 
   if guessed_type:
     # Keep errors that mention the guessed type or are generic "Input should be..."
-    relevant_errors = [
-      e for e in errors if guessed_type in e or "Input should be" in e or "Field required" not in e
-    ]
+    relevant_errors = [e for e in errors if guessed_type in e or "Input should be" in e or "Field required" not in e]
     if relevant_errors:
       return relevant_errors
 
@@ -355,9 +298,7 @@ def _parse_error_entries(errors: Errors) -> list[tuple[str, str]]:
   return entries
 
 
-def _apply_subsection_fallbacks(
-  section_json: JsonDict, errors: Errors
-) -> tuple[JsonDict, list[str]]:
+def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple[JsonDict, list[str]]:
   """Apply local subsection fixes based on error paths to avoid extra AI calls.
 
   Also proactively scans for 'misplaced subsections' (subsection blocks inside the 'items' list)
@@ -443,9 +384,7 @@ def _is_subsection_path(path: str) -> bool:
   return tokens[0] == "subsections" and tokens[1].isdigit()
 
 
-def _expand_subsection_targets(
-  section_json: JsonDict, path: str, message: str
-) -> dict[str, list[str]]:
+def _expand_subsection_targets(section_json: JsonDict, path: str, message: str) -> dict[str, list[str]]:
   """Expand subsection errors into per-item targets to batch AI repairs."""
   expanded: dict[str, list[str]] = {}
   subsection = _value_at_path(section_json, path)
@@ -658,10 +597,7 @@ def _build_repair_schema(widget_schemas: dict[str, Any]) -> dict[str, Any]:
 
   repair_item_schema = {
     "type": "object",
-    "properties": {
-      "path": {"type": "string"},
-      "widget": {"anyOf": any_of},
-    },
+    "properties": {"path": {"type": "string"}, "widget": {"anyOf": any_of}},
     "required": ["path", "widget"],
     "additionalProperties": False,
   }
@@ -678,9 +614,7 @@ def _build_repair_schema(widget_schemas: dict[str, Any]) -> dict[str, Any]:
   return output_schema
 
 
-def _apply_repairs(
-  section_json: JsonDict, repair_payload: Any, targets: list[RepairTarget]
-) -> JsonDict:
+def _apply_repairs(section_json: JsonDict, repair_payload: Any, targets: list[RepairTarget]) -> JsonDict:
   """Apply repaired widgets to the original section JSON."""
   repaired = copy.deepcopy(section_json)
 

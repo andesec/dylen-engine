@@ -10,22 +10,13 @@ from typing import Any, Final, cast
 from openai import AsyncOpenAI
 
 from app.ai.json_parser import parse_json_with_fallback
-from app.ai.providers.base import (
-  AIModel,
-  ModelResponse,
-  Provider,
-  SimpleModelResponse,
-  StructuredModelResponse,
-)
+from app.ai.providers.base import AIModel, ModelResponse, Provider, SimpleModelResponse, StructuredModelResponse
 
 
 class OpenRouterModel(AIModel):
   """OpenRouter model client with structured output support."""
 
-  _STRUCTURED_OUTPUT_MODELS: Final[set[str]] = {
-    "openai/gpt-oss-20b:free",
-    "openai/gpt-oss-120b:free",
-  }
+  _STRUCTURED_OUTPUT_MODELS: Final[set[str]] = {"openai/gpt-oss-20b:free", "openai/gpt-oss-120b:free"}
 
   def __init__(self, name: str, api_key: str | None = None, base_url: str | None = None) -> None:
     self.name: str = name
@@ -46,9 +37,7 @@ class OpenRouterModel(AIModel):
       default_headers["X-Title"] = title
 
     self._client = AsyncOpenAI(
-      api_key=api_key,
-      base_url=base_url or "https://openrouter.ai/api/v1",
-      default_headers=default_headers or None,
+      api_key=api_key, base_url=base_url or "https://openrouter.ai/api/v1", default_headers=default_headers or None
     )
 
   async def generate(self, prompt: str) -> ModelResponse:
@@ -63,8 +52,7 @@ class OpenRouterModel(AIModel):
       return response
 
     response = await self._client.chat.completions.create(
-      model=self.name,
-      messages=[{"role": "user", "content": prompt}],
+      model=self.name, messages=[{"role": "user", "content": prompt}]
     )
 
     content = response.choices[0].message.content or ""
@@ -80,9 +68,7 @@ class OpenRouterModel(AIModel):
 
     return SimpleModelResponse(content=content, usage=usage)
 
-  async def generate_structured(
-    self, prompt: str, schema: dict[str, Any]
-  ) -> StructuredModelResponse:
+  async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
     """Generate structured JSON output using OpenAI's JSON mode."""
     logger = logging.getLogger("app.ai.providers.openrouter")
 
@@ -111,10 +97,7 @@ class OpenRouterModel(AIModel):
 
     response = await self._client.chat.completions.create(
       model=self.name,
-      messages=[
-        {"role": "system", "content": system_msg},
-        {"role": "user", "content": prompt},
-      ],
+      messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
       response_format={
         "type": "json_schema",
         "json_schema": {

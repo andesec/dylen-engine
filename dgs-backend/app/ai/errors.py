@@ -27,13 +27,7 @@ _PROVIDER_HINTS: tuple[str, ...] = (
   "gemini",
 )
 
-_OUTPUT_HINTS: tuple[str, ...] = (
-  "invalid json",
-  "failed to parse",
-  "parse json",
-  "schema",
-  "validation",
-)
+_OUTPUT_HINTS: tuple[str, ...] = ("invalid json", "failed to parse", "parse json", "schema", "validation")
 
 
 def _match_hint(message: str, hints: Iterable[str]) -> bool:

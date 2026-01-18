@@ -12,20 +12,12 @@ from pydantic.warnings import ArbitraryTypeWarning
 
 with warnings.catch_warnings():
   warnings.filterwarnings(
-    "ignore",
-    message=r"<built-in function any> is not a Python type.*",
-    category=ArbitraryTypeWarning,
+    "ignore", message=r"<built-in function any> is not a Python type.*", category=ArbitraryTypeWarning
   )
   from google import genai
 
 from app.ai.json_parser import parse_json_with_fallback
-from app.ai.providers.base import (
-  AIModel,
-  ModelResponse,
-  Provider,
-  SimpleModelResponse,
-  StructuredModelResponse,
-)
+from app.ai.providers.base import AIModel, ModelResponse, Provider, SimpleModelResponse, StructuredModelResponse
 
 
 class GeminiModel(AIModel):
@@ -85,9 +77,7 @@ class GeminiModel(AIModel):
       #     "response_schema": schema,
       # }
       response = self._client.models.generate_content(
-        model=self.name,
-        contents=prompt,
-        config={"response_mime_type": "application/json", "response_schema": schema},
+        model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema}
       )
       logger.info("Gemini structured response (raw):\n%s", response.text)
     except Exception as e:

@@ -44,8 +44,7 @@ def _expected_sections_from_request(request: GenerateLessonRequest, settings: Se
   from app.jobs.progress import build_call_plan
 
   plan = build_call_plan(
-    request.model_dump(mode="python", by_alias=True),
-    merge_gatherer_structurer=settings.merge_gatherer_structurer,
+    request.model_dump(mode="python", by_alias=True), merge_gatherer_structurer=settings.merge_gatherer_structurer
   )
   return plan.depth
 
@@ -73,8 +72,7 @@ def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusR
     request = _parse_job_request(record.request)
   except ValidationError as exc:
     raise HTTPException(
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-      detail="Stored job request failed validation.",
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stored job request failed validation."
     ) from exc
 
   validation = None
@@ -127,9 +125,7 @@ def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusR
   )
 
 
-async def _create_job_record(
-  request: GenerateLessonRequest, settings: Settings
-) -> JobCreateResponse:
+async def _create_job_record(request: GenerateLessonRequest, settings: Settings) -> JobCreateResponse:
   _validate_generate_request(request, settings)
   repo = _get_jobs_repo(settings)
   # Precompute section count so the client can render placeholders immediately.
@@ -185,9 +181,7 @@ async def _process_job_async(job_id: str, settings: Settings) -> None:
     return
 
   # Run the job with a fresh processor to update progress states.
-  processor = JobProcessor(
-    jobs_repo=repo, orchestrator=_get_orchestrator(settings), settings=settings
-  )
+  processor = JobProcessor(jobs_repo=repo, orchestrator=_get_orchestrator(settings), settings=settings)
   # Execute the job asynchronously so progress updates stream back to storage.
   await processor.process_job(record)
 
@@ -202,10 +196,7 @@ def _log_job_task_failure(task: asyncio.Task[None]) -> None:
 
 
 def _kickoff_job_processing(
-  background_tasks: BackgroundTasks,
-  job_id: str,
-  settings: Settings,
-  job_worker_active: bool = False,
+  background_tasks: BackgroundTasks, job_id: str, settings: Settings, job_worker_active: bool = False
 ) -> None:
   """Schedule background processing so clients see status updates."""
 

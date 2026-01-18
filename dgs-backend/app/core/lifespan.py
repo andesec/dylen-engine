@@ -30,9 +30,7 @@ async def _job_worker_loop(active_settings: Settings) -> None:
   """Poll for queued jobs so processing happens even if kickoff is missed."""
   # Reuse a single processor to keep orchestration wiring consistent.
   repo = _get_jobs_repo(active_settings)
-  processor = JobProcessor(
-    jobs_repo=repo, orchestrator=_get_orchestrator(active_settings), settings=active_settings
-  )
+  processor = JobProcessor(jobs_repo=repo, orchestrator=_get_orchestrator(active_settings), settings=active_settings)
   poll_seconds = 2.0
 
   while True:

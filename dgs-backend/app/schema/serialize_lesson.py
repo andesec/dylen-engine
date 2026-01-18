@@ -4,13 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from .lesson_models import (
-  LessonDocument,
-  ParagraphWidget,
-  SectionBlock,
-  SubsectionBlock,
-  Widget,
-)
+from .lesson_models import LessonDocument, ParagraphWidget, SectionBlock, SubsectionBlock, Widget
 
 
 def _dump_model(model: Any, *, by_alias: bool = False) -> dict[str, Any]:

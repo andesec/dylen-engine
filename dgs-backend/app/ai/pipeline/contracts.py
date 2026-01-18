@@ -73,9 +73,7 @@ class StructuredSection(BaseModel):
 
   section_number: int = Field(ge=1)
   payload: dict[str, Any] = Field(
-    serialization_alias="json",
-    validation_alias="json",
-    description="Validated section payload",
+    serialization_alias="json", validation_alias="json", description="Validated section payload"
   )
   validation_errors: list[str] = Field(default_factory=list)
   model_config = ConfigDict(populate_by_name=True)

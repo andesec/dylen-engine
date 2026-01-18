@@ -84,58 +84,48 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
 
   alter_statements = [
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS expected_sections INTEGER").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_sections INTEGER").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_section_indexes JSONB").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_index INTEGER").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_status TEXT").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
-    sql.SQL(
-      "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_retry_count INTEGER"
-    ).format(
-      table=sql.Identifier(table_name),
+    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_retry_count INTEGER").format(
+      table=sql.Identifier(table_name)
     ),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_title TEXT").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_count INTEGER").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS max_retries INTEGER").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_sections JSONB").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_agents JSONB").format(
-      table=sql.Identifier(table_name),
-    ),
+    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_agents JSONB").format(table=sql.Identifier(table_name)),
     sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_parent_job_id TEXT").format(
-      table=sql.Identifier(table_name),
+      table=sql.Identifier(table_name)
     ),
   ]
 
   # Build supporting indexes for queue polling and idempotency lookups.
 
-  status_index = sql.SQL(
-    "CREATE INDEX IF NOT EXISTS {index} ON {table} (status, created_at)"
-  ).format(
-    index=sql.Identifier(f"{table_name}_status_created_idx"),
-    table=sql.Identifier(table_name),
+  status_index = sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} (status, created_at)").format(
+    index=sql.Identifier(f"{table_name}_status_created_idx"), table=sql.Identifier(table_name)
   )
-  idempotency_index = sql.SQL(
-    "CREATE INDEX IF NOT EXISTS {index} ON {table} (idempotency_key)"
-  ).format(
-    index=sql.Identifier(f"{table_name}_idempotency_idx"),
-    table=sql.Identifier(table_name),
+  idempotency_index = sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} (idempotency_key)").format(
+    index=sql.Identifier(f"{table_name}_idempotency_idx"), table=sql.Identifier(table_name)
   )
 
   # Run schema creation using a short-lived connection for safety.
@@ -160,11 +150,7 @@ def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
 
       delay = base_delay * (2**attempt) + random.uniform(0, 0.5)
       logger.warning(
-        "Database connection failed (attempt %d/%d), retrying in %.2fs: %s",
-        attempt + 1,
-        max_retries,
-        delay,
-        exc,
+        "Database connection failed (attempt %d/%d), retrying in %.2fs: %s", attempt + 1, max_retries, delay, exc
       )
       time.sleep(delay)
 
@@ -372,9 +358,7 @@ class PostgresJobsRepository(JobsRepository):
       return current
 
     # Merge the incoming changes with persisted values.
-    completed_steps_value = (
-      completed_steps if completed_steps is not None else current.completed_steps
-    )
+    completed_steps_value = completed_steps if completed_steps is not None else current.completed_steps
     # Always stamp an update timestamp when writing job changes.
     updated_at_value = updated_at or _now_iso()
     payload = {
@@ -383,12 +367,8 @@ class PostgresJobsRepository(JobsRepository):
       "status": status or current.status,
       "phase": phase if phase is not None else current.phase,
       "subphase": subphase if subphase is not None else current.subphase,
-      "expected_sections": expected_sections
-      if expected_sections is not None
-      else current.expected_sections,
-      "completed_sections": completed_sections
-      if completed_sections is not None
-      else current.completed_sections,
+      "expected_sections": expected_sections if expected_sections is not None else current.expected_sections,
+      "completed_sections": completed_sections if completed_sections is not None else current.completed_sections,
       "completed_section_indexes": completed_section_indexes
       if completed_section_indexes is not None
       else current.completed_section_indexes,
@@ -408,9 +388,7 @@ class PostgresJobsRepository(JobsRepository):
       "max_retries": max_retries if max_retries is not None else current.max_retries,
       "retry_sections": retry_sections if retry_sections is not None else current.retry_sections,
       "retry_agents": retry_agents if retry_agents is not None else current.retry_agents,
-      "retry_parent_job_id": retry_parent_job_id
-      if retry_parent_job_id is not None
-      else current.retry_parent_job_id,
+      "retry_parent_job_id": retry_parent_job_id if retry_parent_job_id is not None else current.retry_parent_job_id,
       "total_steps": total_steps if total_steps is not None else current.total_steps,
       "completed_steps": completed_steps_value,
       "progress": progress if progress is not None else current.progress,
@@ -528,9 +506,9 @@ class PostgresJobsRepository(JobsRepository):
 
   def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
     """Find a job matching a given idempotency key."""
-    statement = sql.SQL(
-      "SELECT * FROM {table} WHERE idempotency_key = %(key)s ORDER BY created_at ASC LIMIT 1"
-    ).format(table=sql.Identifier(self._table_name))
+    statement = sql.SQL("SELECT * FROM {table} WHERE idempotency_key = %(key)s ORDER BY created_at ASC LIMIT 1").format(
+      table=sql.Identifier(self._table_name)
+    )
 
     # Look up the earliest job with the requested idempotency key.
 

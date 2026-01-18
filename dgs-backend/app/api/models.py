@@ -5,16 +5,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import (
-  AliasChoices,
-  BaseModel,
-  ConfigDict,
-  Field,
-  StrictFloat,
-  StrictInt,
-  StrictStr,
-  model_validator,
-)
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, model_validator
 
 from app.jobs.models import JobStatus
 from app.services.widgets import _normalize_option_id, _normalize_widget_ids
@@ -111,9 +102,7 @@ class GenerateLessonRequest(BaseModel):
   """Request payload for lesson generation."""
 
   topic: StrictStr = Field(
-    min_length=1,
-    description="Topic to generate a lesson for.",
-    examples=["Introduction to Python"],
+    min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"]
   )
   details: StrictStr | None = Field(
     default=None,
@@ -135,39 +124,27 @@ class GenerateLessonRequest(BaseModel):
       "languagepractice",
     ]
     | None
-  ) = Field(
-    default=None,
-    description="Optional blueprint or learning outcome guidance for lesson planning.",
-  )
+  ) = Field(default=None, description="Optional blueprint or learning outcome guidance for lesson planning.")
   teaching_style: list[Literal["conceptual", "theoretical", "practical"]] | None = Field(
-    default=None,
-    description="Optional teaching style or pedagogy guidance for lesson planning.",
+    default=None, description="Optional teaching style or pedagogy guidance for lesson planning."
   )
   learner_level: StrictStr | None = Field(
-    default=None,
-    min_length=1,
-    description="Optional learner level hint used for prompt guidance.",
+    default=None, min_length=1, description="Optional learner level hint used for prompt guidance."
   )
   depth: Literal["highlights", "detailed", "training"] = Field(
-    default="highlights",
-    description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
+    default="highlights", description="Requested lesson depth (Highlights=2, Detailed=6, Training=10)."
   )
   primary_language: Literal["English", "German", "Urdu"] = Field(
-    default="English",
-    description="Primary language for lesson output.",
+    default="English", description="Primary language for lesson output."
   )
   widgets: list[StrictStr] | None = Field(
-    default=None,
-    min_length=3,
-    max_length=8,
-    description="Optional list of allowed widgets (overrides defaults).",
+    default=None, min_length=3, max_length=8, description="Optional list of allowed widgets (overrides defaults)."
   )
   schema_version: StrictStr | None = Field(
     default=None, description="Optional schema version to pin the lesson output to."
   )
   idempotency_key: StrictStr | None = Field(
-    default=None,
-    description="Idempotency key to prevent duplicate lesson generation.",
+    default=None, description="Idempotency key to prevent duplicate lesson generation."
   )
   models: ModelsConfig | None = Field(
     default=None,
@@ -320,9 +297,7 @@ class LessonCatalogResponse(BaseModel):
 class WritingCheckRequest(BaseModel):
   """Request payload for response evaluation."""
 
-  text: StrictStr = Field(
-    min_length=1, description="The user-written response to check (max 300 words)."
-  )
+  text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
   criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
   checker_model: StrictStr | None = Field(
     default=None,
@@ -337,8 +312,7 @@ class JobCreateResponse(BaseModel):
 
   job_id: StrictStr
   expected_sections: StrictInt = Field(
-    ge=0,
-    description="Total number of sections expected for the lesson job (0 for non-lesson jobs).",
+    ge=0, description="Total number of sections expected for the lesson job (0 for non-lesson jobs)."
   )
 
 
@@ -349,12 +323,10 @@ class JobRetryRequest(BaseModel):
   """Request payload for retrying a failed job."""
 
   sections: list[StrictInt] | None = Field(
-    default=None,
-    description="0-based section indexes to retry (defaults to all sections).",
+    default=None, description="0-based section indexes to retry (defaults to all sections)."
   )
   agents: list[RetryAgent] | None = Field(
-    default=None,
-    description="Pipeline agents to retry (defaults to full pipeline).",
+    default=None, description="Pipeline agents to retry (defaults to full pipeline)."
   )
   model_config = ConfigDict(extra="forbid")
 
@@ -373,14 +345,10 @@ class CurrentSectionStatus(BaseModel):
   """Section status metadata for streaming job progress."""
 
   index: StrictInt = Field(ge=0, description="0-based index of the active section.")
-  title: StrictStr | None = Field(
-    default=None, description="Title of the active section when known."
-  )
+  title: StrictStr | None = Field(default=None, description="Title of the active section when known.")
   status: StrictStr = Field(description="Section generation status.")
   retry_count: StrictInt | None = Field(
-    default=None,
-    ge=0,
-    description="Retry attempts for the active section when applicable.",
+    default=None, ge=0, description="Retry attempts for the active section when applicable."
   )
   model_config = ConfigDict(extra="forbid")
 
@@ -393,53 +361,29 @@ class JobStatusResponse(BaseModel):
   phase: StrictStr | None = None
   subphase: StrictStr | None = None
   expected_sections: StrictInt | None = Field(
-    default=None,
-    ge=0,
-    description="Total number of expected sections for lesson jobs.",
+    default=None, ge=0, description="Total number of expected sections for lesson jobs."
   )
   completed_sections: StrictInt | None = Field(
-    default=None,
-    ge=0,
-    description="Number of lesson sections completed so far.",
+    default=None, ge=0, description="Number of lesson sections completed so far."
   )
   completed_section_indexes: list[StrictInt] | None = Field(
-    default=None,
-    description="0-based section indexes that have been completed so far.",
+    default=None, description="0-based section indexes that have been completed so far."
   )
   current_section: CurrentSectionStatus | None = None
-  retry_count: StrictInt | None = Field(
-    default=None,
-    ge=0,
-    description="Retry attempts already used for this job.",
-  )
-  max_retries: StrictInt | None = Field(
-    default=None,
-    ge=0,
-    description="Maximum retry attempts allowed for this job.",
-  )
+  retry_count: StrictInt | None = Field(default=None, ge=0, description="Retry attempts already used for this job.")
+  max_retries: StrictInt | None = Field(default=None, ge=0, description="Maximum retry attempts allowed for this job.")
   retry_sections: list[StrictInt] | None = Field(
-    default=None,
-    description="0-based section indexes targeted for retry, when applicable.",
+    default=None, description="0-based section indexes targeted for retry, when applicable."
   )
   retry_agents: list[StrictStr] | None = Field(
-    default=None,
-    description="Pipeline agents targeted for retry, when applicable.",
+    default=None, description="Pipeline agents targeted for retry, when applicable."
   )
   total_steps: StrictInt | None = Field(
-    default=None,
-    ge=1,
-    description="Total number of progress steps when available.",
+    default=None, ge=1, description="Total number of progress steps when available."
   )
-  completed_steps: StrictInt | None = Field(
-    default=None,
-    ge=0,
-    description="Completed progress steps when available.",
-  )
+  completed_steps: StrictInt | None = Field(default=None, ge=0, description="Completed progress steps when available.")
   progress: StrictFloat | None = Field(
-    default=None,
-    ge=0.0,
-    le=100.0,
-    description="Progress percent (0-100) when available.",
+    default=None, ge=0.0, le=100.0, description="Progress percent (0-100) when available."
   )
   logs: list[StrictStr] = Field(default_factory=list)
   result: dict[str, Any] | None = None

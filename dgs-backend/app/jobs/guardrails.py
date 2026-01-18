@@ -66,10 +66,7 @@ def maybe_truncate_artifacts(artifacts: dict[str, Any] | None) -> dict[str, Any]
 
 
 def enforce_item_size_guardrails(
-  item: MutableMapping[str, Any],
-  *,
-  max_bytes: int = MAX_ITEM_BYTES,
-  skip_size_check: bool = False,
+  item: MutableMapping[str, Any], *, max_bytes: int = MAX_ITEM_BYTES, skip_size_check: bool = False
 ) -> MutableMapping[str, Any]:
   """
   Ensure a DynamoDB item fits within size constraints by trimming logs when necessary.

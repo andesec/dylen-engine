@@ -97,9 +97,7 @@ def _is_section_like(block: dict[str, Any]) -> bool:
   return "items" in block or "subsections" in block
 
 
-def _normalize_section_block(
-  section: dict[str, Any], idx: int, depth: int
-) -> dict[str, Any] | None:
+def _normalize_section_block(section: dict[str, Any], idx: int, depth: int) -> dict[str, Any] | None:
   """Normalize section fields, items, and nested subsections."""
   # Require a dictionary payload for section normalization.
   if not isinstance(section, dict):
@@ -454,31 +452,17 @@ def _normalize_mcqs_widget(mcqs: Any) -> dict[str, Any] | None:
     if not isinstance(question, dict):
       continue
     q_text = _sanitize_text(
-      question.get("q")
-      or question.get("question")
-      or question.get("prompt")
-      or question.get("text")
+      question.get("q") or question.get("question") or question.get("prompt") or question.get("text")
     )
     choices = _normalize_list_items(
-      question.get("c")
-      or question.get("choices")
-      or question.get("options")
-      or question.get("answers")
+      question.get("c") or question.get("choices") or question.get("options") or question.get("answers")
     )
     explanation = _sanitize_text(
-      question.get("e")
-      or question.get("explanation")
-      or question.get("why")
-      or question.get("reason")
+      question.get("e") or question.get("explanation") or question.get("why") or question.get("reason")
     )
     if not q_text or len(choices) < 2 or not explanation:
       return None
-    answer = (
-      question.get("a")
-      or question.get("answer")
-      or question.get("correct")
-      or question.get("correctIndex")
-    )
+    answer = question.get("a") or question.get("answer") or question.get("correct") or question.get("correctIndex")
     answer_index = _coerce_mcqs_answer_index(answer, choices)
     if answer_index is None:
       return None
@@ -516,9 +500,7 @@ def _normalize_swipecards_widget(swipecards: Any) -> list[Any] | None:
     if len(swipecards) >= 3:
       cards = swipecards[2]
   elif isinstance(swipecards, dict):
-    title = (
-      swipecards.get("title") or swipecards.get("instructions") or swipecards.get("prompt") or ""
-    )
+    title = swipecards.get("title") or swipecards.get("instructions") or swipecards.get("prompt") or ""
     labels = swipecards.get("labels") or swipecards.get("buckets") or swipecards.get("bucketLabels")
     cards = swipecards.get("cards")
   title = _sanitize_text(title) or "Swipe Drill"
@@ -533,9 +515,7 @@ def _normalize_swipecards_widget(swipecards: Any) -> list[Any] | None:
       text, idx, feedback = card[0], card[1], card[2]
     elif isinstance(card, dict):
       text = card.get("text") or card.get("front") or card.get("prompt") or card.get("card")
-      idx = (
-        card.get("correct") or card.get("answer") or card.get("bucket") or card.get("correctIndex")
-      )
+      idx = card.get("correct") or card.get("answer") or card.get("bucket") or card.get("correctIndex")
       feedback = card.get("feedback") or card.get("explanation") or card.get("reason")
     else:
       text, idx, feedback = card, 0, ""
@@ -658,24 +638,7 @@ def _normalize_ascii_diagram_widget(ascii_diagram: Any) -> list[str] | None:
   is_headless = False
 
   # Common box drawing characters and non-alphanumeric symbols often found in diagrams
-  diagram_start_chars = {
-    "+",
-    "|",
-    "┌",
-    "└",
-    "─",
-    "│",
-    "├",
-    "┤",
-    "┬",
-    "┴",
-    "┼",
-    "*",
-    "#",
-    "<",
-    ">",
-    "/",
-  }
+  diagram_start_chars = {"+", "|", "┌", "└", "─", "│", "├", "┤", "┬", "┴", "┼", "*", "#", "<", ">", "/"}
 
   if first_elem:
     stripped_start = first_elem.strip()
@@ -767,16 +730,7 @@ def is_worth_ai_repair(errors: list[str]) -> bool:
   # Skip AI repair when errors are already resolved.
   if not errors:
     return False
-  simple_patterns = [
-    "version",
-    "title",
-    "blocks",
-    "section",
-    "items",
-    "missing",
-    "required",
-    "empty",
-  ]
+  simple_patterns = ["version", "title", "blocks", "section", "items", "missing", "required", "empty"]
   # Flag any error that doesn't match a simple structural pattern.
   for error in errors:
     error_lower = error.lower()

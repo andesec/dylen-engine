@@ -34,44 +34,30 @@ router = APIRouter()
 
 @router.post("/v1/jobs", response_model=JobCreateResponse, dependencies=[Depends(_require_dev_key)])
 async def create_job(
-  request: GenerateLessonRequest,
-  background_tasks: BackgroundTasks,
-  settings: Settings = Depends(get_settings),
+  request: GenerateLessonRequest, background_tasks: BackgroundTasks, settings: Settings = Depends(get_settings)
 ) -> JobCreateResponse:
   """Create a background lesson generation job."""
   response = await _create_job_record(request, settings)
 
   # Kick off processing so the client can poll for status immediately.
-  _kickoff_job_processing(
-    background_tasks, response.job_id, settings, job_worker_active=is_job_worker_active()
-  )
+  _kickoff_job_processing(background_tasks, response.job_id, settings, job_worker_active=is_job_worker_active())
   return response
 
 
-@router.post(
-  "/v1/lessons/jobs", response_model=JobCreateResponse, dependencies=[Depends(_require_dev_key)]
-)
+@router.post("/v1/lessons/jobs", response_model=JobCreateResponse, dependencies=[Depends(_require_dev_key)])
 async def create_lesson_job(
-  request: GenerateLessonRequest,
-  background_tasks: BackgroundTasks,
-  settings: Settings = Depends(get_settings),
+  request: GenerateLessonRequest, background_tasks: BackgroundTasks, settings: Settings = Depends(get_settings)
 ) -> JobCreateResponse:
   """Alias route for creating a background lesson generation job."""
   response = await _create_job_record(request, settings)
 
   # Kick off processing so the client can poll for status immediately.
-  _kickoff_job_processing(
-    background_tasks, response.job_id, settings, job_worker_active=is_job_worker_active()
-  )
+  _kickoff_job_processing(background_tasks, response.job_id, settings, job_worker_active=is_job_worker_active())
   return response
 
 
-@router.get(
-  "/v1/jobs/{job_id}", response_model=JobStatusResponse, dependencies=[Depends(_require_dev_key)]
-)
-async def get_job_status(
-  job_id: str, settings: Settings = Depends(get_settings)
-) -> JobStatusResponse:
+@router.get("/v1/jobs/{job_id}", response_model=JobStatusResponse, dependencies=[Depends(_require_dev_key)])
+async def get_job_status(job_id: str, settings: Settings = Depends(get_settings)) -> JobStatusResponse:
   """Fetch the status and result of a background job."""
   repo = _get_jobs_repo(settings)
   record = await run_in_threadpool(repo.get_job, job_id)
@@ -81,11 +67,7 @@ async def get_job_status(
   return _job_status_from_record(record, settings)
 
 
-@router.post(
-  "/v1/jobs/{job_id}/cancel",
-  response_model=JobStatusResponse,
-  dependencies=[Depends(_require_dev_key)],
-)
+@router.post("/v1/jobs/{job_id}/cancel", response_model=JobStatusResponse, dependencies=[Depends(_require_dev_key)])
 async def cancel_job(job_id: str, settings: Settings = Depends(get_settings)) -> JobStatusResponse:
   """Request cancellation of a running background job."""
   repo = _get_jobs_repo(settings)
@@ -95,10 +77,7 @@ async def cancel_job(job_id: str, settings: Settings = Depends(get_settings)) ->
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
 
   if record.status in ("done", "error", "canceled"):
-    raise HTTPException(
-      status_code=status.HTTP_409_CONFLICT,
-      detail="Job is already finalized and cannot be canceled.",
-    )
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is already finalized and cannot be canceled.")
 
   updated = await run_in_threadpool(
     repo.update_job,
@@ -116,16 +95,9 @@ async def cancel_job(job_id: str, settings: Settings = Depends(get_settings)) ->
   return _job_status_from_record(updated, settings)
 
 
-@router.post(
-  "/v1/jobs/{job_id}/retry",
-  response_model=JobStatusResponse,
-  dependencies=[Depends(_require_dev_key)],
-)
+@router.post("/v1/jobs/{job_id}/retry", response_model=JobStatusResponse, dependencies=[Depends(_require_dev_key)])
 async def retry_job(
-  job_id: str,
-  payload: JobRetryRequest,
-  background_tasks: BackgroundTasks,
-  settings: Settings = Depends(get_settings),
+  job_id: str, payload: JobRetryRequest, background_tasks: BackgroundTasks, settings: Settings = Depends(get_settings)
 ) -> JobStatusResponse:
   """Retry a failed job with optional section/agent targeting."""
   repo = _get_jobs_repo(settings)
@@ -136,27 +108,21 @@ async def retry_job(
 
   # Only finalized failures should be eligible for retry.
   if record.status not in ("error", "canceled"):
-    raise HTTPException(
-      status_code=status.HTTP_409_CONFLICT,
-      detail="Only failed or canceled jobs can be retried.",
-    )
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only failed or canceled jobs can be retried.")
 
   # Enforce the retry limit to avoid unbounded reprocessing.
   retry_count = record.retry_count or 0
   max_retries = record.max_retries if record.max_retries is not None else settings.job_max_retries
 
   if retry_count >= max_retries:
-    raise HTTPException(
-      status_code=status.HTTP_409_CONFLICT, detail="Retry limit reached for this job."
-    )
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Retry limit reached for this job.")
 
   # Resolve expected sections for validation against retry targets.
   try:
     parsed_request = _parse_job_request(record.request)
   except ValidationError as exc:
     raise HTTPException(
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-      detail="Stored job request failed validation.",
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stored job request failed validation."
     ) from exc
 
   if isinstance(parsed_request, WritingCheckRequest):
@@ -167,9 +133,7 @@ async def retry_job(
       )
     expected_sections = 0
   else:
-    expected_sections = record.expected_sections or _expected_sections_from_request(
-      parsed_request, settings
-    )
+    expected_sections = record.expected_sections or _expected_sections_from_request(parsed_request, settings)
 
   # Normalize retry sections to a unique, ordered list.
   retry_sections = None
@@ -180,8 +144,7 @@ async def retry_job(
 
     if invalid:
       raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Retry section indexes exceed expected section count.",
+        status_code=status.HTTP_400_BAD_REQUEST, detail="Retry section indexes exceed expected section count."
       )
     retry_sections = sorted(set(payload.sections))
 
@@ -213,7 +176,5 @@ async def retry_job(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
 
   # Kick off processing so retries start immediately when auto-processing is enabled.
-  _kickoff_job_processing(
-    background_tasks, updated.job_id, settings, job_worker_active=is_job_worker_active()
-  )
+  _kickoff_job_processing(background_tasks, updated.job_id, settings, job_worker_active=is_job_worker_active())
   return _job_status_from_record(updated, settings)

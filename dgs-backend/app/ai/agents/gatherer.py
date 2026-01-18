@@ -28,9 +28,7 @@ class GathererAgent(BaseAgent[PlanSection, SectionDraft]):
       raw_text = dummy_text.strip()
 
       if not raw_text:
-        logger.warning(
-          "Gatherer dummy response is empty for section %s.", input_data.section_number
-        )
+        logger.warning("Gatherer dummy response is empty for section %s.", input_data.section_number)
 
       return SectionDraft(
         section_number=input_data.section_number,
@@ -48,17 +46,11 @@ class GathererAgent(BaseAgent[PlanSection, SectionDraft]):
     # Stamp the provider call with agent context so audit logs include request metadata.
 
     with llm_call_context(
-      agent=self.name,
-      lesson_topic=request.topic,
-      job_id=ctx.job_id,
-      purpose=purpose,
-      call_index=call_index,
+      agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index
     ):
       response = await self._model.generate(prompt_text)
 
-    self._record_usage(
-      agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage
-    )
+    self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
 
     # Surface empty responses so downstream repair can be triggered.
 
@@ -70,9 +62,5 @@ class GathererAgent(BaseAgent[PlanSection, SectionDraft]):
     title = input_data.title
 
     return SectionDraft(
-      section_number=section_number,
-      title=title,
-      plan_section=input_data,
-      raw_text=raw_text,
-      extracted_parts=None,
+      section_number=section_number, title=title, plan_section=input_data, raw_text=raw_text, extracted_parts=None
     )

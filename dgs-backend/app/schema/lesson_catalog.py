@@ -81,26 +81,14 @@ _RAW_TEACHING_STYLES: list[dict[str, Any]] = [
 ]
 
 _LEARNER_LEVELS: list[dict[str, str]] = [
-  {
-    "id": "newbie",
-    "label": "Newbie",
-    "tooltip": "No prior exposure; use gentle pacing and foundational terms.",
-  },
-  {
-    "id": "beginner",
-    "label": "Beginner",
-    "tooltip": "Some familiarity; reinforce basics with guided practice.",
-  },
+  {"id": "newbie", "label": "Newbie", "tooltip": "No prior exposure; use gentle pacing and foundational terms."},
+  {"id": "beginner", "label": "Beginner", "tooltip": "Some familiarity; reinforce basics with guided practice."},
   {
     "id": "intermediate",
     "label": "Intermediate",
     "tooltip": "Solid fundamentals; add nuance, tradeoffs, and real scenarios.",
   },
-  {
-    "id": "expert",
-    "label": "Expert",
-    "tooltip": "Advanced mastery; focus on edge cases, optimization, and depth.",
-  },
+  {"id": "expert", "label": "Expert", "tooltip": "Advanced mastery; focus on edge cases, optimization, and depth."},
 ]
 
 _DEPTH_OPTIONS: list[dict[str, str]] = [
@@ -109,11 +97,7 @@ _DEPTH_OPTIONS: list[dict[str, str]] = [
     "label": "Highlights",
     "tooltip": "Two concise sections for quick orientation and key takeaways.",
   },
-  {
-    "id": "detailed",
-    "label": "Detailed",
-    "tooltip": "Six sections with a closing quiz for solid coverage.",
-  },
+  {"id": "detailed", "label": "Detailed", "tooltip": "Six sections with a closing quiz for solid coverage."},
   {
     "id": "training",
     "label": "Training",
@@ -237,13 +221,7 @@ def _build_blueprint_options() -> list[dict[str, str]]:
   for blueprint in _RAW_BLUEPRINTS:
     # Use the precomposed tooltip to keep the payload stable.
     tooltip = blueprint["tooltip"]
-    options.append(
-      {
-        "id": blueprint["id"],
-        "label": blueprint["label"],
-        "tooltip": tooltip,
-      }
-    )
+    options.append({"id": blueprint["id"], "label": blueprint["label"], "tooltip": tooltip})
 
   return options
 
@@ -256,13 +234,7 @@ def _build_teaching_style_options() -> list[dict[str, str]]:
   for style in _RAW_TEACHING_STYLES:
     # Use the precomposed tooltip to keep the payload stable.
     tooltip = style["tooltip"]
-    options.append(
-      {
-        "id": style["id"],
-        "label": style["label"],
-        "tooltip": tooltip,
-      }
-    )
+    options.append({"id": style["id"], "label": style["label"], "tooltip": tooltip})
 
   return options
 
@@ -305,13 +277,7 @@ def _build_widget_options() -> list[dict[str, str]]:
     # Extract a brief tooltip for each widget entry.
     description = registry.describe(widget_name)
     tooltip = _build_widget_tooltip(description, widget_name)
-    options.append(
-      {
-        "id": widget_id,
-        "label": widget_label,
-        "tooltip": tooltip,
-      }
-    )
+    options.append({"id": widget_id, "label": widget_label, "tooltip": tooltip})
 
   return options
 
@@ -330,9 +296,7 @@ def build_widget_defaults() -> dict[str, dict[str, list[str]]]:
     for style_key in ("conceptual", "theoretical", "practical"):
       widgets = styles.get(style_key, [])
       # Normalize widget ids so defaults align with option ids.
-      style_defaults[style_key] = [
-        "".join(ch for ch in widget.lower() if ch.isalnum()) for widget in widgets
-      ]
+      style_defaults[style_key] = ["".join(ch for ch in widget.lower() if ch.isalnum()) for widget in widgets]
 
     defaults[blueprint_id] = style_defaults
 
@@ -344,34 +308,10 @@ def _build_agent_models(settings: Settings) -> list[dict[str, Any]]:
   options: list[dict[str, Any]] = []
 
   # Build each agent entry with default model values.
-  options.append(
-    {
-      "agent": "gatherer",
-      "default": settings.gatherer_model,
-      "options": _GATHERER_MODELS,
-    }
-  )
-  options.append(
-    {
-      "agent": "planner",
-      "default": settings.planner_model,
-      "options": _PLANNER_MODELS,
-    }
-  )
-  options.append(
-    {
-      "agent": "structurer",
-      "default": settings.structurer_model,
-      "options": _STRUCTURER_MODELS,
-    }
-  )
-  options.append(
-    {
-      "agent": "repairer",
-      "default": settings.repair_model,
-      "options": _REPAIRER_MODELS,
-    }
-  )
+  options.append({"agent": "gatherer", "default": settings.gatherer_model, "options": _GATHERER_MODELS})
+  options.append({"agent": "planner", "default": settings.planner_model, "options": _PLANNER_MODELS})
+  options.append({"agent": "structurer", "default": settings.structurer_model, "options": _STRUCTURER_MODELS})
+  options.append({"agent": "repairer", "default": settings.repair_model, "options": _REPAIRER_MODELS})
 
   # Keep a blank line after the loop for readability.
 

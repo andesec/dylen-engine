@@ -74,9 +74,7 @@ def _coerce_depth(raw_depth: Any) -> int:
   try:
     depth = int(raw_depth)
   except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-    raise ValueError(
-      "Depth must be Highlights, Detailed, Training, or an integer between 2 and 10."
-    ) from exc
+    raise ValueError("Depth must be Highlights, Detailed, Training, or an integer between 2 and 10.") from exc
   if depth < 2:
     raise ValueError("Depth must be at least 2.")
   if depth > 10:
@@ -84,9 +82,7 @@ def _coerce_depth(raw_depth: Any) -> int:
   return depth
 
 
-def build_call_plan(
-  request_data: Mapping[str, Any], *, merge_gatherer_structurer: bool = False
-) -> CallPlan:
+def build_call_plan(request_data: Mapping[str, Any], *, merge_gatherer_structurer: bool = False) -> CallPlan:
   """Derive an AI call plan from the raw job request payload."""
 
   # Normalize depth input before computing call counts.

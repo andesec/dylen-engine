@@ -24,11 +24,7 @@ from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.validate_lesson import validate_lesson
 from app.services.model_routing import _resolve_model_selection
 from app.services.orchestrator import _get_orchestrator
-from app.services.validation import (
-  _resolve_learner_level,
-  _resolve_primary_language,
-  _validate_generate_request,
-)
+from app.services.validation import _resolve_learner_level, _resolve_primary_language, _validate_generate_request
 from app.storage.factory import _get_repo
 from app.storage.lessons_repo import LessonRecord
 from app.utils.ids import generate_lesson_id
@@ -39,9 +35,7 @@ _LESSON_NOT_FOUND_MSG = "Lesson not found."
 
 
 @router.get("/v1/lessons/catalog", response_model=LessonCatalogResponse)
-async def get_lesson_catalog(
-  response: Response, settings: Settings = Depends(get_settings)
-) -> LessonCatalogResponse:
+async def get_lesson_catalog(response: Response, settings: Settings = Depends(get_settings)) -> LessonCatalogResponse:
   """Return blueprint, teaching style, and widget metadata for clients."""
   # Toggle cache control with an environment flag for dynamic refreshes.
   if settings.cache_lesson_catalog:
@@ -52,11 +46,7 @@ async def get_lesson_catalog(
   return LessonCatalogResponse(**payload)
 
 
-@router.post(
-  "/v1/lessons/validate",
-  response_model=ValidationResponse,
-  dependencies=[Depends(_require_dev_key)],
-)
+@router.post("/v1/lessons/validate", response_model=ValidationResponse, dependencies=[Depends(_require_dev_key)])
 async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
   """Validate lesson payloads from stored lessons or job results against schema and widgets."""
   ok, errors, _model = validate_lesson(payload)
@@ -154,14 +144,8 @@ async def generate_lesson(
   )
 
 
-@router.get(
-  "/v1/lessons/{lesson_id}",
-  response_model=LessonRecordResponse,
-  dependencies=[Depends(_require_dev_key)],
-)
-async def get_lesson(
-  lesson_id: str, settings: Settings = Depends(get_settings)
-) -> LessonRecordResponse:
+@router.get("/v1/lessons/{lesson_id}", response_model=LessonRecordResponse, dependencies=[Depends(_require_dev_key)])
+async def get_lesson(lesson_id: str, settings: Settings = Depends(get_settings)) -> LessonRecordResponse:
   """Fetch a stored lesson by identifier, consistent with async job persistence."""
   repo = _get_repo(settings)
   record = await run_in_threadpool(repo.get_lesson, lesson_id)

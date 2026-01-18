@@ -20,9 +20,7 @@ class TruncatedFormatter(logging.Formatter):
   """Formatter that truncates the stack trace to the last few lines."""
 
   # ruff: noqa: N802
-  def formatException(
-    self, ei: tuple[type[BaseException] | None, BaseException | None, TracebackType | None]
-  ) -> str:
+  def formatException(self, ei: tuple[type[BaseException] | None, BaseException | None, TracebackType | None]) -> str:
     import traceback
 
     lines = traceback.format_exception(*ei)
@@ -91,12 +89,7 @@ def _log_widget_registry() -> None:
     return
 
   widget_names = registry.available_types()
-  logger.info(
-    "Widget registry loaded from %s (%d types): %s",
-    rules_path,
-    len(widget_names),
-    ", ".join(widget_names),
-  )
+  logger.info("Widget registry loaded from %s (%d types): %s", rules_path, len(widget_names), ", ".join(widget_names))
 
 
 def _initialize_logging() -> None:

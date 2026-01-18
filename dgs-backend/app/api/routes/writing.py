@@ -28,9 +28,7 @@ _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
   dependencies=[Depends(_require_dev_key)],
 )
 async def create_writing_check(
-  request: WritingCheckRequest,
-  background_tasks: BackgroundTasks,
-  settings: Settings = Depends(get_settings),
+  request: WritingCheckRequest, background_tasks: BackgroundTasks, settings: Settings = Depends(get_settings)
 ) -> JobCreateResponse:
   """Create a background job to check a writing task response."""
   _validate_writing_request(request)
@@ -58,7 +56,5 @@ async def create_writing_check(
   response = JobCreateResponse(job_id=job_id, expected_sections=0)
 
   # Kick off processing so the client can poll for status immediately.
-  _kickoff_job_processing(
-    background_tasks, response.job_id, settings, job_worker_active=is_job_worker_active()
-  )
+  _kickoff_job_processing(background_tasks, response.job_id, settings, job_worker_active=is_job_worker_active())
   return response

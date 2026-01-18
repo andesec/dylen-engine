@@ -71,9 +71,7 @@ class AIModel(ABC):
     """Generate a response for the given prompt."""
 
   @abstractmethod
-  async def generate_structured(
-    self, prompt: str, schema: dict[str, Any]
-  ) -> StructuredModelResponse:
+  async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
     """Generate structured output that conforms to the provided JSON schema."""
     raise RuntimeError("Structured output is not supported by this model.")
 

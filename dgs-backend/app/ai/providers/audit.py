@@ -7,13 +7,7 @@ import time
 from typing import Any, cast
 
 from app.ai.providers.base import AIModel, ModelResponse, StructuredModelResponse
-from app.telemetry.llm_audit import (
-  finalize_llm_call,
-  serialize_request,
-  serialize_response,
-  start_llm_call,
-  utc_now,
-)
+from app.telemetry.llm_audit import finalize_llm_call, serialize_request, serialize_response, start_llm_call, utc_now
 
 
 class AuditModel(AIModel):
@@ -29,9 +23,7 @@ class AuditModel(AIModel):
     """Generate a response while capturing an audit trail."""
     return cast(ModelResponse, await self._capture(prompt=prompt, schema=None))
 
-  async def generate_structured(
-    self, prompt: str, schema: dict[str, Any]
-  ) -> StructuredModelResponse:
+  async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
     """Generate a structured response while capturing an audit trail."""
     return cast(StructuredModelResponse, await self._capture(prompt=prompt, schema=schema))
 
@@ -71,11 +63,7 @@ class AuditModel(AIModel):
       content = getattr(response, "content", None) if response is not None else None
       response_payload = serialize_response(content)
       await finalize_llm_call(
-        call_id=call_id,
-        response_payload=response_payload,
-        usage=usage,
-        duration_ms=duration_ms,
-        error=error,
+        call_id=call_id, response_payload=response_payload, usage=usage, duration_ms=duration_ms, error=error
       )
 
 

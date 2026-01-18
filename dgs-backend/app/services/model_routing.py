@@ -2,22 +2,13 @@
 
 from __future__ import annotations
 
-from app.api.models import (
-  KnowledgeModel,
-  ModelsConfig,
-  PlannerModel,
-  RepairerModel,
-  StructurerModel,
-)
+from app.api.models import KnowledgeModel, ModelsConfig, PlannerModel, RepairerModel, StructurerModel
 from app.config import Settings
 
 _GEMINI_PROVIDER = "gemini"
 _OPENROUTER_PROVIDER = "openrouter"
 
-_GEMINI_KNOWLEDGE_MODELS = {
-  KnowledgeModel.GEMINI_25_FLASH,
-  KnowledgeModel.GEMINI_25_PRO,
-}
+_GEMINI_KNOWLEDGE_MODELS = {KnowledgeModel.GEMINI_25_FLASH, KnowledgeModel.GEMINI_25_PRO}
 
 _OPENROUTER_KNOWLEDGE_MODELS = {
   KnowledgeModel.XIAOMI_MIMO_V2_FLASH,
@@ -28,16 +19,9 @@ _OPENROUTER_KNOWLEDGE_MODELS = {
 
 _GEMINI_STRUCTURER_MODELS = {StructurerModel.GEMINI_25_FLASH}
 
-_OPENROUTER_STRUCTURER_MODELS = {
-  StructurerModel.GPT_OSS_20B,
-  StructurerModel.LLAMA_33_70B,
-  StructurerModel.GEMMA_3_27B,
-}
+_OPENROUTER_STRUCTURER_MODELS = {StructurerModel.GPT_OSS_20B, StructurerModel.LLAMA_33_70B, StructurerModel.GEMMA_3_27B}
 
-_GEMINI_PLANNER_MODELS = {
-  PlannerModel.GEMINI_25_PRO,
-  PlannerModel.GEMINI_PRO_LATEST,
-}
+_GEMINI_PLANNER_MODELS = {PlannerModel.GEMINI_25_PRO, PlannerModel.GEMINI_PRO_LATEST}
 
 _OPENROUTER_PLANNER_MODELS = {
   PlannerModel.GPT_OSS_120B,
@@ -46,15 +30,9 @@ _OPENROUTER_PLANNER_MODELS = {
   PlannerModel.DEEPSEEK_R1_0528,
 }
 
-_GEMINI_REPAIRER_MODELS = {
-  RepairerModel.GEMINI_25_FLASH,
-}
+_GEMINI_REPAIRER_MODELS = {RepairerModel.GEMINI_25_FLASH}
 
-_OPENROUTER_REPAIRER_MODELS = {
-  RepairerModel.GPT_OSS_20B,
-  RepairerModel.GEMMA_3_27B,
-  RepairerModel.DEEPSEEK_R1_0528,
-}
+_OPENROUTER_REPAIRER_MODELS = {RepairerModel.GPT_OSS_20B, RepairerModel.GEMMA_3_27B, RepairerModel.DEEPSEEK_R1_0528}
 
 DEFAULT_KNOWLEDGE_MODEL = KnowledgeModel.LLAMA_31_405B.value
 

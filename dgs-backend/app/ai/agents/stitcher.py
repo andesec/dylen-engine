@@ -6,12 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.ai.agents.base import BaseAgent
-from app.ai.pipeline.contracts import (
-  FinalLesson,
-  JobContext,
-  StructuredSection,
-  StructuredSectionBatch,
-)
+from app.ai.pipeline.contracts import FinalLesson, JobContext, StructuredSection, StructuredSectionBatch
 
 
 class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
@@ -22,10 +17,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
   async def run(self, input_data: StructuredSectionBatch, ctx: JobContext) -> FinalLesson:
     """Stitch structured sections into a final lesson payload."""
     sections = StitcherAgent._output_dle_shorthand(input_data.sections)
-    lesson_json = {
-      "title": ctx.request.topic,
-      "blocks": [section.payload for section in sections],
-    }
+    lesson_json = {"title": ctx.request.topic, "blocks": [section.payload for section in sections]}
     result = self._schema_service.validate_lesson_payload(lesson_json)
     messages = [f"{issue.path}: {issue.message}" for issue in result.issues]
     metadata = {"validation_errors": messages} if messages else None
@@ -326,12 +318,7 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
         if not isinstance(expl, str) or not expl.strip():
           expl = f"Correct: {c[a_idx]}."
 
-        return {
-          "mcqs": {
-            "title": qtitle,
-            "questions": [{"q": q_text, "c": c, "a": a_idx, "e": expl}],
-          }
-        }
+        return {"mcqs": {"title": qtitle, "questions": [{"q": q_text, "c": c, "a": a_idx, "e": expl}]}}
 
       # Unknown or non-lossless widget: keep full-form
       return item

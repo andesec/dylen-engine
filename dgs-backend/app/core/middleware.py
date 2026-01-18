@@ -11,9 +11,7 @@ from fastapi import Request, Response
 logger = logging.getLogger("app.core.middleware")
 
 
-async def log_requests(
-  request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
+async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
   """Log all incoming requests and outgoing responses."""
   start_time = time.time()
   logger.info(f"Incoming request: {request.method} {request.url}")

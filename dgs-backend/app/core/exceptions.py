@@ -14,9 +14,7 @@ from app.core.json import DecimalJSONResponse
 settings = get_settings()
 
 
-def _error_payload(
-  detail: str, *, error: str | None = None, logs: list[str] | None = None
-) -> dict[str, Any]:
+def _error_payload(detail: str, *, error: str | None = None, logs: list[str] | None = None) -> dict[str, Any]:
   """Build error payloads with optional debug detail."""
   payload = {"detail": detail}
 
@@ -36,14 +34,11 @@ async def global_exception_handler(request: Request, exc: Exception) -> DecimalJ
   logger = logging.getLogger("uvicorn.error")
   logger.error(f"Global exception: {exc}", exc_info=True)
   return DecimalJSONResponse(
-    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    content=_error_payload("Internal Server Error", error=str(exc)),
+    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=_error_payload("Internal Server Error", error=str(exc))
   )
 
 
-async def orchestration_exception_handler(
-  request: Request, exc: OrchestrationError
-) -> DecimalJSONResponse:
+async def orchestration_exception_handler(request: Request, exc: OrchestrationError) -> DecimalJSONResponse:
   """Return a structured failure response for orchestration errors."""
   # Log orchestration failures with stack traces for diagnostics.
   logger = logging.getLogger("uvicorn.error")

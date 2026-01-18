@@ -9,12 +9,7 @@ from typing import TYPE_CHECKING, Any
 from app.ai.errors import is_provider_error
 from app.ai.providers.audit import instrument_model
 from app.ai.providers.base import AIModel, ModelResponse, Provider, StructuredModelResponse
-from app.schema.lesson_catalog import (
-  _GATHERER_MODELS,
-  _PLANNER_MODELS,
-  _REPAIRER_MODELS,
-  _STRUCTURER_MODELS,
-)
+from app.schema.lesson_catalog import _GATHERER_MODELS, _PLANNER_MODELS, _REPAIRER_MODELS, _STRUCTURER_MODELS
 
 if TYPE_CHECKING:
   pass
@@ -41,18 +36,12 @@ def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
   raise ValueError(f"Unsupported provider mode '{mode}'.")
 
 
-def get_model_for_mode(
-  mode: str | ProviderMode, model: str | None = None, *, agent: str | None = None
-) -> AIModel:
+def get_model_for_mode(mode: str | ProviderMode, model: str | None = None, *, agent: str | None = None) -> AIModel:
   """Return a model client for the given mode and model name."""
   provider = get_provider_for_mode(mode)
-  provider_name = getattr(
-    provider, "name", mode.value if isinstance(mode, ProviderMode) else str(mode)
-  )
+  provider_name = getattr(provider, "name", mode.value if isinstance(mode, ProviderMode) else str(mode))
   model_sequence = _build_model_sequence(provider=provider, model=model, agent=agent)
-  return FallbackModel(
-    provider=provider, provider_name=provider_name, model_sequence=model_sequence
-  )
+  return FallbackModel(provider=provider, provider_name=provider_name, model_sequence=model_sequence)
 
 
 def _build_model_sequence(provider: Provider, model: str | None, agent: str | None) -> list[str]:
@@ -132,9 +121,7 @@ class FallbackModel(AIModel):
     """Generate text while falling back on provider/model errors."""
     return await self._attempt(lambda model: model.generate(prompt))
 
-  async def generate_structured(
-    self, prompt: str, schema: dict[str, Any]
-  ) -> StructuredModelResponse:
+  async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
     """Generate structured output while falling back on provider/model errors."""
     return await self._attempt(lambda model: model.generate_structured(prompt, schema))
 
@@ -171,9 +158,7 @@ class FallbackModel(AIModel):
       # Wrap provider models to capture audit telemetry without changing call sites.
       self._active_model = instrument_model(model_client, self._provider_name)
       self.name = getattr(self._active_model, "name", model_name)
-      self.supports_structured_output = getattr(
-        self._active_model, "supports_structured_output", False
-      )
+      self.supports_structured_output = getattr(self._active_model, "supports_structured_output", False)
       self._active_index = next_index
       return True
 

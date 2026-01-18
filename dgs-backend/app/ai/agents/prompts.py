@@ -179,9 +179,7 @@ def render_structurer_prompt(request: Req, section: Section, _schema_version: st
   return rendered_template
 
 
-def render_gatherer_structurer_prompt(
-  request: Req, section: PlanSection, _schema_version: str
-) -> str:
+def render_gatherer_structurer_prompt(request: Req, section: PlanSection, _schema_version: str) -> str:
   """Render the merged gatherer+structurer prompt with planner and schema context."""
   prompt_template = _load_prompt("gatherer-structurer.md")
   plan_json = _serialize_plan_section(section)
@@ -217,11 +215,7 @@ def render_gatherer_structurer_prompt(
 
 
 def render_repair_prompt(
-  _request: Req,
-  _section: Section,
-  repair_targets: list[dict[str, Any]],
-  errors: Errors,
-  widget_schemas: dict[str, Any],
+  _request: Req, _section: Section, repair_targets: list[dict[str, Any]], errors: Errors, widget_schemas: dict[str, Any]
 ) -> str:
   """Render the repair prompt for invalid JSON with embedded widget schema."""
   prompt_template = _load_prompt("repair.md")

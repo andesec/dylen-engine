@@ -16,9 +16,7 @@ def _get_repo(settings: Settings) -> LessonsRepository:
     raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
 
   return PostgresLessonsRepository(
-    dsn=settings.pg_dsn,
-    connect_timeout=settings.pg_connect_timeout,
-    table_name=settings.pg_lessons_table,
+    dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout, table_name=settings.pg_lessons_table
   )
 
 
@@ -29,7 +27,5 @@ def _get_jobs_repo(settings: Settings) -> JobsRepository:
     raise ValueError("DGS_PG_DSN must be set to enable Postgres persistence.")
 
   return PostgresJobsRepository(
-    dsn=settings.pg_dsn,
-    connect_timeout=settings.pg_connect_timeout,
-    table_name=settings.pg_jobs_table,
+    dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout, table_name=settings.pg_jobs_table
   )

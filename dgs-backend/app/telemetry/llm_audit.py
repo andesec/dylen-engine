@@ -58,18 +58,11 @@ def _get_repository() -> PostgresLlmAuditRepository | None:
 
     return None
 
-  return PostgresLlmAuditRepository(
-    dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout
-  )
+  return PostgresLlmAuditRepository(dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout)
 
 
 async def start_llm_call(
-  *,
-  provider: str,
-  model: str,
-  request_type: str,
-  request_payload: str,
-  started_at: datetime,
+  *, provider: str, model: str, request_type: str, request_payload: str, started_at: datetime
 ) -> str | None:
   """Insert a pending LLM call row before the network request."""
   # Exit early when audit logging is disabled to keep calls fast.
@@ -86,11 +79,7 @@ async def start_llm_call(
 
   # Build the pending record and insert off-thread to avoid blocking the loop.
   event = LlmAuditStart(
-    provider=provider,
-    model=model,
-    request_type=request_type,
-    request_payload=request_payload,
-    started_at=started_at,
+    provider=provider, model=model, request_type=request_type, request_payload=request_payload, started_at=started_at
   )
   record = _build_pending_record(event)
   await asyncio.to_thread(_insert_record, repo, record)

@@ -34,11 +34,7 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
       validator = self._schema_service.validate_section_payload
       ok, errors, _ = validator(dummy_json, topic=topic, section_index=section_index)
       validation_errors = [] if ok else errors
-      return StructuredSection(
-        section_number=section_index,
-        payload=dummy_json,
-        validation_errors=validation_errors,
-      )
+      return StructuredSection(section_number=section_index, payload=dummy_json, validation_errors=validation_errors)
 
     schema_version = str((ctx.metadata or {}).get("schema_version", ""))
     structured_output = bool((ctx.metadata or {}).get("structured_output", True))
@@ -52,11 +48,7 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
 
       # Apply context to correlate provider calls with the agent and lesson topic.
       with llm_call_context(
-        agent=self.name,
-        lesson_topic=request.topic,
-        job_id=ctx.job_id,
-        purpose=purpose,
-        call_index=call_index,
+        agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index
       ):
         try:
           response = await self._model.generate_structured(prompt_text, schema)
@@ -77,16 +69,9 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
           ):
             response = await self._model.generate_structured(retry_prompt, schema)
 
-          self._record_usage(
-            agent=self.name,
-            purpose=retry_purpose,
-            call_index=retry_call_index,
-            usage=response.usage,
-          )
+          self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
 
-      self._record_usage(
-        agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage
-      )
+      self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
       section_json = response.content
 
     else:
@@ -101,11 +86,7 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
 
       # Apply context to correlate provider calls with the agent and lesson topic.
       with llm_call_context(
-        agent=self.name,
-        lesson_topic=request.topic,
-        job_id=ctx.job_id,
-        purpose=purpose,
-        call_index=call_index,
+        agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index
       ):
         raw = await self._model.generate(prompt_with_schema)
 
@@ -132,21 +113,14 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
         ):
           retry_raw = await self._model.generate(retry_prompt)
 
-        self._record_usage(
-          agent=self.name,
-          purpose=retry_purpose,
-          call_index=retry_call_index,
-          usage=retry_raw.usage,
-        )
+        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)
 
         try:
           cleaned_retry = self._model.strip_json_fences(retry_raw.content)
           section_json = cast(dict[str, Any], parse_json_with_fallback(cleaned_retry))
         except json.JSONDecodeError as retry_exc:
           logger.error("Structurer retry failed to parse JSON: %s", retry_exc)
-          raise RuntimeError(
-            f"Failed to parse section JSON after retry: {retry_exc}"
-          ) from retry_exc
+          raise RuntimeError(f"Failed to parse section JSON after retry: {retry_exc}") from retry_exc
 
     section_index = input_data.section_number
     topic = request.topic
@@ -154,6 +128,4 @@ class StructurerAgent(BaseAgent[SectionDraft, StructuredSection]):
     validator = self._schema_service.validate_section_payload
     ok, errors, _ = validator(section_json, topic=topic, section_index=section_index)
     validation_errors = [] if ok else errors
-    return StructuredSection(
-      section_number=section_index, payload=section_json, validation_errors=validation_errors
-    )
+    return StructuredSection(section_number=section_index, payload=section_json, validation_errors=validation_errors)

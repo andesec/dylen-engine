@@ -36,10 +36,7 @@ OptStr = str | None
 Msgs = list[str] | None
 SectionStatus = Literal["generating", "retrying", "completed"]
 ProgressCallback = (
-  Callable[
-    [str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], None
-  ]
-  | None
+  Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], None] | None
 )
 MERGED_DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"
 
@@ -191,9 +188,7 @@ class DgsOrchestrator:
     logger.info(log_msg)
 
     if merge_enabled:
-      log_msg = (
-        f"Gatherer+Structurer (merged): {self._gatherer_provider}/{merged_model_name or 'default'}"
-      )
+      log_msg = f"Gatherer+Structurer (merged): {self._gatherer_provider}/{merged_model_name or 'default'}"
       logs.append(log_msg)
       logger.info(log_msg)
 
@@ -229,14 +224,7 @@ class DgsOrchestrator:
     jid = "unknown"
     prov = "multi"
     mod = "multi"
-    ctx = JobContext(
-      job_id=jid,
-      created_at=created_at,
-      provider=prov,
-      model=mod,
-      request=request,
-      metadata=meta,
-    )
+    ctx = JobContext(job_id=jid, created_at=created_at, provider=prov, model=mod, request=request, metadata=meta)
     usage_sink = all_usage.append
 
     if merge_enabled:
@@ -245,19 +233,11 @@ class DgsOrchestrator:
       )
 
     else:
-      gatherer_model_instance = get_model_for_mode(
-        self._gatherer_provider, gatherer_model_name, agent="gatherer"
-      )
+      gatherer_model_instance = get_model_for_mode(self._gatherer_provider, gatherer_model_name, agent="gatherer")
 
-    planner_model_instance = get_model_for_mode(
-      self._planner_provider, planner_model_name, agent="planner"
-    )
-    structurer_model_instance = get_model_for_mode(
-      self._structurer_provider, structurer_model_name, agent="structurer"
-    )
-    repairer_model_instance = get_model_for_mode(
-      self._repair_provider, self._repair_model_name, agent="repairer"
-    )
+    planner_model_instance = get_model_for_mode(self._planner_provider, planner_model_name, agent="planner")
+    structurer_model_instance = get_model_for_mode(self._structurer_provider, structurer_model_name, agent="structurer")
+    repairer_model_instance = get_model_for_mode(self._repair_provider, self._repair_model_name, agent="repairer")
 
     schema = self._schema_service
     use = usage_sink
@@ -265,40 +245,24 @@ class DgsOrchestrator:
     planner_prov = self._planner_provider
     structurer_prov = self._structurer_provider
     repair_prov = self._repair_provider
-    planner_agent = PlannerAgent(
-      model=planner_model_instance, prov=planner_prov, schema=schema, use=use
-    )
+    planner_agent = PlannerAgent(model=planner_model_instance, prov=planner_prov, schema=schema, use=use)
 
     if merge_enabled:
       gatherer_agent = None
       gatherer_structurer_agent = GathererStructurerAgent(
-        model=gatherer_model_instance,
-        prov=gatherer_prov,
-        schema=schema,
-        use=use,
+        model=gatherer_model_instance, prov=gatherer_prov, schema=schema, use=use
       )
 
     else:
-      gatherer_agent = GathererAgent(
-        model=gatherer_model_instance, prov=gatherer_prov, schema=schema, use=use
-      )
+      gatherer_agent = GathererAgent(model=gatherer_model_instance, prov=gatherer_prov, schema=schema, use=use)
       gatherer_structurer_agent = None
 
-    structurer_agent = StructurerAgent(
-      model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use
-    )
-    repairer_agent = RepairerAgent(
-      model=repairer_model_instance, prov=repair_prov, schema=schema, use=use
-    )
-    stitcher_agent = StitcherAgent(
-      model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use
-    )
+    structurer_agent = StructurerAgent(model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use)
+    repairer_agent = RepairerAgent(model=repairer_model_instance, prov=repair_prov, schema=schema, use=use)
+    stitcher_agent = StitcherAgent(model=structurer_model_instance, prov=structurer_prov, schema=schema, use=use)
 
     async def _process_structured_section(
-      *,
-      draft: SectionDraft,
-      structured: StructuredSection,
-      section_index: int,
+      *, draft: SectionDraft, structured: StructuredSection, section_index: int
     ) -> StructuredSection | None:
       """Validate, optionally repair, and finalize a structured section."""
       nonlocal validation_errors
@@ -308,14 +272,9 @@ class DgsOrchestrator:
         validation_errors = structured.validation_errors
         error_message = f"Section {section_index} failed validation: {structured.validation_errors}"
         logs.append(error_message)
-        logger.error(
-          "Section %s failed validation: %s", section_index, structured.validation_errors
-        )
+        logger.error("Section %s failed validation: %s", section_index, structured.validation_errors)
         _report_progress(
-          "transform",
-          f"validate_section_{section_index}_of_{section_count}",
-          [error_message],
-          advance=False,
+          "transform", f"validate_section_{section_index}_of_{section_count}", [error_message], advance=False
         )
         raise OrchestrationError(error_message, logs=list(logs))
 
@@ -371,10 +330,7 @@ class DgsOrchestrator:
           error_message = f"Repairer failed for section {section_index}/{section_count}: {exc}"
           logs.append(error_message)
           _report_progress(
-            "transform",
-            f"repair_section_{section_index}_of_{section_count}",
-            [error_message],
-            advance=False,
+            "transform", f"repair_section_{section_index}_of_{section_count}", [error_message], advance=False
           )
           raise OrchestrationError(error_message, logs=list(logs)) from exc
 
@@ -383,29 +339,18 @@ class DgsOrchestrator:
         if repair_result.errors:
           # Fail fast when repair cannot produce a valid section.
           validation_errors = repair_result.errors
-          error_message = (
-            f"Section {section_index} failed repair validation: {repair_result.errors}"
-          )
+          error_message = f"Section {section_index} failed repair validation: {repair_result.errors}"
           logs.append(error_message)
-          logger.error(
-            "Section %s failed repair validation: %s",
-            section_index,
-            repair_result.errors,
-          )
+          logger.error("Section %s failed repair validation: %s", section_index, repair_result.errors)
           _report_progress(
-            "transform",
-            f"repair_section_{section_index}_of_{section_count}",
-            [error_message],
-            advance=False,
+            "transform", f"repair_section_{section_index}_of_{section_count}", [error_message], advance=False
           )
           raise OrchestrationError(error_message, logs=list(logs))
         section_json = repair_result.fixed_json
 
       validate_subphase = f"validate_section_{section_index}_of_{section_count}"
       _report_progress("transform", validate_subphase, [f"Section {section_index} validated."])
-      return StructuredSection(
-        section_number=section_index, json=section_json, validation_errors=[]
-      )
+      return StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
 
     _report_progress("plan", "planner_start", ["Planning lesson sections..."])
 
@@ -457,18 +402,13 @@ class DgsOrchestrator:
 
       if merge_enabled:
         merge_subphase = f"gather_struct_section_{section_index}_of_{section_count}"
-        merge_msg = (
-          f"Gathering+structuring section {section_index}/{section_count}: {plan_section.title}"
-        )
+        merge_msg = f"Gathering+structuring section {section_index}/{section_count}: {plan_section.title}"
         _report_progress(
           "transform",
           merge_subphase,
           [merge_msg],
           section_progress=_section_progress(
-            section_index,
-            title=plan_section.title,
-            status="generating",
-            completed_sections=len(structured_sections),
+            section_index, title=plan_section.title, status="generating", completed_sections=len(structured_sections)
           ),
         )
 
@@ -498,9 +438,7 @@ class DgsOrchestrator:
             structured_artifacts=structured_artifacts,
             repair_artifacts=repair_artifacts,
           )
-          error_message = (
-            f"Gatherer-structurer failed section {section_index}/{section_count}: {exc}"
-          )
+          error_message = f"Gatherer-structurer failed section {section_index}/{section_count}: {exc}"
           logs.append(error_message)
           _report_progress("transform", merge_subphase, [error_message], advance=False)
           raise OrchestrationError(error_message, logs=list(logs)) from exc
@@ -537,10 +475,7 @@ class DgsOrchestrator:
             advance=False,
             partial_json=_build_partial_lesson(structured_sections),
             section_progress=_section_progress(
-              section_index,
-              title=draft.title,
-              status="completed",
-              completed_sections=len(structured_sections),
+              section_index, title=draft.title, status="completed", completed_sections=len(structured_sections)
             ),
           )
 
@@ -552,10 +487,7 @@ class DgsOrchestrator:
           gather_subphase,
           [gather_msg],
           section_progress=_section_progress(
-            section_index,
-            title=plan_section.title,
-            status="generating",
-            completed_sections=len(structured_sections),
+            section_index, title=plan_section.title, status="generating", completed_sections=len(structured_sections)
           ),
         )
 
@@ -607,10 +539,7 @@ class DgsOrchestrator:
           extract_subphase,
           [extract_msg],
           section_progress=_section_progress(
-            section_index,
-            title=draft.title,
-            status="generating",
-            completed_sections=len(structured_sections),
+            section_index, title=draft.title, status="generating", completed_sections=len(structured_sections)
           ),
         )
         section_index += 1
@@ -656,10 +585,7 @@ class DgsOrchestrator:
           struct_subphase,
           [struct_msg],
           section_progress=_section_progress(
-            section_index,
-            title=draft.title,
-            status="generating",
-            completed_sections=len(structured_sections),
+            section_index, title=draft.title, status="generating", completed_sections=len(structured_sections)
           ),
         )
 
@@ -708,10 +634,7 @@ class DgsOrchestrator:
             advance=False,
             partial_json=_build_partial_lesson(structured_sections),
             section_progress=_section_progress(
-              section_index,
-              title=draft.title,
-              status="completed",
-              completed_sections=len(structured_sections),
+              section_index, title=draft.title, status="completed", completed_sections=len(structured_sections)
             ),
           )
 
@@ -820,11 +743,7 @@ class DgsOrchestrator:
 def _depth_profile(depth: str) -> int:
   """Map numeric depth to DLE labels and section counts for prompt rendering."""
   # Keep prompt depth labels aligned with the API depth tiers.
-  mapping = {
-    "highlights": 2,
-    "detailed": 6,
-    "training": 10,
-  }
+  mapping = {"highlights": 2, "detailed": 6, "training": 10}
 
   if depth.lower() in mapping:
     return mapping[depth.lower()]

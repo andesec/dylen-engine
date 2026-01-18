@@ -55,11 +55,8 @@ def _ensure_lessons_table(config: _PostgresConfig, table_name: str) -> None:
         )
         """
   ).format(table=sql.Identifier(table_name))
-  idempotency_index = sql.SQL(
-    "CREATE INDEX IF NOT EXISTS {index} ON {table} (idempotency_key)"
-  ).format(
-    index=sql.Identifier(f"{table_name}_idempotency_idx"),
-    table=sql.Identifier(table_name),
+  idempotency_index = sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} (idempotency_key)").format(
+    index=sql.Identifier(f"{table_name}_idempotency_idx"), table=sql.Identifier(table_name)
   )
 
   # Run schema creation using a short-lived connection for safety.

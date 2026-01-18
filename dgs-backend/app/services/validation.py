@@ -20,8 +20,7 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
   """Enforce topic/detail length and persistence size constraints."""
   if len(request.topic) > settings.max_topic_length:
     raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST,
-      detail=f"Topic exceeds max length of {settings.max_topic_length} chars.",
+      status_code=status.HTTP_400_BAD_REQUEST, detail=f"Topic exceeds max length of {settings.max_topic_length} chars."
     )
 
   if request.details:
@@ -34,17 +33,13 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
       )
 
   if estimate_bytes(request.model_dump(mode="python", by_alias=True)) > MAX_REQUEST_BYTES:
-    raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST,
-      detail="Request payload is too large for persistence.",
-    )
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request payload is too large for persistence.")
 
   try:
     from app.jobs.progress import build_call_plan  # Local import to avoid circular deps
 
     build_call_plan(
-      request.model_dump(mode="python", by_alias=True),
-      merge_gatherer_structurer=settings.merge_gatherer_structurer,
+      request.model_dump(mode="python", by_alias=True), merge_gatherer_structurer=settings.merge_gatherer_structurer
     )
   except ValueError as exc:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -55,20 +50,14 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
   word_count = _count_words(request.text)
   if word_count > 300:
     raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST,
-      detail=f"User text is too long ({word_count} words). Max 300 words.",
+      status_code=status.HTTP_400_BAD_REQUEST, detail=f"User text is too long ({word_count} words). Max 300 words."
     )
 
   if not request.criteria:
-    raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST, detail="Evaluation criteria are required."
-    )
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Evaluation criteria are required.")
 
   if estimate_bytes(request.model_dump(mode="python")) > MAX_REQUEST_BYTES:
-    raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST,
-      detail="Request payload is too large for persistence.",
-    )
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request payload is too large for persistence.")
 
 
 def _resolve_primary_language(request: GenerateLessonRequest) -> str | None:

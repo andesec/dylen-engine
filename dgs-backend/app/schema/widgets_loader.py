@@ -79,9 +79,7 @@ def _iter_widget_sections(lines: Iterable[str]) -> dict[str, str]:
   return {name: "\n".join(content).strip() for name, content in sections.items()}
 
 
-def _parse_widget_fields(
-  section_text: str, widget_name: str
-) -> tuple[list[WidgetFieldInfo], bool, dict[int, str]]:
+def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[WidgetFieldInfo], bool, dict[int, str]]:
   """
   Parse field information from a widget section.
 
@@ -118,16 +116,12 @@ def _parse_widget_fields(
         fields.append(WidgetFieldInfo(name=field_name, required=required, field_type=field_type))
 
   if not is_shorthand:
-    shorthand_json_match = re.search(
-      r"{\s*\"[^\"]+\"\s*:\s*\[[^\]]+]", section_text, re.DOTALL | re.MULTILINE
-    )
+    shorthand_json_match = re.search(r"{\s*\"[^\"]+\"\s*:\s*\[[^\]]+]", section_text, re.DOTALL | re.MULTILINE)
     if shorthand_json_match:
       is_shorthand = True
 
   # Also look for "Constraints:" section to find required fields
-  constraints_match = re.search(
-    r"Constraints?:(.+?)(?=\n\n|\Z)", section_text, re.DOTALL | re.IGNORECASE
-  )
+  constraints_match = re.search(r"Constraints?:(.+?)(?=\n\n|\Z)", section_text, re.DOTALL | re.IGNORECASE)
   if constraints_match and not is_shorthand:
     constraints_section = constraints_match.group(1)
     # Look for "- `field` must be ..." or "- field (type, required)"

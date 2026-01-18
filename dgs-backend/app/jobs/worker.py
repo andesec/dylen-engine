@@ -11,22 +11,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.ai.orchestrator import (
-  DgsOrchestrator,
-  OrchestrationError,
-  OrchestrationResult,
-  SectionProgressUpdate,
-)
+from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult, SectionProgressUpdate
 from app.api.models import GenerateLessonRequest, WritingCheckRequest
 from app.config import Settings
 from app.jobs.models import JobRecord
-from app.jobs.progress import (
-  MAX_TRACKED_LOGS,
-  JobCanceledError,
-  JobProgressTracker,
-  SectionProgress,
-  build_call_plan,
-)
+from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.services.model_routing import _resolve_model_selection
@@ -42,9 +31,7 @@ from app.writing.orchestrator import WritingCheckOrchestrator
 class JobProcessor:
   """Coordinates execution of queued jobs."""
 
-  def __init__(
-    self, *, jobs_repo: JobsRepository, orchestrator: DgsOrchestrator, settings: Settings
-  ) -> None:
+  def __init__(self, *, jobs_repo: JobsRepository, orchestrator: DgsOrchestrator, settings: Settings) -> None:
     self._jobs_repo = jobs_repo
     self._orchestrator = orchestrator
     self._settings = settings
@@ -63,9 +50,7 @@ class JobProcessor:
     """Execute a single queued lesson generation job."""
     base_logs = job.logs + ["Job acknowledged by worker."]
     try:
-      call_plan = build_call_plan(
-        job.request, merge_gatherer_structurer=self._settings.merge_gatherer_structurer
-      )
+      call_plan = build_call_plan(job.request, merge_gatherer_structurer=self._settings.merge_gatherer_structurer)
     except ValueError as exc:
       error_log = f"Validation failed: {exc}"
       payload = {
@@ -129,12 +114,8 @@ class JobProcessor:
       if retry_agents:
         tracker.add_logs(f"Retry agents: {', '.join(sorted(retry_agents))}")
 
-      retry_section_indexes = _normalize_retry_section_indexes(
-        job.retry_sections, expected_sections
-      )
-      retry_section_numbers = (
-        _to_section_numbers(retry_section_indexes) if retry_section_indexes else None
-      )
+      retry_section_indexes = _normalize_retry_section_indexes(job.retry_sections, expected_sections)
+      retry_section_numbers = _to_section_numbers(retry_section_indexes) if retry_section_indexes else None
       is_retry = job.retry_count is not None and job.retry_count > 0
       enable_repair = retry_agents is None or "repair" in retry_agents
       base_result_json = job.result_json
@@ -195,9 +176,7 @@ class JobProcessor:
 
       shorthand = lesson_to_shorthand(lesson_model)
       tracker.complete_validation(
-        message="Validate phase complete.",
-        status="done",
-        expected_sections=expected_sections,
+        message="Validate phase complete.", status="done", expected_sections=expected_sections
       )
       cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
       tracker.set_cost(cost_summary)
@@ -252,12 +231,7 @@ class JobProcessor:
       error_log = f"Job failed: {exc}"
       self._logger.error(error_log)
       tracker.fail(phase="failed", message=error_log)
-      payload = {
-        "status": "error",
-        "phase": "failed",
-        "progress": 100.0,
-        "logs": tracker.logs,
-      }
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       self._jobs_repo.update_job(job.job_id, **payload)
       return None
 
@@ -265,12 +239,7 @@ class JobProcessor:
       error_log = f"Job failed: {exc}"
       self._logger.error("Job processing failed unexpectedly", exc_info=True)
       tracker.fail(phase="failed", message=error_log)
-      payload = {
-        "status": "error",
-        "phase": "failed",
-        "progress": 100.0,
-        "logs": tracker.logs,
-      }
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       self._jobs_repo.update_job(job.job_id, **payload)
       return None
 
@@ -290,12 +259,8 @@ class JobProcessor:
       # Validate and hydrate the request so optional model overrides are honored.
       request_model = WritingCheckRequest.model_validate(job.request)
       checker_model = request_model.checker_model or self._settings.structurer_model
-      orchestrator = WritingCheckOrchestrator(
-        provider=self._settings.structurer_provider, model=checker_model
-      )
-      result = await orchestrator.check_response(
-        text=request_model.text, criteria=request_model.criteria
-      )
+      orchestrator = WritingCheckOrchestrator(provider=self._settings.structurer_provider, model=checker_model)
+      result = await orchestrator.check_response(text=request_model.text, criteria=request_model.criteria)
 
       tracker.extend_logs(result.logs)
       cost_summary = _summarize_cost(result.usage, result.total_cost)
@@ -433,9 +398,7 @@ class JobProcessor:
       tracker_section: SectionProgress | None = None
 
       if section_progress is not None:
-        merged_completed_sections = (
-          section_progress.completed_sections or 0
-        ) + base_completed_sections
+        merged_completed_sections = (section_progress.completed_sections or 0) + base_completed_sections
         tracker_section = SectionProgress(
           index=section_progress.index,
           title=section_progress.title,
@@ -503,9 +466,7 @@ class JobProcessor:
     merged_logs = list(_merge_logs(logs, result.logs))
 
     if tracker is not None:
-      tracker.set_phase(
-        phase="validate", subphase="validation", expected_sections=expected_sections
-      )
+      tracker.set_phase(phase="validate", subphase="validation", expected_sections=expected_sections)
     return OrchestrationResult(
       lesson_json=result.lesson_json,
       provider_a=result.provider_a,
@@ -572,9 +533,7 @@ def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:
   return normalized
 
 
-def _normalize_retry_section_indexes(
-  raw_sections: list[int] | None, expected_sections: int
-) -> list[int] | None:
+def _normalize_retry_section_indexes(raw_sections: list[int] | None, expected_sections: int) -> list[int] | None:
   """Normalize 0-based retry section indexes with bounds validation."""
   if raw_sections is None:
     return None
@@ -625,9 +584,7 @@ def _build_block_map(result_json: dict[str, Any] | None, indexes: list[int]) -> 
 
 
 def _resolve_result_title(
-  base_result_json: dict[str, Any] | None,
-  retry_partial_json: dict[str, Any] | None,
-  topic: str,
+  base_result_json: dict[str, Any] | None, retry_partial_json: dict[str, Any] | None, topic: str
 ) -> str:
   """Pick a stable title for merged retry payloads."""
   if base_result_json and isinstance(base_result_json.get("title"), str):

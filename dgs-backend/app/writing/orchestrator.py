@@ -52,11 +52,7 @@ class WritingCheckOrchestrator:
         # Stamp the provider call with a writing-check context for audit logging.
 
         with llm_call_context(
-          agent="WritingCheck",
-          lesson_topic=None,
-          job_id=None,
-          purpose="writing_check",
-          call_index="1/1",
+          agent="WritingCheck", lesson_topic=None, job_id=None, purpose="writing_check", call_index="1/1"
         ):
           res = await model.generate_structured(prompt, schema)
 
@@ -71,11 +67,7 @@ class WritingCheckOrchestrator:
         # Stamp the provider call with a writing-check context for audit logging.
 
         with llm_call_context(
-          agent="WritingCheck",
-          lesson_topic=None,
-          job_id=None,
-          purpose="writing_check",
-          call_index="1/1",
+          agent="WritingCheck", lesson_topic=None, job_id=None, purpose="writing_check", call_index="1/1"
         ):
           raw = await model.generate(prompt + "\n\nOutput ONLY valid JSON.")
 
