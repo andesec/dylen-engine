@@ -28,12 +28,14 @@
       },
       "pathMappings": [
         {
-          "localRoot": "${workspaceFolder}",
-          "remoteRoot": "/app"
+          "localRoot": "${workspaceFolder}/dgs-backend",
+          "remoteRoot": "/app/dgs-backend"
         }
       ],
+      "subProcess": true,
       "preLaunchTask": "docker-compose: debug",
-      "justMyCode": true
+      "justMyCode": false,
+      "logToFile": true
     },
     {
       "name": "Docker Production (no debug)",

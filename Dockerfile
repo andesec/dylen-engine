@@ -49,10 +49,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest --chown=65532:65532 /uv /bin/uv
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.14/site-packages"
 ENV PYDEVD_DISABLE_FILE_VALIDATION=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Install debugpy
 RUN uv pip install debugpy --python .venv
 
 EXPOSE 8002 5678
 
-CMD ["-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--wait-for-client", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]

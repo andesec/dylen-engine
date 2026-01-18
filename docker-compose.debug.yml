@@ -56,6 +56,7 @@ services:
       - "8002:8002"
       - "5678:5678" # debug port
     volumes:
+      - ./dgs-backend:/app/dgs-backend:ro
       - ./dgs-backend/logs:/app/dgs-backend/logs
 
 networks:
