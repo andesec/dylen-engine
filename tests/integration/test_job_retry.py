@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 from app.jobs.models import JobRecord
 
 # Ensure required settings are available before importing the app.
-os.environ.setdefault("DGS_DEV_KEY", "test-key")
-os.environ.setdefault("DGS_ALLOWED_ORIGINS", "http://localhost")
-os.environ.setdefault("DGS_JOBS_AUTO_PROCESS", "0")
+os.environ["DGS_DEV_KEY"] = "test-key"
+os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
+os.environ["DGS_JOBS_AUTO_PROCESS"] = "0"
 
 from app.main import app
 
@@ -72,7 +72,18 @@ def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) -> None:
         return repo
 
     # Replace the repository dependency with the in-memory test double.
-    monkeypatch.setattr("app.main._get_jobs_repo", _fake_repo)
+    monkeypatch.setattr("app.api.routes.jobs._get_jobs_repo", _fake_repo)
+
+    # Override get_settings to ensure DGS_DEV_KEY is set correctly.
+    from app.config import get_settings
+
+    # We can just use the real get_settings since env vars are set at module level
+    # But to be safe and avoid cached values:
+    def _get_settings_override():
+        return get_settings.__wrapped__()
+
+    app.dependency_overrides[get_settings] = _get_settings_override
+
     client = TestClient(app)
     headers = {"X-DGS-Dev-Key": "test-key"}
     payload = {"sections": [1], "agents": ["structurer"]}

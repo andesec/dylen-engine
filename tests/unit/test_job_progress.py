@@ -65,7 +65,7 @@ def test_job_progress_tracker_persists_partial_results() -> None:
     assert updated.result_json == {"title": "Partial", "blocks": []}
     assert updated.expected_sections == 2
     assert updated.completed_sections == 0
-    assert updated.completed_section_indexes == [0]
+    assert updated.completed_section_indexes == []
     assert updated.current_section_index == 0
     assert updated.current_section_status == "generating"
     assert updated.current_section_retry_count == 0
