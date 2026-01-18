@@ -1,6 +1,13 @@
 from pydantic import ValidationError
 
-from app.schema.lesson_models import AsciiDiagramWidget, ParagraphWidget, TableWidget, TerminalDemoWidget, TreeViewWidget, UnorderedListWidget
+from app.schema.lesson_models import (
+    AsciiDiagramWidget,
+    ParagraphWidget,
+    TableWidget,
+    TerminalDemoWidget,
+    TreeViewWidget,
+    UnorderedListWidget,
+)
 
 
 def test_robust_widgets():

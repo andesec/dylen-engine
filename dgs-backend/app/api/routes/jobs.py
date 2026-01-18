@@ -9,10 +9,24 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import _require_dev_key
-from app.api.models import GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse, WritingCheckRequest
+from app.api.models import (
+  GenerateLessonRequest,
+  JobCreateResponse,
+  JobRetryRequest,
+  JobStatusResponse,
+  WritingCheckRequest,
+)
 from app.config import Settings, get_settings
 from app.core.lifespan import is_job_worker_active
-from app.services.jobs import _DATE_FORMAT, _JOB_NOT_FOUND_MSG, _create_job_record, _expected_sections_from_request, _job_status_from_record, _kickoff_job_processing, _parse_job_request
+from app.services.jobs import (
+  _DATE_FORMAT,
+  _JOB_NOT_FOUND_MSG,
+  _create_job_record,
+  _expected_sections_from_request,
+  _job_status_from_record,
+  _kickoff_job_processing,
+  _parse_job_request,
+)
 from app.storage.factory import _get_jobs_repo
 
 router = APIRouter()
