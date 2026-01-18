@@ -9,7 +9,6 @@ PORT ?= 8080
 
 install:
 	uv sync
-	uv pip install ruff mypy pytest httpx
 
 dev: openapi
 	@echo "Starting Postgres..."
