@@ -18,7 +18,7 @@ from app.api.models import (
     WritingCheckRequest,
 )
 from app.config import Settings, get_settings
-from app.core.lifespan import _JOB_WORKER_ACTIVE
+from app.core.lifespan import is_job_worker_active
 from app.jobs.models import JobRecord
 from app.services.model_routing import _get_orchestrator
 from app.services.request_validation import (
@@ -234,7 +234,7 @@ def kickoff_job_processing(
 
     # Defer to the shared worker loop to avoid duplicate processing.
 
-    if _JOB_WORKER_ACTIVE:
+    if is_job_worker_active():
         return
 
     # Prefer immediate scheduling on the running loop to start work right away.

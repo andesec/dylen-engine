@@ -15,6 +15,11 @@ _JOB_WORKER_TASK: asyncio.Task[None] | None = None
 _JOB_WORKER_ACTIVE = False
 
 
+def is_job_worker_active() -> bool:
+    """Return whether the job worker loop is currently active."""
+    return _JOB_WORKER_ACTIVE
+
+
 def _log_job_task_failure(task: asyncio.Task[None]) -> None:
     """Log unexpected failures from background job tasks."""
     logger = logging.getLogger("app.core.lifespan")
