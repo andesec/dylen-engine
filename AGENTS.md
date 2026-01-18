@@ -9,8 +9,8 @@
 - Default tooling standards: `black`, `ruff`, `mypy`, and `pytest`.
 
 ## Coding Standards (Strict)
-- keep function definitions and call parameters on a single line unless the signature exceeds 120 characters, in which case keep them in as fewer lines as possible.
-- Add line breaks before and after the following blocks: [if/else, try/except, loop, with]
+- Always keep method parameters, arguments, and signatures on the same line.
+- Add line breaks and after the following blocks: [if/else, try/except, loop, with]
 - Add comments for all logic implementations. Add docstrings for functions. They should focus on How and Why and less on What.
 - No blank lines after the comments, the next line should start with the code directly.
 
@@ -18,5 +18,4 @@
 - Don't unnecessarily format a file or code if there is no change in the code there.
 - Ignore Blank line issues in the code!
 - Before opening a PR, run: `make format lint typecheck test`.
-- Keep AWS-specific code confined to `infra/` or `lambda_handler.py`.
 - Keep `openapi.json` updated whenever API endpoints change.

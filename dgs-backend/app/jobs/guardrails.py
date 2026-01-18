@@ -1,4 +1,4 @@
-"""Guardrails to keep DynamoDB job items within safe size limits."""
+"""Guardrails to keep job items within safe size limits."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ MAX_ARTIFACT_BYTES = 200_000
 
 
 class DecimalEncoder(json.JSONEncoder):
-    """JSON encoder that handles Decimal types from DynamoDB."""
+    """JSON encoder that handles Decimal types."""
 
     def default(self, obj: Any) -> Any:
         if isinstance(obj, Decimal):
@@ -24,7 +24,7 @@ class DecimalEncoder(json.JSONEncoder):
 
 
 def estimate_bytes(value: Any) -> int:
-    """Approximate the DynamoDB item size using JSON encoding."""
+    """Approximate the item size using JSON encoding."""
     payload = json.dumps(value, ensure_ascii=True, separators=(",", ":"), cls=DecimalEncoder)
     return len(payload.encode("utf-8"))
 
@@ -47,7 +47,7 @@ def maybe_truncate_result_json(result_json: dict[str, Any] | None) -> dict[str, 
     return {
         "truncated": True,
         "preview": preview[:MAX_RESULT_BYTES],
-        "message": "Result exceeded DynamoDB item size limit and was truncated.",
+        "message": "Result exceeded storage item size limit and was truncated.",
     }
 
 
@@ -61,7 +61,7 @@ def maybe_truncate_artifacts(artifacts: dict[str, Any] | None) -> dict[str, Any]
     return {
         "truncated": True,
         "preview": preview[:MAX_ARTIFACT_BYTES],
-        "message": "Artifacts exceeded DynamoDB item size limit and were truncated.",
+        "message": "Artifacts exceeded storage item size limit and were truncated.",
     }
 
 
@@ -72,7 +72,7 @@ def enforce_item_size_guardrails(
     skip_size_check: bool = False,
 ) -> MutableMapping[str, Any]:
     """
-    Ensure a DynamoDB item fits within size constraints by trimming logs when necessary.
+    Ensure a job item fits within size constraints by trimming logs when necessary.
 
     If the item still exceeds the threshold after trimming, a sentinel log message is used.
     """
@@ -94,6 +94,6 @@ def enforce_item_size_guardrails(
         size = estimate_bytes(item)
 
     if size > max_bytes:
-        item["logs"] = ["<logs truncated to satisfy DynamoDB item size>"]
+        item["logs"] = ["<logs truncated to satisfy storage item size>"]
 
     return item

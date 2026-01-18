@@ -528,10 +528,59 @@ class PostgresJobsRepository(JobsRepository):
         
         if row is None:
             return None
-        
-        # Map the database row into the domain record.
-        
+            
         return self._row_to_record(row)
+
+    def list_jobs(
+        self, limit: int, offset: int, status: str | None = None, job_id: str | None = None
+    ) -> tuple[list[JobRecord], int]:
+        """Return a paginated list of jobs with filters and total count."""
+        # Query for items and count in arguably one go (or separate queries).
+        # We'll use two queries for simplicity and driver compatibility.
+        
+        where_clauses = []
+        params = {}
+        
+        if status:
+            where_clauses.append("status = %(status)s")
+            params["status"] = status
+            
+        if job_id:
+            where_clauses.append("job_id = %(job_id)s")
+            params["job_id"] = job_id
+            
+        where_sql = sql.SQL(" WHERE " if where_clauses else "") + sql.SQL(" AND ").join(
+            [sql.SQL(c) for c in where_clauses]
+        )
+        
+        # 1. Get total count
+        count_query = sql.SQL("SELECT COUNT(*) FROM {table}").format(
+            table=sql.Identifier(self._table_name)
+        ) + where_sql
+        
+        # 2. Get items
+        items_query = (
+            sql.SQL("SELECT * FROM {table}").format(table=sql.Identifier(self._table_name))
+            + where_sql
+            + sql.SQL(" ORDER BY created_at DESC LIMIT %(limit)s OFFSET %(offset)s")
+        )
+        params["limit"] = limit
+        params["offset"] = offset
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
+            with conn.cursor() as cursor:
+                # Execute count
+                cursor.execute(count_query, params)
+                total = cursor.fetchone()[0]
+
+            with conn.cursor(row_factory=dict_row) as cursor:
+                # Execute items
+                cursor.execute(items_query, params)
+                rows = cursor.fetchall()
+                
+        return [self._row_to_record(row) for row in rows], total
 
     def _row_to_record(self, row: dict[str, Any]) -> JobRecord:
         """Convert a database row to a JobRecord."""

@@ -9,6 +9,7 @@ from typing import Any
 
 import psycopg
 from psycopg import sql
+from psycopg.rows import dict_row
 
 
 @dataclass(frozen=True)
@@ -177,3 +178,79 @@ class PostgresLlmAuditRepository:
                 cursor.execute(statement, payload)
 
         logger.debug("Updated LLM audit record %s", record_id)
+
+    def list_records(
+        self,
+        limit: int,
+        offset: int,
+        job_id: str | None = None,
+        agent: str | None = None,
+        status: str | None = None,
+    ) -> tuple[list[LlmAuditRecord], int]:
+        """Return a paginated list of LLM audit records with optional filters."""
+        where_clauses = []
+        params = {}
+        
+        if job_id:
+            where_clauses.append("job_id = %(job_id)s")
+            params["job_id"] = job_id
+            
+        if agent:
+            where_clauses.append("agent = %(agent)s")
+            params["agent"] = agent
+            
+        if status:
+            where_clauses.append("status = %(status)s")
+            params["status"] = status
+            
+        where_sql = sql.SQL(" WHERE " if where_clauses else "") + sql.SQL(" AND ").join(
+            [sql.SQL(c) for c in where_clauses]
+        )
+
+        count_query = sql.SQL("SELECT COUNT(*) FROM llm_call_audit") + where_sql
+        
+        items_query = (
+            sql.SQL("SELECT * FROM llm_call_audit")
+            + where_sql
+            + sql.SQL(" ORDER BY started_at DESC LIMIT %(limit)s OFFSET %(offset)s")
+        )
+        params["limit"] = limit
+        params["offset"] = offset
+
+        with psycopg.connect(self._dsn, connect_timeout=self._connect_timeout) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(count_query, params)
+                total = cursor.fetchone()[0]
+
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(items_query, params)
+                rows = cursor.fetchall()
+        
+        records = []
+        for row in rows:
+            # Map row to LlmAuditRecord
+            payload = {
+                "record_id": row["id"],
+                "timestamp_request": row["timestamp_request"],
+                "timestamp_response": row.get("timestamp_response"),
+                "started_at": row["started_at"],
+                "duration_ms": row["duration_ms"],
+                "agent": row["agent"],
+                "provider": row["provider"],
+                "model": row["model"],
+                "lesson_topic": row.get("lesson_topic"),
+                "request_payload": row["request_payload"],
+                "response_payload": row.get("response_payload"),
+                "prompt_tokens": row.get("prompt_tokens"),
+                "completion_tokens": row.get("completion_tokens"),
+                "total_tokens": row.get("total_tokens"),
+                "request_type": row["request_type"],
+                "purpose": row.get("purpose"),
+                "call_index": row.get("call_index"),
+                "job_id": row.get("job_id"),
+                "status": row["status"],
+                "error_message": row.get("error_message"),
+            }
+            records.append(LlmAuditRecord(**payload))
+            
+        return records, total

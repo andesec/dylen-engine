@@ -40,10 +40,10 @@ Key constraints:
 
 ### Storage (min infra)
 
-- **Primary MVP storage: DynamoDB only**
-  - Store **JSON blobs** (must fit DynamoDB item limits) + metadata + tags.
-  - This keeps infra minimal and aligns with DynamoDB’s always-free allocation.
-- **Optional later**: S3 for large JSON blobs or versions (S3 is cheap, but not strictly “always-free”).
+- **Primary MVP storage: Postgres**
+  - Store **JSON blobs** + metadata + tags.
+  - Uses standard relational storage.
+- **Optional later**: S3 for large JSON blobs or versions.
 
 ---
 
@@ -167,7 +167,7 @@ Deliverables:
   - Step A gatherer (Gemini dev)
   - Step B structurer (low-cost model; configurable)
   - validate → store → return
-- DynamoDB persistence:
+- Database persistence:
   - store lesson JSON blob + minimal metadata
 - `GET /v1/lessons/{lesson_id}`
 
@@ -274,21 +274,11 @@ Deliverables:
 
 ---
 
-## 7) Data model (DynamoDB-first)
+## 7) Data model (Postgres)
 
 ### Table: `Lessons`
 
-**Phase 1–3 (dev key / single-tenant)**
-
-- `pk = TENANT#default`
-- `sk = LESSON#{created_at_iso}#{lesson_id}`
-
-**Phase 4+ (multi-tenant)**
-
-- `pk = USER#{sub}`
-- `sk = LESSON#{created_at_iso}#{lesson_id}`
-
-Attributes:
+**Columns:**
 
 - `lesson_id` (UUID)
 - `topic`, `title`
@@ -312,7 +302,7 @@ Optional indexes:
 - No AI provider keys in DLE client.
 - Strict CORS (only DLE origins).
 - Input limits (topic length, payload size).
-- Rate limiting (per IP or tenant or per user; DynamoDB token bucket).
+- Rate limiting (per IP or tenant or per user; Token bucket).
 - Secrets in env + AWS Secrets Manager later.
 - If “web context” tool is enabled later:
   - allowlist domains
@@ -337,7 +327,7 @@ Must support:
 
 - Pure local run: `uvicorn` with `.env`
 - Local AWS-style invocation: AWS SAM local invoke
-- Local DynamoDB: DynamoDB Local (docker)
+- Local DB: Postgres (docker)
 - Docker compose to setup and run everything flawlessly in one command. 
 
 No feature should require “deploy first to debug.”
@@ -376,7 +366,7 @@ No feature should require “deploy first to debug.”
 
     storage/
       lessons_repo.py          # interface
-      dynamodb_repo.py
+      postgres_lessons_repo.py
 
     utils/
       rate_limit.py
@@ -390,7 +380,7 @@ No feature should require “deploy first to debug.”
   infra/
     sam-template.yaml
 
-  docker-compose.yml           # DynamoDB Local + DGS local run
+  docker-compose.yml           # Postgres + DGS local run
   README.md
   pyproject.toml
 ```

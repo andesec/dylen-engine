@@ -35,3 +35,8 @@ class LessonsRepository(Protocol):
 
     def get_lesson(self, lesson_id: str) -> LessonRecord | None:
         """Fetch a lesson record by lesson identifier."""
+
+    def list_lessons(
+        self, limit: int, offset: int, topic: str | None = None, status: str | None = None
+    ) -> tuple[list[LessonRecord], int]:
+        """Return a paginated list of lessons with optional filters, and total count."""

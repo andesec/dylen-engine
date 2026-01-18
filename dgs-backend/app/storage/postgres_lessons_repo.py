@@ -196,3 +196,70 @@ class PostgresLessonsRepository(LessonsRepository):
             "tags": tags,
         }
         return LessonRecord(**payload)
+
+    def list_lessons(
+        self, limit: int, offset: int, topic: str | None = None, status: str | None = None
+    ) -> tuple[list[LessonRecord], int]:
+        """Return a paginated list of lessons with optional filters, and total count."""
+        where_clauses = []
+        params = {}
+        
+        # NOTE: 'topic' search could be partial match in future, strict for now.
+        if topic:
+            where_clauses.append("topic = %(topic)s")
+            params["topic"] = topic
+            
+        if status:
+            where_clauses.append("status = %(status)s")
+            params["status"] = status
+            
+        where_sql = sql.SQL(" WHERE " if where_clauses else "") + sql.SQL(" AND ").join(
+            [sql.SQL(c) for c in where_clauses]
+        )
+
+        count_query = sql.SQL("SELECT COUNT(*) FROM {table}").format(
+            table=sql.Identifier(self._table_name)
+        ) + where_sql
+        
+        items_query = (
+            sql.SQL("SELECT * FROM {table}").format(table=sql.Identifier(self._table_name))
+            + where_sql
+            + sql.SQL(" ORDER BY created_at DESC LIMIT %(limit)s OFFSET %(offset)s")
+        )
+        params["limit"] = limit
+        params["offset"] = offset
+
+        with psycopg.connect(
+            self._config.dsn, connect_timeout=self._config.connect_timeout
+        ) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(count_query, params)
+                total = cursor.fetchone()[0]
+
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(items_query, params)
+                rows = cursor.fetchall()
+        
+        records = []
+        for row in rows:
+            tags = set(row["tags"]) if row.get("tags") else None
+            payload = {
+                "lesson_id": row["lesson_id"],
+                "topic": row["topic"],
+                "title": row["title"],
+                "created_at": row["created_at"],
+                "schema_version": row["schema_version"],
+                "prompt_version": row["prompt_version"],
+                "provider_a": row["provider_a"],
+                "model_a": row["model_a"],
+                "provider_b": row["provider_b"],
+                "model_b": row["model_b"],
+                "lesson_json": row["lesson_json"],
+                "status": row["status"],
+                "latency_ms": row["latency_ms"],
+                "idempotency_key": row.get("idempotency_key"),
+                "tags": tags,
+            }
+            records.append(LessonRecord(**payload))
+            
+        return records, total

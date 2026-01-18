@@ -53,3 +53,8 @@ class JobsRepository(Protocol):
 
     def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
         """Return a job created with a given idempotency key, if present."""
+
+    def list_jobs(
+        self, limit: int, offset: int, status: str | None = None, job_id: str | None = None
+    ) -> tuple[list[JobRecord], int]:
+        """Return a paginated list of jobs with optional filters, and total count."""

@@ -3,5 +3,13 @@
     "sonarlint.connectedMode.project": {
         "connectionId": "andesec",
         "projectKey": "andesec_dgs"
+    },
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+        }
     }
 }

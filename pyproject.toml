@@ -7,7 +7,7 @@ name = "dgs-backend"
 version = "0.1.0"
 description = "Data Generation Service backend for DLE."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 authors = [{ name = "DGS Team" }]
 dependencies = [
     "fastapi>=0.115.0,<1.0.0",
@@ -36,17 +36,25 @@ packages = ["app"]
 py-modules = ["lambda_handler"]
 
 [tool.black]
-line-length = 100
+line-length = 200
 target-version = ["py313"]
+skip-magic-trailing-comma = true
 
 [tool.ruff]
-line-length = 100
+line-length = 200
+indent-width = 2
 target-version = "py313"
 src = ["dgs-backend"]
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "N", "UP"]
 ignore = ["B905"]
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false
 
 [tool.mypy]
 python_version = "3.13"
