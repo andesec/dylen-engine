@@ -34,6 +34,7 @@ from app.storage.factory import _get_repo
 
 router = APIRouter()
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+_LESSON_NOT_FOUND_MSG = "Lesson not found."
 
 
 @router.get(
@@ -167,7 +168,7 @@ async def get_lesson(  # noqa: B008
   repo = _get_repo(settings)
   record = await run_in_threadpool(repo.get_lesson, lesson_id)
   if record is None:
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_LESSON_NOT_FOUND_MSG)
 
   lesson_json = json.loads(record.lesson_json)
   return LessonRecordResponse(
