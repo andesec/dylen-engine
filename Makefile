@@ -142,9 +142,9 @@ security-all: security-sca security-sast security-container
 	@echo "Note: DAST scan (security-dast) not run automatically."
 	@echo "Run 'make security-dast' separately to test running application."
 
-.PHONY: git-push
+.PHONY: gp
 
-git-push:
+gp:
 	@echo "Committing and pushing changes..."
 	@git add -A
 	@msg="$(m)"; \
