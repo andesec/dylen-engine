@@ -17,6 +17,7 @@ class User(Base):
   email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
   full_name: Mapped[str | None] = mapped_column(String, nullable=True)
   is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+  is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

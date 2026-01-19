@@ -16,6 +16,20 @@ jobs:
   validate:
     name: Validate (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: dgs
+          POSTGRES_PASSWORD: dgs_password
+          POSTGRES_DB: dgs_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +62,14 @@ jobs:
       #   run: make typecheck
 
       - name: Pytest
+        env:
+          DGS_PG_DSN: postgresql://dgs:dgs_password@localhost:5432/dgs_db
+          DGS_DEV_KEY: test-key
+          DGS_ALLOWED_ORIGINS: http://localhost
+          DGS_JOBS_AUTO_PROCESS: "0"
+          FIREBASE_PROJECT_ID: test-project
+          GCP_PROJECT_ID: test-project
+          GCP_LOCATION: us-central1
         run: make test
 
   # Security Scanning Jobs
