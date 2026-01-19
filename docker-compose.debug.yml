@@ -60,6 +60,7 @@ services:
       - ./dgs-backend:/app/dgs-backend:ro
       - ./dgs-backend/logs:/app/dgs-backend/logs
       - ~/.config/gcloud/application_default_credentials.json:/home/nonroot/.config/gcloud/application_default_credentials.json:ro
+      - ./dgs-backend/app/service-account.json:/app/service-account.json:ro
 
 networks:
   dgs-network:

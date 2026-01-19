@@ -7,9 +7,10 @@
     "files.exclude": {
         "**/*.egg-info": true,
         "**/__pycache__": true,
-        ".*/": true,
-        ".vscode": false,
-        ".github": false
+        ".pytest_cache": true,
+        ".ruff_cache": true,
+        ".venv": true,
+        ".idea": true,
     },
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",

@@ -2,7 +2,7 @@ import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 class LoginRequest(BaseModel):
-  id_token: str
+  id_token: str = Field(..., alias="idToken")
 
 
 @router.post("/login")
