@@ -4,8 +4,8 @@ APP_DIR := dgs-backend
 PORT ?= 8080
 
 .PHONY: install dev dev-stop lint format format-check typecheck test openapi run \
-        security-sca security-sast-bandit security-sast-semgrep security-sast \
-        security-container security-dast security-all
+	    security-sca security-sast-bandit security-sast-semgrep security-sast \
+	    security-container security-dast security-all
 
 install:
 	uv sync --all-extras
@@ -161,3 +161,15 @@ gp:
 	git commit -m "$$msg" || echo "No changes to commit"; \
 	git push
 
+
+# Database migrations
+.PHONY: migrate migration
+
+migrate:
+	@echo "Running smart migration..."
+	@cd $(APP_DIR) && uv run python scripts/smart_migrate.py
+
+migration:
+	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration m='message'"; exit 1; fi
+	@echo "Generating migration: $(m)..."
+	@cd $(APP_DIR) && uv run alembic revision --autogenerate -m "$(m)"

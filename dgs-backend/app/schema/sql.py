@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from app.schema.lessons import Lesson  # noqa
+from app.schema.jobs import Job  # noqa
+from app.schema.audit import LlmCallAudit  # noqa
+
 import datetime
 import uuid
 
@@ -16,6 +20,11 @@ class User(Base):
   firebase_uid: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
   email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
   full_name: Mapped[str | None] = mapped_column(String, nullable=True)
+  profession: Mapped[str | None] = mapped_column(String, nullable=True)
+  city: Mapped[str | None] = mapped_column(String, nullable=True)
+  country: Mapped[str | None] = mapped_column(String, nullable=True)
+  age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  photo_url: Mapped[str | None] = mapped_column(String, nullable=True)
   is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
   is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

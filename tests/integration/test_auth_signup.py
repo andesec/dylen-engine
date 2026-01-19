@@ -1,0 +1,164 @@
+from unittest.mock import patch, MagicMock
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import select
+from app.schema.sql import User
+
+# Mock Firebase verify_id_token
+@pytest.fixture
+def mock_verify_id_token():
+  with patch("app.api.routes.auth.verify_id_token") as mock:
+    yield mock
+
+@pytest.fixture
+def anyio_backend():
+    return 'asyncio'
+
+@pytest.fixture
+def mock_firebase_admin_auth():
+  with patch("firebase_admin.auth") as mock_admin, \
+       patch("app.core.security.auth") as mock_security:
+      
+      # Configure both mocks to behave similarly
+      mock_admin.create_session_cookie.return_value = "mock_session_cookie"
+      mock_security.create_session_cookie.return_value = "mock_session_cookie"
+      
+      # Return mock_security because that's what verify_session_cookie uses
+      # But create_session_cookie uses mock_admin (runtime import)
+      # Simpler: Make them the SAME mock object
+      mock_security.side_effect = mock_admin.side_effect
+      mock_security.return_value = mock_admin.return_value
+      mock_security.verify_session_cookie = mock_admin.verify_session_cookie
+      mock_security.create_session_cookie = mock_admin.create_session_cookie
+      
+      yield mock_admin
+
+@pytest.mark.anyio
+async def test_login_user_not_found(async_client: AsyncClient, mock_verify_id_token):
+  mock_verify_id_token.return_value = {
+      "uid": "new_user_123",
+      "email": "new@example.com",
+      "name": "New User"
+  }
+
+  response = await async_client.post("/api/auth/login", json={"idToken": "valid_token"})
+  
+  assert response.status_code == 404
+  assert response.json()["detail"] == "User not registered"
+
+
+@pytest.mark.anyio
+async def test_signup_flow(async_client: AsyncClient, db_session, mock_verify_id_token, mock_firebase_admin_auth):
+  mock_verify_id_token.return_value = {
+      "uid": "signup_user_123",
+      "email": "signup@example.com",
+      "name": "Signup User"
+  }
+
+  # 1. Signup
+  signup_payload = {
+      "idToken": "valid_token",
+      "fullName": "Signup User",
+      "email": "signup@example.com",
+      "profession": "Developer",
+      "city": "Test City",
+      "country": "Test Country",
+      "age": 25,
+      "photoUrl": "http://example.com/photo.jpg"
+  }
+
+  # Setup DB mock to return None for existing user check
+  # The mock_db_session fixture already returns None by default for scalar_one_or_none
+  
+  response = await async_client.post("/api/auth/signup", json=signup_payload)
+  
+  assert response.status_code == 200
+  data = response.json()
+  assert data["status"] == "success"
+  assert data["user"]["email"] == "signup@example.com"
+  assert data["user"]["is_approved"] is False
+  
+  # Verify Cookie
+  assert "session" in response.cookies
+  assert response.cookies["session"] == "mock_session_cookie"
+
+  # Verify DB interactions
+  # Verify add was called
+  assert db_session.add.called
+  added_user = db_session.add.call_args[0][0]
+  assert isinstance(added_user, User)
+  assert added_user.firebase_uid == "signup_user_123"
+  assert added_user.email == "signup@example.com"
+  assert added_user.profession == "Developer"
+  assert added_user.city == "Test City"
+  assert added_user.country == "Test Country"
+  assert added_user.age == 25
+  assert added_user.photo_url == "http://example.com/photo.jpg"
+  assert added_user.is_approved is False
+
+  # 2. Login after signup (should succeed and return user)
+  # Now unapproved users CAN login
+  
+  # Update mock to return the user we just "added"
+  result_mock = MagicMock()
+  result_mock.scalar_one_or_none.return_value = added_user
+  db_session.execute.return_value = result_mock
+  
+  response_login = await async_client.post("/api/auth/login", json={"idToken": "valid_token"})
+  assert response_login.status_code == 200
+  assert response_login.json()["user"]["is_approved"] is False
+
+
+@pytest.mark.anyio
+async def test_get_profile(async_client: AsyncClient, db_session, mock_verify_id_token, mock_firebase_admin_auth):
+  mock_verify_id_token.return_value = {
+      "uid": "profile_user_123",
+      "email": "profile@example.com",
+      "name": "Profile User"
+  }
+
+  # 1. Signup
+  await async_client.post("/api/auth/signup", json={
+      "idToken": "token",
+      "fullName": "Profile User",
+      "email": "profile@example.com"
+  })
+
+  # Setup DB mock
+  user = User(
+      id="1234-5678",
+      firebase_uid="profile_user_123", 
+      email="profile@example.com", 
+      full_name="Profile User",
+      is_approved=False
+  )
+  result_mock = MagicMock()
+  result_mock.scalar_one_or_none.return_value = user
+  db_session.execute.return_value = result_mock
+
+  # 2. Login to get cookie
+  login_resp = await async_client.post("/api/auth/login", json={"idToken": "token"})
+  assert login_resp.status_code == 200
+  cookie = login_resp.cookies["session"]
+
+  # 3. Get Me
+  # Need to mock the session verification in security.py
+  # But get_current_user also uses firebase_admin.auth.verify_session_cookie
+  # We patched it in conftest/fixture? No, locally in test_auth_signup fixtures?
+  # Let's check fixture.
+  # The mock_firebase_admin_auth patches "firebase_admin.auth"
+  # So verify_session_cookie should be mocked too.
+  
+  mock_firebase_admin_auth.verify_session_cookie.return_value = {"uid": "profile_user_123"}
+
+  response = await async_client.get("/api/user/me", cookies={"session": cookie})
+  assert response.status_code == 200
+  data = response.json()
+  assert data["email"] == "profile@example.com"
+  assert data["is_approved"] is False
+
+  # 4. Approve
+  user.is_approved = True
+  
+  response = await async_client.get("/api/user/me", cookies={"session": cookie})
+  assert response.json()["is_approved"] is True

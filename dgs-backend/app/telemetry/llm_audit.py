@@ -58,7 +58,7 @@ def _get_repository() -> PostgresLlmAuditRepository | None:
 
     return None
 
-  return PostgresLlmAuditRepository(dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout)
+  return PostgresLlmAuditRepository()
 
 
 async def start_llm_call(*, provider: str, model: str, request_type: str, request_payload: str, started_at: datetime) -> str | None:
@@ -75,10 +75,11 @@ async def start_llm_call(*, provider: str, model: str, request_type: str, reques
   if repo is None:
     return None
 
-  # Build the pending record and insert off-thread to avoid blocking the loop.
+  # Build the record and insert asynchronously.
   event = LlmAuditStart(provider=provider, model=model, request_type=request_type, request_payload=request_payload, started_at=started_at)
   record = _build_pending_record(event)
-  await asyncio.to_thread(_insert_record, repo, record)
+  
+  await _insert_record(repo, record)
   return record.record_id
 
 
@@ -101,7 +102,6 @@ async def finalize_llm_call(*, call_id: str | None, response_payload: str | None
   if repo is None:
     return
 
-  # Prepare the update payload off-thread to avoid blocking the loop.
   finished_at = utc_now()
   status = "error" if error else "success"
   error_message = str(error) if error else None
@@ -116,8 +116,7 @@ async def finalize_llm_call(*, call_id: str | None, response_payload: str | None
     completion_tokens = _coerce_int(usage.get("completion_tokens"))
     total_tokens = _coerce_int(usage.get("total_tokens"))
 
-  await asyncio.to_thread(
-    _update_record,
+  await _update_record(
     repo,
     call_id,
     finished_at=finished_at,
@@ -168,31 +167,18 @@ def _build_pending_record(event: LlmAuditStart) -> LlmAuditRecord:
   )
 
 
-def _insert_record(repo: PostgresLlmAuditRepository, record: LlmAuditRecord) -> None:
+async def _insert_record(repo: PostgresLlmAuditRepository, record: LlmAuditRecord) -> None:
   """Insert a record and swallow database failures to avoid breaking calls."""
   logger = logging.getLogger(__name__)
 
-  # Avoid failing the upstream request if Postgres is unavailable by importing lazily.
-
   try:
-    import psycopg
-
-  except ImportError as exc:
-    logger.warning("LLM audit disabled because psycopg is unavailable: %s", exc)
-
-    return
-
-  try:
-    repo.insert_record(record)
-
-  except psycopg.Error as exc:
-    logger.warning("Failed to insert LLM audit record: %s", exc)
+    await repo.insert_record(record)
 
   except Exception as exc:  # noqa: BLE001 - avoid breaking upstream calls
     logger.warning("Failed to insert LLM audit record: %s", exc)
 
 
-def _update_record(
+async def _update_record(
   repo: PostgresLlmAuditRepository,
   record_id: str,
   *,
@@ -208,18 +194,8 @@ def _update_record(
   """Update an existing audit record and swallow database failures."""
   logger = logging.getLogger(__name__)
 
-  # Avoid failing the upstream request if Postgres is unavailable by importing lazily.
-
   try:
-    import psycopg
-
-  except ImportError as exc:
-    logger.warning("LLM audit disabled because psycopg is unavailable: %s", exc)
-
-    return
-
-  try:
-    repo.update_record(
+    await repo.update_record(
       record_id=record_id,
       timestamp_response=finished_at,
       response_payload=response_payload,
@@ -231,12 +207,8 @@ def _update_record(
       total_tokens=total_tokens,
     )
 
-  except psycopg.Error as exc:
-    logger.warning("Failed to update LLM audit record: %s", exc)
-
   except Exception as exc:  # noqa: BLE001 - avoid breaking upstream calls
     logger.warning("Failed to update LLM audit record: %s", exc)
-
 
 def _coerce_int(value: Any) -> int | None:
   """Normalize token values to integers when present."""

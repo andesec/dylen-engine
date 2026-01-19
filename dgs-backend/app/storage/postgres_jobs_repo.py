@@ -1,558 +1,234 @@
-"""Postgres-backed repository for background jobs."""
+"""Postgres-backed repository for background jobs using SQLAlchemy."""
 
 from __future__ import annotations
 
 import logging
-import random
-import time
-from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
-import psycopg
-from psycopg import sql
-from psycopg.rows import dict_row
-from psycopg.types.json import Json
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_session_factory
 from app.jobs.guardrails import maybe_truncate_artifacts, maybe_truncate_result_json, sanitize_logs
 from app.jobs.models import JobRecord, JobStatus
+from app.schema.jobs import Job
 from app.storage.jobs_repo import JobsRepository
 
 logger = logging.getLogger(__name__)
 
-_KNOWN_TABLES: set[str] = set()
-
-
-def _now_iso() -> str:
-  """Return a UTC timestamp string for job updates."""
-  return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-@dataclass(frozen=True)
-class _PostgresConfig:
-  """Shared configuration for Postgres repositories."""
-
-  dsn: str
-  connect_timeout: int
-
-
-def _ensure_jobs_table(config: _PostgresConfig, table_name: str) -> None:
-  """Create the jobs table and indexes if they are missing."""
-
-  # Avoid repeated DDL within the same process.
-  if table_name in _KNOWN_TABLES:
-    return
-
-  # Define the base schema for job storage.
-
-  statement = sql.SQL(
-    """
-        CREATE TABLE IF NOT EXISTS {table} (
-          job_id TEXT PRIMARY KEY,
-          request JSONB NOT NULL,
-          status TEXT NOT NULL,
-          phase TEXT NOT NULL,
-          subphase TEXT,
-          expected_sections INTEGER,
-          completed_sections INTEGER,
-          completed_section_indexes JSONB,
-          current_section_index INTEGER,
-          current_section_status TEXT,
-          current_section_retry_count INTEGER,
-          current_section_title TEXT,
-          retry_count INTEGER,
-          max_retries INTEGER,
-          retry_sections JSONB,
-          retry_agents JSONB,
-          retry_parent_job_id TEXT,
-          total_steps INTEGER,
-          completed_steps INTEGER,
-          progress DOUBLE PRECISION,
-          logs JSONB NOT NULL,
-          result_json JSONB,
-          artifacts JSONB,
-          validation JSONB,
-          cost JSONB,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          completed_at TEXT,
-          ttl INTEGER,
-          idempotency_key TEXT
-        )
-        """
-  ).format(table=sql.Identifier(table_name))
-
-  alter_statements = [
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS expected_sections INTEGER").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_sections INTEGER").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS completed_section_indexes JSONB").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_index INTEGER").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_status TEXT").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_retry_count INTEGER").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS current_section_title TEXT").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_count INTEGER").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS max_retries INTEGER").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_sections JSONB").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_agents JSONB").format(table=sql.Identifier(table_name)),
-    sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS retry_parent_job_id TEXT").format(table=sql.Identifier(table_name)),
-  ]
-
-  # Build supporting indexes for queue polling and idempotency lookups.
-
-  status_index = sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} (status, created_at)").format(index=sql.Identifier(f"{table_name}_status_created_idx"), table=sql.Identifier(table_name))
-  idempotency_index = sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} (idempotency_key)").format(index=sql.Identifier(f"{table_name}_idempotency_idx"), table=sql.Identifier(table_name))
-
-  # Run schema creation using a short-lived connection for safety.
-  max_retries = 5
-  base_delay = 1.0
-
-  for attempt in range(max_retries):
-    try:
-      with psycopg.connect(config.dsn, connect_timeout=config.connect_timeout) as conn:
-        with conn.cursor() as cursor:
-          cursor.execute(statement)
-          cursor.execute(status_index)
-          cursor.execute(idempotency_index)
-
-          for alter_statement in alter_statements:
-            cursor.execute(alter_statement)
-      break
-    except psycopg.OperationalError as exc:
-      if attempt == max_retries - 1:
-        logger.error("Failed to ensure jobs table after %d attempts: %s", max_retries, exc)
-        raise
-
-      delay = base_delay * (2**attempt) + random.uniform(0, 0.5)
-      logger.warning("Database connection failed (attempt %d/%d), retrying in %.2fs: %s", attempt + 1, max_retries, delay, exc)
-      time.sleep(delay)
-
-  _KNOWN_TABLES.add(table_name)
-  logger.info("Ensured Postgres jobs table exists: %s", table_name)
-
-
-def _json_value(value: Any) -> Json | None:
-  """Wrap Python values for JSONB storage when present."""
-
-  # Preserve NULLs to keep optional columns unset.
-  if value is None:
-    return None
-
-  return Json(value)
-
 
 class PostgresJobsRepository(JobsRepository):
-  """Persist jobs to Postgres."""
+    """Persist jobs to Postgres using SQLAlchemy."""
 
-  def __init__(self, *, dsn: str, connect_timeout: int, table_name: str = "dgs_jobs") -> None:
-    self._config = _PostgresConfig(dsn=dsn, connect_timeout=connect_timeout)
-    self._table_name = table_name
+    def __init__(self, table_name: str = "dgs_jobs") -> None:
+        self._session_factory = get_session_factory()
+        if self._session_factory is None:
+             raise RuntimeError("Database not initialized")
 
-    # Ensure the storage tables are present before serving requests.
-
-    _ensure_jobs_table(self._config, self._table_name)
-
-  def create_job(self, record: JobRecord) -> None:
-    """Insert a new job record."""
-    statement = sql.SQL(
-      """
-            INSERT INTO {table} (
-              job_id,
-              request,
-              status,
-              phase,
-              subphase,
-              expected_sections,
-              completed_sections,
-              completed_section_indexes,
-              current_section_index,
-              current_section_status,
-              current_section_retry_count,
-              current_section_title,
-              retry_count,
-              max_retries,
-              retry_sections,
-              retry_agents,
-              retry_parent_job_id,
-              total_steps,
-              completed_steps,
-              progress,
-              logs,
-              result_json,
-              artifacts,
-              validation,
-              cost,
-              created_at,
-              updated_at,
-              completed_at,
-              ttl,
-              idempotency_key
+    async def create_job(self, record: JobRecord) -> None:
+        """Insert a new job record."""
+        async with self._session_factory() as session:
+            # Apply guardrails
+            safe_logs = sanitize_logs(record.logs)
+            safe_result = maybe_truncate_result_json(record.result_json)
+            safe_artifacts = maybe_truncate_artifacts(record.artifacts)
+            
+            job = Job(
+                job_id=record.job_id,
+                request=record.request,
+                status=record.status,
+                phase=record.phase,
+                subphase=record.subphase,
+                expected_sections=record.expected_sections,
+                completed_sections=record.completed_sections,
+                completed_section_indexes=record.completed_section_indexes,
+                current_section_index=record.current_section_index,
+                current_section_status=record.current_section_status,
+                current_section_retry_count=record.current_section_retry_count,
+                current_section_title=record.current_section_title,
+                retry_count=record.retry_count,
+                max_retries=record.max_retries,
+                retry_sections=record.retry_sections,
+                retry_agents=record.retry_agents,
+                retry_parent_job_id=record.retry_parent_job_id,
+                total_steps=record.total_steps,
+                completed_steps=record.completed_steps,
+                progress=record.progress,
+                logs=safe_logs,
+                result_json=safe_result,
+                artifacts=safe_artifacts,
+                validation=record.validation,
+                cost=record.cost,
+                created_at=record.created_at,
+                updated_at=record.updated_at,
+                completed_at=record.completed_at,
+                ttl=record.ttl,
+                idempotency_key=record.idempotency_key,
             )
-            VALUES (
-              %(job_id)s,
-              %(request)s,
-              %(status)s,
-              %(phase)s,
-              %(subphase)s,
-              %(expected_sections)s,
-              %(completed_sections)s,
-              %(completed_section_indexes)s,
-              %(current_section_index)s,
-              %(current_section_status)s,
-              %(current_section_retry_count)s,
-              %(current_section_title)s,
-              %(retry_count)s,
-              %(max_retries)s,
-              %(retry_sections)s,
-              %(retry_agents)s,
-              %(retry_parent_job_id)s,
-              %(total_steps)s,
-              %(completed_steps)s,
-              %(progress)s,
-              %(logs)s,
-              %(result_json)s,
-              %(artifacts)s,
-              %(validation)s,
-              %(cost)s,
-              %(created_at)s,
-              %(updated_at)s,
-              %(completed_at)s,
-              %(ttl)s,
-              %(idempotency_key)s
-            )
-            """
-    ).format(table=sql.Identifier(self._table_name))
+            session.add(job)
+            await session.commit()
 
-    # Apply guardrails to keep logs and payload sizes consistent.
+    async def get_job(self, job_id: str) -> JobRecord | None:
+        """Fetch a job record by identifier."""
+        async with self._session_factory() as session:
+            job = await session.get(Job, job_id)
+            if not job:
+                return None
+            return self._model_to_record(job)
 
-    safe_logs = sanitize_logs(record.logs)
-    safe_result = maybe_truncate_result_json(record.result_json)
-    safe_artifacts = maybe_truncate_artifacts(record.artifacts)
-    payload: dict[str, Any] = {
-      "job_id": record.job_id,
-      "request": _json_value(record.request),
-      "status": record.status,
-      "phase": record.phase,
-      "subphase": record.subphase,
-      "expected_sections": record.expected_sections,
-      "completed_sections": record.completed_sections,
-      "completed_section_indexes": _json_value(record.completed_section_indexes),
-      "current_section_index": record.current_section_index,
-      "current_section_status": record.current_section_status,
-      "current_section_retry_count": record.current_section_retry_count,
-      "current_section_title": record.current_section_title,
-      "retry_count": record.retry_count,
-      "max_retries": record.max_retries,
-      "retry_sections": _json_value(record.retry_sections),
-      "retry_agents": _json_value(record.retry_agents),
-      "retry_parent_job_id": record.retry_parent_job_id,
-      "total_steps": record.total_steps,
-      "completed_steps": record.completed_steps,
-      "progress": record.progress,
-      "logs": _json_value(safe_logs),
-      "result_json": _json_value(safe_result),
-      "artifacts": _json_value(safe_artifacts),
-      "validation": _json_value(record.validation),
-      "cost": _json_value(record.cost),
-      "created_at": record.created_at,
-      "updated_at": record.updated_at,
-      "completed_at": record.completed_at,
-      "ttl": record.ttl,
-      "idempotency_key": record.idempotency_key,
-    }
+    async def update_job(  # pylint: disable=too-many-arguments
+        self,
+        job_id: str,
+        *,
+        status: JobStatus | None = None,
+        phase: str | None = None,
+        subphase: str | None = None,
+        expected_sections: int | None = None,
+        completed_sections: int | None = None,
+        completed_section_indexes: list[int] | None = None,
+        current_section_index: int | None = None,
+        current_section_status: str | None = None,
+        current_section_retry_count: int | None = None,
+        current_section_title: str | None = None,
+        retry_count: int | None = None,
+        max_retries: int | None = None,
+        retry_sections: list[int] | None = None,
+        retry_agents: list[str] | None = None,
+        retry_parent_job_id: str | None = None,
+        total_steps: int | None = None,
+        completed_steps: int | None = None,
+        progress: float | None = None,
+        logs: list[str] | None = None,
+        result_json: dict | None = None,
+        artifacts: dict | None = None,
+        validation: dict | None = None,
+        cost: dict | None = None,
+        completed_at: str | None = None,
+        updated_at: str | None = None,
+    ) -> JobRecord | None:
+        """Apply partial updates to a job record."""
+        async with self._session_factory() as session:
+            job = await session.get(Job, job_id)
+            if not job:
+                return None
 
-    # Use a short-lived connection to keep DB access isolated.
+            # Preserve canceled status check from original repo
+            if job.status == "canceled" and status is not None and status != "canceled":
+                return self._model_to_record(job)
 
-    with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-      with conn.cursor() as cursor:
-        cursor.execute(statement, payload)
+            # Update fields if provided
+            if status is not None: job.status = status
+            if phase is not None: job.phase = phase
+            if subphase is not None: job.subphase = subphase
+            if expected_sections is not None: job.expected_sections = expected_sections
+            if completed_sections is not None: job.completed_sections = completed_sections
+            if completed_section_indexes is not None: job.completed_section_indexes = completed_section_indexes
+            if current_section_index is not None: job.current_section_index = current_section_index
+            if current_section_status is not None: job.current_section_status = current_section_status
+            if current_section_retry_count is not None: job.current_section_retry_count = current_section_retry_count
+            if current_section_title is not None: job.current_section_title = current_section_title
+            if retry_count is not None: job.retry_count = retry_count
+            if max_retries is not None: job.max_retries = max_retries
+            if retry_sections is not None: job.retry_sections = retry_sections
+            if retry_agents is not None: job.retry_agents = retry_agents
+            if retry_parent_job_id is not None: job.retry_parent_job_id = retry_parent_job_id
+            if total_steps is not None: job.total_steps = total_steps
+            if completed_steps is not None: job.completed_steps = completed_steps
+            if progress is not None: job.progress = progress
+            if logs is not None: job.logs = sanitize_logs(logs)
+            if result_json is not None: job.result_json = maybe_truncate_result_json(result_json)
+            if artifacts is not None: job.artifacts = maybe_truncate_artifacts(artifacts)
+            if validation is not None: job.validation = validation
+            if cost is not None: job.cost = cost
+            if completed_at is not None: job.completed_at = completed_at
+            
+            # Always update updated_at (generating new timestamp if provided, or could rely on caller)
+            # The original repo used `updated_at or _now_iso()`. 
+            # We assume the caller passes it, or we could generate it. 
+            # Typically logic layer handles this, but repo did it.
+            if updated_at is not None:
+                job.updated_at = updated_at
+            else:
+                from datetime import datetime, timezone
+                job.updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-  def get_job(self, job_id: str) -> JobRecord | None:
-    """Fetch a job record by identifier."""
-    statement = sql.SQL("SELECT * FROM {table} WHERE job_id = %(job_id)s").format(table=sql.Identifier(self._table_name))
+            await session.commit()
+            await session.refresh(job)
+            return self._model_to_record(job)
 
-    # Query with a dict row factory for clarity in mapping fields.
+    async def find_queued(self, limit: int = 5) -> list[JobRecord]:
+        """Return a batch of queued jobs."""
+        async with self._session_factory() as session:
+            stmt = select(Job).where(Job.status == "queued").order_by(Job.created_at.asc()).limit(limit)
+            result = await session.execute(stmt)
+            jobs = result.scalars().all()
+            return [self._model_to_record(j) for j in jobs]
 
-    with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-      with conn.cursor(row_factory=dict_row) as cursor:
-        cursor.execute(statement, {"job_id": job_id})
-        row = cursor.fetchone()
+    async def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
+        """Find a job matching a given idempotency key."""
+        async with self._session_factory() as session:
+            stmt = select(Job).where(Job.idempotency_key == idempotency_key).order_by(Job.created_at.asc()).limit(1)
+            result = await session.execute(stmt)
+            job = result.scalar_one_or_none()
+            if not job:
+                return None
+            return self._model_to_record(job)
 
-    # Return None when the job does not exist.
+    async def list_jobs(
+        self, limit: int, offset: int, status: str | None = None, job_id: str | None = None
+    ) -> tuple[list[JobRecord], int]:
+        """Return a paginated list of jobs with filters and total count."""
+        async with self._session_factory() as session:
+            stmt = select(Job).order_by(Job.created_at.desc()).limit(limit).offset(offset)
+            count_stmt = select(func.count()).select_from(Job)
+            
+            conditions = []
+            if status:
+                conditions.append(Job.status == status)
+            if job_id:
+                conditions.append(Job.job_id == job_id)
 
-    if row is None:
-      return None
+            if conditions:
+                stmt = stmt.where(*conditions)
+                count_stmt = count_stmt.where(*conditions)
 
-    # Map the database row into the domain record.
-    return self._row_to_record(row)
+            total = await session.scalar(count_stmt)
+            result = await session.execute(stmt)
+            jobs = result.scalars().all()
 
-  def update_job(
-    self,
-    job_id: str,
-    *,
-    status: JobStatus | None = None,
-    phase: str | None = None,
-    subphase: str | None = None,
-    expected_sections: int | None = None,
-    completed_sections: int | None = None,
-    completed_section_indexes: list[int] | None = None,
-    current_section_index: int | None = None,
-    current_section_status: str | None = None,
-    current_section_retry_count: int | None = None,
-    current_section_title: str | None = None,
-    retry_count: int | None = None,
-    max_retries: int | None = None,
-    retry_sections: list[int] | None = None,
-    retry_agents: list[str] | None = None,
-    retry_parent_job_id: str | None = None,
-    total_steps: int | None = None,
-    completed_steps: int | None = None,
-    progress: float | None = None,
-    logs: list[str] | None = None,
-    result_json: dict | None = None,
-    artifacts: dict | None = None,
-    validation: dict | None = None,
-    cost: dict | None = None,
-    completed_at: str | None = None,
-    updated_at: str | None = None,
-  ) -> JobRecord | None:
-    """Apply partial updates to a job record."""
-    current = self.get_job(job_id)
+            return [self._model_to_record(j) for j in jobs], (total or 0)
 
-    # Stop early if the job does not exist.
-
-    if current is None:
-      return None
-
-    # Preserve canceled status if already set.
-    if current.status == "canceled" and status is not None and status != "canceled":
-      return current
-
-    # Merge the incoming changes with persisted values.
-    completed_steps_value = completed_steps if completed_steps is not None else current.completed_steps
-    # Always stamp an update timestamp when writing job changes.
-    updated_at_value = updated_at or _now_iso()
-    payload = {
-      "job_id": current.job_id,
-      "request": current.request,
-      "status": status or current.status,
-      "phase": phase if phase is not None else current.phase,
-      "subphase": subphase if subphase is not None else current.subphase,
-      "expected_sections": expected_sections if expected_sections is not None else current.expected_sections,
-      "completed_sections": completed_sections if completed_sections is not None else current.completed_sections,
-      "completed_section_indexes": completed_section_indexes if completed_section_indexes is not None else current.completed_section_indexes,
-      "current_section_index": current_section_index if current_section_index is not None else current.current_section_index,
-      "current_section_status": current_section_status if current_section_status is not None else current.current_section_status,
-      "current_section_retry_count": current_section_retry_count if current_section_retry_count is not None else current.current_section_retry_count,
-      "current_section_title": current_section_title if current_section_title is not None else current.current_section_title,
-      "retry_count": retry_count if retry_count is not None else current.retry_count,
-      "max_retries": max_retries if max_retries is not None else current.max_retries,
-      "retry_sections": retry_sections if retry_sections is not None else current.retry_sections,
-      "retry_agents": retry_agents if retry_agents is not None else current.retry_agents,
-      "retry_parent_job_id": retry_parent_job_id if retry_parent_job_id is not None else current.retry_parent_job_id,
-      "total_steps": total_steps if total_steps is not None else current.total_steps,
-      "completed_steps": completed_steps_value,
-      "progress": progress if progress is not None else current.progress,
-      "logs": logs if logs is not None else current.logs,
-      "result_json": result_json if result_json is not None else current.result_json,
-      "artifacts": artifacts if artifacts is not None else current.artifacts,
-      "validation": validation if validation is not None else current.validation,
-      "cost": cost if cost is not None else current.cost,
-      "created_at": current.created_at,
-      "updated_at": updated_at_value,
-      "completed_at": completed_at if completed_at is not None else current.completed_at,
-      "ttl": current.ttl,
-      "idempotency_key": current.idempotency_key,
-    }
-    updated_record = JobRecord(**payload)
-
-    # Apply guardrails to keep logs and payload sizes consistent.
-
-    safe_logs = sanitize_logs(updated_record.logs)
-    safe_result = maybe_truncate_result_json(updated_record.result_json)
-    safe_artifacts = maybe_truncate_artifacts(updated_record.artifacts)
-    statement = sql.SQL(
-      """
-            UPDATE {table}
-            SET
-              request = %(request)s,
-              status = %(status)s,
-              phase = %(phase)s,
-              subphase = %(subphase)s,
-              expected_sections = %(expected_sections)s,
-              completed_sections = %(completed_sections)s,
-              completed_section_indexes = %(completed_section_indexes)s,
-              current_section_index = %(current_section_index)s,
-              current_section_status = %(current_section_status)s,
-              current_section_retry_count = %(current_section_retry_count)s,
-              current_section_title = %(current_section_title)s,
-              retry_count = %(retry_count)s,
-              max_retries = %(max_retries)s,
-              retry_sections = %(retry_sections)s,
-              retry_agents = %(retry_agents)s,
-              retry_parent_job_id = %(retry_parent_job_id)s,
-              total_steps = %(total_steps)s,
-              completed_steps = %(completed_steps)s,
-              progress = %(progress)s,
-              logs = %(logs)s,
-              result_json = %(result_json)s,
-              artifacts = %(artifacts)s,
-              validation = %(validation)s,
-              cost = %(cost)s,
-              created_at = %(created_at)s,
-              updated_at = %(updated_at)s,
-              completed_at = %(completed_at)s,
-              ttl = %(ttl)s,
-              idempotency_key = %(idempotency_key)s
-            WHERE job_id = %(job_id)s
-            """
-    ).format(table=sql.Identifier(self._table_name))
-    db_payload: dict[str, Any] = {
-      "job_id": updated_record.job_id,
-      "request": _json_value(updated_record.request),
-      "status": updated_record.status,
-      "phase": updated_record.phase,
-      "subphase": updated_record.subphase,
-      "expected_sections": updated_record.expected_sections,
-      "completed_sections": updated_record.completed_sections,
-      "completed_section_indexes": _json_value(updated_record.completed_section_indexes),
-      "current_section_index": updated_record.current_section_index,
-      "current_section_status": updated_record.current_section_status,
-      "current_section_retry_count": updated_record.current_section_retry_count,
-      "current_section_title": updated_record.current_section_title,
-      "retry_count": updated_record.retry_count,
-      "max_retries": updated_record.max_retries,
-      "retry_sections": _json_value(updated_record.retry_sections),
-      "retry_agents": _json_value(updated_record.retry_agents),
-      "retry_parent_job_id": updated_record.retry_parent_job_id,
-      "total_steps": updated_record.total_steps,
-      "completed_steps": updated_record.completed_steps,
-      "progress": updated_record.progress,
-      "logs": _json_value(safe_logs),
-      "result_json": _json_value(safe_result),
-      "artifacts": _json_value(safe_artifacts),
-      "validation": _json_value(updated_record.validation),
-      "cost": _json_value(updated_record.cost),
-      "created_at": updated_record.created_at,
-      "updated_at": updated_record.updated_at,
-      "completed_at": updated_record.completed_at,
-      "ttl": updated_record.ttl,
-      "idempotency_key": updated_record.idempotency_key,
-    }
-
-    # Persist the merged record back into Postgres.
-
-    with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-      with conn.cursor() as cursor:
-        cursor.execute(statement, db_payload)
-
-    return updated_record
-
-  def find_queued(self, limit: int = 5) -> list[JobRecord]:
-    """Return a batch of queued jobs."""
-    statement = sql.SQL("SELECT * FROM {table} WHERE status = %(status)s ORDER BY created_at ASC LIMIT %(limit)s").format(table=sql.Identifier(self._table_name))
-
-    # Fetch queued jobs in a deterministic order.
-
-    with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-      with conn.cursor(row_factory=dict_row) as cursor:
-        cursor.execute(statement, {"status": "queued", "limit": limit})
-        rows = cursor.fetchall()
-
-    # Map queued rows into domain records.
-
-    return [self._row_to_record(row) for row in rows]
-
-  def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
-    """Find a job matching a given idempotency key."""
-    statement = sql.SQL("SELECT * FROM {table} WHERE idempotency_key = %(key)s ORDER BY created_at ASC LIMIT 1").format(table=sql.Identifier(self._table_name))
-
-    # Look up the earliest job with the requested idempotency key.
-
-    with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-      with conn.cursor(row_factory=dict_row) as cursor:
-        cursor.execute(statement, {"key": idempotency_key})
-        row = cursor.fetchone()
-
-    # Return None when the job does not exist.
-
-    if row is None:
-      return None
-
-    return self._row_to_record(row)
-
-  def list_jobs(self, limit: int, offset: int, status: str | None = None, job_id: str | None = None) -> tuple[list[JobRecord], int]:
-    """Return a paginated list of jobs with filters and total count."""
-    # Query for items and count in arguably one go (or separate queries).
-    # We'll use two queries for simplicity and driver compatibility.
-
-    where_clauses = []
-    params = {}
-
-    if status:
-      where_clauses.append("status = %(status)s")
-      params["status"] = status
-
-    if job_id:
-      where_clauses.append("job_id = %(job_id)s")
-      params["job_id"] = job_id
-
-    where_sql = sql.SQL(" WHERE " if where_clauses else "") + sql.SQL(" AND ").join([sql.SQL(c) for c in where_clauses])
-
-    # 1. Get total count
-    count_query = sql.SQL("SELECT COUNT(*) FROM {table}").format(table=sql.Identifier(self._table_name)) + where_sql
-
-    # 2. Get items
-    items_query = sql.SQL("SELECT * FROM {table}").format(table=sql.Identifier(self._table_name)) + where_sql + sql.SQL(" ORDER BY created_at DESC LIMIT %(limit)s OFFSET %(offset)s")
-    params["limit"] = limit
-    params["offset"] = offset
-
-    with psycopg.connect(self._config.dsn, connect_timeout=self._config.connect_timeout) as conn:
-      with conn.cursor() as cursor:
-        # Execute count
-        cursor.execute(count_query, params)
-        total = cursor.fetchone()[0]
-
-      with conn.cursor(row_factory=dict_row) as cursor:
-        # Execute items
-        cursor.execute(items_query, params)
-        rows = cursor.fetchall()
-
-    return [self._row_to_record(row) for row in rows], total
-
-  def _row_to_record(self, row: dict[str, Any]) -> JobRecord:
-    """Convert a database row to a JobRecord."""
-    # Normalize logs to a list even when the column is NULL.
-    logs = row.get("logs") or []
-    payload = {
-      "job_id": row["job_id"],
-      "request": row["request"],
-      "status": row["status"],
-      "phase": row["phase"],
-      "subphase": row.get("subphase"),
-      "expected_sections": row.get("expected_sections"),
-      "completed_sections": row.get("completed_sections"),
-      "completed_section_indexes": row.get("completed_section_indexes"),
-      "current_section_index": row.get("current_section_index"),
-      "current_section_status": row.get("current_section_status"),
-      "current_section_retry_count": row.get("current_section_retry_count"),
-      "current_section_title": row.get("current_section_title"),
-      "retry_count": row.get("retry_count"),
-      "max_retries": row.get("max_retries"),
-      "retry_sections": row.get("retry_sections"),
-      "retry_agents": row.get("retry_agents"),
-      "retry_parent_job_id": row.get("retry_parent_job_id"),
-      "total_steps": row.get("total_steps"),
-      "completed_steps": row.get("completed_steps"),
-      "progress": row.get("progress"),
-      "logs": logs,
-      "result_json": row.get("result_json"),
-      "artifacts": row.get("artifacts"),
-      "validation": row.get("validation"),
-      "cost": row.get("cost"),
-      "created_at": row["created_at"],
-      "updated_at": row["updated_at"],
-      "completed_at": row.get("completed_at"),
-      "ttl": row.get("ttl"),
-      "idempotency_key": row.get("idempotency_key"),
-    }
-    return JobRecord(**payload)
+    def _model_to_record(self, job: Job) -> JobRecord:
+        """Convert a SQLAlchemy model to a domain record."""
+        return JobRecord(
+            job_id=job.job_id,
+            request=job.request,
+            status=job.status,
+            phase=job.phase,
+            subphase=job.subphase,
+            expected_sections=job.expected_sections,
+            completed_sections=job.completed_sections,
+            completed_section_indexes=job.completed_section_indexes,
+            current_section_index=job.current_section_index,
+            current_section_status=job.current_section_status,
+            current_section_retry_count=job.current_section_retry_count,
+            current_section_title=job.current_section_title,
+            retry_count=job.retry_count,
+            max_retries=job.max_retries,
+            retry_sections=job.retry_sections,
+            retry_agents=job.retry_agents,
+            retry_parent_job_id=job.retry_parent_job_id,
+            total_steps=job.total_steps,
+            completed_steps=job.completed_steps,
+            progress=job.progress,
+            logs=job.logs,
+            result_json=job.result_json,
+            artifacts=job.artifacts,
+            validation=job.validation,
+            cost=job.cost,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            completed_at=job.completed_at,
+            ttl=job.ttl,
+            idempotency_key=job.idempotency_key,
+        )

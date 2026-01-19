@@ -12,6 +12,8 @@ while [ -z "${container_id}" ]; do
     sleep 0.5
   fi
 done
+echo "Found container ID: ${container_id}"
+
 # Poll for a LISTEN socket in /proc/net/tcp{,6} to avoid a probe connection that can race with VS Code attach and cause a disconnect.
 while ! docker exec -e DEBUG_PORT="${DEBUG_PORT}" "${container_id}" /usr/bin/python - <<'PY'
 import os
@@ -49,4 +51,7 @@ PY
 do
   sleep 0.5
 done
+echo "Debugger port 5678 is open inside the container."
+echo "Waiting 2 seconds for Docker port forwarding to stabilize..."
+sleep 2
 echo "Debugger port is ready!"

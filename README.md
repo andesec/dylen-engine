@@ -58,6 +58,8 @@ Storage and tuning:
 - `DGS_PROMPT_VERSION`: Prompt version tag (default: `v1`).
 - `DGS_SCHEMA_VERSION`: Schema version tag (default: `1.0`).
 
+See [docs/database_migrations.md](docs/database_migrations.md) for details on managing database schema changes.
+
 ## Running locally
 
 Use Uvicorn to serve the FastAPI app with reload enabled:

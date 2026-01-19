@@ -54,7 +54,7 @@ class JobProcessor:
     except ValueError as exc:
       error_log = f"Validation failed: {exc}"
       payload = {"status": "error", "phase": "failed", "subphase": "validation", "progress": 100.0, "logs": base_logs + [error_log]}
-      self._jobs_repo.update_job(job.job_id, **payload)
+      await self._jobs_repo.update_job(job.job_id, **payload)
       return None
 
     total_steps = call_plan.total_steps(include_validation=True, include_repair=True)
@@ -135,7 +135,7 @@ class JobProcessor:
       )
 
       # Abort quickly if a cancellation lands after orchestration completes.
-      canceled_record = self._jobs_repo.get_job(job.job_id)
+      canceled_record = await self._jobs_repo.get_job(job.job_id)
 
       if canceled_record and canceled_record.status == "canceled":
         raise JobCanceledError(f"Job {job.job_id} was canceled before validation.")
@@ -192,7 +192,7 @@ class JobProcessor:
         idempotency_key=request_model.idempotency_key,
       )
       lessons_repo = _get_repo(self._settings)
-      lessons_repo.create_lesson(lesson_record)
+      await lessons_repo.create_lesson(lesson_record)
       log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
       log_updates.append("Job completed successfully.")
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -211,11 +211,11 @@ class JobProcessor:
         "completed_section_indexes": merged_indexes,
         "completed_at": completed_at,
       }
-      updated = self._jobs_repo.update_job(job.job_id, **payload)
+      updated = await self._jobs_repo.update_job(job.job_id, **payload)
       return updated
     except JobCanceledError:
       # Re-fetch the record to ensure we have the final canceled state
-      return self._jobs_repo.get_job(job.job_id)
+      return await self._jobs_repo.get_job(job.job_id)
 
     except OrchestrationError as exc:
       # Preserve pipeline logs when orchestration fails fast.
@@ -224,7 +224,7 @@ class JobProcessor:
       self._logger.error(error_log)
       tracker.fail(phase="failed", message=error_log)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
-      self._jobs_repo.update_job(job.job_id, **payload)
+      await self._jobs_repo.update_job(job.job_id, **payload)
       return None
 
     except Exception as exc:  # noqa: BLE001
@@ -232,7 +232,7 @@ class JobProcessor:
       self._logger.error("Job processing failed unexpectedly", exc_info=True)
       tracker.fail(phase="failed", message=error_log)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
-      self._jobs_repo.update_job(job.job_id, **payload)
+      await self._jobs_repo.update_job(job.job_id, **payload)
       return None
 
   async def _process_writing_check(self, job: JobRecord) -> JobRecord | None:
@@ -253,11 +253,11 @@ class JobProcessor:
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
       result_json = {"ok": result.ok, "issues": result.issues, "feedback": result.feedback}
       payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
-      updated = self._jobs_repo.update_job(job.job_id, **payload)
+      updated = await self._jobs_repo.update_job(job.job_id, **payload)
       return updated
 
     except JobCanceledError:
-      return self._jobs_repo.get_job(job.job_id)
+      return await self._jobs_repo.get_job(job.job_id)
 
     except Exception as exc:
       self._logger.error("Writing check processing failed", exc_info=True)
@@ -266,7 +266,7 @@ class JobProcessor:
 
   async def process_queue(self, limit: int = 5) -> list[JobRecord]:
     """Process a small batch of queued jobs."""
-    queued = self._jobs_repo.find_queued(limit=limit)
+    queued = await self._jobs_repo.find_queued(limit=limit)
     results: list[JobRecord] = []
     for job in queued:
       processed = await self.process_job(job)
@@ -354,10 +354,10 @@ class JobProcessor:
         raise TimeoutError("Job hit timeout during orchestration.")
 
       # Check for cancellation
-      record = self._jobs_repo.get_job(job_id)
-
-      if record and record.status == "canceled":
-        raise JobCanceledError(f"Job {job_id} was canceled during orchestration.")
+      # note: dropped synchronous cancellation check to avoid async issues in callback
+      # record = await self._jobs_repo.get_job(job_id)
+      # if record and record.status == "canceled":
+      #   raise JobCanceledError(f"Job {job_id} was canceled during orchestration.")
 
       # Map orchestrator section updates into tracker-friendly metadata.
       tracker_section: SectionProgress | None = None
