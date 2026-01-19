@@ -7,7 +7,7 @@ name = "dgs-backend"
 version = "0.1.0"
 description = "Data Generation Service backend for DLE."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 authors = [{ name = "DGS Team" }]
 dependencies = [
     "fastapi>=0.115.0,<1.0.0",
@@ -17,6 +17,9 @@ dependencies = [
     "myapplication>=0.1.0",
     "psycopg[binary]>=3.2.0,<4.0.0",
     "uvicorn[standard]>=0.30.0",
+    "firebase-admin>=7.0.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.29.0",
 ]
 
 [project.optional-dependencies]

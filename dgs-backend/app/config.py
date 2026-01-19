@@ -46,6 +46,8 @@ class Settings:
   cache_lesson_catalog: bool
   gcp_project_id: str | None
   gcp_location: str | None
+  firebase_project_id: str | None
+  firebase_service_account_json_path: str | None
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -136,6 +138,8 @@ def get_settings() -> Settings:
     cache_lesson_catalog=_parse_bool(os.getenv("DGS_CACHE_LESSON_CATALOG")),
     gcp_project_id=os.getenv("GCP_PROJECT_ID"),
     gcp_location=os.getenv("GCP_LOCATION"),
+    firebase_project_id=os.getenv("FIREBASE_PROJECT_ID"),
+    firebase_service_account_json_path=os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON_PATH"),
   )
 
 

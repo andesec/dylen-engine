@@ -1,5 +1,4 @@
 import os
-import sys
 
 # Mock environment to match what we see
 os.environ["DGS_ALLOWED_ORIGINS"] = "https://app.dle.orb.local,"

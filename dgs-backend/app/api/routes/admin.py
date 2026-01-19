@@ -3,8 +3,8 @@ from typing import TypeVar
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from app.api.deps import verify_admin_key
 from app.config import get_settings
+from app.core.security import get_current_active_user, get_current_admin_user
 from app.jobs.models import JobRecord, JobStatus
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
@@ -40,21 +40,21 @@ def get_audit_repo() -> PostgresLlmAuditRepository:
   return PostgresLlmAuditRepository(dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout)
 
 
-@router.get("/jobs", response_model=PaginatedResponse[JobRecord], dependencies=[Depends(verify_admin_key)])
+@router.get("/jobs", response_model=PaginatedResponse[JobRecord], dependencies=[Depends(get_current_admin_user)])
 def list_jobs(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), status: JobStatus | None = None, job_id: str | None = None):
   repo = get_jobs_repo()
   items, total = repo.list_jobs(limit=limit, offset=offset, status=status, job_id=job_id)
   return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.get("/lessons", response_model=PaginatedResponse[LessonRecord], dependencies=[Depends(verify_admin_key)])
+@router.get("/lessons", response_model=PaginatedResponse[LessonRecord], dependencies=[Depends(get_current_admin_user)])
 def list_lessons(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), topic: str | None = None, status: str | None = None):
   repo = get_lessons_repo()
   items, total = repo.list_lessons(limit=limit, offset=offset, topic=topic, status=status)
   return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.get("/llm-calls", response_model=PaginatedResponse[LlmAuditRecord], dependencies=[Depends(verify_admin_key)])
+@router.get("/llm-calls", response_model=PaginatedResponse[LlmAuditRecord], dependencies=[Depends(get_current_admin_user)])
 def list_llm_calls(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), job_id: str | None = None, agent: str | None = None, status: str | None = None):
   repo = get_audit_repo()
   items, total = repo.list_records(limit=limit, offset=offset, job_id=job_id, agent=agent, status=status)
