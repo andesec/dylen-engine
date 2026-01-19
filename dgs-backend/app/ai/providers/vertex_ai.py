@@ -1,7 +1,7 @@
 import logging
-import os
-from typing import Any, Final, cast
 import warnings
+from typing import Any, Final, cast
+
 from pydantic.warnings import ArbitraryTypeWarning
 
 # Suppress Pydantic warnings from google-genai

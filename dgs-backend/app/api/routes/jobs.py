@@ -5,14 +5,18 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import require_dev_key
 from app.api.models import CurrentSectionStatus, GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse, ValidationResponse, WritingCheckRequest
 from app.config import Settings, get_settings
+from app.core.database import get_db
 from app.core.lifespan import is_job_worker_active
+from app.core.security import get_current_active_user
 from app.jobs.models import JobRecord
-from app.services.model_routing import _get_orchestrator
+from app.schema.sql import User
+from app.services.audit import log_llm_interaction
+from app.services.model_routing import _get_orchestrator, _resolve_model_selection
 from app.services.request_validation import _validate_generate_request
 from app.storage.factory import _get_jobs_repo
 from app.utils.ids import generate_job_id
@@ -208,13 +212,22 @@ def kickoff_job_processing(background_tasks: BackgroundTasks, job_id: str, setti
   task.add_done_callback(_log_job_task_failure)
 
 
-@router.post("", response_model=JobCreateResponse, dependencies=[Depends(require_dev_key)])
+@router.post("", response_model=JobCreateResponse)
 async def create_job(  # noqa: B008
   request: GenerateLessonRequest,
   background_tasks: BackgroundTasks,
   settings: Settings = Depends(get_settings),  # noqa: B008
+  current_user: User = Depends(get_current_active_user),  # noqa: B008
+  db_session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> JobCreateResponse:
   """Create a background lesson generation job."""
+
+  selection = _resolve_model_selection(settings, models=request.models)
+  model_name = f"job:{selection[1]},{selection[3]},{selection[5]}"
+
+  if current_user.id:
+    await log_llm_interaction(user_id=current_user.id, model_name=model_name, prompt_summary=request.topic, status="job_queued", session=db_session)
+
   response = await create_job_record(request, settings)
 
   # Kick off processing so the client can poll for status immediately.
@@ -223,12 +236,13 @@ async def create_job(  # noqa: B008
   return response
 
 
-@router.post("/{job_id}/retry", response_model=JobStatusResponse, dependencies=[Depends(require_dev_key)])
+@router.post("/{job_id}/retry", response_model=JobStatusResponse)
 async def retry_job(  # noqa: B008
   job_id: str,
   payload: JobRetryRequest,
   background_tasks: BackgroundTasks,
   settings: Settings = Depends(get_settings),  # noqa: B008
+  current_user: User = Depends(get_current_active_user),  # noqa: B008
 ) -> JobStatusResponse:
   """Retry a failed job with optional section/agent targeting."""
   repo = _get_jobs_repo(settings)
@@ -305,10 +319,11 @@ async def retry_job(  # noqa: B008
   return _job_status_from_record(updated, settings)
 
 
-@router.post("/{job_id}/cancel", response_model=JobStatusResponse, dependencies=[Depends(require_dev_key)])
+@router.post("/{job_id}/cancel", response_model=JobStatusResponse)
 async def cancel_job(  # noqa: B008
   job_id: str,
   settings: Settings = Depends(get_settings),  # noqa: B008
+  current_user: User = Depends(get_current_active_user),  # noqa: B008
 ) -> JobStatusResponse:
   """Request cancellation of a running background job."""
   repo = _get_jobs_repo(settings)
@@ -332,7 +347,7 @@ async def cancel_job(  # noqa: B008
   return _job_status_from_record(updated, settings)
 
 
-@router.get("/{job_id}", response_model=JobStatusResponse, dependencies=[Depends(require_dev_key)])
+@router.get("/{job_id}", response_model=JobStatusResponse, dependencies=[Depends(get_current_active_user)])
 async def get_job_status(  # noqa: B008
   job_id: str,
   settings: Settings = Depends(get_settings),  # noqa: B008

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import Settings
+from app.core.firebase import initialize_firebase
 from app.core.logging import _initialize_logging
 from app.services.model_routing import _get_orchestrator
 from app.storage.factory import _get_jobs_repo
@@ -105,6 +106,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
   try:
     _initialize_logging(settings)
     logger.info("Startup complete - logging verified.")
+
+    # Initialize Firebase
+    initialize_firebase()
 
     _start_job_worker(settings)
 
