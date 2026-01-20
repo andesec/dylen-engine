@@ -15,36 +15,42 @@ from app.schema.sql import User
 settings = get_settings()
 
 
-async def get_current_user(request: Request, session_cookie: Annotated[str | None, Cookie(alias="session")] = None, db: AsyncSession = Depends(get_db)) -> User:  # noqa: B008
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from app.core.firebase import verify_id_token
+
+security_scheme = HTTPBearer()
+
+
+async def get_current_user(token: Annotated[HTTPAuthorizationCredentials, Depends(security_scheme)], db: AsyncSession = Depends(get_db)) -> User:
   """
-  Verifies the session cookie and retrieves the current user.
+  Verifies the Firebase ID Token (Bearer) and retrieves the current user.
   """
+  id_token = token.credentials
+  decoded_claims = await run_in_threadpool(verify_id_token, id_token)
 
-  # Check for Dev Key bypass
-  dev_key_header = request.headers.get("X-DGS-Dev-Key")
-  if dev_key_header and dev_key_header == settings.dev_key:
-    # Return a mock admin user or similar if dev key is present.
-    # Ideally, we should have a dedicated service user or handle this carefully.
-    # For now, let's look for a special admin user or create a temporary obj.
-    # Or we can just bypass the check if the caller logic handles it, but this dependency is typed to return User.
-    # Let's create a dummy user object for dev key access.
-    return User(id=None, firebase_uid="dev-key-user", email="dev@local", is_approved=True)
+  if not decoded_claims:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials", headers={"WWW-Authenticate": "Bearer"})
 
-  if not session_cookie:
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+  firebase_uid = decoded_claims.get("uid")
+  provider_id = decoded_claims.get("firebase", {}).get("sign_in_provider")
 
-  try:
-    decoded_claims = await run_in_threadpool(auth.verify_session_cookie, session_cookie, check_revoked=True)
-    firebase_uid = decoded_claims.get("uid")
-  except Exception:
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session") from None
+  if not firebase_uid:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token claims")
 
   stmt = select(User).where(User.firebase_uid == firebase_uid)
   result = await db.execute(stmt)
   user = result.scalar_one_or_none()
 
   if not user:
+    # User must explicitly sign up first.
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+  # Optional: Update provider if it changed or wasn't set (passive sync)
+  if provider_id and user.provider != provider_id:
+    user.provider = provider_id
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
 
   return user
 

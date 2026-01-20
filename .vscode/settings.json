@@ -19,5 +19,7 @@
             "source.fixAll": "explicit",
             "source.organizeImports": "explicit"
         }
-    }
+    },
+    "snyk.advanced.organization": "c26fee8c-8513-4930-be8e-f0408edee26a",
+    "snyk.advanced.autoSelectOrganization": true
 }

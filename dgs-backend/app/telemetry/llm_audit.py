@@ -78,7 +78,7 @@ async def start_llm_call(*, provider: str, model: str, request_type: str, reques
   # Build the record and insert asynchronously.
   event = LlmAuditStart(provider=provider, model=model, request_type=request_type, request_payload=request_payload, started_at=started_at)
   record = _build_pending_record(event)
-  
+
   await _insert_record(repo, record)
   return record.record_id
 
@@ -209,6 +209,7 @@ async def _update_record(
 
   except Exception as exc:  # noqa: BLE001 - avoid breaking upstream calls
     logger.warning("Failed to update LLM audit record: %s", exc)
+
 
 def _coerce_int(value: Any) -> int | None:
   """Normalize token values to integers when present."""

@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -12,6 +13,7 @@ from app.core.firebase import verify_id_token
 from app.schema.sql import User
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class LoginRequest(BaseModel):
@@ -30,17 +32,27 @@ class SignupRequest(BaseModel):
 
 
 @router.post("/login")
-async def login(request: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
   """
-  Exchange Firebase ID Token for a Session Cookie.
+  Check if user exists and return status.
   """
-  decoded_token = await run_in_threadpool(verify_id_token, request.id_token)
+  logger.info("Login request received")
+  try:
+    decoded_token = await run_in_threadpool(verify_id_token, request.id_token)
+  except Exception as e:
+    logger.error("Login failed: Token verification crashed: %s", e, exc_info=True)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid ID token") from e
+
   if not decoded_token:
+    logger.warning("Login failed: Invalid ID token (empty result)")
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid ID token")
 
   firebase_uid = decoded_token.get("uid")
-  
+  email = decoded_token.get("email")
+  logger.debug("Token verified. UID: %s, Email: %s", firebase_uid, email)
+
   if not firebase_uid:
+    logger.error("Login failed: Token missing uid")
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token missing uid")
 
   # Check if user exists in DB
@@ -49,25 +61,36 @@ async def login(request: LoginRequest, response: Response, db: AsyncSession = De
   user = result.scalar_one_or_none()
 
   if not user:
-    # Auto-signup is disabled. Frontend should redirect to signup.
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not registered")
+    logger.info("Login checked: User not registered. UID: %s", firebase_uid)
+    return {"exists": False, "user": None}
 
-  return await _create_session(response, request.id_token, user)
+  logger.info("Login successful. User: %s", user.email)
+  return {"exists": True, "user": {"email": user.email, "is_approved": user.is_approved, "full_name": user.full_name, "photo_url": user.photo_url}}
 
 
 @router.post("/signup")
-async def signup(request: SignupRequest, response: Response, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
   """
   Register a new user.
   """
-  decoded_token = await run_in_threadpool(verify_id_token, request.id_token)
+  logger.info("Signup request received. Full Name: %s", request.full_name)
+  try:
+    decoded_token = await run_in_threadpool(verify_id_token, request.id_token)
+  except Exception as e:
+    logger.error("Signup failed: Token verification crashed: %s", e, exc_info=True)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid ID token") from e
+
   if not decoded_token:
+    logger.warning("Signup failed: Invalid ID token")
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid ID token")
-  
+
   firebase_uid = decoded_token.get("uid")
   token_email = decoded_token.get("email")
+  provider_id = decoded_token.get("firebase", {}).get("sign_in_provider")
+  logger.debug("Signup token verified. UID: %s, Email: %s, Provider: %s", firebase_uid, token_email, provider_id)
 
   if not firebase_uid or not token_email:
+    logger.error("Signup failed: Token missing uid or email")
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token missing uid or email")
 
   # Check if user already exists
@@ -76,41 +99,31 @@ async def signup(request: SignupRequest, response: Response, db: AsyncSession = 
   existing_user = result.scalar_one_or_none()
 
   if existing_user:
+    logger.warning("Signup failed: User already registered. UID: %s", firebase_uid)
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already registered")
 
   # Create user
-  user = User(
-    firebase_uid=firebase_uid,
-    email=token_email, # Trust token email over request email
-    full_name=request.full_name,
-    profession=request.profession,
-    city=request.city,
-    country=request.country,
-    age=request.age,
-    photo_url=request.photo_url,
-    is_approved=False
-  )
-  db.add(user)
-  await db.commit()
-  await db.refresh(user)
-
-  return await _create_session(response, request.id_token, user)
-
-
-async def _create_session(response: Response, id_token: str, user: User) -> dict[str, Any]:
-  # Create session cookie
-  # We use the Firebase Admin SDK to create a secure session cookie.
-  # This allows us to set a longer expiration (5 days) compared to the short-lived ID token.
   try:
-    # Create a session cookie using Firebase Admin SDK
-    # Expiration time: 5 days
-    from firebase_admin import auth
+    user = User(
+      firebase_uid=firebase_uid,
+      email=token_email,  # Trust token email over request email - Verify email?
+      # If firebase email is not verified, maybe we should warn?
+      # For now, we trust Firebase auth.
+      full_name=request.full_name,
+      profession=request.profession,
+      city=request.city,
+      country=request.country,
+      age=request.age,
+      photo_url=request.photo_url,
+      is_approved=False,
+      provider=provider_id,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+  except Exception as e:
+    logger.error("Signup failed: Database error during creation for %s: %s", token_email, e, exc_info=True)
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user") from e
 
-    expires_in = datetime.timedelta(days=5)
-    session_cookie = await run_in_threadpool(auth.create_session_cookie, id_token, expires_in=expires_in)
-
-    response.set_cookie(key="session", value=session_cookie, httponly=True, secure=True, samesite="lax", max_age=int(expires_in.total_seconds()))
-    return {"status": "success", "user": {"email": user.email, "is_approved": user.is_approved}}
-  except Exception:
-    # Fallback or error handling
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Failed to create session cookie") from None
+  logger.info("Signup successful. Created user: %s", user.email)
+  return {"status": "success", "user": {"email": user.email, "is_approved": user.is_approved, "id": str(user.id)}}

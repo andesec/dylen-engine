@@ -13,6 +13,9 @@ settings = get_settings()
 
 def initialize_firebase() -> None:
   """Initializes the Firebase Admin SDK."""
+  if firebase_admin._apps:
+    return
+
   if not settings.firebase_project_id:
     logger.warning("Firebase Project ID not set. Firebase Admin SDK not initialized.")
     return
@@ -30,7 +33,10 @@ def initialize_firebase() -> None:
 
 
 def verify_id_token(id_token: str) -> dict[str, Any] | None:
-  """Verifies a Firebase ID token."""
+  """Verifies a Firebase ID token. Lazily initializes if needed."""
+  if not firebase_admin._apps:
+    initialize_firebase()
+
   try:
     decoded_token = auth.verify_id_token(id_token)
     return decoded_token

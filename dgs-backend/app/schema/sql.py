@@ -20,6 +20,7 @@ class User(Base):
   firebase_uid: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
   email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
   full_name: Mapped[str | None] = mapped_column(String, nullable=True)
+  provider: Mapped[str | None] = mapped_column(String, nullable=True)
   profession: Mapped[str | None] = mapped_column(String, nullable=True)
   city: Mapped[str | None] = mapped_column(String, nullable=True)
   country: Mapped[str | None] = mapped_column(String, nullable=True)

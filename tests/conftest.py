@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 from app.main import app
 from app.core.database import get_db
 
+
 @pytest.fixture
 def mock_db_session():
   session = AsyncMock()
@@ -26,11 +27,14 @@ def mock_db_session():
   session.execute.return_value = result
   return session
 
+
 @pytest.fixture
 def override_get_db(mock_db_session):
   async def _get_db():
     yield mock_db_session
+
   return _get_db
+
 
 @pytest.fixture
 async def async_client(override_get_db):
@@ -38,6 +42,7 @@ async def async_client(override_get_db):
   async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
     yield client
   app.dependency_overrides.clear()
+
 
 @pytest.fixture
 def db_session(mock_db_session):
