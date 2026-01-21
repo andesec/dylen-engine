@@ -163,6 +163,8 @@ class SchemaService:
     """Sanitize schema for provider-specific structured output requirements."""
     if provider_name.lower() == "gemini":
       return _sanitize_schema_for_gemini(schema, root_schema=schema)
+    if provider_name.lower() == "vertexai":
+      return _sanitize_schema_for_vertex(schema, root_schema=schema)
     return schema
 
   def validate_lesson_payload(self, payload: Any) -> ValidationResult:
@@ -323,7 +325,7 @@ def _sanitize_schema_for_gemini(schema: Any, root_schema: SchemaDict | None = No
             return _sanitize_schema_for_gemini(defs[def_name], root_schema, new_visited)
     return {"type": "object", "properties": {}}
 
-  allowed_keys: set[str] = {"type", "properties", "items", "anyOf", "oneOf", "allOf", "enum", "format", "minimum", "maximum", "minItems", "maxItems", "minLength", "maxLength", "pattern"}
+  allowed_keys: set[str] = {"type", "properties", "items", "anyOf", "oneOf", "allOf", "enum", "format", "minimum", "maximum", "minItems", "maxItems", "minLength", "maxLength", "pattern", "required"}
 
   sanitized: dict[str, Any] = {k: v for k, v in schema.items() if k in allowed_keys}
 
@@ -340,5 +342,88 @@ def _sanitize_schema_for_gemini(schema: Any, root_schema: SchemaDict | None = No
   for key in ("anyOf", "oneOf", "allOf"):
     if key in sanitized and isinstance(sanitized[key], list):
       sanitized[key] = [_sanitize_schema_for_gemini(item, root_schema, visited) for item in sanitized[key]]
+
+  return sanitized
+
+
+def _sanitize_schema_for_vertex(schema: Any, root_schema: SchemaDict | None = None, visited: VisitedRefs = None) -> Any:
+  """
+  Sanitize a JSON Schema for Vertex AI structured output.
+
+  This includes specific flattening logic for anyOf unions to avoid SDK crashes.
+  """
+  if visited is None:
+    visited = set()
+
+  if schema is None:
+    return {"type": "object", "properties": {}}
+
+  if isinstance(schema, str):
+    return {"type": "object", "properties": {}}
+
+  if isinstance(schema, (int, float, bool)):
+    return schema
+
+  if isinstance(schema, list):
+    out: list[Any] = []
+    for item in schema:
+      if isinstance(item, dict):
+        out.append(_sanitize_schema_for_vertex(item, root_schema, visited))
+    return out
+
+  if not isinstance(schema, dict):
+    return {"type": "object", "properties": {}}
+
+  if "$ref" in schema:
+    ref_path = schema["$ref"]
+    if ref_path in visited:
+      return {"type": "object", "properties": {}}
+    if root_schema:
+      defs = root_schema.get("$defs") or root_schema.get("definitions")
+      if defs and isinstance(defs, dict):
+        parts = ref_path.split("/")
+        if len(parts) >= 3:
+          def_name = parts[-1]
+          if def_name in defs:
+            new_visited = visited.copy()
+            new_visited.add(ref_path)
+            return _sanitize_schema_for_vertex(defs[def_name], root_schema, new_visited)
+    return {"type": "object", "properties": {}}
+
+  # Flatten anyOf/oneOf if they contain objects
+  if "anyOf" in schema or "oneOf" in schema:
+    options = schema.get("anyOf") or schema.get("oneOf")
+    if isinstance(options, list):
+      merged_props = {}
+      for opt in options:
+        sanitized_opt = _sanitize_schema_for_vertex(opt, root_schema, visited)
+        if isinstance(sanitized_opt, dict) and sanitized_opt.get("type") == "object":
+          props = sanitized_opt.get("properties", {})
+          merged_props.update(props)
+
+      if merged_props:
+        return {
+          "type": "object",
+          "properties": merged_props,
+          "required": [],  # All optional in the flattened super-object
+        }
+
+  allowed_keys: set[str] = {"type", "properties", "items", "anyOf", "oneOf", "allOf", "enum", "format", "minimum", "maximum", "minItems", "maxItems", "minLength", "maxLength", "pattern", "required"}
+
+  sanitized: dict[str, Any] = {k: v for k, v in schema.items() if k in allowed_keys}
+
+  if "properties" in sanitized:
+    props = sanitized.get("properties")
+    if isinstance(props, dict):
+      sanitized["properties"] = {key: _sanitize_schema_for_vertex(value, root_schema, visited) for key, value in props.items()}
+    elif not props:
+      sanitized["properties"] = {}
+
+  if "items" in sanitized:
+    sanitized["items"] = _sanitize_schema_for_vertex(sanitized["items"], root_schema, visited)
+
+  for key in ("anyOf", "oneOf", "allOf"):
+    if key in sanitized and isinstance(sanitized[key], list):
+      sanitized[key] = [_sanitize_schema_for_vertex(item, root_schema, visited) for item in sanitized[key]]
 
   return sanitized

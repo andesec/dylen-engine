@@ -17,10 +17,13 @@ from app.ai.providers.base import AIModel
 from app.ai.router import get_model_for_mode
 from app.schema.service import SchemaService
 
+from typing import Any, Literal, Optional, Awaitable
+from collections.abc import Callable
+
 OptStr = str | None
 Msgs = list[str] | None
 SectionStatus = Literal["generating", "retrying", "completed"]
-ProgressCallback = Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], None] | None
+ProgressCallback = Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], Awaitable[None]] | None
 MERGED_DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"
 
 
@@ -120,12 +123,12 @@ class DgsOrchestrator:
     structured_artifacts: list[dict[str, Any]] = []
     repair_artifacts: list[dict[str, Any]] = []
 
-    def _report_progress(
+    async def _report_progress(
       phase_name: str, subphase: OptStr, messages: Msgs = None, advance: bool = True, partial_json: dict[str, Any] | None = None, section_progress: SectionProgressUpdate | None = None
     ) -> None:
       # Stream progress updates to the worker when configured.
       if progress_callback:
-        progress_callback(phase_name, subphase, messages, advance, partial_json, section_progress)
+        await progress_callback(phase_name, subphase, messages, advance, partial_json, section_progress)
 
     def _build_partial_lesson(sections: list[StructuredSection]) -> dict[str, Any]:
       """Build a partial lesson JSON from the completed sections."""
@@ -243,7 +246,7 @@ class DgsOrchestrator:
 
         # Mark the section as retrying when structured validation reports errors.
         if structured.validation_errors:
-          _report_progress(
+          await _report_progress(
             "transform",
             f"repair_section_{section_index}_of_{section_count}",
             [f"Retrying section {section_index}/{section_count} after validation failure."],
@@ -271,7 +274,7 @@ class DgsOrchestrator:
           )
           error_message = f"Repairer failed for section {section_index}/{section_count}: {exc}"
           logs.append(error_message)
-          _report_progress("transform", f"repair_section_{section_index}_of_{section_count}", [error_message], advance=False)
+          await _report_progress("transform", f"repair_section_{section_index}_of_{section_count}", [error_message], advance=False)
           raise OrchestrationError(error_message, logs=list(logs)) from exc
 
         repair_artifacts.append(repair_result.model_dump(mode="python"))
@@ -282,15 +285,15 @@ class DgsOrchestrator:
           error_message = f"Section {section_index} failed repair validation: {repair_result.errors}"
           logs.append(error_message)
           logger.error("Section %s failed repair validation: %s", section_index, repair_result.errors)
-          _report_progress("transform", f"repair_section_{section_index}_of_{section_count}", [error_message], advance=False)
+          await _report_progress("transform", f"repair_section_{section_index}_of_{section_count}", [error_message], advance=False)
           raise OrchestrationError(error_message, logs=list(logs))
         section_json = repair_result.fixed_json
 
       validate_subphase = f"validate_section_{section_index}_of_{section_count}"
-      _report_progress("transform", validate_subphase, [f"Section {section_index} validated."])
+      await _report_progress("transform", validate_subphase, [f"Section {section_index} validated."])
       return StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
 
-    _report_progress("plan", "planner_start", ["Planning lesson sections..."])
+    await _report_progress("plan", "planner_start", ["Planning lesson sections..."])
 
     try:
       lesson_plan = await planner_agent.run(request, ctx)
@@ -303,10 +306,10 @@ class DgsOrchestrator:
       )
       error_message = f"Planner failed: {exc}"
       logs.append(error_message)
-      _report_progress("plan", "planner_failed", [error_message], advance=False)
+      await _report_progress("plan", "planner_failed", [error_message], advance=False)
       raise OrchestrationError(error_message, logs=list(logs)) from exc
 
-    _report_progress("plan", "planner_complete", ["Lesson plan ready."])
+    await _report_progress("plan", "planner_complete", ["Lesson plan ready."])
 
     sections: dict[int, SectionDraft] = {}
     structured_sections: list[StructuredSection] = []
@@ -325,7 +328,7 @@ class DgsOrchestrator:
       if merge_enabled:
         merge_subphase = f"gather_struct_section_{section_index}_of_{section_count}"
         merge_msg = f"Gathering+structuring section {section_index}/{section_count}: {plan_section.title}"
-        _report_progress(
+        await _report_progress(
           "transform", merge_subphase, [merge_msg], section_progress=_section_progress(section_index, title=plan_section.title, status="generating", completed_sections=len(structured_sections))
         )
 
@@ -348,7 +351,7 @@ class DgsOrchestrator:
           )
           error_message = f"Gatherer-structurer failed section {section_index}/{section_count}: {exc}"
           logs.append(error_message)
-          _report_progress("transform", merge_subphase, [error_message], advance=False)
+          await _report_progress("transform", merge_subphase, [error_message], advance=False)
           raise OrchestrationError(error_message, logs=list(logs)) from exc
 
         if section_index < 1 or section_index > section_count:
@@ -356,7 +359,7 @@ class DgsOrchestrator:
           error_message = f"Received out-of-range section index {section_index}."
           logs.append(error_message)
           logger.error("Out-of-range section index %s.", section_index)
-          _report_progress("transform", merge_subphase, [error_message], advance=False)
+          await _report_progress("transform", merge_subphase, [error_message], advance=False)
           raise OrchestrationError(error_message, logs=list(logs))
 
         # Preserve draft context for repair by synthesizing a minimal SectionDraft.
@@ -370,7 +373,7 @@ class DgsOrchestrator:
 
         if structured_section is not None:
           structured_sections.append(structured_section)
-          _report_progress(
+          await _report_progress(
             "transform",
             f"section_{section_index}_ready",
             [f"Section {section_index}/{section_count} ready."],
@@ -382,7 +385,7 @@ class DgsOrchestrator:
       else:
         gather_subphase = f"gather_section_{section_index}_of_{section_count}"
         gather_msg = f"Gathering section {section_index}/{section_count}: {plan_section.title}"
-        _report_progress(
+        await _report_progress(
           "collect", gather_subphase, [gather_msg], section_progress=_section_progress(section_index, title=plan_section.title, status="generating", completed_sections=len(structured_sections))
         )
 
@@ -405,7 +408,7 @@ class DgsOrchestrator:
           )
           error_message = f"Gatherer failed section {section_index}/{section_count}: {exc}"
           logs.append(error_message)
-          _report_progress("collect", gather_subphase, [error_message], advance=False)
+          await _report_progress("collect", gather_subphase, [error_message], advance=False)
           raise OrchestrationError(error_message, logs=list(logs)) from exc
 
         if section_index < 1 or section_index > section_count:
@@ -413,14 +416,14 @@ class DgsOrchestrator:
           error_message = f"Received out-of-range section index {section_index}."
           logs.append(error_message)
           logger.error("Out-of-range section index %s.", section_index)
-          _report_progress("collect", gather_subphase, [error_message], advance=False)
+          await _report_progress("collect", gather_subphase, [error_message], advance=False)
           raise OrchestrationError(error_message, logs=list(logs))
 
         sections[section_index] = draft
         draft_artifacts.append(draft.model_dump(mode="python"))
         extract_subphase = f"extract_section_{section_index}_of_{section_count}"
         extract_msg = f"Extracted section {section_index}/{section_count}"
-        _report_progress(
+        await _report_progress(
           "collect", extract_subphase, [extract_msg], section_progress=_section_progress(section_index, title=draft.title, status="generating", completed_sections=len(structured_sections))
         )
         section_index += 1
@@ -437,7 +440,7 @@ class DgsOrchestrator:
       error_message = f"Missing extracted sections: {missing}"
       logs.append(error_message)
       logger.error("Missing extracted sections: %s", missing)
-      _report_progress("collect", "missing_sections", [error_message], advance=False)
+      await _report_progress("collect", "missing_sections", [error_message], advance=False)
       raise OrchestrationError(error_message, logs=list(logs))
 
     if not enable_repair:
@@ -461,7 +464,7 @@ class DgsOrchestrator:
 
         struct_subphase = f"struct_section_{section_index}_of_{section_count}"
         struct_msg = f"Structuring section {section_index}/{section_count}: {draft.title}"
-        _report_progress(
+        await _report_progress(
           "transform", struct_subphase, [struct_msg], section_progress=_section_progress(section_index, title=draft.title, status="generating", completed_sections=len(structured_sections))
         )
 
@@ -484,7 +487,7 @@ class DgsOrchestrator:
           )
           error_message = f"Structurer failed for section {section_index}/{section_count}: {exc}"
           logs.append(error_message)
-          _report_progress("transform", struct_subphase, [error_message], advance=False)
+          await _report_progress("transform", struct_subphase, [error_message], advance=False)
           raise OrchestrationError(error_message, logs=list(logs)) from exc
 
         structured_artifacts.append(structured.model_dump(mode="python"))
@@ -492,7 +495,7 @@ class DgsOrchestrator:
 
         if structured_section is not None:
           structured_sections.append(structured_section)
-          _report_progress(
+          await _report_progress(
             "transform",
             f"section_{section_index}_ready",
             [f"Section {section_index}/{section_count} ready."],
@@ -501,7 +504,7 @@ class DgsOrchestrator:
             section_progress=_section_progress(section_index, title=draft.title, status="completed", completed_sections=len(structured_sections)),
           )
 
-    _report_progress("transform", "stitch_sections", ["Stitching sections..."])
+    await _report_progress("transform", "stitch_sections", ["Stitching sections..."])
     stitch_log = "Stitching sections..."
     logs.append(stitch_log)
     logger.info(stitch_log)
@@ -518,7 +521,7 @@ class DgsOrchestrator:
       )
       error_message = f"Stitcher failed: {exc}"
       logs.append(error_message)
-      _report_progress("transform", "stitch_sections", [error_message], advance=False)
+      await _report_progress("transform", "stitch_sections", [error_message], advance=False)
       raise OrchestrationError(error_message, logs=list(logs)) from exc
 
     lesson_json = stitch_result.lesson_json
@@ -530,7 +533,7 @@ class DgsOrchestrator:
       error_message = f"Stitcher validation failed: {validation_errors}"
       logs.append(error_message)
       logger.error("Stitcher validation failed: %s", validation_errors)
-      _report_progress("transform", "stitch_sections", [error_message], advance=False)
+      await _report_progress("transform", "stitch_sections", [error_message], advance=False)
       raise OrchestrationError(error_message, logs=list(logs))
 
     log_msg = "Generation pipeline complete"

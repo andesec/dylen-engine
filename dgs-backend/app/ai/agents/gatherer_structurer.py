@@ -38,7 +38,19 @@ class GathererStructurerAgent(BaseAgent[PlanSection, StructuredSection]):
     schema_version = str((ctx.metadata or {}).get("schema_version", ""))
     structured_output = bool((ctx.metadata or {}).get("structured_output", True))
     prompt_text = render_gatherer_structurer_prompt(request, input_data, schema_version)
-    schema = self._schema_service.section_schema()
+    if request.widgets:
+      allowed_widgets = request.widgets
+    elif request.blueprint:
+      from app.schema.widget_preference import get_widget_preference
+
+      allowed_widgets = get_widget_preference(request.blueprint, request.teaching_style)
+    else:
+      allowed_widgets = None
+
+    if allowed_widgets:
+      schema = self._schema_service.subset_section_schema(allowed_widgets)
+    else:
+      schema = self._schema_service.section_schema()
     purpose = f"gather_struct_section_{input_data.section_number}_of_{request.depth}"
     call_index = f"{input_data.section_number}/{request.depth}"
 

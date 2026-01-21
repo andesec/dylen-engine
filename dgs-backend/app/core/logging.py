@@ -78,6 +78,9 @@ def setup_logging(settings: Settings) -> Path:
     log.handlers = [stream_handler, file_handler]
     log.propagate = False
 
+  # Suppress noisy libraries
+  logging.getLogger("cachecontrol").setLevel(logging.WARNING)
+
   logging.basicConfig(level=logging.DEBUG, handlers=[stream_handler, file_handler], force=True)
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)

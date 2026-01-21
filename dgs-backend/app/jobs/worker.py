@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Awaitable
 from typing import Any
 
 from pydantic import ValidationError
@@ -79,18 +79,18 @@ class JobProcessor:
       initial_logs=initial_logs,
       completed_section_indexes=base_completed_indexes,
     )
-    tracker.set_phase(phase="plan", subphase="planner_start", expected_sections=expected_sections)
+    await tracker.set_phase(phase="plan", subphase="planner_start", expected_sections=expected_sections)
 
     start_time = time.monotonic()
     soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
     hard_timeout = _parse_timeout_env("JOB_HARD_TIMEOUT_SECONDS")
     soft_timeout_recorded = False
 
-    def _check_timeouts() -> bool:
+    async def _check_timeouts() -> bool:
       nonlocal soft_timeout_recorded
       elapsed = time.monotonic() - start_time
       if hard_timeout and elapsed >= hard_timeout:
-        tracker.fail(phase="failed", message="Job hit hard timeout.")
+        await tracker.fail(phase="failed", message="Job hit hard timeout.")
         return True
       if soft_timeout and elapsed >= soft_timeout and not soft_timeout_recorded:
         tracker.add_logs("Soft timeout threshold exceeded; continuing until hard timeout.")
@@ -99,7 +99,7 @@ class JobProcessor:
 
     tracker.add_logs("Collect phase started.")
     try:
-      if _check_timeouts():
+      if await _check_timeouts():
         return None
 
       # Normalize retry targeting before invoking orchestration.
@@ -140,7 +140,7 @@ class JobProcessor:
       if canceled_record and canceled_record.status == "canceled":
         raise JobCanceledError(f"Job {job.job_id} was canceled before validation.")
 
-      if _check_timeouts():
+      if await _check_timeouts():
         return None
 
       # Surface orchestration logs even when validation fails.
@@ -169,9 +169,9 @@ class JobProcessor:
         raise ValueError(f"Validation failed with {len(errors)} error(s).")
 
       shorthand = lesson_to_shorthand(lesson_model)
-      tracker.complete_validation(message="Validate phase complete.", status="done", expected_sections=expected_sections)
+      await tracker.complete_validation(message="Validate phase complete.", status="done", expected_sections=expected_sections)
       cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
-      tracker.set_cost(cost_summary)
+      await tracker.set_cost(cost_summary)
       # Persist the completed lesson into the lessons repository.
       lesson_id = generate_lesson_id()
       latency_ms = int((time.monotonic() - start_time) * 1000)
@@ -222,7 +222,7 @@ class JobProcessor:
       tracker.extend_logs(exc.logs)
       error_log = f"Job failed: {exc}"
       self._logger.error(error_log)
-      tracker.fail(phase="failed", message=error_log)
+      await tracker.fail(phase="failed", message=error_log)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
       return None
@@ -230,7 +230,7 @@ class JobProcessor:
     except Exception as exc:  # noqa: BLE001
       error_log = f"Job failed: {exc}"
       self._logger.error("Job processing failed unexpectedly", exc_info=True)
-      tracker.fail(phase="failed", message=error_log)
+      await tracker.fail(phase="failed", message=error_log)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
       return None
@@ -238,7 +238,7 @@ class JobProcessor:
   async def _process_writing_check(self, job: JobRecord) -> JobRecord | None:
     """Execute a background writing task evaluation."""
     tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="check", initial_logs=["Writing check acknowledged."])
-    tracker.set_phase(phase="evaluating", subphase="ai_check")
+    await tracker.set_phase(phase="evaluating", subphase="ai_check")
 
     try:
       # Validate and hydrate the request so optional model overrides are honored.
@@ -249,7 +249,7 @@ class JobProcessor:
 
       tracker.extend_logs(result.logs)
       cost_summary = _summarize_cost(result.usage, result.total_cost)
-      tracker.set_cost(cost_summary)
+      await tracker.set_cost(cost_summary)
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
       result_json = {"ok": result.ok, "issues": result.issues, "feedback": result.feedback}
       payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
@@ -261,7 +261,7 @@ class JobProcessor:
 
     except Exception as exc:
       self._logger.error("Writing check processing failed", exc_info=True)
-      tracker.fail(phase="failed", message=f"Writing check failed: {exc}")
+      await tracker.fail(phase="failed", message=f"Writing check failed: {exc}")
       return None
 
   async def process_queue(self, limit: int = 5) -> list[JobRecord]:
@@ -281,7 +281,7 @@ class JobProcessor:
     *,
     expected_sections: int,
     tracker: JobProgressTracker | None = None,
-    timeout_checker: Callable[[], bool] | None = None,
+    timeout_checker: Callable[[], Awaitable[bool]] | None = None,
     retry_section_numbers: set[int] | None = None,
     is_retry: bool = False,
     base_result_json: dict[str, Any] | None = None,
@@ -340,14 +340,14 @@ class JobProcessor:
 
     Msgs = list[str] | None  # noqa: N806
 
-    def _progress_callback(
+    async def _progress_callback(
       phase: str, subphase: str | None, messages: Msgs = None, advance: bool = True, partial_json: dict[str, Any] | None = None, section_progress: SectionProgressUpdate | None = None
     ) -> None:
       if tracker is None:
         return
 
       # Active guardrail check
-      if timeout_checker and timeout_checker():
+      if timeout_checker and await timeout_checker():
         # Note: We can't easily raise an exception here that Orchestrator will catch nicely,
         # but Orchestrator has its own try/except now.
         # If we raise here, Orchestrator will catch it and return partial usage.
@@ -382,12 +382,12 @@ class JobProcessor:
         )
 
       if advance:
-        tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
+        await tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
       else:
         if log_message:
           tracker.add_logs(log_message)
 
-        tracker.set_phase(phase=phase, subphase=subphase, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
+        await tracker.set_phase(phase=phase, subphase=subphase, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
 
     result = await orchestrator.generate_lesson(
       topic=topic,
@@ -410,7 +410,7 @@ class JobProcessor:
     merged_logs = list(_merge_logs(logs, result.logs))
 
     if tracker is not None:
-      tracker.set_phase(phase="validate", subphase="validation", expected_sections=expected_sections)
+      await tracker.set_phase(phase="validate", subphase="validation", expected_sections=expected_sections)
     return OrchestrationResult(
       lesson_json=result.lesson_json,
       provider_a=result.provider_a,

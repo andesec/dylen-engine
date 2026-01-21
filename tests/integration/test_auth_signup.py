@@ -8,8 +8,16 @@ from app.schema.sql import User
 # Mock Firebase verify_id_token
 @pytest.fixture
 def mock_verify_id_token():
-  with patch("app.api.routes.auth.verify_id_token") as mock:
-    yield mock
+  with patch("app.api.routes.auth.verify_id_token") as mock_auth, patch("app.core.security.verify_id_token") as mock_security:
+    # Link them so setting return_value on the yielded mock affects both
+    mock_security.return_value = mock_auth.return_value
+    yield mock_auth  # Yield one, but both are active
+    # Note: If tests set .return_value on the yielded mock, we need to ensure it propagates or we just set it on both if needed.
+    # Actually, simpler to just yield mock_auth, and in the tests we set mock_auth.return_value.
+    # But mock_security needs to return the same.
+    # We can use side_effect to delegate?
+    # Or just keep it simple:
+    mock_security.side_effect = lambda *args, **kwargs: mock_auth(*args, **kwargs)
 
 
 @pytest.fixture
@@ -41,8 +49,8 @@ async def test_login_user_not_found(async_client: AsyncClient, mock_verify_id_to
 
   response = await async_client.post("/api/auth/login", json={"idToken": "valid_token"})
 
-  assert response.status_code == 404
-  assert response.json()["detail"] == "User not registered"
+  assert response.status_code == 200
+  assert response.json() == {"exists": False, "user": None}
 
 
 @pytest.mark.anyio
@@ -72,9 +80,9 @@ async def test_signup_flow(async_client: AsyncClient, db_session, mock_verify_id
   assert data["user"]["email"] == "signup@example.com"
   assert data["user"]["is_approved"] is False
 
-  # Verify Cookie
-  assert "session" in response.cookies
-  assert response.cookies["session"] == "mock_session_cookie"
+  # Verify User data returned
+  assert "user" in data
+  assert "email" in data["user"]
 
   # Verify DB interactions
   # Verify add was called
@@ -119,19 +127,10 @@ async def test_get_profile(async_client: AsyncClient, db_session, mock_verify_id
   # 2. Login to get cookie
   login_resp = await async_client.post("/api/auth/login", json={"idToken": "token"})
   assert login_resp.status_code == 200
-  cookie = login_resp.cookies["session"]
 
   # 3. Get Me
-  # Need to mock the session verification in security.py
-  # But get_current_user also uses firebase_admin.auth.verify_session_cookie
-  # We patched it in conftest/fixture? No, locally in test_auth_signup fixtures?
-  # Let's check fixture.
-  # The mock_firebase_admin_auth patches "firebase_admin.auth"
-  # So verify_session_cookie should be mocked too.
-
-  mock_firebase_admin_auth.verify_session_cookie.return_value = {"uid": "profile_user_123"}
-
-  response = await async_client.get("/api/user/me", cookies={"session": cookie})
+  # Use Bearer token
+  response = await async_client.get("/api/user/me", headers={"Authorization": "Bearer token"})
   assert response.status_code == 200
   data = response.json()
   assert data["email"] == "profile@example.com"
@@ -140,5 +139,5 @@ async def test_get_profile(async_client: AsyncClient, db_session, mock_verify_id
   # 4. Approve
   user.is_approved = True
 
-  response = await async_client.get("/api/user/me", cookies={"session": cookie})
+  response = await async_client.get("/api/user/me", headers={"Authorization": "Bearer token"})
   assert response.json()["is_approved"] is True

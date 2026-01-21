@@ -21,7 +21,7 @@ class VertexAIModel(AIModel):
     self.name = name
     # Initialize client with Vertex AI backend
     self._client = genai.Client(vertexai=True, project=project, location=location)
-    self.supports_structured_output = True
+    self.supports_structured_output = False
 
   async def generate(self, prompt: str) -> ModelResponse:
     try:

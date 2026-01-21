@@ -51,6 +51,10 @@ services:
     environment:
       - DGS_PG_DSN=postgresql://dgs:dgs_password@postgres:5432/dgs
       - GOOGLE_APPLICATION_CREDENTIALS=/home/nonroot/.config/gcloud/application_default_credentials.json
+      - DGS_DUMMY_PLANNER_RESPONSE_PATH=./fixtures/dummy_planner_response.md
+      - DGS_DUMMY_GATHERER_RESPONSE_PATH=./fixtures/dummy_gatherer_response.md
+      - DGS_DUMMY_STRUCTURER_RESPONSE_PATH=./fixtures/dummy_structurer_response.md
+      - DGS_DUMMY_REPAIRER_RESPONSE_PATH=./fixtures/dummy_repairer_response.md
     networks:
       - dgs-network
     ports:
@@ -61,6 +65,7 @@ services:
       - ./dgs-backend/logs:/app/dgs-backend/logs
       - ~/.config/gcloud/application_default_credentials.json:/home/nonroot/.config/gcloud/application_default_credentials.json:ro
       - ./dgs-backend/app/service-account.json:/app/service-account.json:ro
+      - ./fixtures:/app/fixtures:ro
 
 networks:
   dgs-network:

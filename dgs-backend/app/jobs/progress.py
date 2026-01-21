@@ -189,7 +189,7 @@ class JobProgressTracker:
       return 0.0
     return min(round((self._completed_steps / self._total_steps) * 100, 2), 100.0)
 
-  def _update_job(
+  async def _update_job(
     self,
     *,
     status: JobStatus,
@@ -231,7 +231,7 @@ class JobProgressTracker:
       payload["current_section_title"] = section_progress.title
       payload["completed_section_indexes"] = list(self._completed_section_indexes)
 
-    record = self._jobs_repo.update_job(self._job_id, **payload)
+    record = await self._jobs_repo.update_job(self._job_id, **payload)
 
     if record and record.status == "canceled":
       raise JobCanceledError(f"Job {self._job_id} was canceled.")
@@ -246,20 +246,20 @@ class JobProgressTracker:
 
     self._completed_section_indexes.append(index)
 
-  def set_cost(self, cost: dict[str, Any]) -> JobRecord | None:
+  async def set_cost(self, cost: dict[str, Any]) -> JobRecord | None:
     """Update the job's cost metrics."""
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     payload = {"cost": cost, "updated_at": timestamp}
-    return self._jobs_repo.update_job(self._job_id, **payload)
+    return await self._jobs_repo.update_job(self._job_id, **payload)
 
-  def set_phase(
+  async def set_phase(
     self, *, phase: str, subphase: str | None = None, result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None
   ) -> JobRecord | None:
     """Update the phase without advancing progress."""
 
-    return self._update_job(status="running", phase=phase, subphase=subphase, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
+    return await self._update_job(status="running", phase=phase, subphase=subphase, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
 
-  def complete_ai_call(
+  async def complete_ai_call(
     self, *, phase: str, message: str | None = None, result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None
   ) -> JobRecord | None:
     """Mark an AI call as finished and advance progress."""
@@ -268,11 +268,11 @@ class JobProgressTracker:
       self.add_logs(message)
     subphase = self.current_ai_subphase()
     self._completed_steps = min(self._completed_steps + 1, self._total_steps)
-    record = self._update_job(status="running", phase=phase, subphase=subphase, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
+    record = await self._update_job(status="running", phase=phase, subphase=subphase, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
     self._ai_call_index = min(self._ai_call_index + 1, self._total_ai_calls)
     return record
 
-  def complete_step(
+  async def complete_step(
     self,
     *,
     phase: str,
@@ -287,9 +287,9 @@ class JobProgressTracker:
     if message:
       self.add_logs(message)
     self._completed_steps = min(self._completed_steps + 1, self._total_steps)
-    return self._update_job(status="running", phase=phase, subphase=subphase, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
+    return await self._update_job(status="running", phase=phase, subphase=subphase, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
 
-  def complete_validation(
+  async def complete_validation(
     self, *, message: str | None = None, status: JobStatus = "running", result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None
   ) -> JobRecord | None:
     """Mark validation as finished and finalize progress."""
@@ -297,15 +297,15 @@ class JobProgressTracker:
     if message:
       self.add_logs(message)
     self._completed_steps = self._total_steps
-    return self._update_job(phase="validate", subphase="validation", status=status, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
+    return await self._update_job(phase="validate", subphase="validation", status=status, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
 
-  def fail(self, *, phase: str, message: str) -> JobRecord | None:
+  async def fail(self, *, phase: str, message: str) -> JobRecord | None:
     """Set the job to an error state."""
 
     self.add_logs(message)
     self._completed_steps = self._total_steps
     payload = {"status": "error", "phase": phase, "subphase": "error", "progress": self._progress_percent(), "logs": self._logs}
-    return self._jobs_repo.update_job(self._job_id, **payload)
+    return await self._jobs_repo.update_job(self._job_id, **payload)
 
   @property
   def logs(self) -> list[str]:

@@ -120,7 +120,7 @@ async def create_job_record(request: GenerateLessonRequest, settings: Settings) 
   expected_sections = _expected_sections_from_request(request, settings)
 
   if request.idempotency_key:
-    existing = await run_in_threadpool(repo.find_by_idempotency_key, request.idempotency_key)
+    existing = await repo.find_by_idempotency_key(request.idempotency_key)
 
     if existing:
       response_expected = existing.expected_sections or expected_sections
@@ -153,7 +153,7 @@ async def create_job_record(request: GenerateLessonRequest, settings: Settings) 
     ttl=_compute_job_ttl(settings),
     idempotency_key=request.idempotency_key,
   )
-  await run_in_threadpool(repo.create_job, record)
+  await repo.create_job(record)
   return JobCreateResponse(job_id=job_id, expected_sections=expected_sections)
 
 
@@ -164,7 +164,7 @@ async def _process_job_async(job_id: str, settings: Settings) -> None:
 
   # Fetch the queued record so we can process only if it still exists.
   repo = _get_jobs_repo(settings)
-  record = await run_in_threadpool(repo.get_job, job_id)
+  record = await repo.get_job(job_id)
 
   if record is None:
     return
@@ -246,7 +246,7 @@ async def retry_job(  # noqa: B008
 ) -> JobStatusResponse:
   """Retry a failed job with optional section/agent targeting."""
   repo = _get_jobs_repo(settings)
-  record = await run_in_threadpool(repo.get_job, job_id)
+  record = await repo.get_job(job_id)
 
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
@@ -292,8 +292,7 @@ async def retry_job(  # noqa: B008
   retry_agents = list(dict.fromkeys(payload.agents)) if payload.agents else None
   logs = record.logs + [f"Retry attempt {retry_count + 1} queued."]
   # Requeue the job with retry metadata so the worker can resume.
-  updated = await run_in_threadpool(
-    repo.update_job,
+  updated = await repo.update_job(
     job_id,
     status="queued",
     phase="queued",
@@ -327,20 +326,13 @@ async def cancel_job(  # noqa: B008
 ) -> JobStatusResponse:
   """Request cancellation of a running background job."""
   repo = _get_jobs_repo(settings)
-  record = await run_in_threadpool(repo.get_job, job_id)
+  record = await repo.get_job(job_id)
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
   if record.status in ("done", "error", "canceled"):
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is already finalized and cannot be canceled.")
-  updated = await run_in_threadpool(
-    repo.update_job,
-    job_id,
-    status="canceled",
-    phase="canceled",
-    subphase=None,
-    progress=100.0,
-    logs=record.logs + ["Job cancellation requested by client."],
-    completed_at=time.strftime(_DATE_FORMAT, time.gmtime()),
+  updated = await repo.update_job(
+    job_id, status="canceled", phase="canceled", subphase=None, progress=100.0, logs=record.logs + ["Job cancellation requested by client."], completed_at=time.strftime(_DATE_FORMAT, time.gmtime())
   )
   if updated is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
@@ -354,7 +346,7 @@ async def get_job_status(  # noqa: B008
 ) -> JobStatusResponse:
   """Fetch the status and result of a background job."""
   repo = _get_jobs_repo(settings)
-  record = await run_in_threadpool(repo.get_job, job_id)
+  record = await repo.get_job(job_id)
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
   return _job_status_from_record(record, settings)

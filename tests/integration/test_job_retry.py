@@ -14,6 +14,8 @@ os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
 os.environ["DGS_JOBS_AUTO_PROCESS"] = "0"
 
 from app.main import app
+from app.core.security import get_current_active_user
+from app.schema.sql import User
 
 
 class InMemoryJobsRepo:
@@ -22,13 +24,13 @@ class InMemoryJobsRepo:
   def __init__(self) -> None:
     self._jobs: dict[str, JobRecord] = {}
 
-  def create_job(self, record: JobRecord) -> None:
+  async def create_job(self, record: JobRecord) -> None:
     self._jobs[record.job_id] = record
 
-  def get_job(self, job_id: str) -> JobRecord | None:
+  async def get_job(self, job_id: str) -> JobRecord | None:
     return self._jobs.get(job_id)
 
-  def update_job(self, job_id: str, **kwargs: object) -> JobRecord | None:
+  async def update_job(self, job_id: str, **kwargs: object) -> JobRecord | None:
     record = self._jobs.get(job_id)
 
     # Bail out when the job id is unknown.
@@ -40,14 +42,15 @@ class InMemoryJobsRepo:
     self._jobs[job_id] = updated
     return updated
 
-  def find_queued(self, limit: int = 5) -> list[JobRecord]:
+  async def find_queued(self, limit: int = 5) -> list[JobRecord]:
     return []
 
-  def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
+  async def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
     return None
 
 
-def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.anyio
+async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) -> None:
   """Verify failed jobs can be retried with section/agent targeting."""
   # Seed a failed job record that is eligible for retries.
   repo = InMemoryJobsRepo()
@@ -66,7 +69,7 @@ def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) -> None:
     logs=["Job failed earlier."],
   )
   # Persist the job so the API handler can find it.
-  repo.create_job(record)
+  await repo.create_job(record)
 
   def _fake_repo(_settings: object) -> InMemoryJobsRepo:
     return repo
@@ -84,8 +87,15 @@ def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) -> None:
 
   app.dependency_overrides[get_settings] = _get_settings_override
 
+  # Override auth to bypass security
+  def _get_current_active_user_override():
+    return User(id="test-user-id", email="test@example.com", is_approved=True)
+
+  app.dependency_overrides[get_current_active_user] = _get_current_active_user_override
+
   client = TestClient(app)
-  headers = {"X-DGS-Dev-Key": "test-key"}
+  # Remove dev key header, use empty headers or valid bearer if needed (but overridden)
+  headers = {}
   payload = {"sections": [1], "agents": ["structurer"]}
   # Invoke the retry endpoint with section/agent targeting.
   response = client.post("/v1/jobs/job-retry-1/retry", json=payload, headers=headers)
