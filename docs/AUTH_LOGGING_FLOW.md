@@ -16,7 +16,7 @@ The DGS service acts as a Backend-For-Frontend (BFF) and uses a secure session c
     Content-Type: application/json
 
     {
-      "id_token": "eyJhbGciOiJSUzI1..."
+      "id_token": "..."
     }
     ```
 3.  **Verification (Backend)**:
