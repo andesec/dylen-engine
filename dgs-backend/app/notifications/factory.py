@@ -1,0 +1,31 @@
+"""Factory helpers for notification services."""
+
+from __future__ import annotations
+
+from app.config import Settings
+from app.notifications.email_log_repo import EmailDeliveryLogRepository, NullEmailDeliveryLogRepository
+from app.notifications.email_sender import MailerSendConfig, MailerSendEmailSender, NullEmailSender
+from app.notifications.push_sender import NullPushSender
+from app.notifications.service import NotificationService
+
+
+def build_notification_service(settings: Settings) -> NotificationService:
+  """Construct a notification service based on environment configuration."""
+  # Email is disabled by default to avoid accidental delivery in dev/test.
+  if settings.email_notifications_enabled:
+    mailersend_config = MailerSendConfig(
+      api_key=settings.mailersend_api_key or "", from_address=settings.email_from_address or "", from_name=settings.email_from_name, timeout_seconds=settings.mailersend_timeout_seconds, base_url=settings.mailersend_base_url
+    )
+    email_sender = MailerSendEmailSender(config=mailersend_config)
+  else:
+    email_sender = NullEmailSender()
+
+  # Persist email logs only when Postgres is configured.
+  if settings.pg_dsn:
+    email_log_repo: EmailDeliveryLogRepository = EmailDeliveryLogRepository()
+  else:
+    email_log_repo = NullEmailDeliveryLogRepository()
+
+  # Push is currently a no-op until a provider integration is configured.
+  push_sender = NullPushSender()
+  return NotificationService(email_sender=email_sender, email_log_repo=email_log_repo, push_sender=push_sender, email_enabled=settings.email_notifications_enabled, push_enabled=False)

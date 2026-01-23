@@ -81,9 +81,7 @@ class OpenRouterModel(AIModel):
 
     # Serialize schema for prompt injection (reinforcement)
     schema_str = json.dumps(schema, indent=2)
-    system_msg = (
-      f"You are a helpful assistant that outputs valid JSON.\nYou MUST strictly output JSON adhering to this schema:\n```json\n{schema_str}\n```\nOutput valid JSON only, no markdown formatting."
-    )
+    system_msg = f"You are a helpful assistant that outputs valid JSON.\nYou MUST strictly output JSON adhering to this schema:\n```json\n{schema_str}\n```\nOutput valid JSON only, no markdown formatting."
 
     response = await self._client.chat.completions.create(
       model=self.name,

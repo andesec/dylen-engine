@@ -10,11 +10,13 @@ APP_DIR = ROOT / "dgs-backend"
 if str(APP_DIR) not in sys.path:
   sys.path.insert(0, str(APP_DIR))
 
-import pytest
-from httpx import AsyncClient, ASGITransport
-from unittest.mock import AsyncMock, MagicMock
-from app.main import app
-from app.core.database import get_db
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
+
+import pytest  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+from app.core.database import get_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture

@@ -7,8 +7,9 @@ from os.path import abspath, dirname
 # Add project root to path
 sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
-from sqlalchemy import text
-from app.core.database import get_db_engine
+from sqlalchemy import inspect  # noqa: E402
+
+from app.core.database import get_db_engine  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("smart_migrate")
@@ -18,21 +19,19 @@ async def check_db_state():
   engine = get_db_engine()
   try:
     async with engine.connect() as conn:
-      # Check for alembic_version table
-      result = await conn.execute(text("SELECT to_regclass('alembic_version')"))
-      has_alembic = result.scalar() is not None
 
-      # Check for users table
-      result = await conn.execute(text("SELECT to_regclass('users')"))
-      has_users = result.scalar() is not None
+      def _inspect(sync_conn):
+        inspector = inspect(sync_conn)
+        tables = set(inspector.get_table_names())
+        has_alembic = "alembic_version" in tables
+        has_users = "users" in tables
+        has_profession = False
+        if has_users:
+          columns = {col.get("name") for col in inspector.get_columns("users")}
+          has_profession = "profession" in columns
+        return has_alembic, has_users, has_profession
 
-      # Check for profession column in users table
-      has_profession = False
-      if has_users:
-        result = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name='profession'"))
-        has_profession = result.scalar() is not None
-
-      return has_alembic, has_users, has_profession
+      return await conn.run_sync(_inspect)
   finally:
     await engine.dispose()
 

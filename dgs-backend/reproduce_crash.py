@@ -6,10 +6,7 @@ from app.schema.serialize_lesson import lesson_to_shorthand
 
 def test_serialization():
   # Construct a lesson with subsections, which triggered the bug
-  lesson = LessonDocument(
-    title="Test Lesson",
-    blocks=[SectionBlock(section="Section 1", items=[ParagraphWidget(p="Intro")], subsections=[SubsectionBlock(subsection="Subsection 1.1", items=[ParagraphWidget(p="Details")])])],
-  )
+  lesson = LessonDocument(title="Test Lesson", blocks=[SectionBlock(section="Section 1", items=[ParagraphWidget(p="Intro")], subsections=[SubsectionBlock(subsection="Subsection 1.1", items=[ParagraphWidget(p="Details")])])])
 
   print("Attempting validation and serialization...")
   try:

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import datetime
-
 from sqlalchemy import ARRAY, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 

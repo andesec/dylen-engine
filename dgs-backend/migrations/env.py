@@ -1,11 +1,12 @@
 import asyncio
+import sys
 from logging.config import fileConfig
+from os.path import abspath, dirname
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-from alembic import context
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -16,16 +17,12 @@ config = context.config
 if config.config_file_name is not None:
   fileConfig(config.config_file_name)
 
-import sys
-from os.path import abspath, dirname
-
 # Add the project root to the path so we can import 'app'
 sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
-from app.core.database import Base, DATABASE_URL
-
 # Must import models so they are attached to Base.metadata
-import app.schema.sql  # noqa
+import app.schema.sql  # noqa: E402, F401
+from app.core.database import DATABASE_URL, Base  # noqa: E402
 
 # add your model's MetaData object here
 # for 'autogenerate' support
@@ -40,7 +37,8 @@ target_metadata = Base.metadata
 
 
 def include_object(object, name, type_, reflected, compare_to):
-  if type_ == "table" and name in ["dgs_lessons", "dgs_jobs", "llm_call_audit", "llm_audit_meta", "dgs_storage_meta"]:
+  # Ignore legacy meta tables that are not part of the application ORM schema.
+  if type_ == "table" and name in ["llm_audit_meta", "dgs_storage_meta"]:
     return False
   return True
 

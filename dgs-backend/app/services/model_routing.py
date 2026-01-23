@@ -76,18 +76,8 @@ def _provider_for_model_hint(model_name: str | None, fallback_provider: str) -> 
   if _is_vertex_model(model_name):
     return _VERTEXAI_PROVIDER
 
-  gemini_models = (
-    {model.value for model in _GEMINI_KNOWLEDGE_MODELS}
-    | {model.value for model in _GEMINI_STRUCTURER_MODELS}
-    | {model.value for model in _GEMINI_PLANNER_MODELS}
-    | {model.value for model in _GEMINI_REPAIRER_MODELS}
-  )
-  openrouter_models = (
-    {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS}
-    | {model.value for model in _OPENROUTER_STRUCTURER_MODELS}
-    | {model.value for model in _OPENROUTER_PLANNER_MODELS}
-    | {model.value for model in _OPENROUTER_REPAIRER_MODELS}
-  )
+  gemini_models = {model.value for model in _GEMINI_KNOWLEDGE_MODELS} | {model.value for model in _GEMINI_STRUCTURER_MODELS} | {model.value for model in _GEMINI_PLANNER_MODELS} | {model.value for model in _GEMINI_REPAIRER_MODELS}
+  openrouter_models = {model.value for model in _OPENROUTER_KNOWLEDGE_MODELS} | {model.value for model in _OPENROUTER_STRUCTURER_MODELS} | {model.value for model in _OPENROUTER_PLANNER_MODELS} | {model.value for model in _OPENROUTER_REPAIRER_MODELS}
 
   if model_name in gemini_models:
     return _GEMINI_PROVIDER

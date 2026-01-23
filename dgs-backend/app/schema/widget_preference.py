@@ -19,28 +19,12 @@ CORE_UL = ["ul"] + CORE
 CORE_UL_WARN = ["ul", "warn"] + CORE
 
 WIDGET_PREFERENCES: dict[str, dict[str, list[str]]] = {
-  "Knowledge & Understanding": {
-    "conceptual": CORE_UL + ["table", "compare", "flip"],
-    "theoretical": CORE + ["table", "compare", "flip", "fillblank"],
-    "practical": CORE + ["fillblank", "flip", "swipecards"],
-  },
+  "Knowledge & Understanding": {"conceptual": CORE_UL + ["table", "compare", "flip"], "theoretical": CORE + ["table", "compare", "flip", "fillblank"], "practical": CORE + ["fillblank", "flip", "swipecards"]},
   "Skill Building": {"conceptual": CORE_UL + ["ol", "table"], "theoretical": CORE + ["ol", "table", "compare"], "practical": CORE_UL_WARN + ["ol", "stepFlow", "checklist", "inputLine"]},
-  "Critical Thinking": {
-    "conceptual": CORE + ["compare", "table"],
-    "theoretical": CORE + ["compare", "table", "flip", "stepFlow"],
-    "practical": CORE + ["compare", "table", "swipecards", "stepFlow", "freeText", "fillblank"],
-  },
-  "Planning and Productivity": {
-    "conceptual": CORE_UL_WARN + ["table", "compare"],
-    "theoretical": CORE_UL_WARN + ["table", "compare", "flip"],
-    "practical": CORE_UL_WARN + ["ol", "stepFlow", "checklist", "table", "inputLine", "freeText"],
-  },
+  "Critical Thinking": {"conceptual": CORE + ["compare", "table"], "theoretical": CORE + ["compare", "table", "flip", "stepFlow"], "practical": CORE + ["compare", "table", "swipecards", "stepFlow", "freeText", "fillblank"]},
+  "Planning and Productivity": {"conceptual": CORE_UL_WARN + ["table", "compare"], "theoretical": CORE_UL_WARN + ["table", "compare", "flip"], "practical": CORE_UL_WARN + ["ol", "stepFlow", "checklist", "table", "inputLine", "freeText"]},
   "Growth Mindset": {"conceptual": CORE_UL + ["compare"], "theoretical": CORE_UL + ["compare", "table", "flip"], "practical": CORE + ["flip", "freeText", "inputLine", "swipecards"]},
-  "Communication Skills": {
-    "conceptual": CORE_UL + ["compare"],
-    "theoretical": CORE_UL + ["compare", "table", "flip"],
-    "practical": CORE + ["compare", "swipecards", "freeText", "inputLine", "stepFlow"],
-  },
+  "Communication Skills": {"conceptual": CORE_UL + ["compare"], "theoretical": CORE_UL + ["compare", "table", "flip"], "practical": CORE + ["compare", "swipecards", "freeText", "inputLine", "stepFlow"]},
   "Movement and Fitness": {"conceptual": CORE_UL + ["table"], "theoretical": CORE_UL + ["warn", "table", "compare"], "practical": CORE_UL_WARN + ["checklist", "stepFlow", "freeText", "inputLine"]},
   "Creative Skills": {"conceptual": CORE_UL + ["table"], "theoretical": CORE + ["table", "compare", "flip", "fillblank"], "practical": CORE + ["freeText", "inputLine", "checklist", "swipecards"]},
   "Web Dev and Coding": {

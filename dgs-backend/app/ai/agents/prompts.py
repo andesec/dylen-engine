@@ -137,13 +137,7 @@ def render_gatherer_prompt(request: Req, section: PlanSection) -> str:
   if not request.blueprint:
     raise ValueError("Blueprint is required to render gatherer prompts.")
 
-  tokens = {
-    "PLANNER_SECTION_JSON": plan_json,
-    "STYLE": _teaching_style_addendum(request.teaching_style),
-    "BLUEPRINT": request.blueprint,
-    "LEARNER_LEVEL": request.learner_level or "Beginner",
-    "DEPTH": request.depth,
-  }
+  tokens = {"PLANNER_SECTION_JSON": plan_json, "STYLE": _teaching_style_addendum(request.teaching_style), "BLUEPRINT": request.blueprint, "LEARNER_LEVEL": request.learner_level or "Beginner", "DEPTH": request.depth}
 
   rendered_prompt = _replace_tokens(prompt_template, tokens)
   return rendered_prompt
@@ -220,12 +214,7 @@ def render_repair_prompt(_request: Req, _section: Section, repair_targets: list[
   # Keep repair prompts focused on failing items and relevant widget shapes.
   rendered_template = _replace_tokens(
     prompt_template,
-    {
-      "WIDGETS_DOC": _load_widgets_text(),
-      "WIDGET_SCHEMAS": json.dumps(widget_schemas, indent=2, ensure_ascii=True),
-      "FAILED_ITEMS_JSON": json.dumps(repair_targets, indent=2, ensure_ascii=True),
-      "ERRORS": "\n".join(f"- {error}" for error in errors),
-    },
+    {"WIDGETS_DOC": _load_widgets_text(), "WIDGET_SCHEMAS": json.dumps(widget_schemas, indent=2, ensure_ascii=True), "FAILED_ITEMS_JSON": json.dumps(repair_targets, indent=2, ensure_ascii=True), "ERRORS": "\n".join(f"- {error}" for error in errors)},
   )
   return rendered_template
 

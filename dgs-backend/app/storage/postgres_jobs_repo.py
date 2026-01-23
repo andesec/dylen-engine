@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session_factory
 from app.jobs.guardrails import maybe_truncate_artifacts, maybe_truncate_result_json, sanitize_logs
@@ -173,9 +171,9 @@ class PostgresJobsRepository(JobsRepository):
       if updated_at is not None:
         job.updated_at = updated_at
       else:
-        from datetime import datetime, timezone
+        from datetime import UTC, datetime
 
-        job.updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        job.updated_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
       await session.commit()
       await session.refresh(job)

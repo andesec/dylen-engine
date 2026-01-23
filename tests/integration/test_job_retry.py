@@ -13,9 +13,9 @@ os.environ["DGS_DEV_KEY"] = "test-key"
 os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
 os.environ["DGS_JOBS_AUTO_PROCESS"] = "0"
 
-from app.main import app
-from app.core.security import get_current_active_user
-from app.schema.sql import User
+from app.core.security import get_current_active_user  # noqa: E402
+from app.main import app  # noqa: E402
+from app.schema.sql import User  # noqa: E402
 
 
 class InMemoryJobsRepo:

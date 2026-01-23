@@ -30,11 +30,11 @@ class LessonRecord:
 class LessonsRepository(Protocol):
   """Repository contract for lesson persistence."""
 
-  def create_lesson(self, record: LessonRecord) -> None:
+  async def create_lesson(self, record: LessonRecord) -> None:
     """Persist a lesson record."""
 
-  def get_lesson(self, lesson_id: str) -> LessonRecord | None:
+  async def get_lesson(self, lesson_id: str) -> LessonRecord | None:
     """Fetch a lesson record by lesson identifier."""
 
-  def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None) -> tuple[list[LessonRecord], int]:
+  async def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None) -> tuple[list[LessonRecord], int]:
     """Return a paginated list of lessons with optional filters, and total count."""

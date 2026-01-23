@@ -43,7 +43,7 @@ py-modules = ["lambda_handler"]
 
 
 [tool.ruff]
-line-length = 200
+line-length = 255
 indent-width = 2
 target-version = "py313"
 src = ["dgs-backend"]

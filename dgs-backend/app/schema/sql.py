@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from app.schema.lessons import Lesson  # noqa
-from app.schema.jobs import Job  # noqa
-from app.schema.audit import LlmCallAudit  # noqa
-
 import datetime
 import uuid
 
@@ -11,6 +7,10 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, fun
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.schema.audit import LlmCallAudit  # noqa: F401
+from app.schema.email_delivery_logs import EmailDeliveryLog  # noqa: F401
+from app.schema.jobs import Job  # noqa: F401
+from app.schema.lessons import Lesson  # noqa: F401
 
 
 class User(Base):

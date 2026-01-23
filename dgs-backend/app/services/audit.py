@@ -11,9 +11,7 @@ from app.schema.sql import LLMAuditLog
 logger = logging.getLogger(__name__)
 
 
-async def log_llm_interaction(
-  user_id: uuid.UUID, model_name: str, prompt_summary: str | None = None, tokens_used: int | None = None, status: str | None = None, session: AsyncSession | None = None
-) -> None:
+async def log_llm_interaction(user_id: uuid.UUID, model_name: str, prompt_summary: str | None = None, tokens_used: int | None = None, status: str | None = None, session: AsyncSession | None = None) -> None:
   """
   Logs an LLM interaction to the database.
   If session is provided, it uses it. Otherwise, it creates a new one.

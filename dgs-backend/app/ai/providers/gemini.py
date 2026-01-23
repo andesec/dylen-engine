@@ -48,11 +48,7 @@ class GeminiModel(AIModel):
     usage = None
 
     if response.usage_metadata:
-      usage = {
-        "prompt_tokens": response.usage_metadata.prompt_token_count,
-        "completion_tokens": response.usage_metadata.candidates_token_count,
-        "total_tokens": response.usage_metadata.total_token_count,
-      }
+      usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
     return SimpleModelResponse(content=response.text, usage=usage)
 
   async def generate_structured(self, prompt: str, schema) -> StructuredModelResponse:
@@ -81,11 +77,7 @@ class GeminiModel(AIModel):
 
     usage = None
     if response.usage_metadata:
-      usage = {
-        "prompt_tokens": response.usage_metadata.prompt_token_count,
-        "completion_tokens": response.usage_metadata.candidates_token_count,
-        "total_tokens": response.usage_metadata.total_token_count,
-      }
+      usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
 
     # Parse the JSON response
     # Parse the model response with a lenient fallback to reduce retry churn.

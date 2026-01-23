@@ -45,21 +45,9 @@ _RAW_BLUEPRINTS: list[dict[str, Any]] = [
     "label": "Critical Thinking",
     "tooltip": "Evaluate against standards and evidence. Topics: News credibility, research appraisal, art criticism, argument quality, product reviews, portfolio review, data interpretation.",  # noqa: E501
   },
-  {
-    "id": "creativeskills",
-    "label": "Creative Skills",
-    "tooltip": "Create original work under constraints. Topics: Creative writing, design, curriculum, music, visual art, storytelling, business concepts.",
-  },
-  {
-    "id": "webdevandcoding",
-    "label": "Web Dev and Coding",
-    "tooltip": "Hands-on implementation with tight feedback loops. Topics: Frontend fundamentals, backend basics, APIs, debugging, testing, refactoring, deployment.",
-  },
-  {
-    "id": "languagepractice",
-    "label": "Language Practice",
-    "tooltip": "Build fluency through guided practice. Topics: Vocabulary building, grammar fundamentals, conversation practice, listening practice, writing practice, pronunciation.",
-  },
+  {"id": "creativeskills", "label": "Creative Skills", "tooltip": "Create original work under constraints. Topics: Creative writing, design, curriculum, music, visual art, storytelling, business concepts."},
+  {"id": "webdevandcoding", "label": "Web Dev and Coding", "tooltip": "Hands-on implementation with tight feedback loops. Topics: Frontend fundamentals, backend basics, APIs, debugging, testing, refactoring, deployment."},
+  {"id": "languagepractice", "label": "Language Practice", "tooltip": "Build fluency through guided practice. Topics: Vocabulary building, grammar fundamentals, conversation practice, listening practice, writing practice, pronunciation."},
 ]
 
 _RAW_TEACHING_STYLES: list[dict[str, Any]] = [
@@ -93,28 +81,11 @@ _DEPTH_OPTIONS: list[dict[str, str]] = [
   {"id": "training", "label": "Training", "tooltip": "Ten sections with per-section practice and a comprehensive final exam."},
 ]
 
-_GATHERER_MODELS = [
-  "gemini-2.5-pro",
-  "xiaomi/mimo-v2-flash:free",
-  "deepseek/deepseek-r1-0528:free",
-  "meta-llama/llama-3.1-405b-instruct:free",
-  "openai/gpt-oss-120b:free",
-  "vertex-gemini-2.5-pro",
-  "vertex-gemini-3.0-pro",
-]
+_GATHERER_MODELS = ["gemini-2.5-pro", "xiaomi/mimo-v2-flash:free", "deepseek/deepseek-r1-0528:free", "meta-llama/llama-3.1-405b-instruct:free", "openai/gpt-oss-120b:free", "vertex-gemini-2.5-pro", "vertex-gemini-3.0-pro"]
 
 _STRUCTURER_MODELS = ["gemini-2.5-pro", "openai/gpt-oss-20b:free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemma-3-27b-it:free", "vertex-gemini-2.5-pro", "vertex-gemini-3.0-pro"]
 
-_PLANNER_MODELS = [
-  "gemini-2.5-pro",
-  "gemini-pro-latest",
-  "openai/gpt-oss-120b:free",
-  "xiaomi/mimo-v2-flash:free",
-  "meta-llama/llama-3.1-405b-instruct:free",
-  "deepseek/deepseek-r1-0528:free",
-  "vertex-gemini-2.5-pro",
-  "vertex-gemini-3.0-pro",
-]
+_PLANNER_MODELS = ["gemini-2.5-pro", "gemini-pro-latest", "openai/gpt-oss-120b:free", "xiaomi/mimo-v2-flash:free", "meta-llama/llama-3.1-405b-instruct:free", "deepseek/deepseek-r1-0528:free", "vertex-gemini-2.5-pro", "vertex-gemini-3.0-pro"]
 
 _REPAIRER_MODELS = ["openai/gpt-oss-20b:free", "google/gemma-3-27b-it:free", "deepseek/deepseek-r1-0528:free", "gemini-2.5-flash", "vertex-gemini-2.5-flash", "vertex-gemini-3.0-flash"]
 
@@ -309,12 +280,4 @@ def build_lesson_catalog(settings: Settings) -> dict[str, Any]:
   teaching_styles = _build_teaching_style_options()
   widgets = _build_widget_options()
   agent_models = _build_agent_models(settings)
-  return {
-    "blueprints": blueprints,
-    "teaching_styles": teaching_styles,
-    "learner_levels": list(_LEARNER_LEVELS),
-    "depths": list(_DEPTH_OPTIONS),
-    "widgets": widgets,
-    "agent_models": agent_models,
-    "default_widgets": widget_defaults,
-  }
+  return {"blueprints": blueprints, "teaching_styles": teaching_styles, "learner_levels": list(_LEARNER_LEVELS), "depths": list(_DEPTH_OPTIONS), "widgets": widgets, "agent_models": agent_models, "default_widgets": widget_defaults}

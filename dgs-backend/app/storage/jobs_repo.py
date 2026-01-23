@@ -10,13 +10,13 @@ from app.jobs.models import JobRecord, JobStatus
 class JobsRepository(Protocol):
   """Repository contract for job persistence."""
 
-  def create_job(self, record: JobRecord) -> None:
+  async def create_job(self, record: JobRecord) -> None:
     """Persist an initial job record."""
 
-  def get_job(self, job_id: str) -> JobRecord | None:
+  async def get_job(self, job_id: str) -> JobRecord | None:
     """Fetch a job by identifier."""
 
-  def update_job(
+  async def update_job(
     self,
     job_id: str,
     *,
@@ -48,11 +48,11 @@ class JobsRepository(Protocol):
   ) -> JobRecord | None:
     """Apply partial updates to a job."""
 
-  def find_queued(self, limit: int = 5) -> list[JobRecord]:
+  async def find_queued(self, limit: int = 5) -> list[JobRecord]:
     """Return a small batch of queued jobs."""
 
-  def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
+  async def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
     """Return a job created with a given idempotency key, if present."""
 
-  def list_jobs(self, limit: int, offset: int, status: str | None = None, job_id: str | None = None) -> tuple[list[JobRecord], int]:
+  async def list_jobs(self, limit: int, offset: int, status: str | None = None, job_id: str | None = None) -> tuple[list[JobRecord], int]:
     """Return a paginated list of jobs with optional filters, and total count."""

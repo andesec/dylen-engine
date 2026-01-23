@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from app.jobs.models import JobRecord
 from app.jobs.progress import JobProgressTracker, SectionProgress
-
-
-import pytest
 
 
 class InMemoryJobsRepo:
@@ -46,9 +45,7 @@ async def test_job_progress_tracker_persists_partial_results() -> None:
   tracker = JobProgressTracker(job_id="job-123", jobs_repo=repo, total_steps=2, total_ai_calls=1, label_prefix="ai")
   # Update the tracker with a partial lesson payload and section metadata.
   section_progress = SectionProgress(index=0, title="Intro", status="generating", retry_count=0, completed_sections=0)
-  await tracker.complete_step(
-    phase="collect", subphase="gather_section_1_of_2", message="Gathering section 1.", result_json={"title": "Partial", "blocks": []}, expected_sections=2, section_progress=section_progress
-  )
+  await tracker.complete_step(phase="collect", subphase="gather_section_1_of_2", message="Gathering section 1.", result_json={"title": "Partial", "blocks": []}, expected_sections=2, section_progress=section_progress)
   updated = await repo.get_job("job-123")
   assert updated is not None
   assert updated.result_json == {"title": "Partial", "blocks": []}

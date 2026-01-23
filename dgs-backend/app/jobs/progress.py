@@ -117,16 +117,7 @@ def build_call_plan(request_data: Mapping[str, Any], *, merge_gatherer_structure
   if total_calls > max_total_calls:
     raise ValueError("Lower depth to reduce total calls.")
 
-  plan = CallPlan(
-    depth=depth,
-    planner_calls=planner_calls,
-    gather_calls=gather_calls,
-    structurer_calls=structurer_calls,
-    repair_calls=repair_calls,
-    stitch_calls=stitch_calls,
-    required_calls=total_calls,
-    max_calls=max_total_calls,
-  )
+  plan = CallPlan(depth=depth, planner_calls=planner_calls, gather_calls=gather_calls, structurer_calls=structurer_calls, repair_calls=repair_calls, stitch_calls=stitch_calls, required_calls=total_calls, max_calls=max_total_calls)
   return plan
 
 
@@ -144,17 +135,7 @@ class SectionProgress:
 class JobProgressTracker:
   """Track job progress, phases, and log updates."""
 
-  def __init__(
-    self,
-    *,
-    job_id: str,
-    jobs_repo: JobsRepository,
-    total_steps: int,
-    total_ai_calls: int,
-    label_prefix: str,
-    initial_logs: Iterable[str] | None = None,
-    completed_section_indexes: Iterable[int] | None = None,
-  ) -> None:
+  def __init__(self, *, job_id: str, jobs_repo: JobsRepository, total_steps: int, total_ai_calls: int, label_prefix: str, initial_logs: Iterable[str] | None = None, completed_section_indexes: Iterable[int] | None = None) -> None:
     self._job_id = job_id
     self._jobs_repo = jobs_repo
     self._total_steps = max(total_steps, 1)
@@ -189,26 +170,9 @@ class JobProgressTracker:
       return 0.0
     return min(round((self._completed_steps / self._total_steps) * 100, 2), 100.0)
 
-  async def _update_job(
-    self,
-    *,
-    status: JobStatus,
-    phase: str,
-    subphase: str | None = None,
-    result_json: dict[str, Any] | None = None,
-    expected_sections: int | None = None,
-    section_progress: SectionProgress | None = None,
-  ) -> JobRecord | None:
+  async def _update_job(self, *, status: JobStatus, phase: str, subphase: str | None = None, result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None) -> JobRecord | None:
     # Build the base payload for persistence.
-    payload = {
-      "status": status,
-      "phase": phase,
-      "subphase": subphase,
-      "progress": self._progress_percent(),
-      "total_steps": self._total_steps,
-      "completed_steps": self._completed_steps,
-      "logs": self._logs,
-    }
+    payload = {"status": status, "phase": phase, "subphase": subphase, "progress": self._progress_percent(), "total_steps": self._total_steps, "completed_steps": self._completed_steps, "logs": self._logs}
 
     # Attach partial lesson JSON when streaming progress updates.
     if result_json is not None:
@@ -252,16 +216,12 @@ class JobProgressTracker:
     payload = {"cost": cost, "updated_at": timestamp}
     return await self._jobs_repo.update_job(self._job_id, **payload)
 
-  async def set_phase(
-    self, *, phase: str, subphase: str | None = None, result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None
-  ) -> JobRecord | None:
+  async def set_phase(self, *, phase: str, subphase: str | None = None, result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None) -> JobRecord | None:
     """Update the phase without advancing progress."""
 
     return await self._update_job(status="running", phase=phase, subphase=subphase, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
 
-  async def complete_ai_call(
-    self, *, phase: str, message: str | None = None, result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None
-  ) -> JobRecord | None:
+  async def complete_ai_call(self, *, phase: str, message: str | None = None, result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None) -> JobRecord | None:
     """Mark an AI call as finished and advance progress."""
 
     if message:
@@ -272,16 +232,7 @@ class JobProgressTracker:
     self._ai_call_index = min(self._ai_call_index + 1, self._total_ai_calls)
     return record
 
-  async def complete_step(
-    self,
-    *,
-    phase: str,
-    subphase: str | None,
-    message: str | None = None,
-    result_json: dict[str, Any] | None = None,
-    expected_sections: int | None = None,
-    section_progress: SectionProgress | None = None,
-  ) -> JobRecord | None:
+  async def complete_step(self, *, phase: str, subphase: str | None, message: str | None = None, result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None) -> JobRecord | None:
     """Advance progress with a custom subphase label."""
 
     if message:
@@ -289,9 +240,7 @@ class JobProgressTracker:
     self._completed_steps = min(self._completed_steps + 1, self._total_steps)
     return await self._update_job(status="running", phase=phase, subphase=subphase, result_json=result_json, expected_sections=expected_sections, section_progress=section_progress)
 
-  async def complete_validation(
-    self, *, message: str | None = None, status: JobStatus = "running", result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None
-  ) -> JobRecord | None:
+  async def complete_validation(self, *, message: str | None = None, status: JobStatus = "running", result_json: dict[str, Any] | None = None, expected_sections: int | None = None, section_progress: SectionProgress | None = None) -> JobRecord | None:
     """Mark validation as finished and finalize progress."""
 
     if message:

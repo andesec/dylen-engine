@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import datetime
-
 from sqlalchemy import Double, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column

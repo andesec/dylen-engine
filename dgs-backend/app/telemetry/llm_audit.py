@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid
@@ -117,16 +116,7 @@ async def finalize_llm_call(*, call_id: str | None, response_payload: str | None
     total_tokens = _coerce_int(usage.get("total_tokens"))
 
   await _update_record(
-    repo,
-    call_id,
-    finished_at=finished_at,
-    response_payload=response_payload,
-    status=status,
-    error_message=error_message,
-    duration_ms=duration_ms,
-    prompt_tokens=prompt_tokens,
-    completion_tokens=completion_tokens,
-    total_tokens=total_tokens,
+    repo, call_id, finished_at=finished_at, response_payload=response_payload, status=status, error_message=error_message, duration_ms=duration_ms, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens
   )
 
 
@@ -179,32 +169,14 @@ async def _insert_record(repo: PostgresLlmAuditRepository, record: LlmAuditRecor
 
 
 async def _update_record(
-  repo: PostgresLlmAuditRepository,
-  record_id: str,
-  *,
-  finished_at: datetime,
-  response_payload: str | None,
-  status: str,
-  error_message: str | None,
-  duration_ms: int,
-  prompt_tokens: int | None,
-  completion_tokens: int | None,
-  total_tokens: int | None,
+  repo: PostgresLlmAuditRepository, record_id: str, *, finished_at: datetime, response_payload: str | None, status: str, error_message: str | None, duration_ms: int, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None
 ) -> None:
   """Update an existing audit record and swallow database failures."""
   logger = logging.getLogger(__name__)
 
   try:
     await repo.update_record(
-      record_id=record_id,
-      timestamp_response=finished_at,
-      response_payload=response_payload,
-      status=status,
-      error_message=error_message,
-      duration_ms=duration_ms,
-      prompt_tokens=prompt_tokens,
-      completion_tokens=completion_tokens,
-      total_tokens=total_tokens,
+      record_id=record_id, timestamp_response=finished_at, response_payload=response_payload, status=status, error_message=error_message, duration_ms=duration_ms, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens
     )
 
   except Exception as exc:  # noqa: BLE001 - avoid breaking upstream calls

@@ -1,0 +1,7 @@
+{{greeting}}
+
+Your account has been approved.
+
+You can now use the app.
+
+If you didn’t request this, you can safely ignore this email.

@@ -2,26 +2,21 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Cookie, Depends, HTTPException, Request, status
-from firebase_admin import auth
-from sqlalchemy import select
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from firebase_admin import auth  # noqa: F401
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app.config import get_settings
 from app.core.database import get_db
-from app.schema.sql import User
-
-settings = get_settings()
-
-
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.firebase import verify_id_token
+from app.schema.sql import User
+from app.services.users import get_user_by_firebase_uid, update_user_provider
 
 security_scheme = HTTPBearer()
 
 
-async def get_current_user(token: Annotated[HTTPAuthorizationCredentials, Depends(security_scheme)], db: AsyncSession = Depends(get_db)) -> User:
+async def get_current_user(token: Annotated[HTTPAuthorizationCredentials, Depends(security_scheme)], db: AsyncSession = Depends(get_db)) -> User:  # noqa: B008
   """
   Verifies the Firebase ID Token (Bearer) and retrieves the current user.
   """
@@ -37,9 +32,8 @@ async def get_current_user(token: Annotated[HTTPAuthorizationCredentials, Depend
   if not firebase_uid:
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token claims")
 
-  stmt = select(User).where(User.firebase_uid == firebase_uid)
-  result = await db.execute(stmt)
-  user = result.scalar_one_or_none()
+  # Resolve the user from Postgres using ORM queries.
+  user = await get_user_by_firebase_uid(db, firebase_uid)
 
   if not user:
     # User must explicitly sign up first.
@@ -47,10 +41,7 @@ async def get_current_user(token: Annotated[HTTPAuthorizationCredentials, Depend
 
   # Optional: Update provider if it changed or wasn't set (passive sync)
   if provider_id and user.provider != provider_id:
-    user.provider = provider_id
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    await update_user_provider(db, user=user, provider=provider_id)
 
   return user
 

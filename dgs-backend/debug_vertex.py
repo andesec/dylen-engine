@@ -1,8 +1,8 @@
 import asyncio
-import os
 import logging
+import os
+
 from google import genai
-from pydantic import BaseModel
 
 
 async def main():

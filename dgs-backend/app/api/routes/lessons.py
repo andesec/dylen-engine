@@ -4,7 +4,6 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import require_dev_key
 from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
@@ -12,6 +11,7 @@ from app.api.routes.jobs import create_job_record, kickoff_job_processing
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
+from app.notifications.factory import build_notification_service
 from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.sql import User
 from app.schema.validate_lesson import validate_lesson
@@ -75,9 +75,7 @@ async def generate_lesson(  # noqa: B008
   learner_level = _resolve_learner_level(request)
 
   if current_user.id:
-    await log_llm_interaction(
-      user_id=current_user.id, model_name=f"planner:{planner_model},gatherer:{gatherer_model},structurer:{structurer_model}", prompt_summary=request.topic, status="started", session=db_session
-    )
+    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},gatherer:{gatherer_model},structurer:{structurer_model}", prompt_summary=request.topic, status="started", session=db_session)
 
   result = await orchestrator.generate_lesson(
     topic=request.topic,
@@ -100,14 +98,7 @@ async def generate_lesson(  # noqa: B008
       for entry in result.usage:
         total_tokens += int(entry.get("prompt_tokens", 0)) + int(entry.get("completion_tokens", 0))
 
-    await log_llm_interaction(
-      user_id=current_user.id,
-      model_name=f"planner:{planner_model},gatherer:{gatherer_model},structurer:{structurer_model}",
-      prompt_summary=request.topic,
-      tokens_used=total_tokens,
-      status="completed",
-      session=db_session,
-    )
+    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},gatherer:{gatherer_model},structurer:{structurer_model}", prompt_summary=request.topic, tokens_used=total_tokens, status="completed", session=db_session)
 
   lesson_id = generate_lesson_id()
   latency_ms = int((time.monotonic() - start) * 1000)
@@ -130,7 +121,9 @@ async def generate_lesson(  # noqa: B008
   )
 
   repo = _get_repo(settings)
-  await run_in_threadpool(repo.create_lesson, record)
+  await repo.create_lesson(record)
+  # Notify the user after a successful persistence write.
+  await build_notification_service(settings).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
 
   return GenerateLessonResponse(
     lesson_id=lesson_id,
@@ -147,7 +140,7 @@ async def get_lesson(  # noqa: B008
 ) -> LessonRecordResponse:
   """Fetch a stored lesson by identifier, consistent with async job persistence."""
   repo = _get_repo(settings)
-  record = await run_in_threadpool(repo.get_lesson, lesson_id)
+  record = await repo.get_lesson(lesson_id)
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
 
@@ -182,7 +175,7 @@ async def create_lesson_job(  # noqa: B008
   if current_user.id:
     await log_llm_interaction(user_id=current_user.id, model_name=model_name, prompt_summary=request.topic, status="job_queued", session=db_session)
 
-  response = await create_job_record(request, settings)
+  response = await create_job_record(request, settings, user_id=str(current_user.id))
 
   # Kick off processing so the client can poll for status immediately.
   kickoff_job_processing(background_tasks, response.job_id, settings)

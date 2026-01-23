@@ -32,11 +32,7 @@ class VertexAIModel(AIModel):
       # Extract usage metadata if available
       usage = None
       if response.usage_metadata:
-        usage = {
-          "prompt_tokens": response.usage_metadata.prompt_token_count,
-          "completion_tokens": response.usage_metadata.candidates_token_count,
-          "total_tokens": response.usage_metadata.total_token_count,
-        }
+        usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
 
       return SimpleModelResponse(content=response.text, usage=usage)
     except Exception as e:
@@ -53,11 +49,7 @@ class VertexAIModel(AIModel):
       # Extract usage metadata
       usage = None
       if response.usage_metadata:
-        usage = {
-          "prompt_tokens": response.usage_metadata.prompt_token_count,
-          "completion_tokens": response.usage_metadata.candidates_token_count,
-          "total_tokens": response.usage_metadata.total_token_count,
-        }
+        usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
 
       # Parse the JSON response
       content = parse_json_with_fallback(response.text)

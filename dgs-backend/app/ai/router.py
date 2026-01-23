@@ -101,13 +101,7 @@ def _rotate_models(models: list[str], start: str | None) -> list[str]:
   return models[start_index:] + models[:start_index]
 
 
-_AGENT_MODEL_ORDER: dict[str, list[str]] = {
-  "gatherer": _GATHERER_MODELS,
-  "gatherer_structurer": _GATHERER_MODELS,
-  "planner": _PLANNER_MODELS,
-  "structurer": _STRUCTURER_MODELS,
-  "repairer": _REPAIRER_MODELS,
-}
+_AGENT_MODEL_ORDER: dict[str, list[str]] = {"gatherer": _GATHERER_MODELS, "gatherer_structurer": _GATHERER_MODELS, "planner": _PLANNER_MODELS, "structurer": _STRUCTURER_MODELS, "repairer": _REPAIRER_MODELS}
 
 
 class FallbackModel(AIModel):

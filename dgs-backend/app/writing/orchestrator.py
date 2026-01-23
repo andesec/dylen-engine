@@ -35,11 +35,7 @@ class WritingCheckOrchestrator:
     prompt = self._render_prompt(text, criteria)
 
     # We use structured output if available, else raw JSON parse
-    schema = {
-      "type": "object",
-      "properties": {"ok": {"type": "boolean"}, "issues": {"type": "array", "items": {"type": "string"}}, "feedback": {"type": "string"}},
-      "required": ["ok", "issues", "feedback"],
-    }
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}, "issues": {"type": "array", "items": {"type": "string"}}, "feedback": {"type": "string"}}, "required": ["ok", "issues", "feedback"]}
 
     # Wrap provider calls to capture audit context while preserving fallback flow.
 
@@ -72,18 +68,9 @@ class WritingCheckOrchestrator:
 
       total_cost = self._calculate_total_cost(usage)
 
-      return WritingCheckResult(
-        ok=content.get("ok", False),
-        issues=content.get("issues", []),
-        feedback=content.get("feedback", ""),
-        logs=[f"Writing check completed with status: {content.get('ok')}"],
-        usage=usage,
-        total_cost=total_cost,
-      )
+      return WritingCheckResult(ok=content.get("ok", False), issues=content.get("issues", []), feedback=content.get("feedback", ""), logs=[f"Writing check completed with status: {content.get('ok')}"], usage=usage, total_cost=total_cost)
     except Exception as e:
-      return WritingCheckResult(
-        ok=False, issues=[f"Evaluation error: {str(e)}"], feedback="We encountered an error while evaluating your response.", logs=[f"Error during writing check: {str(e)}"], usage=[], total_cost=0.0
-      )
+      return WritingCheckResult(ok=False, issues=[f"Evaluation error: {str(e)}"], feedback="We encountered an error while evaluating your response.", logs=[f"Error during writing check: {str(e)}"], usage=[], total_cost=0.0)
 
   def _calculate_total_cost(self, usage: list[dict[str, Any]]) -> float:
     """Estimate total cost based on token usage. Simplified prices."""

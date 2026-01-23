@@ -1,16 +1,14 @@
-import datetime
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.core.database import get_db
 from app.core.firebase import verify_id_token
-from app.schema.sql import User
+from app.services.users import create_user, get_user_by_firebase_uid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -55,10 +53,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> di
     logger.error("Login failed: Token missing uid")
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token missing uid")
 
-  # Check if user exists in DB
-  stmt = select(User).where(User.firebase_uid == firebase_uid)
-  result = await db.execute(stmt)
-  user = result.scalar_one_or_none()
+  # Check if user exists in DB using ORM queries for safety and consistency.
+  user = await get_user_by_firebase_uid(db, firebase_uid)
 
   if not user:
     logger.info("Login checked: User not registered. UID: %s", firebase_uid)
@@ -93,10 +89,8 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
     logger.error("Signup failed: Token missing uid or email")
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token missing uid or email")
 
-  # Check if user already exists
-  stmt = select(User).where(User.firebase_uid == firebase_uid)
-  result = await db.execute(stmt)
-  existing_user = result.scalar_one_or_none()
+  # Check if user already exists using ORM queries for safety and consistency.
+  existing_user = await get_user_by_firebase_uid(db, firebase_uid)
 
   if existing_user:
     logger.warning("Signup failed: User already registered. UID: %s", firebase_uid)
@@ -104,23 +98,9 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
 
   # Create user
   try:
-    user = User(
-      firebase_uid=firebase_uid,
-      email=token_email,  # Trust token email over request email - Verify email?
-      # If firebase email is not verified, maybe we should warn?
-      # For now, we trust Firebase auth.
-      full_name=request.full_name,
-      profession=request.profession,
-      city=request.city,
-      country=request.country,
-      age=request.age,
-      photo_url=request.photo_url,
-      is_approved=False,
-      provider=provider_id,
+    user = await create_user(
+      db, firebase_uid=firebase_uid, email=token_email, full_name=request.full_name, profession=request.profession, city=request.city, country=request.country, age=request.age, photo_url=request.photo_url, provider=provider_id, is_approved=False
     )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
   except Exception as e:
     logger.error("Signup failed: Database error during creation for %s: %s", token_email, e, exc_info=True)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user") from e

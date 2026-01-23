@@ -2,7 +2,6 @@ import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from app.api.models import JobCreateResponse, WritingCheckRequest
 from app.api.routes.jobs import kickoff_job_processing
@@ -61,7 +60,7 @@ async def create_writing_check(  # noqa: B008
     updated_at=timestamp,
     ttl=_compute_job_ttl(settings),
   )
-  await run_in_threadpool(repo.create_job, record)
+  await repo.create_job(record)
   response = JobCreateResponse(job_id=job_id, expected_sections=0)
 
   # Kick off processing so the client can poll for status immediately.

@@ -6,7 +6,6 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from app.api.models import CurrentSectionStatus, GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse, ValidationResponse, WritingCheckRequest
 from app.config import Settings, get_settings
@@ -47,6 +46,7 @@ def _parse_job_request(payload: dict[str, Any]) -> GenerateLessonRequest | Writi
   """Resolve the stored job request to the correct request model."""
 
   # Writing checks carry a distinct payload shape (text + criteria).
+  payload = _strip_internal_fields(payload)
 
   if "text" in payload and "criteria" in payload:
     return WritingCheckRequest.model_validate(payload)
@@ -56,6 +56,12 @@ def _parse_job_request(payload: dict[str, Any]) -> GenerateLessonRequest | Writi
     payload = {key: value for key, value in payload.items() if key != "mode"}
 
   return GenerateLessonRequest.model_validate(payload)
+
+
+def _strip_internal_fields(payload: dict[str, Any]) -> dict[str, Any]:
+  """Remove internal-only metadata keys from a stored job request payload."""
+  # Job requests are persisted as JSON and may include internal fields (e.g. _meta).
+  return {key: value for key, value in payload.items() if not key.startswith("_")}
 
 
 def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusResponse:
@@ -113,7 +119,7 @@ def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusR
   )
 
 
-async def create_job_record(request: GenerateLessonRequest, settings: Settings) -> JobCreateResponse:
+async def create_job_record(request: GenerateLessonRequest, settings: Settings, *, user_id: str | None = None) -> JobCreateResponse:
   _validate_generate_request(request, settings)
   repo = _get_jobs_repo(settings)
   # Precompute section count so the client can render placeholders immediately.
@@ -129,6 +135,9 @@ async def create_job_record(request: GenerateLessonRequest, settings: Settings) 
   job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
   request_payload = request.model_dump(mode="python", by_alias=True)
+  # Persist minimal metadata for worker-side notifications without storing email addresses.
+  if user_id:
+    request_payload["_meta"] = {"user_id": user_id}
   record = JobRecord(
     job_id=job_id,
     request=request_payload,
@@ -228,7 +237,7 @@ async def create_job(  # noqa: B008
   if current_user.id:
     await log_llm_interaction(user_id=current_user.id, model_name=model_name, prompt_summary=request.topic, status="job_queued", session=db_session)
 
-  response = await create_job_record(request, settings)
+  response = await create_job_record(request, settings, user_id=str(current_user.id))
 
   # Kick off processing so the client can poll for status immediately.
   kickoff_job_processing(background_tasks, response.job_id, settings)
@@ -331,9 +340,7 @@ async def cancel_job(  # noqa: B008
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
   if record.status in ("done", "error", "canceled"):
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is already finalized and cannot be canceled.")
-  updated = await repo.update_job(
-    job_id, status="canceled", phase="canceled", subphase=None, progress=100.0, logs=record.logs + ["Job cancellation requested by client."], completed_at=time.strftime(_DATE_FORMAT, time.gmtime())
-  )
+  updated = await repo.update_job(job_id, status="canceled", phase="canceled", subphase=None, progress=100.0, logs=record.logs + ["Job cancellation requested by client."], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
   if updated is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
   return _job_status_from_record(updated, settings)

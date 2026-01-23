@@ -6,7 +6,8 @@ import json
 import logging
 import os
 import time
-from collections.abc import Callable, Iterable, Awaitable
+import uuid
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from pydantic import ValidationError
@@ -14,12 +15,15 @@ from pydantic import ValidationError
 from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult, SectionProgressUpdate
 from app.api.models import GenerateLessonRequest, WritingCheckRequest
 from app.config import Settings
+from app.core.database import get_session_factory
 from app.jobs.models import JobRecord
 from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
+from app.notifications.factory import build_notification_service
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.validate_lesson import validate_lesson
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
+from app.services.users import get_user_by_id
 from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord
@@ -71,13 +75,7 @@ class JobProcessor:
     ]
     base_completed_indexes = _infer_completed_section_indexes(job)
     tracker = JobProgressTracker(
-      job_id=job.job_id,
-      jobs_repo=self._jobs_repo,
-      total_steps=total_steps,
-      total_ai_calls=call_plan.total_ai_calls,
-      label_prefix=call_plan.label_prefix,
-      initial_logs=initial_logs,
-      completed_section_indexes=base_completed_indexes,
+      job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=total_steps, total_ai_calls=call_plan.total_ai_calls, label_prefix=call_plan.label_prefix, initial_logs=initial_logs, completed_section_indexes=base_completed_indexes
     )
     await tracker.set_phase(phase="plan", subphase="planner_start", expected_sections=expected_sections)
 
@@ -147,15 +145,11 @@ class JobProcessor:
       tracker.extend_logs(orchestration_result.logs)
       merged_result_json = orchestration_result.lesson_json
       merged_indexes = list(range(expected_sections))
-      request_model = GenerateLessonRequest.model_validate(job.request)
+      request_model = GenerateLessonRequest.model_validate(_strip_internal_request_fields(job.request))
 
       if is_retry and retry_section_indexes is not None:
         merged_result_json, merged_indexes = _merge_retry_result(
-          base_result_json=base_result_json,
-          base_completed_indexes=base_completed_indexes,
-          retry_partial_json=orchestration_result.lesson_json,
-          retry_completed_indexes=retry_completed_indexes,
-          topic=request_model.topic,
+          base_result_json=base_result_json, base_completed_indexes=base_completed_indexes, retry_partial_json=orchestration_result.lesson_json, retry_completed_indexes=retry_completed_indexes, topic=request_model.topic
         )
 
       if is_retry and retry_section_indexes is not None and len(merged_indexes) < expected_sections:
@@ -193,6 +187,8 @@ class JobProcessor:
       )
       lessons_repo = _get_repo(self._settings)
       await lessons_repo.create_lesson(lesson_record)
+      # Notify the job owner after the lesson is durably persisted.
+      await _notify_job_lesson_generated(settings=self._settings, job_request=job.request, lesson_id=lesson_id, topic=request_model.topic)
       log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
       log_updates.append("Job completed successfully.")
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -297,7 +293,7 @@ class JobProcessor:
       if "mode" in request:
         request = {key: value for key, value in request.items() if key != "mode"}
 
-      request_model = GenerateLessonRequest.model_validate(request)
+      request_model = GenerateLessonRequest.model_validate(_strip_internal_request_fields(request))
 
     except ValidationError as exc:
       raise ValueError("Stored job request is invalid.") from exc
@@ -340,9 +336,7 @@ class JobProcessor:
 
     Msgs = list[str] | None  # noqa: N806
 
-    async def _progress_callback(
-      phase: str, subphase: str | None, messages: Msgs = None, advance: bool = True, partial_json: dict[str, Any] | None = None, section_progress: SectionProgressUpdate | None = None
-    ) -> None:
+    async def _progress_callback(phase: str, subphase: str | None, messages: Msgs = None, advance: bool = True, partial_json: dict[str, Any] | None = None, section_progress: SectionProgressUpdate | None = None) -> None:
       if tracker is None:
         return
 
@@ -364,9 +358,7 @@ class JobProcessor:
 
       if section_progress is not None:
         merged_completed_sections = (section_progress.completed_sections or 0) + base_completed_sections
-        tracker_section = SectionProgress(
-          index=section_progress.index, title=section_progress.title, status=section_progress.status, retry_count=section_progress.retry_count, completed_sections=merged_completed_sections
-        )
+        tracker_section = SectionProgress(index=section_progress.index, title=section_progress.title, status=section_progress.status, retry_count=section_progress.retry_count, completed_sections=merged_completed_sections)
 
         # Keep track of completed retry indexes for partial merge payloads.
         if retry_completed_indexes is not None and section_progress.status == "completed":
@@ -377,9 +369,7 @@ class JobProcessor:
       merged_partial = partial_json
 
       if is_retry and partial_json is not None and retry_completed_indexes is not None:
-        merged_partial = _merge_partial_payload(
-          base_result_json=base_result_json, base_completed_indexes=base_completed_indexes or [], retry_partial_json=partial_json, retry_completed_indexes=retry_completed_indexes, topic=topic
-        )
+        merged_partial = _merge_partial_payload(base_result_json=base_result_json, base_completed_indexes=base_completed_indexes or [], retry_partial_json=partial_json, retry_completed_indexes=retry_completed_indexes, topic=topic)
 
       if advance:
         await tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
@@ -423,6 +413,49 @@ class JobProcessor:
       total_cost=result.total_cost,
       artifacts=result.artifacts,
     )
+
+
+def _strip_internal_request_fields(request: dict[str, Any]) -> dict[str, Any]:
+  """Drop internal-only metadata keys from stored job payloads before validation."""
+  # Stored job requests may include internal metadata (e.g. _meta) that must not violate strict request models.
+  return {key: value for key, value in request.items() if not key.startswith("_")}
+
+
+def _extract_user_id(job_request: dict[str, Any]) -> uuid.UUID | None:
+  """Extract the job creator user id from persisted job metadata."""
+  raw_meta = job_request.get("_meta")
+  if not isinstance(raw_meta, dict):
+    return None
+
+  raw_user_id = raw_meta.get("user_id")
+  if not raw_user_id:
+    return None
+
+  try:
+    return uuid.UUID(str(raw_user_id))
+  except ValueError:
+    return None
+
+
+async def _notify_job_lesson_generated(*, settings: Settings, job_request: dict[str, Any], lesson_id: str, topic: str) -> None:
+  """Best-effort notification when a lesson generation job completes."""
+  user_id = _extract_user_id(job_request)
+  if user_id is None:
+    return
+
+  session_factory = get_session_factory()
+  if session_factory is None:
+    return
+
+  try:
+    async with session_factory() as session:
+      user = await get_user_by_id(session, user_id)
+      if user is None:
+        return
+
+      await build_notification_service(settings).notify_lesson_generated(user_id=user.id, user_email=user.email, lesson_id=lesson_id, topic=topic)
+  except Exception as exc:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed sending job completion notification: %s", exc, exc_info=True)
 
 
 def _merge_logs(*log_sets: Iterable[str]) -> Iterable[str]:
@@ -538,9 +571,7 @@ def _resolve_result_title(base_result_json: dict[str, Any] | None, retry_partial
   return topic
 
 
-def _merge_partial_payload(
-  *, base_result_json: dict[str, Any] | None, base_completed_indexes: list[int], retry_partial_json: dict[str, Any] | None, retry_completed_indexes: list[int], topic: str
-) -> dict[str, Any]:
+def _merge_partial_payload(*, base_result_json: dict[str, Any] | None, base_completed_indexes: list[int], retry_partial_json: dict[str, Any] | None, retry_completed_indexes: list[int], topic: str) -> dict[str, Any]:
   """Merge partial retry blocks into the existing result payload."""
   base_map = _build_block_map(base_result_json, base_completed_indexes)
   retry_map = _build_block_map(retry_partial_json, retry_completed_indexes)
@@ -551,12 +582,8 @@ def _merge_partial_payload(
   return {"title": title, "blocks": merged_blocks}
 
 
-def _merge_retry_result(
-  *, base_result_json: dict[str, Any] | None, base_completed_indexes: list[int], retry_partial_json: dict[str, Any] | None, retry_completed_indexes: list[int], topic: str
-) -> tuple[dict[str, Any], list[int]]:
+def _merge_retry_result(*, base_result_json: dict[str, Any] | None, base_completed_indexes: list[int], retry_partial_json: dict[str, Any] | None, retry_completed_indexes: list[int], topic: str) -> tuple[dict[str, Any], list[int]]:
   """Merge retry partial payloads into the base result."""
-  merged_payload = _merge_partial_payload(
-    base_result_json=base_result_json, base_completed_indexes=base_completed_indexes, retry_partial_json=retry_partial_json, retry_completed_indexes=retry_completed_indexes, topic=topic
-  )
+  merged_payload = _merge_partial_payload(base_result_json=base_result_json, base_completed_indexes=base_completed_indexes, retry_partial_json=retry_partial_json, retry_completed_indexes=retry_completed_indexes, topic=topic)
   merged_indexes = sorted(set(base_completed_indexes) | set(retry_completed_indexes))
   return merged_payload, merged_indexes

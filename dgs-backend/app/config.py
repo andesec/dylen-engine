@@ -48,6 +48,13 @@ class Settings:
   gcp_location: str | None
   firebase_project_id: str | None
   firebase_service_account_json_path: str | None
+  email_notifications_enabled: bool
+  email_from_address: str | None
+  email_from_name: str | None
+  email_provider: str
+  mailersend_api_key: str | None
+  mailersend_timeout_seconds: int
+  mailersend_base_url: str
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -106,6 +113,28 @@ def get_settings() -> Settings:
   if log_backup_count < 0:
     raise ValueError("DGS_LOG_BACKUP_COUNT must be zero or a positive integer.")
 
+  email_notifications_enabled = _parse_bool(os.getenv("DGS_EMAIL_NOTIFICATIONS_ENABLED"))
+  email_from_address = _optional_str(os.getenv("DGS_EMAIL_FROM_ADDRESS"))
+  email_from_name = _optional_str(os.getenv("DGS_EMAIL_FROM_NAME"))
+  email_provider = (os.getenv("DGS_EMAIL_PROVIDER") or "mailersend").strip().lower()
+  mailersend_api_key = _optional_str(os.getenv("DGS_MAILERSEND_API_KEY"))
+  mailersend_timeout_seconds = int(os.getenv("DGS_MAILERSEND_TIMEOUT_SECONDS", "10"))
+  mailersend_base_url = (os.getenv("DGS_MAILERSEND_BASE_URL") or "https://api.mailersend.com/v1").strip()
+
+  # Validate notification settings only when notifications are enabled.
+  if email_notifications_enabled:
+    if not email_from_address:
+      raise ValueError("DGS_EMAIL_FROM_ADDRESS must be set when email notifications are enabled.")
+
+    if email_provider != "mailersend":
+      raise ValueError("DGS_EMAIL_PROVIDER must be 'mailersend'.")
+
+    if not mailersend_api_key:
+      raise ValueError("DGS_MAILERSEND_API_KEY must be set when email notifications are enabled.")
+
+    if mailersend_timeout_seconds <= 0:
+      raise ValueError("DGS_MAILERSEND_TIMEOUT_SECONDS must be a positive integer.")
+
   return Settings(
     dev_key=dev_key,
     allowed_origins=_parse_origins(os.getenv("DGS_ALLOWED_ORIGINS")),
@@ -140,7 +169,23 @@ def get_settings() -> Settings:
     gcp_location=os.getenv("GCP_LOCATION"),
     firebase_project_id=os.getenv("FIREBASE_PROJECT_ID"),
     firebase_service_account_json_path=os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON_PATH"),
+    email_notifications_enabled=email_notifications_enabled,
+    email_from_address=email_from_address,
+    email_from_name=email_from_name,
+    email_provider=email_provider,
+    mailersend_api_key=mailersend_api_key,
+    mailersend_timeout_seconds=mailersend_timeout_seconds,
+    mailersend_base_url=mailersend_base_url,
   )
+
+
+def _optional_str(raw: str | None) -> str | None:
+  if raw is None:
+    return None
+  value = raw.strip()
+  if value == "":
+    return None
+  return value
 
 
 def _parse_optional_int(raw: str | None) -> int | None:

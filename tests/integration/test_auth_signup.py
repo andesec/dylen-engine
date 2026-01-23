@@ -1,7 +1,8 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+
 from app.schema.sql import User
 
 
@@ -58,16 +59,7 @@ async def test_signup_flow(async_client: AsyncClient, db_session, mock_verify_id
   mock_verify_id_token.return_value = {"uid": "signup_user_123", "email": "signup@example.com", "name": "Signup User"}
 
   # 1. Signup
-  signup_payload = {
-    "idToken": "valid_token",
-    "fullName": "Signup User",
-    "email": "signup@example.com",
-    "profession": "Developer",
-    "city": "Test City",
-    "country": "Test Country",
-    "age": 25,
-    "photoUrl": "http://example.com/photo.jpg",
-  }
+  signup_payload = {"idToken": "valid_token", "fullName": "Signup User", "email": "signup@example.com", "profession": "Developer", "city": "Test City", "country": "Test Country", "age": 25, "photoUrl": "http://example.com/photo.jpg"}
 
   # Setup DB mock to return None for existing user check
   # The mock_db_session fixture already returns None by default for scalar_one_or_none

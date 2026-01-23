@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session_factory
 from app.schema.lessons import Lesson
@@ -79,7 +78,7 @@ class PostgresLessonsRepository(LessonsRepository):
       result = await session.execute(stmt)
       lessons = result.scalars().all()
 
-      return [self._model_to_record(l) for l in lessons], (total or 0)
+      return [self._model_to_record(lesson) for lesson in lessons], (total or 0)
 
   def _model_to_record(self, lesson: Lesson) -> LessonRecord:
     """Convert a SQLAlchemy model to a domain record."""

@@ -1,11 +1,17 @@
+import uuid
 from typing import TypeVar
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
-from app.core.security import get_current_active_user, get_current_admin_user
+from app.config import Settings, get_settings
+from app.core.database import get_db
+from app.core.security import get_current_admin_user
 from app.jobs.models import JobRecord, JobStatus
+from app.notifications.factory import build_notification_service
+from app.services.users import approve_user as approve_user_record
+from app.services.users import get_user_by_id
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.postgres_audit_repo import LlmAuditRecord, PostgresLlmAuditRepository
@@ -35,6 +41,37 @@ def get_lessons_repo() -> LessonsRepository:
 
 def get_audit_repo() -> PostgresLlmAuditRepository:
   return PostgresLlmAuditRepository()
+
+
+class UserApprovalResponse(BaseModel):
+  id: str
+  email: str
+  is_approved: bool
+
+
+@router.patch("/users/{user_id}/approve", response_model=UserApprovalResponse, dependencies=[Depends(get_current_admin_user)])
+async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)) -> UserApprovalResponse:  # noqa: B008
+  """Approve a user account and notify the user."""
+  # Validate user id inputs early to avoid leaking query behavior.
+  try:
+    parsed_user_id = uuid.UUID(user_id)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id.") from exc
+
+  # Load the user record so approval is explicit and auditable.
+  user = await get_user_by_id(db_session, parsed_user_id)
+  if user is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+  # Avoid resending notifications on repeated approval calls.
+  if user.is_approved:
+    return UserApprovalResponse(id=str(user.id), email=user.email, is_approved=True)
+
+  # Persist approval before notifying so delivery failures cannot block access.
+  user = await approve_user_record(db_session, user=user)
+  # Notify the user on best-effort basis.
+  await build_notification_service(settings).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)
+  return UserApprovalResponse(id=str(user.id), email=user.email, is_approved=user.is_approved)
 
 
 @router.get("/jobs", response_model=PaginatedResponse[JobRecord], dependencies=[Depends(get_current_admin_user)])

@@ -11,10 +11,10 @@ os.environ["DGS_DEV_KEY"] = "test-key"
 os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
 os.environ["DGS_JOBS_AUTO_PROCESS"] = "0"
 
-from app.jobs.models import JobRecord
-from app.main import app
-from app.core.security import get_current_active_user
-from app.schema.sql import User
+from app.core.security import get_current_active_user  # noqa: E402
+from app.jobs.models import JobRecord  # noqa: E402
+from app.main import app  # noqa: E402
+from app.schema.sql import User  # noqa: E402
 
 
 class InMemoryJobsRepo:
@@ -81,22 +81,12 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
   assert create_resp.json()["expected_sections"] == 2
 
   # Simulate the worker streaming partial results over time.
-  await repo.update_job(
-    job_id, status="running", result_json={"title": "Streaming Test", "blocks": []}, completed_sections=0, expected_sections=2, current_section_index=0, current_section_status="generating"
-  )
+  await repo.update_job(job_id, status="running", result_json={"title": "Streaming Test", "blocks": []}, completed_sections=0, expected_sections=2, current_section_index=0, current_section_status="generating")
   status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
   assert status_resp.status_code == 200
   assert status_resp.json()["result"]["blocks"] == []
 
-  await repo.update_job(
-    job_id,
-    status="running",
-    result_json={"title": "Streaming Test", "blocks": [{"section": "Intro", "items": []}]},
-    completed_sections=1,
-    expected_sections=2,
-    current_section_index=1,
-    current_section_status="generating",
-  )
+  await repo.update_job(job_id, status="running", result_json={"title": "Streaming Test", "blocks": [{"section": "Intro", "items": []}]}, completed_sections=1, expected_sections=2, current_section_index=1, current_section_status="generating")
   status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
   assert status_resp.status_code == 200
   assert len(status_resp.json()["result"]["blocks"]) == 1

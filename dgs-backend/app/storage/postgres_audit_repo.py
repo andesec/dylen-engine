@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session_factory
 from app.schema.audit import LlmCallAudit
 
-# The original file had it defined at the top. I should keep it there.
-
 logger = logging.getLogger(__name__)
-
-from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -82,17 +78,7 @@ class PostgresLlmAuditRepository:
       logger.debug("Inserted LLM audit record %s", record.record_id)
 
   async def update_record(
-    self,
-    *,
-    record_id: str,
-    timestamp_response: datetime,
-    response_payload: str | None,
-    status: str,
-    error_message: str | None,
-    duration_ms: int,
-    prompt_tokens: int | None,
-    completion_tokens: int | None,
-    total_tokens: int | None,
+    self, *, record_id: str, timestamp_response: datetime, response_payload: str | None, status: str, error_message: str | None, duration_ms: int, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None
   ) -> None:
     """Update an existing audit record after the LLM call completes."""
     async with self._session_factory() as session:

@@ -75,11 +75,7 @@ class ModelsConfig(BaseModel):
   """Per-agent model selection overrides."""
 
   gatherer_model: StrictStr | None = Field(
-    default=None,
-    validation_alias=AliasChoices("gatherer_model", "knowledge_model"),
-    serialization_alias="gatherer_model",
-    description="Model used for the gatherer agent (provider inferred when possible).",
-    examples=["xiaomi/mimo-v2-flash:free"],
+    default=None, validation_alias=AliasChoices("gatherer_model", "knowledge_model"), serialization_alias="gatherer_model", description="Model used for the gatherer agent (provider inferred when possible).", examples=["xiaomi/mimo-v2-flash:free"]
   )
   planner_model: StrictStr | None = Field(default=None, description="Model used for the planner agent (provider inferred when possible).", examples=["openai/gpt-oss-120b:free"])
   structurer_model: StrictStr | None = Field(default=None, description="Model used for lesson structuring (provider inferred when possible).", examples=["openai/gpt-oss-20b:free"])
@@ -93,21 +89,9 @@ class GenerateLessonRequest(BaseModel):
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
   details: StrictStr | None = Field(default=None, min_length=1, description="Optional user-supplied details (max 250 words).", examples=["Focus on lists and loops"])
-  blueprint: (
-    Literal[
-      "skillbuilding",
-      "knowledgeunderstanding",
-      "communicationskills",
-      "planningandproductivity",
-      "movementandfitness",
-      "growthmindset",
-      "criticalthinking",
-      "creativeskills",
-      "webdevandcoding",
-      "languagepractice",
-    ]
-    | None
-  ) = Field(default=None, description="Optional blueprint or learning outcome guidance for lesson planning.")
+  blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] | None = Field(
+    default=None, description="Optional blueprint or learning outcome guidance for lesson planning."
+  )
   teaching_style: list[Literal["conceptual", "theoretical", "practical"]] | None = Field(default=None, description="Optional teaching style or pedagogy guidance for lesson planning.")
   learner_level: StrictStr | None = Field(default=None, min_length=1, description="Optional learner level hint used for prompt guidance.")
   depth: Literal["highlights", "detailed", "training"] = Field(default="highlights", description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).")
@@ -118,9 +102,7 @@ class GenerateLessonRequest(BaseModel):
   models: ModelsConfig | None = Field(
     default=None,
     description="Optional per-agent model selection overrides.",
-    examples=[
-      {"gatherer_model": "xiaomi/mimo-v2-flash:free", "planner_model": "openai/gpt-oss-120b:free", "structurer_model": "openai/gpt-oss-20b:free", "repairer_model": "google/gemma-3-27b-it:free"}
-    ],
+    examples=[{"gatherer_model": "xiaomi/mimo-v2-flash:free", "planner_model": "openai/gpt-oss-120b:free", "structurer_model": "openai/gpt-oss-20b:free", "repairer_model": "google/gemma-3-27b-it:free"}],
   )
   model_config = ConfigDict(extra="forbid")
 
