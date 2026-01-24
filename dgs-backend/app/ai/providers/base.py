@@ -75,6 +75,14 @@ class AIModel(ABC):
     """Generate structured output that conforms to the provided JSON schema."""
     raise RuntimeError("Structured output is not supported by this model.")
 
+  async def upload_file(self, file_content: bytes, mime_type: str, display_name: str | None = None) -> Any:
+    """Upload a file to the provider's storage."""
+    raise NotImplementedError("File upload is not supported by this model.")
+
+  async def generate_with_files(self, prompt: str, files: list[Any]) -> ModelResponse:
+    """Generate a response using the provided prompt and files."""
+    raise NotImplementedError("Generation with files is not supported by this model.")
+
   @staticmethod
   def strip_json_fences(raw: str) -> str:
     stripped = raw.strip()
@@ -112,3 +120,8 @@ class Provider(ABC):
   @abstractmethod
   def get_model(self, model: str | None = None) -> AIModel:
     """Return the model client for the provider."""
+
+  @property
+  def supports_files(self) -> bool:
+    """Return True if this provider supports file uploads."""
+    return False
