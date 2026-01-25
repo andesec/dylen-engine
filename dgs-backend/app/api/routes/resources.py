@@ -116,9 +116,9 @@ async def extract_text_from_images(files: List[UploadFile] = File(...), message:
 
       return ExtractionResult(filename=file.filename or "", content=response.content or "No text detected.")
 
-    except Exception as e:
-      logger.exception(f"Error processing file {file.filename}: {e}")
-      return ExtractionResult(filename=file.filename or "", content=f"Error: {str(e)}")
+    except Exception:
+      logger.exception("Error processing file %s", file.filename)
+      return ExtractionResult(filename=file.filename or "", content="Processing failed.")
 
   # Run in parallel
   tasks = [process_file(file, i) for i, file in enumerate(files)]
