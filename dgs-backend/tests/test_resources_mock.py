@@ -5,6 +5,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.api.routes.resources import extract_text_from_images
 from app.schema.ocr import BatchResponse
+from app.services.ocr_service import OcrService
 
 
 def test_extract_text_validation_no_files() -> None:
@@ -14,7 +15,7 @@ def test_extract_text_validation_no_files() -> None:
     """Exercise the route with no files to confirm validation."""
     try:
       # Trigger the route with no files to validate the guard.
-      await extract_text_from_images(files=[])
+      await extract_text_from_images(files=[], service=OcrService())
     except HTTPException as exc:
       # Validate the expected HTTP error response.
       assert exc.status_code == 400
@@ -32,7 +33,7 @@ def test_extract_text_validation_too_many_files() -> None:
     files = [AsyncMock(spec=UploadFile) for _ in range(6)]
     try:
       # Trigger the route with too many files to validate the guard.
-      await extract_text_from_images(files=files)
+      await extract_text_from_images(files=files, service=OcrService())
     except HTTPException as exc:
       # Validate the expected HTTP error response.
       assert exc.status_code == 400
@@ -59,7 +60,7 @@ def test_extract_text_success() -> None:
     mock_model.generate_with_files.return_value.content = "Extracted Text"
     with patch("app.services.ocr_service.get_model_for_mode", return_value=mock_model):
       # Trigger the extraction route to validate the response.
-      response = await extract_text_from_images(files=[file])
+      response = await extract_text_from_images(files=[file], service=OcrService())
 
     # Confirm the response structure and content.
     assert isinstance(response, BatchResponse)
@@ -87,7 +88,7 @@ def test_extract_text_with_message() -> None:
     mock_model.generate_with_files.return_value.content = "Extracted Text With Msg"
     with patch("app.services.ocr_service.get_model_for_mode", return_value=mock_model):
       # Trigger the extraction route with a custom instruction.
-      await extract_text_from_images(files=[file], message="Pay attention to dates.")
+      await extract_text_from_images(files=[file], message="Pay attention to dates.", service=OcrService())
       # Capture prompt input from the model call.
       args, _ = mock_model.generate_with_files.call_args
       prompt_used = args[0]

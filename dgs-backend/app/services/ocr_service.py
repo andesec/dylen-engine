@@ -5,20 +5,25 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
 
 from fastapi import HTTPException, UploadFile
 
+from app.ai.providers.base import AIModel
 from app.ai.router import ProviderMode, get_model_for_mode
 from app.schema.ocr import ExtractionResult
 
 logger = logging.getLogger(__name__)
+# Define a shared constant to clarify byte-size calculations.
+_ONE_MEGABYTE = 1024 * 1024
+
+# Store the OCR file size limit in one place for clarity.
+_ONE_MEGABYTE = 1024 * 1024
 
 
 class OcrService:
   """Coordinate OCR extraction to keep routes thin and consistent."""
 
-  def __init__(self, provider_mode: ProviderMode = ProviderMode.GEMINI, model_name: str = "gemini-2.0-flash-lite", max_file_size: int = 1 * 1024 * 1024) -> None:
+  def __init__(self, provider_mode: ProviderMode = ProviderMode.GEMINI, model_name: str = "gemini-2.0-flash-lite", max_file_size: int = _ONE_MEGABYTE) -> None:
     """Store OCR configuration to keep extraction behavior consistent."""
     # Store provider details so callers do not need to handle model setup.
     self._provider_mode = provider_mode
@@ -67,7 +72,7 @@ class OcrService:
       content = await file.read()
       # Enforce size constraints early to protect the provider.
       if len(content) > self._max_file_size:
-        return ExtractionResult(filename=file.filename or "", content="Error: File exceeds 1MB limit.")
+        return ExtractionResult(filename=file.filename or "", content=f"Error: File exceeds {self._max_file_size} byte limit.")
 
       # Upload the content for provider-side processing.
       uploaded_ref = await model.upload_file(file_content=content, mime_type=file.content_type or "application/octet-stream", display_name=file.filename)
