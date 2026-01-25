@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.ai.router import ProviderMode, get_model_for_mode
 from app.core.security import get_current_active_user
 from app.schema.sql import User
+from app.services.audit import log_llm_interaction
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -104,6 +105,7 @@ async def extract_text_from_images(files: list[UploadFile] = File(...), message:
   # If I did one call, I'd have to parse "Image 1 text... Image 2 text..." which is error prone.
 
   async def process_file(file: UploadFile, idx: int) -> ExtractionResult:
+    """Process a single upload to ensure per-file OCR isolation."""
     uploaded_ref = None
     try:
       content = await file.read()
@@ -123,8 +125,19 @@ async def extract_text_from_images(files: list[UploadFile] = File(...), message:
       logger.exception(f"Error processing file {file.filename}: {e}")
       return ExtractionResult(filename=file.filename or "", content=f"Error: {str(e)}")
 
-  # Run in parallel
-  tasks = [process_file(file, i) for i, file in enumerate(files)]
-  results = await asyncio.gather(*tasks)
+  # Record an audit entry so OCR usage is tracked in the database.
+  audit_status = "success"
+  audit_summary = f"OCR extract text request; file_count={len(files)}; has_message={bool(message)}"
+  try:
+    # Run in parallel
+    tasks = [process_file(file, i) for i, file in enumerate(files)]
+    results = await asyncio.gather(*tasks)
+
+  except Exception:
+    audit_status = "error"
+    raise
+
+  finally:
+    await log_llm_interaction(user_id=current_user.id, model_name=model.name, prompt_summary=audit_summary, status=audit_status)
 
   return BatchResponse(results=list(results))
