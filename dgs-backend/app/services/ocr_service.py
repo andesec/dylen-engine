@@ -75,7 +75,7 @@ class OcrService:
       response = await model.generate_with_files(prompt_text, [uploaded_ref])
       return ExtractionResult(filename=file.filename or "", content=response.content or "No text detected.")
     except Exception as exc:
-      logger.exception("Error processing file %s: %s", file.filename, exc)
+      logger.exception("Error processing file %s", file.filename)
       return ExtractionResult(filename=file.filename or "", content=f"Error: {str(exc)}")
 
   async def extract_text(self, files: list[UploadFile], message: str | None) -> list[ExtractionResult]:
