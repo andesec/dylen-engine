@@ -1,9 +1,9 @@
-import pytest
 import asyncio
 from unittest.mock import AsyncMock, patch
+
 from fastapi import UploadFile
-from app.api.routes.resources import extract_text_from_images, BatchResponse, ExtractionResult
-from app.ai.router import ProviderMode
+
+from app.api.routes.resources import BatchResponse, extract_text_from_images
 
 
 def test_extract_text_validation_no_files():
@@ -72,7 +72,7 @@ def test_extract_text_with_message():
     with patch("app.api.routes.resources.get_model_for_mode", return_value=mock_model):
       # Assert that generate_with_files is called with the message appended
       # We need to capture the call arguments
-      response = await extract_text_from_images(files=[file], message="Pay attention to dates.")
+      await extract_text_from_images(files=[file], message="Pay attention to dates.")
 
       # Verify call args
       args, _ = mock_model.generate_with_files.call_args

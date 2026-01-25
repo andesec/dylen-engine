@@ -1,15 +1,15 @@
 """Router for resource-related endpoints (OCR, etc.)."""
 
-import logging
 import asyncio
-from typing import List, Any, Optional
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
+import logging
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.ai.router import get_model_for_mode, ProviderMode
-from app.config import get_settings
-from app.utils.env import default_env_path
-from pathlib import Path
+from app.ai.router import ProviderMode, get_model_for_mode
+from app.core.security import get_current_active_user
+from app.schema.sql import User
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -21,11 +21,11 @@ class ExtractionResult(BaseModel):
 
 
 class BatchResponse(BaseModel):
-  results: List[ExtractionResult]
+  results: list[ExtractionResult]
 
 
 @router.post("/image/extract-text", response_model=BatchResponse)
-async def extract_text_from_images(files: List[UploadFile] = File(...), message: Optional[str] = Form(None)):
+async def extract_text_from_images(files: list[UploadFile] = File(...), message: str | None = Form(None), current_user: User = Depends(get_current_active_user)):  # noqa: B008
   """
   Endpoint to upload multiple photos and extract formatted text
   using Gemini 2.0 Flash Lite.
@@ -47,7 +47,7 @@ async def extract_text_from_images(files: List[UploadFile] = File(...), message:
     model = get_model_for_mode(ProviderMode.GEMINI, model="gemini-2.0-flash-lite")
   except Exception as e:
     logger.error(f"Failed to initialize model: {e}")
-    raise HTTPException(status_code=500, detail="Configuration error: Model unavailable.")
+    raise HTTPException(status_code=500, detail="Configuration error: Model unavailable.") from e
 
   if not model.supports_structured_output:
     # Actually we don't strictly need structured output for Markdown text,
@@ -62,7 +62,7 @@ async def extract_text_from_images(files: List[UploadFile] = File(...), message:
   # Load defaults prompt
   prompt_path = Path(__file__).resolve().parents[2] / "ai" / "prompts" / "ocr.md"
   try:
-    with open(prompt_path, "r") as f:
+    with open(prompt_path) as f:
       prompt_text = f.read()
   except Exception as e:
     logger.error(f"Failed to load OCR prompt: {e}")
@@ -77,13 +77,16 @@ async def extract_text_from_images(files: List[UploadFile] = File(...), message:
   # We can process them in a batch if the model supports multiple files in one request,
   # OR process them individually. The user request sample code processed them individually
   # but mentioned "begins processing them TOGETHER in one call" in the text description?
-  # "DGS immediately uploads them to files api, and then begins processing them TOGETHER in one call."
-  # AND "The files are uploaded to the DGS and DGS immediately uploads them to files api, and then begins processing them TOGETHER in one call."
+  # "DGS immediately uploads them to files api, and then begins processing them
+  # TOGETHER in one call."
+  # AND "The files are uploaded to the DGS and DGS immediately uploads them to files api,
+  # and then begins processing them TOGETHER in one call."
   # BUT the sample code had a loop: `upload_tasks` (parallel) then `response = client.models.generate_content...` inside a loop?
   # Wait, the sample code loop `for idx, g_file in enumerate(gemini_files):` implies individual processing per file.
   # However, "processing them TOGETHER" usually means one prompt with multiple images.
   #
-  # Re-reading user request: "The flow will be that the API takes the files from the user along with an optional prompt. The files are uploaded to the DGS and DGS immediately uploads them to files api, and then begins processing them TOGETHER in one call."
+  # Re-reading user request: "The flow will be that the API takes the files from the user along with an optional prompt.
+  # The files are uploaded to the DGS and DGS immediately uploads them to files api, and then begins processing them TOGETHER in one call."
   # AND "BatchResponse" suggests a batch of results.
   # If we process TOGETHER, we get ONE response text for ALL images (e.g. "Here is text for image 1... Here is text for image 2...").
   # If the user wants `BatchResponse` with `results: List[ExtractionResult]`, individual processing is safer for structured separation,
