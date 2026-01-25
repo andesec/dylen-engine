@@ -33,6 +33,7 @@ def test_extract_text_validation_too_many_files():
     mock_user = AsyncMock(spec=User)
     # Prepare the file list over the limit to trigger validation.
     files = [AsyncMock(spec=UploadFile) for _ in range(6)]
+    mock_user = AsyncMock(spec=User)
     try:
       await extract_text_from_images(files=files, current_user=mock_user)
     except Exception as e:
