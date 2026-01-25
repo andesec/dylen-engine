@@ -1,3 +1,12 @@
+"""Apply Alembic migrations safely across managed and legacy databases.
+
+How and why:
+- This script supports "zero-touch" environments where a database might already
+  have tables created outside Alembic (ex: early prototypes or `create_all`).
+- Stamping a database as "head" is only safe when the schema already matches
+  the current expected shape; otherwise it would hide missing migrations.
+"""
+
 import asyncio
 import logging
 import subprocess
@@ -14,61 +23,73 @@ from app.core.database import get_db_engine  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("smart_migrate")
 
+_EXPECTED_TABLES = {"users", "roles", "permissions", "role_permissions", "organizations"}
+_EXPECTED_USER_COLUMNS = {"profession", "role_id", "org_id", "status", "auth_method"}
 
-async def check_db_state():
+
+async def check_db_state() -> tuple[bool, set[str], set[str]]:
+  """Inspect the DB to determine whether Alembic is already managing it."""
   engine = get_db_engine()
   try:
     async with engine.connect() as conn:
 
-      def _inspect(sync_conn):
+      def _inspect(sync_conn):  # type: ignore[no-untyped-def]
         inspector = inspect(sync_conn)
         tables = set(inspector.get_table_names())
         has_alembic = "alembic_version" in tables
-        has_users = "users" in tables
-        has_profession = False
-        if has_users:
-          columns = {col.get("name") for col in inspector.get_columns("users")}
-          has_profession = "profession" in columns
-        return has_alembic, has_users, has_profession
+        user_columns: set[str] = set()
+        if "users" in tables:
+          user_columns = {str(col.get("name")) for col in inspector.get_columns("users") if col.get("name")}
+
+        return has_alembic, tables, user_columns
 
       return await conn.run_sync(_inspect)
   finally:
     await engine.dispose()
 
 
-def run_command(cmd):
-  logger.info(f"Running command: {cmd}")
+def run_command(argv: list[str]) -> None:
+  """Run a subprocess command and exit with the same error code on failure."""
+  logger.info("Running command: %s", " ".join(argv))
   try:
-    subprocess.run(cmd, shell=True, check=True)
+    subprocess.run(argv, check=True)
   except subprocess.CalledProcessError as e:
-    logger.error(f"Command failed with exit code {e.returncode}: {cmd}")
+    logger.error("Command failed with exit code %s: %s", e.returncode, " ".join(argv))
     sys.exit(e.returncode)
 
 
-async def main():
+async def main() -> None:
+  """Detect legacy DBs, stamp when safe, then apply migrations."""
   logger.info("Checking database state...")
   try:
-    has_alembic, has_users, has_profession = await check_db_state()
+    has_alembic, tables, user_columns = await check_db_state()
   except Exception as e:
-    logger.error(f"Failed to connect to database: {e}")
+    logger.error("Failed to connect to database: %s", e)
     sys.exit(1)
 
   if has_alembic:
     logger.info("✅ Database is already managed by Alembic.")
-  elif has_users:
+
+  elif "users" in tables:
     logger.info("⚠️  Existing database detected WITHOUT Alembic history.")
-    if has_profession:
-      logger.info("   -> 'profession' column exists. Assumed up-to-date.")
-      logger.info("   -> Stamping database as 'head'...")
-      run_command("uv run alembic stamp head")
+    # Only stamp when the schema already includes the latest RBAC/user columns.
+    missing_tables = _EXPECTED_TABLES.difference(tables)
+    missing_user_columns = _EXPECTED_USER_COLUMNS.difference(user_columns)
+
+    if not missing_tables and not missing_user_columns:
+      logger.info("   -> Expected RBAC tables/columns present; stamping database as 'head'...")
+      run_command([sys.executable, "-m", "alembic", "stamp", "head"])
+
     else:
-      logger.info("   -> 'profession' column MISSING.")
-      logger.info("   -> Skipping stamp. Will attempt to apply migrations to add columns.")
+      logger.info("   -> Missing tables: %s", ", ".join(sorted(missing_tables)) if missing_tables else "(none)")
+      logger.info("   -> Missing user columns: %s", ", ".join(sorted(missing_user_columns)) if missing_user_columns else "(none)")
+      logger.info("   -> Skipping stamp; will apply migrations to add missing structures.")
+
   else:
     logger.info("✨ Fresh database detected. Proceeding with full migration.")
 
   logger.info("🚀 Applying migrations...")
-  run_command("uv run alembic upgrade head")
+  run_command([sys.executable, "-m", "alembic", "upgrade", "heads"])
   logger.info("✅ Migration complete.")
 
 
@@ -82,5 +103,5 @@ if __name__ == "__main__":
     logger.info("Migration cancelled.")
     sys.exit(130)
   except Exception as e:
-    logger.error(f"Unexpected error: {e}")
+    logger.error("Unexpected error: %s", e)
     sys.exit(1)

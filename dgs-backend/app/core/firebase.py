@@ -43,3 +43,26 @@ def verify_id_token(id_token: str) -> dict[str, Any] | None:
   except Exception as e:
     logger.error(f"Token verification failed: {e}")
     return None
+
+
+def set_custom_claims(firebase_uid: str, claims: dict[str, Any]) -> None:
+  """Update Firebase custom claims so RBAC data stays in sync for tokens."""
+  # Ensure Firebase is initialized before issuing admin SDK calls.
+  if not firebase_admin._apps:
+    initialize_firebase()
+
+  # Push claims to Firebase so clients receive updated auth context.
+  auth.set_custom_user_claims(firebase_uid, claims)
+
+
+def build_rbac_claims(*, role_id: str, role_name: str, role_level: Any, org_id: str | None, status: Any) -> dict[str, Any]:
+  """Build RBAC claims payloads so token checks are consistent across services."""
+  # Normalize enum values so Firebase receives plain JSON values.
+  role_level_value = role_level.value if hasattr(role_level, "value") else role_level
+  status_value = status.value if hasattr(status, "value") else status
+  # Include explicit RBAC keys for middleware-level checks.
+  claims = {"role": {"id": role_id, "name": role_name, "level": role_level_value}, "status": status_value}
+  if org_id:
+    claims["orgId"] = org_id
+
+  return claims

@@ -39,6 +39,25 @@ services:
     entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
     restart: "no"
 
+  backend-migrate:
+    build:
+      context: .
+      target: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      - DGS_PG_DSN=postgresql://dgs:dgs_password@postgres:5432/dgs
+    networks:
+      - dgs-network
+    working_dir: /app/dgs-backend
+    command: ["-m", "alembic", "upgrade", "heads"]
+    restart: "no"
+
   backend:
     build:
       context: .
@@ -48,6 +67,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+      backend-migrate:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:

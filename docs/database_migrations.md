@@ -67,8 +67,8 @@ When deploying to production for the first time or when environments differ:
 The `make migrate` command is now **intelligent**. It automatically detects the state of your database:
 - **Fresh DB**: Runs full migrations.
 - **Existing Unmanaged DB**:
-    - **Fully Sync'd**: If tables exist AND expected columns (like `profession`) are present, it **stamps** the DB as up-to-date.
-    - **Partial Drift**: If tables exist but are missing newer columns (e.g. `users` exists but `profession` is missing), it **skips stamping** and runs migrations to add the missing columns.
+    - **Fully Sync'd**: If RBAC tables exist AND expected user columns (e.g. `role_id`, `status`, `auth_method`) are present, it **stamps** the DB as up-to-date.
+    - **Partial Drift**: If tables exist but are missing newer RBAC/user columns (e.g. `users` exists but `role_id` is missing), it **skips stamping** and runs migrations to add the missing columns.
 - **Managed DB**: Applies pending migrations normally.
 
 **You do NOT need to manually stamp the database.** Just run:

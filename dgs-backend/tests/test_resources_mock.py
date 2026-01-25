@@ -1,16 +1,18 @@
-import pytest
 import asyncio
 from unittest.mock import AsyncMock, patch
+
 from fastapi import UploadFile
-from app.api.routes.resources import extract_text_from_images, BatchResponse, ExtractionResult
-from app.ai.router import ProviderMode
+
+from app.api.routes.resources import BatchResponse, extract_text_from_images
 
 
 def test_extract_text_validation_no_files():
   async def _test():
     try:
+      # Attempt extraction with no files to hit the validation guard.
       await extract_text_from_images(files=[])
     except Exception as e:
+      # Validate the error response is a 400 with the expected message.
       assert e.status_code == 400
       assert "No files provided" in e.detail
 
@@ -19,10 +21,13 @@ def test_extract_text_validation_no_files():
 
 def test_extract_text_validation_too_many_files():
   async def _test():
+    # Build a mock batch that exceeds the allowed file count.
     files = [AsyncMock(spec=UploadFile) for _ in range(6)]
     try:
+      # Attempt extraction with too many files to hit the validation guard.
       await extract_text_from_images(files=files)
     except Exception as e:
+      # Validate the error response is a 400 with the expected message.
       assert e.status_code == 400
       assert "Maximum 5 files allowed" in e.detail
 
@@ -45,6 +50,7 @@ def test_extract_text_success():
     mock_model.generate_with_files.return_value.content = "Extracted Text"
 
     with patch("app.api.routes.resources.get_model_for_mode", return_value=mock_model):
+      # Execute the handler to verify expected response shape.
       response = await extract_text_from_images(files=[file])
 
     assert isinstance(response, BatchResponse)
@@ -70,9 +76,9 @@ def test_extract_text_with_message():
     mock_model.generate_with_files.return_value.content = "Extracted Text With Msg"
 
     with patch("app.api.routes.resources.get_model_for_mode", return_value=mock_model):
-      # Assert that generate_with_files is called with the message appended
-      # We need to capture the call arguments
-      response = await extract_text_from_images(files=[file], message="Pay attention to dates.")
+      # Assert that generate_with_files is called with the message appended.
+      # We need to capture the call arguments.
+      await extract_text_from_images(files=[file], message="Pay attention to dates.")
 
       # Verify call args
       args, _ = mock_model.generate_with_files.call_args
