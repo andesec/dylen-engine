@@ -116,6 +116,8 @@ async def extract_text_from_images(files: List[UploadFile] = File(...), message:
 
       return ExtractionResult(filename=file.filename or "", content=response.content or "No text detected.")
 
+    except asyncio.CancelledError:
+      raise
     except Exception:
       logger.exception("Error processing file %s", file.filename)
       return ExtractionResult(filename=file.filename or "", content="Processing failed.")
