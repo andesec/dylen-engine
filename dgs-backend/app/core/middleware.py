@@ -22,9 +22,9 @@ async def log_requests(request: Request, call_next: Callable[[Request], Awaitabl
         # Log payloads at debug level to avoid noisy production logs.
         logger.debug(f"Request Body: {body.decode('utf-8')}")
 
-  except Exception:
+  except Exception as e:
     # Swallow logging errors so middleware never blocks a request.
-    pass  # Don't fail if body logging fails
+    logger.warning(f"Failed to log request body: {e}")
 
   # Execute downstream handlers to keep middleware focused on observation.
   response = await call_next(request)
