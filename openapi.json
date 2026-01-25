@@ -35,6 +35,50 @@
         "title": "AgentModelOption",
         "type": "object"
       },
+      "BatchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "BatchResponse",
+        "type": "object"
+      },
+      "Body_extract_text_from_images_resource_image_extract_text_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "format": "binary",
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "Body_extract_text_from_images_resource_image_extract_text_post",
+        "type": "object"
+      },
       "CurrentSectionStatus": {
         "additionalProperties": false,
         "description": "Section status metadata for streaming job progress.",
@@ -81,6 +125,24 @@
           "status"
         ],
         "title": "CurrentSectionStatus",
+        "type": "object"
+      },
+      "ExtractionResult": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "content"
+        ],
+        "title": "ExtractionResult",
         "type": "object"
       },
       "GenerateLessonRequest": {
@@ -2289,6 +2351,53 @@
         "summary": "Get My Profile",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/resource/image/extract-text": {
+      "post": {
+        "description": "Endpoint to upload multiple photos and extract formatted text\nusing Gemini 2.0 Flash Lite.",
+        "operationId": "extract_text_from_images_resource_image_extract_text_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_extract_text_from_images_resource_image_extract_text_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Extract Text From Images",
+        "tags": [
+          "resources"
         ]
       }
     },
