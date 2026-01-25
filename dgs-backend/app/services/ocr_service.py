@@ -27,7 +27,7 @@ class OcrService:
     # Store size limits to prevent oversized uploads.
     self._max_file_size = max_file_size
 
-  def _create_model(self) -> Any:
+  def _create_model(self) -> AIModel:
     """Create the model client so file processing can stay isolated."""
     try:
       # Initialize the model client for the configured provider.
