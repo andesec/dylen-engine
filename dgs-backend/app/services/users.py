@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schema.sql import User
+from app.schema.quotas import UserUsageMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ async def create_user(session: AsyncSession, *, firebase_uid: str, email: str, f
   session.add(user)
   await session.commit()
   await session.refresh(user)
+  await ensure_usage_row(session, user)
   return user
 
 
@@ -65,3 +67,20 @@ async def approve_user(session: AsyncSession, *, user: User) -> User:
   await session.commit()
   await session.refresh(user)
   return user
+
+
+async def ensure_usage_row(session: AsyncSession, user: User, *, tier_id: int | None = None) -> UserUsageMetrics:
+  """Ensure a usage metrics row exists for the user."""
+  # Avoid duplicate rows by checking first.
+  stmt = select(UserUsageMetrics).where(UserUsageMetrics.user_id == user.id)
+  result = await session.execute(stmt)
+  existing = result.scalar_one_or_none()
+  if existing:
+    return existing
+
+  # Default to provided tier or free tier (id 1) if not specified.
+  metrics = UserUsageMetrics(user_id=user.id, subscription_tier_id=tier_id or 1, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0)
+  session.add(metrics)
+  await session.commit()
+  await session.refresh(metrics)
+  return metrics

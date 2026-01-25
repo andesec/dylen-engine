@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_dev_key
+from app.api.deps import consume_section_quota, require_dev_key
 from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
 from app.api.routes.jobs import create_job_record, kickoff_job_processing
 from app.config import Settings, get_settings
@@ -52,6 +52,7 @@ async def generate_lesson(  # noqa: B008
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
+  _ = Depends(consume_section_quota),  # noqa: B008
 ) -> GenerateLessonResponse:
   """Generate a lesson from a topic using the two-step pipeline."""
   _validate_generate_request(request, settings)
