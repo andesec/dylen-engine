@@ -32,6 +32,12 @@ class OcrService:
     # Store size limits to prevent oversized uploads.
     self._max_file_size = max_file_size
 
+  @property
+  def model_name(self) -> str:
+    """Expose the configured model name for audit logging."""
+    # Return the model name so callers can log it consistently.
+    return self._model_name
+
   def _create_model(self) -> AIModel:
     """Create the model client so file processing can stay isolated."""
     try:
@@ -55,6 +61,7 @@ class OcrService:
       # Read prompt content from disk for consistent formatting.
       with open(prompt_path, encoding="utf-8") as handle:
         prompt_text = handle.read()
+
     except Exception as exc:
       logger.error("Failed to load OCR prompt: %s", exc)
       prompt_text = "Extract text from these images."

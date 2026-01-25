@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.core.exceptions import global_exception_handler, orchestration_exception_handler
 from app.core.json import DecimalJSONResponse
 from app.core.lifespan import lifespan
-from app.core.middleware import log_requests
+from app.core.middleware import RequestLoggingMiddleware
 
 settings = get_settings()
 
@@ -23,7 +23,7 @@ app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(OrchestrationError, orchestration_exception_handler)
 
 # Add middleware
-app.middleware("http")(log_requests)
+app.add_middleware(RequestLoggingMiddleware)
 
 
 @app.get("/health", include_in_schema=False)
