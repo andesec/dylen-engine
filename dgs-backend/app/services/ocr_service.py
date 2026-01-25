@@ -60,7 +60,7 @@ class OcrService:
 
     return prompt_text
 
-  async def _process_file(self, model: Any, prompt_text: str, file: UploadFile) -> ExtractionResult:
+  async def _process_file(self, model: AIModel, prompt_text: str, file: UploadFile) -> ExtractionResult:
     """Process a single file so batch handling stays predictable."""
     try:
       # Read file content for upload and validation.
