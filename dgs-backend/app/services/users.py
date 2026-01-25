@@ -61,8 +61,25 @@ async def create_user(
   auth_method: AuthMethod,
 ) -> User:
   """Create a new user row and commit it so downstream flows can rely on it."""
+  # Keep legacy approval flag aligned with RBAC status for backward compatibility.
+  is_approved = status == UserStatus.APPROVED
   # Persist the DB record before returning so callers can use the generated id.
-  user = User(firebase_uid=firebase_uid, email=email, full_name=full_name, profession=profession, city=city, country=country, age=age, photo_url=photo_url, provider=provider, role_id=role_id, org_id=org_id, status=status, auth_method=auth_method)
+  user = User(
+    firebase_uid=firebase_uid,
+    email=email,
+    full_name=full_name,
+    profession=profession,
+    city=city,
+    country=country,
+    age=age,
+    photo_url=photo_url,
+    provider=provider,
+    role_id=role_id,
+    org_id=org_id,
+    status=status,
+    auth_method=auth_method,
+    is_approved=is_approved,
+  )
   session.add(user)
   await session.commit()
   await session.refresh(user)
@@ -92,6 +109,8 @@ async def update_user_status(session: AsyncSession, *, user: User, status: UserS
 
   # Persist status updates before notifying other systems.
   user.status = status
+  # Keep legacy approval flag aligned with RBAC status for backward compatibility.
+  user.is_approved = status == UserStatus.APPROVED
   session.add(user)
   await session.commit()
   await session.refresh(user)

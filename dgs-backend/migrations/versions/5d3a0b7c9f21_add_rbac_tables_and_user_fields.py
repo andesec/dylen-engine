@@ -127,13 +127,19 @@ def upgrade() -> None:
   if _table_exists(existing_tables, "roles"):
     # Use upserts to avoid conflicts when seed rows already exist.
     op.execute(
-      sa.text("INSERT INTO roles (id, name, level, description) VALUES (:id, :name, :level, :description) ON CONFLICT (id) DO NOTHING").bindparams(id=SUPER_ADMIN_ROLE_ID, name="Super Admin", level="GLOBAL", description="Global administrative access.")
+      sa.text("INSERT INTO roles (id, name, level, description) VALUES (:id, :name, CAST(:level AS role_level), :description) ON CONFLICT (id) DO NOTHING").bindparams(
+        id=SUPER_ADMIN_ROLE_ID, name="Super Admin", level="GLOBAL", description="Global administrative access."
+      )
     )
     op.execute(
-      sa.text("INSERT INTO roles (id, name, level, description) VALUES (:id, :name, :level, :description) ON CONFLICT (id) DO NOTHING").bindparams(id=ORG_ADMIN_ROLE_ID, name="Org Admin", level="TENANT", description="Organization administrative access.")
+      sa.text("INSERT INTO roles (id, name, level, description) VALUES (:id, :name, CAST(:level AS role_level), :description) ON CONFLICT (id) DO NOTHING").bindparams(
+        id=ORG_ADMIN_ROLE_ID, name="Org Admin", level="TENANT", description="Organization administrative access."
+      )
     )
     op.execute(
-      sa.text("INSERT INTO roles (id, name, level, description) VALUES (:id, :name, :level, :description) ON CONFLICT (id) DO NOTHING").bindparams(id=ORG_MEMBER_ROLE_ID, name="Org Member", level="TENANT", description="Standard organization access.")
+      sa.text("INSERT INTO roles (id, name, level, description) VALUES (:id, :name, CAST(:level AS role_level), :description) ON CONFLICT (id) DO NOTHING").bindparams(
+        id=ORG_MEMBER_ROLE_ID, name="Org Member", level="TENANT", description="Standard organization access."
+      )
     )
 
   if _table_exists(existing_tables, "permissions"):
@@ -227,6 +233,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+  """Reverse RBAC changes while preserving existing data where possible."""
   # Relax and remove new user columns before dropping RBAC tables.
   op.drop_index(op.f("ix_users_org_id"), table_name="users")
   op.drop_constraint("fk_users_org_id_organizations", "users", type_="foreignkey")
