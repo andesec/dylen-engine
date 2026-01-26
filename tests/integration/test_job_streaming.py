@@ -75,7 +75,7 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
   from app.core.database import get_db
 
   async def _get_db_override():
-     yield None
+    yield None
 
   app.dependency_overrides[get_db] = _get_db_override
 

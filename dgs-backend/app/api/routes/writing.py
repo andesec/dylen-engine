@@ -4,13 +4,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.models import JobCreateResponse, WritingCheckRequest
-from app.api.routes.jobs import kickoff_job_processing
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
 from app.jobs.models import JobRecord
 from app.schema.sql import User
 from app.services.audit import log_llm_interaction
+from app.services.jobs import trigger_job_processing
 from app.services.request_validation import _validate_writing_request
 from app.storage.factory import _get_jobs_repo
 from app.utils.ids import generate_job_id
@@ -64,6 +64,6 @@ async def create_writing_check(  # noqa: B008
   response = JobCreateResponse(job_id=job_id, expected_sections=0)
 
   # Kick off processing so the client can poll for status immediately.
-  kickoff_job_processing(background_tasks, response.job_id, settings)
+  trigger_job_processing(background_tasks, response.job_id, settings)
 
   return response
