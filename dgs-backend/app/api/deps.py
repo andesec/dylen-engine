@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 async def get_quota(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> ResolvedQuota:  # noqa: B008
   """Resolve the current user's effective quota limits."""
   try:
-    return await resolve_quota(db, uuid.UUID(str(current_user.id)))
+    return await resolve_quota(db, current_user.id)
   except Exception as exc:
     logger.error("Failed to resolve quota for user %s: %s", current_user.id, exc, exc_info=True)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to resolve quota") from exc
