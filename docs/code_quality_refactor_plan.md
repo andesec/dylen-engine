@@ -75,9 +75,9 @@ The `app/api/routes/auth.py` file logs user information upon successful login/si
     - Or removal of the log field entirely if not strictly necessary for debugging.
 
 **Acceptance Criteria:**
-- [ ] `app/api/routes/auth.py` no longer logs cleartext email addresses.
-- [ ] Log statements use User ID or generic success messages.
-- [ ] A quick search of the codebase confirms no other obvious PII logging in route handlers.
+- [x] `app/api/routes/auth.py` no longer logs cleartext email addresses.
+- [x] Log statements use User ID or generic success messages.
+- [x] A quick search of the codebase confirms no other obvious PII logging in route handlers.
 
 ---
 
