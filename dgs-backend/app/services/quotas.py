@@ -34,7 +34,7 @@ class ResolvedQuota:
 async def get_active_override(session: AsyncSession, user_id: uuid.UUID) -> UserTierOverride | None:
   """Return an active override for the user if present."""
   # Restrict override selection to the active window to avoid stale promos.
-  now = datetime.datetime.utcnow()
+  now = datetime.datetime.now(datetime.timezone.utc)
   stmt = select(UserTierOverride).where(UserTierOverride.user_id == user_id, UserTierOverride.starts_at <= now, UserTierOverride.expires_at >= now)
   result = await session.execute(stmt)
   return result.scalar_one_or_none()
