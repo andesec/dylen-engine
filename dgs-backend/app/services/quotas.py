@@ -121,9 +121,9 @@ async def consume_quota(session: AsyncSession, *, user_id: uuid.UUID, action: st
   update_values = {}
   if action == "FILE_UPLOAD":
     update_values["files_uploaded_count"] = UserUsageMetrics.files_uploaded_count + quantity
-  if action == "IMAGE_UPLOAD":
+  elif action == "IMAGE_UPLOAD":
     update_values["images_uploaded_count"] = UserUsageMetrics.images_uploaded_count + quantity
-  if action == "SECTION_GEN":
+  elif action == "SECTION_GEN":
     update_values["sections_generated_count"] = UserUsageMetrics.sections_generated_count + quantity
 
   if not update_values:
