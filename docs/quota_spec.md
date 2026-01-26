@@ -6,7 +6,7 @@ Implement a robust guardrail system to prevent LLM API abuse and manage resource
 
 ## **2\. Database Schema (SQLAlchemy)**
 
-### **2.1. Table: subscription\_tiers (Static Data)**
+### **2.1. Table: subscription_tiers (Static Data)**
 
 This table defines the hard limits for each tier.
 
@@ -14,128 +14,114 @@ This table defines the hard limits for each tier.
 | :---- | :---- | :---- |
 | id | Integer | Primary Key |
 | name | String | Unique Tier Name (e.g., 'Free', 'Pro', 'Enterprise') |
-| max\_file\_upload\_size | Integer | 512, 1024, 2048 (in KB) |
-| highest\_lesson\_depth | Enum | 'highlights', 'detailed', 'training' |
-| max\_sections\_per\_lesson | Integer | 2, 6, 10 |
-| file\_upload\_quota | Integer | 0, 5, 10, 20 (Total allowed) |
-| image\_upload\_quota | Integer | 0, 5, 10, 20 (Total allowed) |
-| gen\_sections\_quota | Integer | 20, 100, 250 (Total allowed) |
-| coach\_mode\_enabled | Boolean | True/False |
-| coach\_voice\_tier | String? | 'device' or 'premium' or 'none' |
+| max_file_upload_kb | Integer | 512, 1024, 2048 (in KB) |
+| highest_lesson_depth | Enum | 'highlights', 'detailed', 'training' |
+| max_sections_per_lesson | Integer | 2, 6, 10 |
+| file_upload_quota | Integer | 0, 5, 10, 20 (Total allowed) |
+| image_upload_quota | Integer | 0, 5, 10, 20 (Total allowed) |
+| gen_sections_quota | Integer | 20, 100, 250 (Total allowed) |
+| coach_mode_enabled | Boolean | True/False |
+| coach_voice_tier | String? | 'device' or 'premium' or 'none' |
 
-### **2.2. Table: user\_tier\_overrides (Dynamic Limits)**
+### **2.2. Table: user_tier_overrides (Dynamic Limits)**
 
 Used for promos or custom user agreements. If a record exists for a user and is currently active, these values take precedence over the static tier limits.
 
 | Column | Type | Description |
 | :---- | :---- | :---- |
 | id | Integer | Primary Key |
-| user\_id | String | Foreign Key to User |
-| starts\_at | DateTime | Promo start |
-| expires\_at | DateTime | Promo end |
-| max\_file\_upload\_kb | Integer | Nullable Override |
-| file\_upload\_quota | Integer | Nullable Override |
-| image\_upload\_quota | Integer | Nullable Override |
-| gen\_sections\_quota | Integer | Nullable Override |
-| coach\_mode\_enabled | Boolean | Nullable Override |
+| user_id | UUID | Foreign Key to User |
+| starts_at | DateTime | Promo start |
+| expires_at | DateTime | Promo end |
+| max_file_upload_kb | Integer | Nullable Override |
+| file_upload_quota | Integer | Nullable Override |
+| image_upload_quota | Integer | Nullable Override |
+| gen_sections_quota | Integer | Nullable Override |
+| coach_mode_enabled | Boolean | Nullable Override |
 
-### **2.3. Table: user\_usage\_metrics (Real-time Tracking)**
+### **2.3. Table: user_usage_metrics (Real-time Tracking)**
 
 Tracks current consumption aggregates.
 
 | Column | Type | Description |
 | :---- | :---- | :---- |
-| user\_id | String | Primary Key / Foreign Key |
-| files\_uploaded\_count | Integer | Default 0 |
-| images\_uploaded\_count | Integer | Default 0 |
-| sections\_generated\_count | Integer | Default 0 |
-| last\_updated | DateTime | Timestamp of last activity |
+| user_id | UUID | Primary Key / Foreign Key |
+| subscription_tier_id | Integer | Foreign Key to SubscriptionTier |
+| files_uploaded_count | Integer | Default 0 |
+| images_uploaded_count | Integer | Default 0 |
+| sections_generated_count | Integer | Default 0 |
+| last_updated | DateTime | Timestamp of last activity |
 
-### **2.4. Table: user\_usage\_logs (Audit Trail)**
+### **2.4. Table: user_usage_logs (Audit Trail)**
 
 Records individual events for debugging and analytics.
 
 | Column | Type | Description |
 | :---- | :---- | :---- |
 | id | Integer | Primary Key |
-| user\_id | String | Foreign Key |
-| action\_type | String | e.g., 'FILE\_UPLOAD', 'SECTION\_GEN' |
+| user_id | UUID | Foreign Key |
+| action_type | String | e.g., 'FILE_UPLOAD', 'SECTION_GEN' |
 | quantity | Integer | Amount consumed |
-| metadata\_json | JSONB | Details like file name or size |
-| created\_at | DateTime | Timestamp of the event |
+| metadata_json | JSONB | Details like file name or size |
+| created_at | DateTime | Timestamp of the event |
 
 ## **3\. Implementation Details**
 
 ### **3.1. SQLAlchemy Models**
 
-from sqlalchemy import Column, Integer, String, Boolean, Enum, DateTime, ForeignKey, JSON, func, and\_  
-from sqlalchemy.orm import Session  
-from database import Base  
-import datetime
+See `app/schema/quotas.py` for the definitive source of truth.
 
-class SubscriptionTier(Base):  
-    \_\_tablename\_\_ \= "subscription\_tiers"  
-    id \= Column(Integer, primary\_key=True)  
-    name \= Column(String, unique=True, nullable=False)  
-    max\_file\_upload\_kb \= Column(Integer)  
-    highest\_lesson\_depth \= Column(Enum('highlights', 'detailed', 'training', name='lesson\_depth'))  
-    max\_sections\_per\_lesson \= Column(Integer)  
-    file\_upload\_quota \= Column(Integer)  
-    image\_upload\_quota \= Column(Integer)  
-    gen\_sections\_quota \= Column(Integer)  
-    coach\_mode\_enabled \= Column(Boolean, default=False)  
-    coach\_voice\_tier \= Column(String)
+```python
+class SubscriptionTier(Base):
+  __tablename__ = "subscription_tiers"
 
-class UserTierOverride(Base):  
-    \_\_tablename\_\_ \= "user\_tier\_overrides"  
-    id \= Column(Integer, primary\_key=True)  
-    user\_id \= Column(String, index=True, nullable=False)  
-    starts\_at \= Column(DateTime, default=datetime.datetime.utcnow)  
-    expires\_at \= Column(DateTime, nullable=False)  
-    max\_file\_upload\_kb \= Column(Integer, nullable=True)  
-    file\_upload\_quota \= Column(Integer, nullable=True)  
-    image\_upload\_quota \= Column(Integer, nullable=True)  
-    gen\_sections\_quota \= Column(Integer, nullable=True)  
-    coach\_mode\_enabled \= Column(Boolean, nullable=True)
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+  max_file_upload_kb: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  highest_lesson_depth: Mapped[str | None] = mapped_column(Enum("highlights", "detailed", "training", name="lesson_depth"), nullable=True)
+  max_sections_per_lesson: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  file_upload_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  image_upload_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  gen_sections_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  coach_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+  coach_voice_tier: Mapped[str | None] = mapped_column(String, nullable=True)
 
-class UserUsageMetrics(Base):  
-    \_\_tablename\_\_ \= "user\_usage\_metrics"  
-    user\_id \= Column(String, primary\_key=True)  
-    files\_uploaded\_count \= Column(Integer, default=0)  
-    images\_uploaded\_count \= Column(Integer, default=0)  
-    sections\_generated\_count \= Column(Integer, default=0)  
-    last\_updated \= Column(DateTime, onupdate=datetime.datetime.utcnow)
 
-    @classmethod  
-    def get\_remaining\_quota(cls, db: Session, user\_id: str, metric\_column: str):  
-        now \= datetime.datetime.utcnow()  
-        mapping \= {  
-            'files': (SubscriptionTier.file\_upload\_quota, UserTierOverride.file\_upload\_quota, cls.files\_uploaded\_count),  
-            'images': (SubscriptionTier.image\_upload\_quota, UserTierOverride.image\_upload\_quota, cls.images\_uploaded\_count),  
-            'sections': (SubscriptionTier.gen\_sections\_quota, UserTierOverride.gen\_sections\_quota, cls.sections\_generated\_count)  
-        }  
-        tier\_col, override\_col, usage\_col \= mapping\[metric\_column\]  
-        query \= (  
-            db.query((func.coalesce(override\_col, tier\_col) \- usage\_col).label("remaining"))  
-            .join(SubscriptionTier, True)  
-            .outerjoin(UserTierOverride, and\_(  
-                UserTierOverride.user\_id \== user\_id,  
-                UserTierOverride.starts\_at \<= now,  
-                UserTierOverride.expires\_at \>= now  
-            ))  
-            .filter(cls.user\_id \== user\_id)  
-        )  
-        return query.scalar()
+class UserTierOverride(Base):
+  __tablename__ = "user_tier_overrides"
 
-class UserUsageLog(Base):  
-    \_\_tablename\_\_ \= "user\_usage\_logs"  
-    id \= Column(Integer, primary\_key=True)  
-    user\_id \= Column(String, ForeignKey("user\_usage\_metrics.user\_id"), index=True)  
-    action\_type \= Column(String, nullable=False)  
-    quantity \= Column(Integer, default=1)  
-    metadata\_json \= Column(JSON)  
-    created\_at \= Column(DateTime, default=datetime.datetime.utcnow)
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True, nullable=False)
+  starts_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
+  expires_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False)
+  max_file_upload_kb: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  file_upload_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  image_upload_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  gen_sections_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  coach_mode_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
+
+class UserUsageMetrics(Base):
+  __tablename__ = "user_usage_metrics"
+
+  user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+  subscription_tier_id: Mapped[int] = mapped_column(ForeignKey("subscription_tiers.id"), nullable=False)
+  files_uploaded_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+  images_uploaded_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+  sections_generated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+  last_updated: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class UserUsageLog(Base):
+  __tablename__ = "user_usage_logs"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True, nullable=False)
+  action_type: Mapped[str] = mapped_column(String, nullable=False)
+  quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+  metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+  created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+```
 
 ### **3.2. Guardrail Logic**
 

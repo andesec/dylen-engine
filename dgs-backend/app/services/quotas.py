@@ -81,26 +81,38 @@ async def _assert_positive(remaining: int | None, metric: str) -> None:
     raise QuotaExceededError(f"{metric} quota exceeded")
 
 
-async def _remaining_for_action(session: AsyncSession, *, user_id: uuid.UUID, action: str) -> int | None:
+async def _remaining_for_action(session: AsyncSession, *, usage: UserUsageMetrics, action: str) -> int | None:
   """Return remaining quota for a specific action using a single SQL projection."""
   now = datetime.datetime.utcnow()
+  user_id = usage.user_id
+
+  # Fetch the subscription tier for the user
+  tier = await session.get(SubscriptionTier, usage.subscription_tier_id)
+  if not tier:
+     # Fallback or error if tier is missing? For robustness, raising error is safer
+     raise RuntimeError(f"Subscription tier {usage.subscription_tier_id} not found")
+
+  # Fetch active override if any
+  override = await get_active_override(session, user_id)
+
   mapping = {
-    "FILE_UPLOAD": (SubscriptionTier.file_upload_quota, UserTierOverride.file_upload_quota, UserUsageMetrics.files_uploaded_count),
-    "IMAGE_UPLOAD": (SubscriptionTier.image_upload_quota, UserTierOverride.image_upload_quota, UserUsageMetrics.images_uploaded_count),
-    "SECTION_GEN": (SubscriptionTier.gen_sections_quota, UserTierOverride.gen_sections_quota, UserUsageMetrics.sections_generated_count),
+    "FILE_UPLOAD": (tier.file_upload_quota, override.file_upload_quota if override else None, usage.files_uploaded_count),
+    "IMAGE_UPLOAD": (tier.image_upload_quota, override.image_upload_quota if override else None, usage.images_uploaded_count),
+    "SECTION_GEN": (tier.gen_sections_quota, override.gen_sections_quota if override else None, usage.sections_generated_count),
   }
+  
   if action not in mapping:
     raise ValueError(f"Unsupported action {action}")
-  tier_col, override_col, usage_col = mapping[action]
-  stmt = (
-    select((func.coalesce(override_col, tier_col) - usage_col).label("remaining"))
-    .select_from(UserUsageMetrics)
-    .join(SubscriptionTier, SubscriptionTier.id == UserUsageMetrics.subscription_tier_id)
-    .outerjoin(UserTierOverride, (UserTierOverride.user_id == user_id) & (UserTierOverride.starts_at <= now) & (UserTierOverride.expires_at >= now))
-    .where(UserUsageMetrics.user_id == user_id)
-  )
-  result = await session.execute(stmt)
-  return result.scalar_one_or_none()
+
+  tier_val, override_val, usage_val = mapping[action]
+  
+  limit = override_val if override_val is not None else tier_val
+  
+  # If limit is None (unlimited), return None
+  if limit is None:
+      return None
+      
+  return limit - usage_val
 
 
 class QuotaExceededError(RuntimeError):
@@ -112,25 +124,33 @@ async def consume_quota(session: AsyncSession, *, user_id: uuid.UUID, action: st
   if quantity <= 0:
     raise ValueError("Quantity must be positive.")
 
-  # Compute remaining in SQL to reflect overrides and current usage.
-  remaining = await _remaining_for_action(session, user_id=user_id, action=action)
-  await _assert_positive(remaining, action.lower())
-
-  # Perform atomic update and log within a transaction.
-  now = func.now()
-  update_values = {}
-  if action == "FILE_UPLOAD":
-    update_values["files_uploaded_count"] = UserUsageMetrics.files_uploaded_count + quantity
-  elif action == "IMAGE_UPLOAD":
-    update_values["images_uploaded_count"] = UserUsageMetrics.images_uploaded_count + quantity
-  elif action == "SECTION_GEN":
-    update_values["sections_generated_count"] = UserUsageMetrics.sections_generated_count + quantity
-
-  if not update_values:
-    raise ValueError(f"Unsupported action {action}")
-
+  # Transactional block with pessimistic locking to prevent race conditions
   async with session.begin():
-    await session.execute(UserUsageMetrics.__table__.update().where(UserUsageMetrics.user_id == user_id).values(**update_values, last_updated=now))
-    session.add(UserUsageLog(user_id=user_id, action_type=action, quantity=quantity, metadata_json=None))
+      # Acquire lock on the usage row
+      usage = await session.get(UserUsageMetrics, user_id, with_for_update=True)
+      if not usage:
+           raise RuntimeError(f"User usage row not found for user {user_id}")
+
+      remaining = await _remaining_for_action(session, usage=usage, action=action)
+      
+      # Check quota
+      if remaining is not None and remaining < quantity:
+          raise QuotaExceededError(f"{action.lower()} quota exceeded (requested {quantity}, remaining {remaining})")
+
+      # Apply update
+      now = datetime.datetime.now(datetime.timezone.utc)
+      usage.last_updated = now
+      
+      if action == "FILE_UPLOAD":
+        usage.files_uploaded_count += quantity
+      elif action == "IMAGE_UPLOAD":
+        usage.images_uploaded_count += quantity
+      elif action == "SECTION_GEN":
+        usage.sections_generated_count += quantity
+      else:
+        raise ValueError(f"Unsupported action {action}")
+      
+      session.add(usage)
+      session.add(UserUsageLog(user_id=user_id, action_type=action, quantity=quantity, metadata_json=None))
 
   return await resolve_quota(session, user_id)

@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import consume_section_quota, require_dev_key
+from app.api.deps import consume_section_quota
 from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
 from app.config import Settings, get_settings
 from app.core.database import get_db
@@ -38,7 +38,7 @@ async def get_lesson_catalog(response: Response, settings: Settings = Depends(ge
   return LessonCatalogResponse(**payload)
 
 
-@router.post("/validate", response_model=ValidationResponse, dependencies=[Depends(require_dev_key)])
+@router.post("/validate", response_model=ValidationResponse)
 async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
   """Validate lesson payloads from stored lessons or job results against schema and widgets."""
 
@@ -134,7 +134,7 @@ async def generate_lesson(  # noqa: B008
   )
 
 
-@router.get("/{lesson_id}", response_model=LessonRecordResponse, dependencies=[Depends(require_dev_key)])
+@router.get("/{lesson_id}", response_model=LessonRecordResponse)
 async def get_lesson(  # noqa: B008
   lesson_id: str,
   settings: Settings = Depends(get_settings),  # noqa: B008

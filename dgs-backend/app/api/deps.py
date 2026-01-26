@@ -5,11 +5,10 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.config import get_settings, Settings
 from app.core.security import get_current_active_user
 from app.schema.sql import User
 from app.services.quotas import QuotaExceededError, ResolvedQuota, consume_quota, resolve_quota
@@ -35,18 +34,3 @@ async def consume_section_quota(current_user: User = Depends(get_current_active_
   except Exception as exc:  # pragma: no cover - safety net
     logger.error("Failed to consume section quota for user %s: %s", current_user.id, exc, exc_info=True)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to consume quota") from exc
-
-
-def require_dev_key(  # noqa: B008
-  x_dgs_dev_key: str = Header(..., alias="X-DGS-Dev-Key"),
-  settings: Settings = Depends(get_settings),  # noqa: B008
-) -> None:
-  """
-  Enforce presence of the restricted dev key.
-
-  NOTE: The 'X-DGS-Dev-Key' header is intentionally excluded from CORS allowed headers
-  in main.py. This ensures that browsers cannot send this header in cross-origin requests,
-  restricting its use to secure server-to-server or non-browser clients (e.g. curl, internal tools).
-  """
-  if x_dgs_dev_key != settings.dev_key:
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid dev key.")
