@@ -75,7 +75,7 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
     return repo
 
   # Replace the repository dependency with the in-memory test double.
-  monkeypatch.setattr("app.api.routes.jobs._get_jobs_repo", _fake_repo)
+  monkeypatch.setattr("app.services.jobs._get_jobs_repo", _fake_repo)
 
   # Override get_settings to ensure DGS_DEV_KEY is set correctly.
   from app.config import get_settings

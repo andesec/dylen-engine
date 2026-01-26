@@ -29,10 +29,10 @@ Currently, the `dgs-backend/app/api/routes/jobs.py` file contains significant bu
 - Update `jobs.py` to inject this service as a dependency and call it.
 
 **Acceptance Criteria:**
-- [ ] `create_job_record` is moved from `app/api/routes/jobs.py` to `app/services/jobs.py` (or similar).
-- [ ] The `create_job` route handler in `jobs.py` only handles request validation and calling the service.
-- [ ] No database models (`JobRecord`) are directly instantiated in the route handler.
-- [ ] Unit tests are added or updated to verify the logic in the new service method.
+- [x] `create_job_record` is moved from `app/api/routes/jobs.py` to `app/services/jobs.py` (or similar).
+- [x] The `create_job` route handler in `jobs.py` only handles request validation and calling the service.
+- [x] No database models (`JobRecord`) are directly instantiated in the route handler.
+- [x] Unit tests are added or updated to verify the logic in the new service method.
 
 ---
 
@@ -52,10 +52,10 @@ The `DGSOrchestrator` class in `app/ai/orchestrator.py` acts as a "God Object." 
     - **Artifact Management:** Encapsulate the logic for building snapshots and artifacts.
 
 **Acceptance Criteria:**
-- [ ] `generate_lesson` method size is significantly reduced (target < 100 lines).
-- [ ] Cost calculation logic is isolated in a separate function/method.
-- [ ] Progress reporting logic is abstracted or simplified within the main flow.
-- [ ] The `DGSOrchestrator` remains responsible only for the high-level flow of agent execution.
+- [x] `generate_lesson` method size is significantly reduced (target < 100 lines).
+- [x] Cost calculation logic is isolated in a separate function/method.
+- [x] Progress reporting logic is abstracted or simplified within the main flow.
+- [x] The `DGSOrchestrator` remains responsible only for the high-level flow of agent execution.
 
 ---
 
