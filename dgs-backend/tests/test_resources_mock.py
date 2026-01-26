@@ -27,7 +27,7 @@ def test_extract_text_validation_no_files() -> None:
       assert "No files provided" in exc.detail
     else:
       # Fail the test if validation does not raise.
-      assert False
+      raise AssertionError("Expected HTTPException(400) but none was raised")
 
   # Run the async test body.
   asyncio.run(_test())
@@ -53,7 +53,7 @@ def test_extract_text_validation_too_many_files() -> None:
       assert "Maximum 5 files allowed" in exc.detail
     else:
       # Fail the test if validation does not raise.
-      assert False
+      raise AssertionError("Expected HTTPException(400) but none was raised")
 
   # Run the async test body.
   asyncio.run(_test())

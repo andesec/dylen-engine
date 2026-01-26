@@ -8,6 +8,9 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+# Add the project root to the path so we can import 'app'
+sys.path.insert(0, dirname(dirname(abspath(__file__))))
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -17,18 +20,13 @@ config = context.config
 if config.config_file_name is not None:
   fileConfig(config.config_file_name)
 
-# Add the project root to the path so we can import 'app'
-sys.path.insert(0, dirname(dirname(abspath(__file__))))
+import app.schema.audit  # noqa: E402, F401
+import app.schema.email_delivery_logs  # noqa: E402, F401
+import app.schema.jobs  # noqa: E402, F401
+import app.schema.lessons  # noqa: E402, F401
 
 # Must import models so they are attached to Base.metadata
 import app.schema.sql  # noqa: E402, F401
-
-# Import other schema modules explicitly to ensure they are registered
-import app.schema.jobs  # noqa: E402, F401
-import app.schema.lessons  # noqa: E402, F401
-import app.schema.audit  # noqa: E402, F401
-import app.schema.email_delivery_logs  # noqa: E402, F401
-
 from app.core.database import DATABASE_URL, Base  # noqa: E402
 
 # add your model's MetaData object here

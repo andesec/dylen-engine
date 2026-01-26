@@ -3,11 +3,11 @@ import time
 from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import consume_section_quota
 from app.api.models import JobCreateResponse, WritingCheckRequest
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
-from app.api.deps import consume_section_quota
 from app.jobs.models import JobRecord
 from app.schema.sql import User
 from app.services.audit import log_llm_interaction
@@ -34,7 +34,7 @@ async def create_writing_check(  # noqa: B008
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
-  _ = Depends(consume_section_quota),  # noqa: B008
+  _=Depends(consume_section_quota),  # noqa: B008
 ) -> JobCreateResponse:
   """Create a background job to check a writing task response."""
 
