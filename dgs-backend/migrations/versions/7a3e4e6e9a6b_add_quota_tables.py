@@ -89,7 +89,7 @@ def upgrade() -> None:
       sa.text(
         "insert into user_usage_metrics (user_id, subscription_tier_id, files_uploaded_count, images_uploaded_count, sections_generated_count, last_updated) values (:user_id, :tier_id, 0, 0, 0, :now) on conflict (user_id) do nothing"
       ),
-      {"user_id": row.id if hasattr(row, \"id\") else row[0], "tier_id": free_tier_id, "now": datetime.utcnow()},
+      {"user_id": row.id if hasattr(row, "id") else row[0], "tier_id": free_tier_id, "now": datetime.now(datetime.timezone.utc)},
     )
 
 
