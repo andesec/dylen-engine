@@ -94,9 +94,9 @@ In `app/api/routes/jobs.py`, the function `_process_job_async` imports `JobProce
 - Refactor the shared logic (likely the database/job record definitions) so that `JobProcessor` can be imported at the top level without causing a cycle, OR move the async processing trigger to the service layer created in Story #1.
 
 **Acceptance Criteria:**
-- [ ] The local import of `JobProcessor` inside `_process_job_async` is removed.
-- [ ] `JobProcessor` is imported at the top level of the file (or the file where the logic resides).
-- [ ] The application starts without `ImportError`.
+- [x] The local import of `JobProcessor` inside `_process_job_async` is removed.
+- [x] `JobProcessor` is imported at the top level of the file (or the file where the logic resides).
+- [x] The application starts without `ImportError`.
 
 ---
 
@@ -114,5 +114,5 @@ In `app/api/routes/jobs.py`, the function `_process_job_async` imports `JobProce
 - If it is maintained, add comments explaining the security model.
 
 **Acceptance Criteria:**
-- [ ] Usage of `x-dgs-dev-key` is verified.
-- [ ] If confirmed as sensitive/internal-only, it is removed from the default CORS allowed headers OR documentation is added justifying its presence.
+- [x] Usage of `x-dgs-dev-key` is verified.
+- [x] If confirmed as sensitive/internal-only, it is removed from the default CORS allowed headers OR documentation is added justifying its presence.
