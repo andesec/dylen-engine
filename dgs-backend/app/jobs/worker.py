@@ -12,7 +12,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult, SectionProgressUpdate
+from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult
+from app.ai.utils.progress import SectionProgressUpdate
 from app.api.models import GenerateLessonRequest, WritingCheckRequest
 from app.config import Settings
 from app.core.database import get_session_factory

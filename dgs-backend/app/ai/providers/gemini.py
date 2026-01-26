@@ -13,6 +13,7 @@ from pydantic.warnings import ArbitraryTypeWarning
 with warnings.catch_warnings():
   warnings.filterwarnings("ignore", message=r"<built-in function any> is not a Python type.*", category=ArbitraryTypeWarning)
   from google import genai
+  from google.genai import types
 
 from app.ai.json_parser import parse_json_with_fallback
 from app.ai.providers.base import AIModel, ModelResponse, Provider, SimpleModelResponse, StructuredModelResponse
@@ -88,6 +89,40 @@ class GeminiModel(AIModel):
     except json.JSONDecodeError as e:
       raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
 
+  async def upload_file(self, file_content: bytes, mime_type: str, display_name: str | None = None) -> Any:
+    """Upload a file to the Gemini File API."""
+    try:
+      # Upload using the Google GenAI SDK
+      # Note: We need to ensure we're using the synchronous or async method correctly based on SDK version
+      # The SDK's client.files.upload seems to be synchronous in the current version we are using,
+      # but we are in an async method. For now, running it directly is acceptable if it's fast,
+      # or we might need run_in_executor if it strictly blocking.
+      # Assuming 2.0 SDK simple usage:
+      uploaded_file = self._client.files.upload(file=file_content, config=types.UploadFileConfig(mime_type=mime_type, display_name=display_name))
+      return uploaded_file
+    except Exception as e:
+      raise RuntimeError(f"Gemini file upload failed: {e}") from e
+
+  async def generate_with_files(self, prompt: str, files: list[Any]) -> ModelResponse:
+    """Generate text response using prompt and uploaded files."""
+    logger = logging.getLogger("app.ai.providers.gemini")
+
+    # Combine files and prompt into contents list
+    # files here are expected to be the file objects returned by upload_file (genai.types.File)
+    contents = list(files)
+    contents.append(prompt)
+
+    try:
+      response = self._client.models.generate_content(model=self.name, contents=contents)
+      logger.info("Gemini file-based response:\n%s", response.text)
+
+      usage = None
+      if response.usage_metadata:
+        usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+      return SimpleModelResponse(content=response.text, usage=usage)
+    except Exception as e:
+      raise RuntimeError(f"Gemini generation with files failed: {e}") from e
+
 
 class GeminiProvider(Provider):
   """Gemini provider."""
@@ -102,11 +137,16 @@ class GeminiProvider(Provider):
     "gemini-2.0-flash-exp",
     "gemini-1.5-flash",  # Legacy support
     "gemini-1.5-pro",
+    "gemini-2.0-flash-lite",
   }
 
   def __init__(self, api_key: str | None = None) -> None:
     self.name: str = "gemini"
     self._api_key = api_key
+
+  @property
+  def supports_files(self) -> bool:
+    return True
 
   def get_model(self, model: str | None = None) -> AIModel:
     """Return a Gemini model client."""

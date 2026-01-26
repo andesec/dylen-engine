@@ -54,7 +54,7 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
   def _fake_repo(_settings: object) -> InMemoryJobsRepo:
     return repo
 
-  monkeypatch.setattr("app.api.routes.jobs._get_jobs_repo", _fake_repo)
+  monkeypatch.setattr("app.services.jobs._get_jobs_repo", _fake_repo)
 
   # Override get_settings to ensure DGS_DEV_KEY is set correctly.
   from app.config import get_settings
@@ -71,6 +71,13 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
     return User(id="test-user-id", email="test@example.com", is_approved=True)
 
   app.dependency_overrides[get_current_active_user] = _get_current_active_user_override
+
+  from app.core.database import get_db
+
+  async def _get_db_override():
+    yield None
+
+  app.dependency_overrides[get_db] = _get_db_override
 
   client = TestClient(app)
   headers = {}

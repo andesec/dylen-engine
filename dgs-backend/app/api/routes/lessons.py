@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import consume_section_quota, require_dev_key
 from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
-from app.api.routes.jobs import create_job_record, kickoff_job_processing
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
@@ -16,6 +15,7 @@ from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.sql import User
 from app.schema.validate_lesson import validate_lesson
 from app.services.audit import log_llm_interaction
+from app.services.jobs import create_job
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language, _validate_generate_request
 from app.storage.factory import _get_repo
@@ -167,18 +167,4 @@ async def create_lesson_job(  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> JobCreateResponse:
   """Alias route for creating a background lesson generation job."""
-
-  # Audit log for jobs
-  selection = _resolve_model_selection(settings, models=request.models)
-  # Extract relevant models for logging
-  model_name = f"job:{selection[1]},{selection[3]},{selection[5]}"
-
-  if current_user.id:
-    await log_llm_interaction(user_id=current_user.id, model_name=model_name, prompt_summary=request.topic, status="job_queued", session=db_session)
-
-  response = await create_job_record(request, settings, user_id=str(current_user.id))
-
-  # Kick off processing so the client can poll for status immediately.
-  kickoff_job_processing(background_tasks, response.job_id, settings)
-
-  return response
+  return await create_job(request, settings, background_tasks, db_session, user_id=str(current_user.id))

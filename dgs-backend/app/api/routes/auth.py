@@ -46,8 +46,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> di
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid ID token")
 
   firebase_uid = decoded_token.get("uid")
-  email = decoded_token.get("email")
-  logger.debug("Token verified. UID: %s, Email: %s", firebase_uid, email)
+  # Masked email for debug if needed, but prefer not logging it at all.
+  logger.debug("Token verified. UID: %s", firebase_uid)
 
   if not firebase_uid:
     logger.error("Login failed: Token missing uid")
@@ -60,7 +60,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> di
     logger.info("Login checked: User not registered. UID: %s", firebase_uid)
     return {"exists": False, "user": None}
 
-  logger.info("Login successful. User: %s", user.email)
+  logger.info("Login successful. User ID: %s", user.id)
   return {"exists": True, "user": {"email": user.email, "is_approved": user.is_approved, "full_name": user.full_name, "photo_url": user.photo_url}}
 
 
@@ -69,7 +69,7 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
   """
   Register a new user.
   """
-  logger.info("Signup request received. Full Name: %s", request.full_name)
+  logger.info("Signup request received.")
   try:
     decoded_token = await run_in_threadpool(verify_id_token, request.id_token)
   except Exception as e:
@@ -83,7 +83,7 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
   firebase_uid = decoded_token.get("uid")
   token_email = decoded_token.get("email")
   provider_id = decoded_token.get("firebase", {}).get("sign_in_provider")
-  logger.debug("Signup token verified. UID: %s, Email: %s, Provider: %s", firebase_uid, token_email, provider_id)
+  logger.debug("Signup token verified. UID: %s, Provider: %s", firebase_uid, provider_id)
 
   if not firebase_uid or not token_email:
     logger.error("Signup failed: Token missing uid or email")
@@ -102,9 +102,9 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
       db, firebase_uid=firebase_uid, email=token_email, full_name=request.full_name, profession=request.profession, city=request.city, country=request.country, age=request.age, photo_url=request.photo_url, provider=provider_id, is_approved=False
     )
   except Exception as e:
-    logger.error("Signup failed: Database error during creation for %s: %s", token_email, e, exc_info=True)
+    logger.error("Signup failed: Database error during creation for UID %s: %s", firebase_uid, e, exc_info=True)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user") from e
 
   await ensure_usage_row(db, user)
-  logger.info("Signup successful. Created user: %s", user.email)
+  logger.info("Signup successful. Created user ID: %s", user.id)
   return {"status": "success", "user": {"email": user.email, "is_approved": user.is_approved, "id": str(user.id)}}
