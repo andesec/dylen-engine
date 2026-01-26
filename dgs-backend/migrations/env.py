@@ -22,6 +22,13 @@ sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
 # Must import models so they are attached to Base.metadata
 import app.schema.sql  # noqa: E402, F401
+
+# Import other schema modules explicitly to ensure they are registered
+import app.schema.jobs  # noqa: E402, F401
+import app.schema.lessons  # noqa: E402, F401
+import app.schema.audit  # noqa: E402, F401
+import app.schema.email_delivery_logs  # noqa: E402, F401
+
 from app.core.database import DATABASE_URL, Base  # noqa: E402
 
 # add your model's MetaData object here
