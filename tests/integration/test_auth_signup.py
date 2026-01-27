@@ -126,154 +126,79 @@ async def test_signup_flow(async_client: AsyncClient, db_session, mock_verify_id
 
 
 @pytest.mark.anyio
-
-
 async def test_get_profile(async_client: AsyncClient, db_session, mock_verify_id_token, mock_firebase_admin_auth):
-
-
   mock_verify_id_token.return_value = {"uid": "profile_user_123", "email": "profile@example.com", "name": "Profile User"}
-
-
-
-
 
   # Setup DB mock for Signup
 
-
   mock_role = Role(id=uuid.uuid4(), name="Org Member", level=RoleLevel.TENANT)
-
 
   free_tier = SubscriptionTier(id=1, name="Free", max_file_upload_kb=1024)
 
-
   result_mock = MagicMock()
-
 
   # Call 1: User lookup -> None
 
-
   # Call 2: Role lookup -> mock_role
-
 
   # Call 3: Tier lookup -> free_tier
 
-
   result_mock.scalar_one_or_none.side_effect = [None, mock_role, free_tier]
 
-
   db_session.execute.return_value = result_mock
-
-
-
-
 
   # 1. Signup
 
-
   response = await async_client.post("/api/auth/signup", json={"idToken": "token", "fullName": "Profile User", "email": "profile@example.com"})
 
-
   assert response.status_code == 200
-
-
-
-
 
   # Setup DB mock for subsequent Login/Get calls
 
-
   user = User(id=uuid.uuid4(), firebase_uid="profile_user_123", email="profile@example.com", full_name="Profile User", status=UserStatus.PENDING, role_id=mock_role.id)
-
-
-
-
 
   # Reset side effect and return user
 
-
   result_mock.scalar_one_or_none.side_effect = None
-
-
-  
-
 
   # Sequence for Login: [User, Role]
 
-
   # Sequence for Get Me (PENDING): [User] (fails at dependency, no role lookup?)
-
 
   # Actually, get_current_active_user calls get_current_identity (User lookup) -> checks status -> raises 403.
 
-
   # So DB calls: Login (2), Get Me (1 - User only).
-
-
-  
-
 
   # Sequence for Get Me (APPROVED): [User, Role]
 
-
-  
-
-
   result_mock.scalar_one_or_none.side_effect = [user, mock_role, user, user, mock_role]
-
 
   db_session.execute.return_value = result_mock
 
-
-
-
-
   # 2. Login to get cookie
-
 
   login_resp = await async_client.post("/api/auth/login", json={"idToken": "token"})
 
-
   assert login_resp.status_code == 200
-
-
-
-
 
   # 3. Get Me (PENDING) -> Should be 403
 
-
   response = await async_client.get("/api/user/me", headers={"Authorization": "Bearer token"})
-
 
   assert response.status_code == 403
 
-
-
-
-
   # 4. Approve
-
 
   user.status = UserStatus.APPROVED
 
-
-
-
-
   # 5. Get Me (APPROVED) -> Should be 200
-
 
   response = await async_client.get("/api/user/me", headers={"Authorization": "Bearer token"})
 
-
   assert response.status_code == 200
-
 
   data = response.json()
 
-
   assert data["status"] == UserStatus.APPROVED
 
-
   assert data["role"]["name"] == "Org Member"
-
