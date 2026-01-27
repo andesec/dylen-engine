@@ -27,7 +27,12 @@ def upgrade() -> None:
         sa.Column('content', sa.LargeBinary(), nullable=True),
         sa.Column('url', sa.String(), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.PrimaryKeyConstraint('fenster_id')
+        sa.PrimaryKeyConstraint('fenster_id'),
+        sa.CheckConstraint(
+            "(type = 'inline_blob' AND content IS NOT NULL AND url IS NULL) OR "
+            "(type = 'cdn_url' AND content IS NULL AND url IS NOT NULL)",
+            name="ck_fenster_widget_content_url",
+        )
     )
 
 
