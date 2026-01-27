@@ -37,7 +37,7 @@ services:
     networks:
       - dgs-network
     volumes:
-      - ./dgs-backend:/app/dgs-backend:ro
+      - ./dgs-backend:/app/dgs-backend
     restart: "no"
 
   backend:
