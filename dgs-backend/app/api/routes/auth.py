@@ -8,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.database import get_db
 from app.core.firebase import verify_id_token
-from app.services.users import create_user, ensure_usage_row, get_user_by_firebase_uid
+from app.services.users import create_user, get_user_by_firebase_uid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -105,6 +105,5 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
     logger.error("Signup failed: Database error during creation for UID %s: %s", firebase_uid, e, exc_info=True)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user") from e
 
-  await ensure_usage_row(db, user)
   logger.info("Signup successful. Created user ID: %s", user.id)
   return {"status": "success", "user": {"email": user.email, "is_approved": user.is_approved, "id": str(user.id)}}

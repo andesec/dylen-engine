@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schema.quotas import SubscriptionTier, UserTierOverride, UserUsageLog, UserUsageMetrics
+from app.services.users import ensure_usage_row
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,12 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
   usage_result = await session.execute(usage_stmt)
   row = usage_result.one_or_none()
   if row is None:
-    raise RuntimeError("User usage row missing; run backfill.")
+    logger.warning("User usage row missing for user %s; lazy-creating.", user_id)
+    await ensure_usage_row(session, user_id)
+    usage_result = await session.execute(usage_stmt)
+    row = usage_result.one_or_none()
+    if row is None:
+      raise RuntimeError("User usage row missing; run backfill.")
   usage: UserUsageMetrics = row.UserUsageMetrics
   tier: SubscriptionTier = row.SubscriptionTier
 

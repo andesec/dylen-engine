@@ -40,7 +40,7 @@ async def create_user(session: AsyncSession, *, firebase_uid: str, email: str, f
   session.add(user)
   await session.commit()
   await session.refresh(user)
-  await ensure_usage_row(session, user)
+  await ensure_usage_row(session, user.id)
   return user
 
 
@@ -70,7 +70,7 @@ async def approve_user(session: AsyncSession, *, user: User) -> User:
   return user
 
 
-async def ensure_usage_row(session: AsyncSession, user: User, *, tier_id: int | None = None) -> UserUsageMetrics:
+async def ensure_usage_row(session: AsyncSession, user_id: uuid.UUID, *, tier_id: int | None = None) -> UserUsageMetrics:
   """Ensure a usage metrics row exists for the user using atomic UPSERT."""
 
   # Default to provided tier or 'Free' tier if not specified.
@@ -84,10 +84,10 @@ async def ensure_usage_row(session: AsyncSession, user: User, *, tier_id: int | 
     tier_id = free_tier.id
 
   # Use INSERT ... ON CONFLICT DO NOTHING for atomic consistency
-  stmt = insert(UserUsageMetrics).values(user_id=user.id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0).on_conflict_do_nothing(index_elements=["user_id"])
+  stmt = insert(UserUsageMetrics).values(user_id=user_id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0).on_conflict_do_nothing(index_elements=["user_id"])
 
   await session.execute(stmt)
   await session.commit()
 
   # Fetch the row, which is now guaranteed to exist (either inserted or already there)
-  return await session.get(UserUsageMetrics, user.id)
+  return await session.get(UserUsageMetrics, user_id)
