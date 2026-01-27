@@ -23,7 +23,8 @@ FROM python:3.13-slim AS production
 WORKDIR /app
 
 # Create a non-root user
-RUN groupadd -r dgs && useradd -r -g dgs dgs
+RUN groupadd -r dgs && useradd -r -g dgs dgs && \
+    ln -sf /usr/local/bin/python /usr/bin/python
 
 # Copy the virtual environment from the builder.
 COPY --from=builder --chown=dgs:dgs /app/.venv /app/.venv
@@ -66,7 +67,8 @@ ENV PYDEVD_DISABLE_FILE_VALIDATION=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Install debugpy
-RUN uv pip install debugpy --python .venv
+RUN uv pip install debugpy --python .venv && \
+    ln -sf /usr/local/bin/python /usr/bin/python
 
 # We run as root in debug for convenience, or can switch to non-root if strongly desired.
 # Staying root in debug is often easier for file permission issues with bind mounts.

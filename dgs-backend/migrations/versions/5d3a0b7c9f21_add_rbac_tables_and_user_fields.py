@@ -58,7 +58,6 @@ def _foreign_key_exists(inspector, table_name: str, fk_name: str, existing_table
 
 def upgrade() -> None:
   """Apply RBAC schema changes while handling pre-existing tables."""
-  from sqlalchemy.dialects.postgresql import ENUM
 
   # Ensure enum types exist before columns reference them.
   # We use explicit SQL block to avoid race conditions/reflection issues with asyncpg.
