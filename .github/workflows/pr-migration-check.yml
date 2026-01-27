@@ -1,0 +1,90 @@
+name: PR Migration Check
+
+on:
+  pull_request:
+    paths:
+      - 'dgs-backend/**'
+      - '.github/workflows/pr-migration-check.yml'
+
+jobs:
+  check-migration-drift:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dgs-backend
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dgs
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Initialize Database
+        run: |
+          # Use smart_migrate to init and upgrade to current head
+          DGS_ENV=development DGS_PG_DSN=postgresql+asyncpg://postgres:password@localhost:5432/dgs uv run python scripts/smart_migrate.py
+
+      - name: Check for Schema Drift
+        id: drift_check
+        continue-on-error: true
+        env:
+          DGS_PG_DSN: postgresql+asyncpg://postgres:password@localhost:5432/dgs
+        run: |
+          uv run alembic check || echo "drift_detected=true" >> $GITHUB_OUTPUT
+
+      - name: Analyze Drift
+        if: steps.drift_check.outputs.drift_detected == 'true'
+        env:
+          DGS_PG_DSN: postgresql+asyncpg://postgres:password@localhost:5432/dgs
+        run: |
+          echo "## ⚠️ Schema Drift Detected!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The database schema does not match your SQLAlchemy models. You need to run `make migrate` locally and commit the result." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Generate the migration to show what's missing
+          uv run alembic revision --autogenerate -m "ci_drift_check"
+          
+          # Find the new file
+          MIGRATION_FILE=$(ls -t migrations/versions/*ci_drift_check.py | head -n 1)
+          
+          echo "### Proposed Migration Content" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`python" >> $GITHUB_STEP_SUMMARY
+          cat $MIGRATION_FILE >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          # Check for dangerous ops
+          if grep -qE "op.drop_table|op.drop_column" $MIGRATION_FILE; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🛑 CRITICAL WARNING" >> $GITHUB_STEP_SUMMARY
+            echo "This migration contains **DESTRUCTIVE CHANGES** (drop table/column). Verify this is intentional!" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Fail the job
+          exit 1

@@ -173,3 +173,8 @@ migration:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration m='message'"; exit 1; fi
 	@echo "Generating migration: $(m)..."
 	@cd $(APP_DIR) && uv run alembic revision --autogenerate -m "$(m)"
+
+db-force-sync-prod:
+	@echo "Running FORCED production sync..."
+	@echo "WARNING: This will auto-generate migrations in PRODUCTION."
+	@cd $(APP_DIR) && uv run python scripts/smart_migrate.py --force-sync-prod

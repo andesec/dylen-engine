@@ -1,8 +1,10 @@
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
 
+from app.schema.quotas import SubscriptionTier
 from app.schema.sql import User
 
 
@@ -61,8 +63,18 @@ async def test_signup_flow(async_client: AsyncClient, db_session, mock_verify_id
   # 1. Signup
   signup_payload = {"idToken": "valid_token", "fullName": "Signup User", "email": "signup@example.com", "profession": "Developer", "city": "Test City", "country": "Test Country", "age": 25, "photoUrl": "http://example.com/photo.jpg"}
 
-  # Setup DB mock to return None for existing user check
-  # The mock_db_session fixture already returns None by default for scalar_one_or_none
+  # Setup DB mock
+  # Must handle:
+  # 1. check for existing user (returns None)
+  # 2. check for 'Free' tier (returns Tier object)
+  free_tier = SubscriptionTier(id=1, name="Free", max_file_upload_kb=1024)
+
+  result_mock = MagicMock()
+  # Use side_effect to return different values for sequential calls:
+  # Call 1: User lookup -> None (User not found)
+  # Call 2: Tier lookup -> free_tier
+  result_mock.scalar_one_or_none.side_effect = [None, free_tier, free_tier]
+  db_session.execute.return_value = result_mock
 
   response = await async_client.post("/api/auth/signup", json=signup_payload)
 
@@ -94,7 +106,8 @@ async def test_signup_flow(async_client: AsyncClient, db_session, mock_verify_id
   # Now unapproved users CAN login
 
   # Update mock to return the user we just "added"
-  result_mock = MagicMock()
+  # Reset side effect for next calls
+  result_mock.scalar_one_or_none.side_effect = None
   result_mock.scalar_one_or_none.return_value = added_user
   db_session.execute.return_value = result_mock
 
@@ -107,12 +120,23 @@ async def test_signup_flow(async_client: AsyncClient, db_session, mock_verify_id
 async def test_get_profile(async_client: AsyncClient, db_session, mock_verify_id_token, mock_firebase_admin_auth):
   mock_verify_id_token.return_value = {"uid": "profile_user_123", "email": "profile@example.com", "name": "Profile User"}
 
-  # 1. Signup
-  await async_client.post("/api/auth/signup", json={"idToken": "token", "fullName": "Profile User", "email": "profile@example.com"})
-
-  # Setup DB mock
-  user = User(id="1234-5678", firebase_uid="profile_user_123", email="profile@example.com", full_name="Profile User", is_approved=False)
+  # Setup DB mock for Signup
+  free_tier = SubscriptionTier(id=1, name="Free", max_file_upload_kb=1024)
   result_mock = MagicMock()
+  # Call 1: User lookup -> None
+  # Call 2: Tier lookup -> free_tier
+  result_mock.scalar_one_or_none.side_effect = [None, free_tier, free_tier]
+  db_session.execute.return_value = result_mock
+
+  # 1. Signup
+  response = await async_client.post("/api/auth/signup", json={"idToken": "token", "fullName": "Profile User", "email": "profile@example.com"})
+  assert response.status_code == 200
+
+  # Setup DB mock for subsequent Login/Get calls
+  user = User(id=uuid.uuid4(), firebase_uid="profile_user_123", email="profile@example.com", full_name="Profile User", is_approved=False)
+
+  # Reset side effect and return user
+  result_mock.scalar_one_or_none.side_effect = None
   result_mock.scalar_one_or_none.return_value = user
   db_session.execute.return_value = result_mock
 

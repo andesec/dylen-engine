@@ -45,6 +45,15 @@ def include_object(object, name, type_, reflected, compare_to):
   # Ignore legacy meta tables that are not part of the application ORM schema.
   if type_ == "table" and name in ["llm_audit_meta", "dgs_storage_meta"]:
     return False
+
+  # SAFETY: Prevent auto-dropping tables or columns
+  # This serves as a guard against accidental data loss during auto-migrations.
+  # To drop objects, a manual migration must be written.
+  if type_ == "table" and reflected and compare_to is None:
+    return False
+  if type_ == "column" and reflected and compare_to is None:
+    return False
+
   return True
 
 
