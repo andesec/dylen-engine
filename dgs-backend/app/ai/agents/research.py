@@ -163,6 +163,8 @@ Query: {query}"""
 
   async def _crawl_urls(self, urls: list[str]) -> list[dict[str, Any]]:
     crawled_data = []
+
+    # Try Crawl4AI (might fail if browsers are missing in lean containers)
     try:
       async with AsyncWebCrawler(verbose=True) as crawler:
         tasks = [crawler.arun(url=url) for url in urls]
@@ -171,17 +173,50 @@ Query: {query}"""
         for i, result in enumerate(results):
           if isinstance(result, Exception):
             logger.error(f"Failed to crawl {urls[i]}: {result}")
+            # Fallback to Tavily if crawling fails
+            fallback_content = await self._fetch_content_tavily(urls[i])
+            if fallback_content:
+              crawled_data.append({"url": urls[i], "markdown": fallback_content})
             continue
 
           if not result.success:
             logger.warning(f"Crawl failed for {urls[i]}: {result.error_message}")
+            # Fallback to Tavily
+            fallback_content = await self._fetch_content_tavily(urls[i])
+            if fallback_content:
+              crawled_data.append({"url": urls[i], "markdown": fallback_content})
             continue
 
           crawled_data.append({"url": urls[i], "markdown": result.markdown})
     except Exception as e:
-      logger.error(f"Crawling process failed: {e}")
+      logger.error(f"Crawling process failed (likely missing browsers): {e}")
+      # Fallback to Tavily for all URLs if the crawler itself fails to start
+      for url in urls:
+        fallback_content = await self._fetch_content_tavily(url)
+        if fallback_content:
+          crawled_data.append({"url": url, "markdown": fallback_content})
 
     return crawled_data
+
+  async def _fetch_content_tavily(self, url: str) -> str | None:
+    """Fetch content for a URL using Tavily as a fallback."""
+    try:
+      # Use Tavily to 'search' for the specific URL to get its content context
+      # We search for the URL itself.
+      response = await self.tavily_provider.search(
+        query=url,
+        search_depth="advanced",  # Use advanced to extract more content?
+        include_raw_content=False,  # We want the 'content' field which is a summary/snippet, or maybe raw if needed.
+        # Tavily 'content' field is usually good enough.
+        max_results=1,
+      )
+      results = response.get("results", [])
+      if results:
+        # Return the content of the first result
+        return results[0].get("content", "")
+    except Exception as e:
+      logger.error(f"Tavily fallback failed for {url}: {e}")
+    return None
 
   def _log_to_firestore(self, user_id: str, data: dict[str, Any]) -> None:
     """Logs the research activity to Firestore."""
