@@ -62,6 +62,9 @@ class Settings:
   cloud_tasks_queue_path: str | None
   task_service_provider: str
   base_url: str | None
+  gemini_api_key: str | None
+  research_router_model: str
+  research_search_max_results: int
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -189,6 +192,9 @@ def get_settings() -> Settings:
     cloud_tasks_queue_path=_optional_str(os.getenv("DGS_CLOUD_TASKS_QUEUE_PATH")),
     task_service_provider=os.getenv("DGS_TASK_SERVICE_PROVIDER", "local-http").lower(),
     base_url=_optional_str(os.getenv("DGS_BASE_URL")),
+    gemini_api_key=_optional_str(os.getenv("GEMINI_API_KEY")),
+    research_router_model=os.getenv("DGS_RESEARCH_ROUTER_MODEL", "gemini-1.5-flash"),
+    research_search_max_results=int(os.getenv("DGS_RESEARCH_SEARCH_MAX_RESULTS", "5")),
   )
 
 

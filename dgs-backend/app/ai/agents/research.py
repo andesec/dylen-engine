@@ -25,12 +25,13 @@ class ResearchAgent:
     # Initialize providers
     # We could allow passing these in for testing, but for now we instantiate them.
     # In a real DI system we'd pass them.
-    self.gemini_provider = GeminiProvider()
+    self.gemini_provider = GeminiProvider(api_key=settings.gemini_api_key)
     self.tavily_provider = TavilyProvider()
 
     # Models
     self.synthesis_model_name = settings.research_model or "gemini-1.5-pro"
-    self.router_model_name = "gemini-1.5-flash"  # Fast model for routing
+    self.router_model_name = settings.research_router_model
+    self.search_max_results = settings.research_search_max_results
 
   async def discover(self, query: str, user_id: str, context: str | None = None) -> ResearchDiscoveryResponse:
     """
@@ -57,7 +58,7 @@ class ResearchAgent:
 
     # 3. Search Engine
     try:
-      search_result = await self.tavily_provider.search(query=search_query, search_depth="basic", include_answer=False, include_raw_content=False, max_results=5)
+      search_result = await self.tavily_provider.search(query=search_query, search_depth="basic", include_answer=False, include_raw_content=False, max_results=self.search_max_results)
     except Exception as e:
       logger.error(f"Discovery search failed: {e}")
       # Fail gracefully? Or re-raise?
@@ -107,7 +108,7 @@ class ResearchAgent:
 
     # 3. Prompting
     prompt = f"""Synthesize an answer using ONLY the provided context.
-Use numeric citations [1].
+Use numeric citations like [1] in the text.
 Format the output in clean Markdown.
 
 Query: {query}
@@ -150,11 +151,17 @@ Query: {query}"""
       response = await model.generate(prompt)
       category = response.content.strip()
 
-      # Fallback logic
-      for cat in ["General", "Academic", "Security", "News"]:
-        if cat.lower() in category.lower():
-          return cat
+      # Clean up potential extra text if the model is chatty
+      # We expect just the word.
+      import re
+
+      match = re.search(r"\b(General|Academic|Security|News)\b", category, re.IGNORECASE)
+      if match:
+        # Return the canonical case
+        return match.group(1).capitalize()
+
       return "General"
+
     except Exception as e:
       logger.error(f"Router LLM failed: {e}")
       return "General"
@@ -163,14 +170,23 @@ Query: {query}"""
     crawled_data = []
 
     # Fallback to Tavily specifically requested to avoid heavy crawl4ai dependencies
-    for url in urls:
-      fallback_content = await self._fetch_content_tavily(url)
-      if fallback_content:
-        crawled_data.append({"url": url, "markdown": fallback_content})
+    try:
+      for url in urls:
+        try:
+          fallback_data = await self._fetch_content_tavily(url)
+          if fallback_data:
+            crawled_data.append(fallback_data)
+        except Exception as e:
+          logger.error(f"Individual crawl failed for {url}: {e}")
+          # functionality continues for other URLs
+    except Exception as e:
+      logger.error(f"Critical crawling phase failed: {e}")
+      # Proceed if we have any data, otherwise this might result in empty context later
+      pass
 
     return crawled_data
 
-  async def _fetch_content_tavily(self, url: str) -> str | None:
+  async def _fetch_content_tavily(self, url: str) -> dict[str, Any] | None:
     """Fetch content for a URL using Tavily as a fallback."""
     try:
       # Use Tavily to 'search' for the specific URL to get its content context
@@ -184,8 +200,10 @@ Query: {query}"""
       )
       results = response.get("results", [])
       if results:
-        # Return the content of the first result
-        return results[0].get("content", "")
+        result = results[0]
+        content = result.get("content", "")
+        title = result.get("title", url)  # Fallback to URL if title missing
+        return {"url": url, "markdown": content, "title": title}
     except Exception as e:
       logger.error(f"Tavily fallback failed for {url}: {e}")
     return None
@@ -200,9 +218,12 @@ Query: {query}"""
 
       payload = {**data, "timestamp": timestamp, "user_id": user_id}
 
-      # Log to Public
+      # Log to Public (Exclude PII)
+      # Create a safe payload for public logging
+      public_payload = {k: v for k, v in payload.items() if k != "user_id"}
+
       public_ref = db.collection("artifacts").document(app_id).collection("public").document("data").collection("research_logs")
-      public_ref.add(payload)
+      public_ref.add(public_payload)
 
       # Log to User
       user_ref = db.collection("artifacts").document(app_id).collection("users").document(user_id).collection("search_history")
