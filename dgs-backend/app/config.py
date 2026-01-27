@@ -59,6 +59,9 @@ class Settings:
   mailersend_timeout_seconds: int
   mailersend_base_url: str
   tavily_api_key: str | None
+  cloud_tasks_queue_path: str | None
+  task_service_provider: str
+  base_url: str | None
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -183,6 +186,9 @@ def get_settings() -> Settings:
     mailersend_timeout_seconds=mailersend_timeout_seconds,
     mailersend_base_url=mailersend_base_url,
     tavily_api_key=_optional_str(os.getenv("TAVILY_API_KEY")),
+    cloud_tasks_queue_path=_optional_str(os.getenv("DGS_CLOUD_TASKS_QUEUE_PATH")),
+    task_service_provider=os.getenv("DGS_TASK_SERVICE_PROVIDER", "local-http").lower(),
+    base_url=_optional_str(os.getenv("DGS_BASE_URL")),
   )
 
 
