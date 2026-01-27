@@ -28,10 +28,12 @@ class ResolvedQuota:
   total_file_uploads: int | None
   total_image_uploads: int | None
   total_sections: int | None
+  total_research: int | None
 
   remaining_file_uploads: int | None
   remaining_image_uploads: int | None
   remaining_sections: int | None
+  remaining_research: int | None
 
   coach_mode_enabled: bool
   coach_voice_tier: str | None
@@ -78,6 +80,7 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
   limit_files, remaining_files = _calculate_limit_and_remaining("file_upload_quota", usage.files_uploaded_count)
   limit_images, remaining_images = _calculate_limit_and_remaining("image_upload_quota", usage.images_uploaded_count)
   limit_sections, remaining_sections = _calculate_limit_and_remaining("gen_sections_quota", usage.sections_generated_count)
+  limit_research, remaining_research = _calculate_limit_and_remaining("research_quota", usage.research_usage_count)
 
   return ResolvedQuota(
     tier_name=tier.name,
@@ -87,9 +90,11 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
     total_file_uploads=limit_files,
     total_image_uploads=limit_images,
     total_sections=limit_sections,
+    total_research=limit_research,
     remaining_file_uploads=remaining_files,
     remaining_image_uploads=remaining_images,
     remaining_sections=remaining_sections,
+    remaining_research=remaining_research,
     coach_mode_enabled=bool(_pick("coach_mode_enabled")),
     coach_voice_tier=_pick("coach_voice_tier"),
   )
@@ -118,6 +123,7 @@ async def _remaining_for_action(session: AsyncSession, *, usage: UserUsageMetric
     "FILE_UPLOAD": (tier.file_upload_quota, override.file_upload_quota if override else None, usage.files_uploaded_count),
     "IMAGE_UPLOAD": (tier.image_upload_quota, override.image_upload_quota if override else None, usage.images_uploaded_count),
     "SECTION_GEN": (tier.gen_sections_quota, override.gen_sections_quota if override else None, usage.sections_generated_count),
+    "RESEARCH": (tier.research_quota, override.research_quota if override else None, usage.research_usage_count),
   }
 
   if action not in mapping:
@@ -166,6 +172,8 @@ async def consume_quota(session: AsyncSession, *, user_id: uuid.UUID, action: st
       usage.images_uploaded_count += quantity
     elif action == "SECTION_GEN":
       usage.sections_generated_count += quantity
+    elif action == "RESEARCH":
+      usage.research_usage_count += quantity
     else:
       raise ValueError(f"Unsupported action {action}")
 
