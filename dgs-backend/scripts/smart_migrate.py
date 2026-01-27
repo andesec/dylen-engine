@@ -150,11 +150,12 @@ async def main():
   logger.info("Checking database state for legacy compatibility...")
   try:
     has_alembic, tables, user_columns = await check_db_state()
+    missing_tables = _EXPECTED_TABLES.difference(tables)
+    missing_user_columns = _EXPECTED_USER_COLUMNS.difference(user_columns)
+
     if not has_alembic and "users" in tables:
       logger.info("⚠️  Existing database detected WITHOUT Alembic history.")
       # Only stamp when the schema already includes the latest RBAC/user columns.
-      missing_tables = _EXPECTED_TABLES.difference(tables)
-      missing_user_columns = _EXPECTED_USER_COLUMNS.difference(user_columns)
 
       if not missing_tables and not missing_user_columns:
         logger.info("   -> Expected RBAC tables/columns present; stamping database as 'head'...")
@@ -169,6 +170,21 @@ async def main():
   # 4. Apply existing migrations
   logger.info("Applying existing migrations...")
   try:
+    # First, check if the current revision is valid
+    try:
+      run_command("python -m alembic current", cwd=BACKEND_DIR)
+    except subprocess.CalledProcessError as e:
+      if "Can't locate revision identified by" in (e.stderr or ""):
+        logger.warning(f"⚠️  Orphaned migration revision detected: {e.stderr.strip()}")
+        if not missing_tables and not missing_user_columns:
+          logger.info("   -> Schema appears in sync with RBAC; stamping as 'heads' to recover...")
+          run_command("python -m alembic stamp heads", cwd=BACKEND_DIR)
+        else:
+          logger.error("   -> Schema is NOT in sync and revision is missing. Manual intervention required.")
+          sys.exit(1)
+      else:
+        raise e
+
     run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
   except subprocess.CalledProcessError:
     # Check if multiple heads issue
