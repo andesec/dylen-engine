@@ -156,6 +156,17 @@ async def list_users(session: AsyncSession, *, org_id: uuid.UUID | None, limit: 
   return users, total
 
 
+async def delete_user(session: AsyncSession, user_id: uuid.UUID) -> bool:
+  """Delete a user and all associated data (via cascade) to support GDPR erasure."""
+  user = await session.get(User, user_id)
+  if not user:
+    return False
+
+  await session.delete(user)
+  await session.commit()
+  return True
+
+
 async def ensure_usage_row(session: AsyncSession, user_id: uuid.UUID, *, tier_id: int | None = None) -> UserUsageMetrics:
   """Ensure a usage metrics row exists for the user using atomic UPSERT."""
 
