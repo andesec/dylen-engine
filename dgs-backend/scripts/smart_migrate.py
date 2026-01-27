@@ -13,7 +13,7 @@ from os.path import abspath, dirname
 BACKEND_DIR = dirname(dirname(abspath(__file__)))
 sys.path.insert(0, BACKEND_DIR)
 
-from sqlalchemy import text  # noqa: E402
+from sqlalchemy import inspect, text  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 
 from app.config import Settings, get_settings  # noqa: E402
@@ -22,6 +22,30 @@ from scripts.init_db import create_database_if_not_exists  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("smart_migrate")
+
+_EXPECTED_TABLES = {"users", "roles", "permissions", "role_permissions", "organizations"}
+_EXPECTED_USER_COLUMNS = {"profession", "role_id", "org_id", "status", "auth_method"}
+
+
+async def check_db_state() -> tuple[bool, set[str], set[str]]:
+  """Inspect the DB to determine whether Alembic is already managing it."""
+  engine = get_db_engine()
+  try:
+    async with engine.connect() as conn:
+
+      def _inspect(sync_conn):  # type: ignore[no-untyped-def]
+        inspector = inspect(sync_conn)
+        tables = set(inspector.get_table_names())
+        has_alembic = "alembic_version" in tables
+        user_columns: set[str] = set()
+        if "users" in tables:
+          user_columns = {str(col.get("name")) for col in inspector.get_columns("users") if col.get("name")}
+
+        return has_alembic, tables, user_columns
+
+      return await conn.run_sync(_inspect)
+  finally:
+    await engine.dispose()
 
 
 def run_command(cmd, check=True, cwd=None):
@@ -122,17 +146,65 @@ async def main():
   if should_backup:
     backup_db(settings)
 
+  # Check DB state for legacy support (RBAC logic)
+  logger.info("Checking database state for legacy compatibility...")
+  try:
+    has_alembic, tables, user_columns = await check_db_state()
+    missing_tables = _EXPECTED_TABLES.difference(tables)
+    missing_user_columns = _EXPECTED_USER_COLUMNS.difference(user_columns)
+
+    if not has_alembic and "users" in tables:
+      logger.info("⚠️  Existing database detected WITHOUT Alembic history.")
+      # Only stamp when the schema already includes the latest RBAC/user columns.
+
+      if not missing_tables and not missing_user_columns:
+        logger.info("   -> Expected RBAC tables/columns present; stamping database as 'head'...")
+        run_command([sys.executable, "-m", "alembic", "stamp", "heads"])
+      else:
+        logger.info("   -> Missing tables: %s", ", ".join(sorted(missing_tables)) if missing_tables else "(none)")
+        logger.info("   -> Missing user columns: %s", ", ".join(sorted(missing_user_columns)) if missing_user_columns else "(none)")
+        logger.info("   -> Skipping stamp; will apply migrations to add missing structures.")
+  except Exception as e:
+    logger.warning(f"Failed to check legacy DB state (non-critical): {e}")
+
   # 4. Apply existing migrations
   logger.info("Applying existing migrations...")
   try:
-    run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+    # First, check if the current revision is valid
+    try:
+      run_command("python -m alembic current", cwd=BACKEND_DIR)
+    except subprocess.CalledProcessError as e:
+      if "Can't locate revision identified by" in (e.stderr or ""):
+        logger.warning(f"⚠️  Orphaned migration revision detected: {e.stderr.strip()}")
+        if not missing_tables and not missing_user_columns:
+          logger.info("   -> Schema appears in sync with RBAC; stamping as 'heads' to recover...")
+          try:
+            run_command("python -m alembic stamp heads", cwd=BACKEND_DIR)
+          except subprocess.CalledProcessError as stamp_err:
+            if "Can't locate revision identified by" in (stamp_err.stderr or ""):
+              logger.warning("   -> Stamp failed due to bad revision in DB. Forcing cleanup of alembic_version table.")
+              engine = get_db_engine()
+              async with engine.begin() as conn:
+                await conn.execute(text("DELETE FROM alembic_version"))
+              await engine.dispose()
+              logger.info("   -> alembic_version table cleared. Retrying stamp...")
+              run_command("python -m alembic stamp heads", cwd=BACKEND_DIR)
+            else:
+              raise stamp_err
+        else:
+          logger.error("   -> Schema is NOT in sync and revision is missing. Manual intervention required.")
+          sys.exit(1)
+      else:
+        raise e
+
+    run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
   except subprocess.CalledProcessError:
     # Check if multiple heads issue
     logger.warning("Upgrade failed. Checking for multiple heads...")
     try:
       run_command("python -m alembic merge heads -m 'merge_heads'", check=True, cwd=BACKEND_DIR)
       logger.info("Heads merged. Retrying upgrade...")
-      run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+      run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
     except subprocess.CalledProcessError:
       logger.error("Migration upgrade failed.")
       sys.exit(1)
@@ -160,11 +232,11 @@ async def main():
     run_command('python -m alembic revision --autogenerate -m "auto_sync_schema"', cwd=BACKEND_DIR)
 
     # Apply it
-    run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+    run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
 
     # Re-check drift to handle "Partial Sync" (e.g. blocked drops)
     logger.info("Verifying sync status...")
-    drift_code_after = run_command("uv run alembic check", check=False, cwd=BACKEND_DIR)
+    drift_code_after = run_command("python -m alembic check", check=False, cwd=BACKEND_DIR)
 
     if drift_code_after == 0:
       logger.info("✅ Schema synced successfully.")
@@ -187,5 +259,18 @@ if __name__ == "__main__":
   except KeyboardInterrupt:
     sys.exit(130)
   except Exception as e:
-    logger.error(f"Unexpected error: {e}")
+    logger.error("Unexpected error: %s", e)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+  if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+  try:
+    asyncio.run(main())
+  except KeyboardInterrupt:
+    sys.exit(130)
+  except Exception as e:
+    logger.error("Unexpected error: %s", e)
     sys.exit(1)

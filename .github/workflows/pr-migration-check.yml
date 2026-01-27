@@ -45,6 +45,8 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Initialize Database
+        env:
+          DGS_ALLOWED_ORIGINS: http://localhost:3000
         run: |
           # Use smart_migrate to init and upgrade to current head
           DGS_ENV=development DGS_PG_DSN=postgresql+asyncpg://postgres:password@localhost:5432/dgs uv run python scripts/smart_migrate.py
@@ -54,6 +56,7 @@ jobs:
         continue-on-error: true
         env:
           DGS_PG_DSN: postgresql+asyncpg://postgres:password@localhost:5432/dgs
+          DGS_ALLOWED_ORIGINS: http://localhost:3000
         run: |
           uv run alembic check || echo "drift_detected=true" >> $GITHUB_OUTPUT
 
@@ -61,6 +64,7 @@ jobs:
         if: steps.drift_check.outputs.drift_detected == 'true'
         env:
           DGS_PG_DSN: postgresql+asyncpg://postgres:password@localhost:5432/dgs
+          DGS_ALLOWED_ORIGINS: http://localhost:3000
         run: |
           echo "## ⚠️ Schema Drift Detected!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

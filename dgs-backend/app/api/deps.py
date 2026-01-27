@@ -39,3 +39,14 @@ async def consume_section_quota(current_user: User = Depends(get_current_active_
   except Exception as exc:  # pragma: no cover - safety net
     logger.error("Failed to consume section quota for user %s: %s", current_user.id, exc, exc_info=True)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to consume quota") from exc
+
+
+async def consume_research_quota(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> None:  # noqa: B008
+  """Consume one research quota before processing."""
+  try:
+    await consume_quota(db, user_id=uuid.UUID(str(current_user.id)), action="RESEARCH", quantity=1)
+  except QuotaExceededError:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="QUOTA_EXCEEDED") from None
+  except Exception as exc:
+    logger.error("Failed to consume research quota for user %s: %s", current_user.id, exc, exc_info=True)
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to consume quota") from exc

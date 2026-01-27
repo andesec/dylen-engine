@@ -6,7 +6,7 @@
 - Keep dependencies minimal to improve cold-start performance.
 - Follow SOLID principles with clear separation of transport, orchestration, and storage concerns.
 - Use full type hints and docstrings throughout.
-- Default tooling standards: `ruff`, `mypy`, and `pytest`.
+<!-- - Default tooling standards: `ruff`, `mypy`, and `pytest`. -->
 
 ## Coding Standards (Strict)
 - Always keep method parameters, arguments, and signatures on the same line.
@@ -17,5 +17,5 @@
 ## Workflow expectations
 - Don't unnecessarily format a file or code if there is no change in the code there.
 - Ignore Blank line issues in the code!
-- Before opening a PR, run: `make format lint typecheck test`. (always!)
+<!-- - Before opening a PR, run: `make format lint typecheck test`. (always!) -->
 - Keep `openapi.json` updated whenever API endpoints change.

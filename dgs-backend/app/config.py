@@ -15,6 +15,7 @@ load_env_file(default_env_path(), override=False)
 class Settings:
   """Typed settings for the DGS service."""
 
+  app_id: str
   environment: str
   backup_dir: str
   allowed_origins: list[str]
@@ -34,6 +35,7 @@ class Settings:
   structurer_model_best: str | None
   repair_provider: str
   repair_model: str | None
+  research_model: str | None
   prompt_version: str
   schema_version: str
   merge_gatherer_structurer: bool
@@ -56,6 +58,13 @@ class Settings:
   mailersend_api_key: str | None
   mailersend_timeout_seconds: int
   mailersend_base_url: str
+  tavily_api_key: str | None
+  cloud_tasks_queue_path: str | None
+  task_service_provider: str
+  base_url: str | None
+  gemini_api_key: str | None
+  research_router_model: str
+  research_search_max_results: int
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -87,6 +96,7 @@ def _parse_bool(raw: str | None) -> bool:
 def get_settings() -> Settings:
   """Load settings once per process."""
 
+  app_id = os.getenv("DGS_APP_ID", "dgs").strip()
   environment = os.getenv("DGS_ENV", "development").lower()
   backup_dir = os.getenv("DGS_BACKUP_DIR", "./backups").strip()
 
@@ -135,6 +145,7 @@ def get_settings() -> Settings:
       raise ValueError("DGS_MAILERSEND_TIMEOUT_SECONDS must be a positive integer.")
 
   return Settings(
+    app_id=app_id,
     environment=environment,
     backup_dir=backup_dir,
     allowed_origins=_parse_origins(os.getenv("DGS_ALLOWED_ORIGINS")),
@@ -154,6 +165,7 @@ def get_settings() -> Settings:
     structurer_model_best=os.getenv("DGS_STRUCTURER_MODEL_BEST"),
     repair_provider=os.getenv("DGS_REPAIR_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "gemini")),
     repair_model=os.getenv("DGS_REPAIR_MODEL", "google/gemma-3-27b-it:free"),
+    research_model=os.getenv("DGS_RESEARCH_MODEL", "gemini-1.5-pro"),
     prompt_version=os.getenv("DGS_PROMPT_VERSION", "v1"),
     schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
     merge_gatherer_structurer=_parse_bool(os.getenv("MERGE_GATHERER_STRUCTURER")),
@@ -176,6 +188,13 @@ def get_settings() -> Settings:
     mailersend_api_key=mailersend_api_key,
     mailersend_timeout_seconds=mailersend_timeout_seconds,
     mailersend_base_url=mailersend_base_url,
+    tavily_api_key=_optional_str(os.getenv("TAVILY_API_KEY")),
+    cloud_tasks_queue_path=_optional_str(os.getenv("DGS_CLOUD_TASKS_QUEUE_PATH")),
+    task_service_provider=os.getenv("DGS_TASK_SERVICE_PROVIDER", "local-http").lower(),
+    base_url=_optional_str(os.getenv("DGS_BASE_URL")),
+    gemini_api_key=_optional_str(os.getenv("GEMINI_API_KEY")),
+    research_router_model=os.getenv("DGS_RESEARCH_ROUTER_MODEL", "gemini-1.5-flash"),
+    research_search_max_results=int(os.getenv("DGS_RESEARCH_SEARCH_MAX_RESULTS", "5")),
   )
 
 

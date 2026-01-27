@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import time
 import uuid
@@ -10,12 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.models import CurrentSectionStatus, GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse, ValidationResponse, WritingCheckRequest
 from app.config import Settings
-from app.core.lifespan import is_job_worker_active
 from app.jobs.models import JobRecord
-from app.jobs.worker import JobProcessor
 from app.services.audit import log_llm_interaction
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
 from app.services.request_validation import _validate_generate_request
+from app.services.tasks.factory import get_task_enqueuer
 from app.storage.factory import _get_jobs_repo
 from app.utils.ids import generate_job_id
 
@@ -280,55 +278,39 @@ async def get_job_status(job_id: str, settings: Settings) -> JobStatusResponse:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
   return _job_status_from_record(record, settings)
 
+  return _job_status_from_record(record, settings)
 
-async def process_job_async(job_id: str, settings: Settings) -> None:
-  """Run a queued job in-process to update status as work progresses."""
-  # Fetch the queued record so we can process only if it still exists.
+
+async def process_job_sync(job_id: str, settings: Settings) -> None:
+  """Run a queued job immediately (synchronously)."""
+  from app.jobs.worker import JobProcessor
+
   repo = _get_jobs_repo(settings)
   record = await repo.get_job(job_id)
 
   if record is None:
     return
 
-  # Run the job with a fresh processor to update progress states.
   processor = JobProcessor(jobs_repo=repo, orchestrator=_get_orchestrator(settings), settings=settings)
-  # Execute the job asynchronously so progress updates stream back to storage.
   await processor.process_job(record)
 
 
-def _log_job_task_failure(task: asyncio.Task[None]) -> None:
-  """Log unexpected failures from background job tasks."""
-
-  try:
-    task.result()
-
-  except Exception as exc:  # noqa: BLE001
-    logger.error("Job processing task failed: %s", exc, exc_info=True)
-
-
 def trigger_job_processing(background_tasks: BackgroundTasks, job_id: str, settings: Settings) -> None:
-  """Schedule background processing so clients see status updates."""
-
-  # Fire-and-forget processing to keep the API responsive.
-  # Skip in-process execution when external workers (Lambda/CloudRun) are responsible.
-  # TODO: Integrate with Cloud Tasks if settings.use_cloud_tasks is enabled.
+  """Schedule background processing via the configured task enqueuer."""
 
   if not settings.jobs_auto_process:
     return
 
-  # Defer to the shared worker loop to avoid duplicate processing.
+  # Use the configured task enqueuer (GCP or Local) to dispatch the job.
+  enqueuer = get_task_enqueuer(settings)
 
-  if is_job_worker_active():
-    return
+  async def _dispatch() -> None:
+    try:
+      await enqueuer.enqueue(job_id, {})
+    except Exception as exc:  # noqa: BLE001
+      logger.error("Failed to enqueue job %s: %s", job_id, exc, exc_info=True)
 
-  # Prefer immediate scheduling on the running loop to start work right away.
-
-  try:
-    loop = asyncio.get_running_loop()
-
-  except RuntimeError:
-    background_tasks.add_task(process_job_async, job_id, settings)
-    return
-
-  task = loop.create_task(process_job_async(job_id, settings))
-  task.add_done_callback(_log_job_task_failure)
+  # Schedule the dispatch coroutine on the background tasks
+  # We use background_tasks to ensure we don't block the API response
+  # while waiting for the network call to Cloud Tasks or local dispatcher.
+  background_tasks.add_task(_dispatch)

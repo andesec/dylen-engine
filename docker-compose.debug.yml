@@ -25,7 +25,7 @@ services:
       target: debug
     container_name: dgs-migrator
     entrypoint: []
-    command: ["/bin/sh", "-c", "uv run python scripts/init_db.py && uv run python scripts/migrate_db.py"]
+    command: [ "python", "scripts/smart_migrate.py" ]
     working_dir: /app/dgs-backend
     depends_on:
       postgres:
@@ -37,7 +37,7 @@ services:
     networks:
       - dgs-network
     volumes:
-      - ./dgs-backend:/app/dgs-backend:ro
+      - ./dgs-backend:/app/dgs-backend
     restart: "no"
 
   backend:

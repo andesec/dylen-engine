@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import datetime
 import uuid
+from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -11,6 +13,55 @@ from app.schema.audit import LlmCallAudit  # noqa: F401
 from app.schema.email_delivery_logs import EmailDeliveryLog  # noqa: F401
 from app.schema.jobs import Job  # noqa: F401
 from app.schema.lessons import Lesson  # noqa: F401
+
+
+class RoleLevel(str, Enum):
+  GLOBAL = "GLOBAL"
+  TENANT = "TENANT"
+
+
+class UserStatus(str, Enum):
+  PENDING = "PENDING"
+  APPROVED = "APPROVED"
+  DISABLED = "DISABLED"
+
+
+class AuthMethod(str, Enum):
+  GOOGLE_SSO = "GOOGLE_SSO"
+  NATIVE = "NATIVE"
+
+
+class Organization(Base):
+  __tablename__ = "organizations"
+
+  id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+  name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+  created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Role(Base):
+  __tablename__ = "roles"
+
+  id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+  name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+  level: Mapped[RoleLevel] = mapped_column(SAEnum(RoleLevel, name="role_level"), nullable=False)
+  description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Permission(Base):
+  __tablename__ = "permissions"
+
+  id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+  slug: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+  display_name: Mapped[str] = mapped_column(String, nullable=False)
+  description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RolePermission(Base):
+  __tablename__ = "role_permissions"
+
+  role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id"), primary_key=True)
+  permission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("permissions.id"), primary_key=True)
 
 
 class User(Base):
@@ -21,13 +72,15 @@ class User(Base):
   email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
   full_name: Mapped[str | None] = mapped_column(String, nullable=True)
   provider: Mapped[str | None] = mapped_column(String, nullable=True)
+  role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id"), nullable=False)
+  org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+  status: Mapped[UserStatus] = mapped_column(SAEnum(UserStatus, name="user_status"), default=UserStatus.PENDING, nullable=False)
+  auth_method: Mapped[AuthMethod] = mapped_column(SAEnum(AuthMethod, name="auth_method"), default=AuthMethod.GOOGLE_SSO, nullable=False)
   profession: Mapped[str | None] = mapped_column(String, nullable=True)
   city: Mapped[str | None] = mapped_column(String, nullable=True)
   country: Mapped[str | None] = mapped_column(String, nullable=True)
   age: Mapped[int | None] = mapped_column(Integer, nullable=True)
   photo_url: Mapped[str | None] = mapped_column(String, nullable=True)
-  is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-  is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
