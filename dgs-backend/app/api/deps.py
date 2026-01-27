@@ -16,6 +16,11 @@ from app.services.quotas import QuotaExceededError, ResolvedQuota, consume_quota
 logger = logging.getLogger(__name__)
 
 
+async def get_db_session(session: AsyncSession = Depends(get_db)) -> AsyncSession:
+  """Dependency to get the database session."""
+  return session
+
+
 async def get_quota(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> ResolvedQuota:  # noqa: B008
   """Resolve the current user's effective quota limits."""
   try:

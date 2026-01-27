@@ -1,14 +1,14 @@
-"""HTML email template rendering.
+"""HTML email and push notification template rendering.
 
-Email HTML must be table-based and rely on inline styles for compatibility with major clients
-(Gmail, Outlook, iCloud). Templates are stored on disk and rendered with escaped placeholders.
+Email HTML must be table-based and rely on inline styles for compatibility with major clients.
+Templates are stored on disk and rendered with escaped placeholders.
 """
 
 from __future__ import annotations
 
 import html
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -17,21 +17,33 @@ _PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
 
 
 @dataclass(frozen=True)
-class EmailTemplate:
-  """Template metadata and file locations."""
+class NotificationTemplate:
+  """Template metadata and file locations for email and push."""
 
   template_id: str
   subject_template: str
   html_filename: str
   text_filename: str
+  push_filename: str
   required_placeholders: set[str]
+  navigation_keys: set[str] = field(default_factory=set)
 
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
-TEMPLATES: dict[str, EmailTemplate] = {
-  "lesson_generated_v1": EmailTemplate(template_id="lesson_generated_v1", subject_template="Your lesson is ready: {{topic}}", html_filename="lesson_generated_v1.html", text_filename="lesson_generated_v1.txt", required_placeholders={"topic", "lesson_id"}),
-  "account_approved_v1": EmailTemplate(template_id="account_approved_v1", subject_template="Your account has been approved", html_filename="account_approved_v1.html", text_filename="account_approved_v1.txt", required_placeholders={"greeting"}),
+TEMPLATES: dict[str, NotificationTemplate] = {
+  "lesson_generated_v1": NotificationTemplate(
+    template_id="lesson_generated_v1",
+    subject_template="Your lesson is ready: {{topic}}",
+    html_filename="lesson_generated_v1.html",
+    text_filename="lesson_generated_v1.txt",
+    push_filename="lesson_generated_v1.push.txt",
+    required_placeholders={"topic", "lesson_id"},
+    navigation_keys={"lesson_id"},
+  ),
+  "account_approved_v1": NotificationTemplate(
+    template_id="account_approved_v1", subject_template="Your account has been approved", html_filename="account_approved_v1.html", text_filename="account_approved_v1.txt", push_filename="account_approved_v1.push.txt", required_placeholders={"greeting"}
+  ),
 }
 
 
@@ -45,7 +57,20 @@ def render_email_template(*, template_id: str, placeholders: dict[str, Any]) -> 
   return subject, text_payload, html_payload
 
 
-def _validate_placeholders(*, template: EmailTemplate, placeholders: dict[str, Any]) -> None:
+def render_push_content(*, template_id: str, placeholders: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
+  """Render push notification title, body and extract navigation data."""
+  template = _get_template(template_id)
+  _validate_placeholders(template=template, placeholders=placeholders)
+
+  title = _render_text(template.subject_template, placeholders=placeholders, escape_html=False)
+  body = _render_text(_load_template_file(template.push_filename), placeholders=placeholders, escape_html=False)
+
+  data = {k: placeholders[k] for k in template.navigation_keys if k in placeholders}
+
+  return title, body, data
+
+
+def _validate_placeholders(*, template: NotificationTemplate, placeholders: dict[str, Any]) -> None:
   """Ensure required placeholders exist to avoid sending malformed emails."""
   missing = sorted(template.required_placeholders - set(placeholders.keys()))
   if missing:
@@ -73,9 +98,9 @@ def _load_template_file(filename: str) -> str:
   return path.read_text(encoding="utf-8")
 
 
-def _get_template(template_id: str) -> EmailTemplate:
+def _get_template(template_id: str) -> NotificationTemplate:
   """Resolve a template configuration by id."""
   template = TEMPLATES.get(template_id)
   if template is None:
-    raise ValueError(f"Unknown email template: {template_id}")
+    raise ValueError(f"Unknown notification template: {template_id}")
   return template

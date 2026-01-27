@@ -1,10 +1,10 @@
-import asyncio
 import argparse
+import asyncio
 import logging
-import subprocess
-import sys
 import os
 import shutil
+import subprocess
+import sys
 from datetime import datetime
 from os.path import abspath, dirname
 
@@ -12,11 +12,12 @@ from os.path import abspath, dirname
 BACKEND_DIR = dirname(dirname(abspath(__file__)))
 sys.path.insert(0, BACKEND_DIR)
 
-from app.config import get_settings, Settings
-from scripts.init_db import create_database_if_not_exists
-from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
-from app.core.database import get_db_engine
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.exc import OperationalError  # noqa: E402
+
+from app.config import Settings, get_settings  # noqa: E402
+from app.core.database import get_db_engine  # noqa: E402
+from scripts.init_db import create_database_if_not_exists  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("smart_migrate")
@@ -121,21 +122,21 @@ async def main():
   # 4. Apply existing migrations
   logger.info("Applying existing migrations...")
   try:
-    run_command("uv run alembic upgrade head", cwd=BACKEND_DIR)
+    run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
   except subprocess.CalledProcessError:
     # Check if multiple heads issue
     logger.warning("Upgrade failed. Checking for multiple heads...")
     try:
-      run_command("uv run alembic merge heads -m 'merge_heads'", check=True, cwd=BACKEND_DIR)
+      run_command("python -m alembic merge heads -m 'merge_heads'", check=True, cwd=BACKEND_DIR)
       logger.info("Heads merged. Retrying upgrade...")
-      run_command("uv run alembic upgrade head", cwd=BACKEND_DIR)
+      run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
     except subprocess.CalledProcessError:
       logger.error("Migration upgrade failed.")
       sys.exit(1)
 
   # 4. Check for Drift
   logger.info("Checking for schema drift...")
-  drift_code = run_command("uv run alembic check", check=False, cwd=BACKEND_DIR)
+  drift_code = run_command("python -m alembic check", check=False, cwd=BACKEND_DIR)
 
   if drift_code == 0:
     logger.info("✅ Schema is in sync with code.")
@@ -153,10 +154,10 @@ async def main():
   logger.info("🔄 Auto-syncing schema (Dev mode or Forced)...")
   try:
     # Auto-generate migration
-    run_command('uv run alembic revision --autogenerate -m "auto_sync_schema"', cwd=BACKEND_DIR)
+    run_command('python -m alembic revision --autogenerate -m "auto_sync_schema"', cwd=BACKEND_DIR)
 
     # Apply it
-    run_command("uv run alembic upgrade head", cwd=BACKEND_DIR)
+    run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
 
     # Re-check drift to handle "Partial Sync" (e.g. blocked drops)
     logger.info("Verifying sync status...")
