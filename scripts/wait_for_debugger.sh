@@ -15,7 +15,7 @@ done
 echo "Found container ID: ${container_id}"
 
 # Poll for a LISTEN socket in /proc/net/tcp{,6} to avoid a probe connection that can race with VS Code attach and cause a disconnect.
-while ! docker exec -e DEBUG_PORT="${DEBUG_PORT}" "${container_id}" /usr/bin/python - <<'PY'
+while ! docker exec -e DEBUG_PORT="${DEBUG_PORT}" "${container_id}" python - <<'PY'
 import os
 import sys
 

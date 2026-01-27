@@ -1,4 +1,3 @@
-import os
 import urllib.request
 
 print("--- Testing Connectivity from within container ---")

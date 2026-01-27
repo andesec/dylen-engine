@@ -31,7 +31,7 @@ def anyio_backend():
 @pytest.fixture
 def mock_firebase_admin_auth():
   # Patch set_custom_claims where it is USED in the route handler
-  with patch("app.api.routes.auth.set_custom_claims") as mock_set_claims:
+  with patch("app.api.routes.auth.set_custom_claims"):
     with patch("firebase_admin.auth") as mock_admin, patch("app.core.security.auth") as mock_security:
       # Configure both mocks to behave similarly
       mock_admin.create_session_cookie.return_value = "mock_session_cookie"

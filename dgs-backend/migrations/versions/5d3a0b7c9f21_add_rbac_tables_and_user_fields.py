@@ -1,7 +1,7 @@
 """Add RBAC tables and user fields with idempotent safeguards.
 
 Revision ID: 5d3a0b7c9f21
-Revises: 459aa50bdc5e
+Revises: 4c880c225edd
 Create Date: 2026-01-25 00:00:00.000000
 
 """
@@ -58,15 +58,16 @@ def _foreign_key_exists(inspector, table_name: str, fk_name: str, existing_table
 
 def upgrade() -> None:
   """Apply RBAC schema changes while handling pre-existing tables."""
-  from sqlalchemy.dialects.postgresql import ENUM
 
   # Ensure enum types exist before columns reference them.
-  role_level_enum = ENUM("GLOBAL", "TENANT", name="role_level", create_type=False)
-  # role_level_enum.create(op.get_bind(), checkfirst=True)
-  user_status_enum = ENUM("PENDING", "APPROVED", "DISABLED", name="user_status", create_type=False)
-  # user_status_enum.create(op.get_bind(), checkfirst=True)
-  auth_method_enum = ENUM("GOOGLE_SSO", "NATIVE", name="auth_method", create_type=False)
-  # auth_method_enum.create(op.get_bind(), checkfirst=True)
+  # We use explicit SQL block to avoid race conditions/reflection issues with asyncpg.
+  op.execute("DO $$ BEGIN CREATE TYPE role_level AS ENUM ('GLOBAL', 'TENANT'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+  op.execute("DO $$ BEGIN CREATE TYPE user_status AS ENUM ('PENDING', 'APPROVED', 'DISABLED'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+  op.execute("DO $$ BEGIN CREATE TYPE auth_method AS ENUM ('GOOGLE_SSO', 'NATIVE'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+
+  role_level_enum = sa.Enum("GLOBAL", "TENANT", name="role_level")
+  user_status_enum = sa.Enum("PENDING", "APPROVED", "DISABLED", name="user_status")
+  auth_method_enum = sa.Enum("GOOGLE_SSO", "NATIVE", name="auth_method")
 
   # Inspect existing schema to keep migration idempotent.
   inspector = inspect(op.get_bind())

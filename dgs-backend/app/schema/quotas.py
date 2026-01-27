@@ -22,6 +22,7 @@ class SubscriptionTier(Base):
   file_upload_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
   image_upload_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
   gen_sections_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  research_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
   coach_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
   coach_voice_tier: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -37,6 +38,7 @@ class UserTierOverride(Base):
   file_upload_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
   image_upload_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
   gen_sections_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  research_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
   coach_mode_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
@@ -48,6 +50,7 @@ class UserUsageMetrics(Base):
   files_uploaded_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
   images_uploaded_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
   sections_generated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+  research_usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
   last_updated: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

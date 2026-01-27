@@ -12,10 +12,10 @@ from app.core.firebase import build_rbac_claims, set_custom_claims
 from app.core.security import get_current_admin_user, require_role_level
 from app.jobs.models import JobRecord, JobStatus
 from app.notifications.factory import build_notification_service
-from app.schema.sql import RoleLevel, User, UserStatus
+from app.schema.sql import Role, RoleLevel, User, UserStatus
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, set_role_permissions
-from app.services.users import get_user_by_id, list_users, update_user_role, update_user_status
+from app.services.users import delete_user, get_user_by_id, list_users, update_user_role, update_user_status
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.postgres_audit_repo import LlmAuditRecord, PostgresLlmAuditRepository
@@ -288,6 +288,19 @@ async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db),
   # Notify the user on best-effort basis.
   await build_notification_service(settings).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+async def delete_user_account(user_id: str, db_session: AsyncSession = Depends(get_db)) -> None:  # noqa: B008
+  """Delete a user account permanently (GDPR erasure)."""
+  try:
+    parsed_user_id = uuid.UUID(user_id)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id.") from exc
+
+  success = await delete_user(db_session, parsed_user_id)
+  if not success:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
 
 @router.get("/jobs", response_model=PaginatedResponse[JobRecord], dependencies=[Depends(get_current_admin_user)])

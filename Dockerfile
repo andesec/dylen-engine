@@ -1,7 +1,7 @@
 # ---------- Builder Stage ----------
-FROM cgr.dev/chainguard/python@sha256:5c94ee31386cfbb226a41312a05f8f61b0d08635fc13812891be062c334d5428 AS builder
+FROM python:3.13-slim AS builder
 
-# Install uv by copying it from the official image
+# Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 WORKDIR /app
@@ -18,42 +18,62 @@ RUN uv venv .venv && \
 COPY dgs-backend/ ./dgs-backend/
 
 # ---------- Runtime Stage ----------
-FROM cgr.dev/chainguard/python@sha256:678e879909418cd070927d0ba1ed018be98d43929db2457c37b9b9764703678c AS production
+FROM python:3.13-slim AS production
 
 WORKDIR /app
 
-# Copy the virtual environment from the builder.
-COPY --from=builder --chown=65532:65532 /app/.venv /app/.venv
-COPY --from=builder --chown=65532:65532 /app/dgs-backend /app/dgs-backend
+# Create a non-root user
+RUN groupadd -r dgs && useradd -r -g dgs dgs && \
+    ln -sf /usr/local/bin/python /usr/bin/python
 
-# Set PYTHONPATH and PATH
-ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.14/site-packages"
+# Copy the virtual environment from the builder.
+COPY --from=builder --chown=dgs:dgs /app/.venv /app/.venv
+COPY --from=builder --chown=dgs:dgs /app/dgs-backend /app/dgs-backend
+
+# Set up environment variables
+ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.13/site-packages"
 ENV PATH="/app/.venv/bin:$PATH"
+
+# Switch to non-root user
+# Security Hardening: Remove shell and package managers (Distroless behavior)
+RUN rm -rf /bin/sh /bin/bash /usr/bin/apt* /usr/lib/apt /var/lib/apt /usr/bin/dpkg* /var/lib/dpkg
+
+USER dgs
 
 # Expose the service port.
 EXPOSE 8002
 
 # Run the application.
-CMD ["dgs-backend/entrypoint.py"]
+CMD ["python", "dgs-backend/entrypoint.py"]
 
 # ---------- Debug Stage ----------
-FROM cgr.dev/chainguard/python@sha256:5c94ee31386cfbb226a41312a05f8f61b0d08635fc13812891be062c334d5428 AS debug
+FROM python:3.13-slim AS debug
 
 WORKDIR /app
 
-# Copy everything from builder
-COPY --from=builder --chown=65532:65532 /app/.venv /app/.venv
-COPY --from=builder --chown=65532:65532 /app/dgs-backend /app/dgs-backend
-COPY --from=ghcr.io/astral-sh/uv:latest --chown=65532:65532 /uv /bin/uv
+# Install git/build tools if needed for debug tools, though usually not required for pure python debug
+# RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Copy uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# Copy dependencies and source from builder
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/dgs-backend /app/dgs-backend
 
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.14/site-packages"
+ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.13/site-packages"
 ENV PYDEVD_DISABLE_FILE_VALIDATION=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Install debugpy
-RUN uv pip install debugpy --python .venv
+RUN uv pip install debugpy --python .venv && \
+    ln -sf /usr/local/bin/python /usr/bin/python
+
+# We run as root in debug for convenience, or can switch to non-root if strongly desired.
+# Staying root in debug is often easier for file permission issues with bind mounts.
+# USER root (default)
 
 EXPOSE 8002 5678
 
-CMD ["-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]

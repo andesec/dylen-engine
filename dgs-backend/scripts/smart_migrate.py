@@ -150,11 +150,12 @@ async def main():
   logger.info("Checking database state for legacy compatibility...")
   try:
     has_alembic, tables, user_columns = await check_db_state()
+    missing_tables = _EXPECTED_TABLES.difference(tables)
+    missing_user_columns = _EXPECTED_USER_COLUMNS.difference(user_columns)
+
     if not has_alembic and "users" in tables:
       logger.info("⚠️  Existing database detected WITHOUT Alembic history.")
       # Only stamp when the schema already includes the latest RBAC/user columns.
-      missing_tables = _EXPECTED_TABLES.difference(tables)
-      missing_user_columns = _EXPECTED_USER_COLUMNS.difference(user_columns)
 
       if not missing_tables and not missing_user_columns:
         logger.info("   -> Expected RBAC tables/columns present; stamping database as 'head'...")
@@ -169,14 +170,41 @@ async def main():
   # 4. Apply existing migrations
   logger.info("Applying existing migrations...")
   try:
-    run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+    # First, check if the current revision is valid
+    try:
+      run_command("python -m alembic current", cwd=BACKEND_DIR)
+    except subprocess.CalledProcessError as e:
+      if "Can't locate revision identified by" in (e.stderr or ""):
+        logger.warning(f"⚠️  Orphaned migration revision detected: {e.stderr.strip()}")
+        if not missing_tables and not missing_user_columns:
+          logger.info("   -> Schema appears in sync with RBAC; stamping as 'heads' to recover...")
+          try:
+            run_command("python -m alembic stamp heads", cwd=BACKEND_DIR)
+          except subprocess.CalledProcessError as stamp_err:
+            if "Can't locate revision identified by" in (stamp_err.stderr or ""):
+              logger.warning("   -> Stamp failed due to bad revision in DB. Forcing cleanup of alembic_version table.")
+              engine = get_db_engine()
+              async with engine.begin() as conn:
+                await conn.execute(text("DELETE FROM alembic_version"))
+              await engine.dispose()
+              logger.info("   -> alembic_version table cleared. Retrying stamp...")
+              run_command("python -m alembic stamp heads", cwd=BACKEND_DIR)
+            else:
+              raise stamp_err
+        else:
+          logger.error("   -> Schema is NOT in sync and revision is missing. Manual intervention required.")
+          sys.exit(1)
+      else:
+        raise e
+
+    run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
   except subprocess.CalledProcessError:
     # Check if multiple heads issue
     logger.warning("Upgrade failed. Checking for multiple heads...")
     try:
       run_command("python -m alembic merge heads -m 'merge_heads'", check=True, cwd=BACKEND_DIR)
       logger.info("Heads merged. Retrying upgrade...")
-      run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+      run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
     except subprocess.CalledProcessError:
       logger.error("Migration upgrade failed.")
       sys.exit(1)
@@ -204,11 +232,11 @@ async def main():
     run_command('python -m alembic revision --autogenerate -m "auto_sync_schema"', cwd=BACKEND_DIR)
 
     # Apply it
-    run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+    run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
 
     # Re-check drift to handle "Partial Sync" (e.g. blocked drops)
     logger.info("Verifying sync status...")
-    drift_code_after = run_command("uv run alembic check", check=False, cwd=BACKEND_DIR)
+    drift_code_after = run_command("python -m alembic check", check=False, cwd=BACKEND_DIR)
 
     if drift_code_after == 0:
       logger.info("✅ Schema synced successfully.")
