@@ -12,7 +12,7 @@ from app.core.firebase import build_rbac_claims, set_custom_claims
 from app.core.security import get_current_admin_user, require_role_level
 from app.jobs.models import JobRecord, JobStatus
 from app.notifications.factory import build_notification_service
-from app.schema.sql import RoleLevel, User, UserStatus
+from app.schema.sql import Role, RoleLevel, User, UserStatus
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, set_role_permissions
 from app.services.users import delete_user, get_user_by_id, list_users, update_user_role, update_user_status
