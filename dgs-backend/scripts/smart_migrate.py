@@ -105,6 +105,10 @@ def backup_db(settings: Settings):
 async def wait_for_db(retries=30, delay=2):
   logger.info("Waiting for database...")
   engine = get_db_engine()
+  if engine is None:
+    logger.critical("Database engine could not be initialized. Check DGS_PG_DSN environment variable.")
+    raise RuntimeError("Database engine is None. DGS_PG_DSN is likely missing or empty.")
+
   for i in range(retries):
     try:
       async with engine.connect() as conn:

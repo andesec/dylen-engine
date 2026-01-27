@@ -9,17 +9,20 @@ logger = logging.getLogger("entrypoint")
 
 def main():
   # 1. Run migrations
-  logger.info("Running database migrations...")
-  try:
-    # Change to dgs-backend directory for migration script
-    os.chdir("/app/dgs-backend")
-    subprocess.run([sys.executable, "scripts/smart_migrate.py"], check=True)
-  except subprocess.CalledProcessError as e:
-    logger.error(f"Migration failed with exit code {e.returncode}")
-    sys.exit(e.returncode)
-  except Exception as e:
-    logger.error(f"Unexpected error during migration: {e}")
-    sys.exit(1)
+  if os.getenv("SKIP_MIGRATIONS", "false").lower() == "true":
+    logger.info("SKIP_MIGRATIONS is set. Skipping database migrations.")
+  else:
+    logger.info("Running database migrations...")
+    try:
+      # Change to dgs-backend directory for migration script
+      os.chdir("/app/dgs-backend")
+      subprocess.run([sys.executable, "scripts/smart_migrate.py"], check=True)
+    except subprocess.CalledProcessError as e:
+      logger.error(f"Migration failed with exit code {e.returncode}")
+      sys.exit(e.returncode)
+    except Exception as e:
+      logger.error(f"Unexpected error during migration: {e}")
+      sys.exit(1)
 
   # 2. Start the application
   logger.info("Starting application...")
