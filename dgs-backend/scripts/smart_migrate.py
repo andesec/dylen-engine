@@ -169,14 +169,14 @@ async def main():
   # 4. Apply existing migrations
   logger.info("Applying existing migrations...")
   try:
-    run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+    run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
   except subprocess.CalledProcessError:
     # Check if multiple heads issue
     logger.warning("Upgrade failed. Checking for multiple heads...")
     try:
       run_command("python -m alembic merge heads -m 'merge_heads'", check=True, cwd=BACKEND_DIR)
       logger.info("Heads merged. Retrying upgrade...")
-      run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+      run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
     except subprocess.CalledProcessError:
       logger.error("Migration upgrade failed.")
       sys.exit(1)
@@ -204,11 +204,11 @@ async def main():
     run_command('python -m alembic revision --autogenerate -m "auto_sync_schema"', cwd=BACKEND_DIR)
 
     # Apply it
-    run_command("python -m alembic upgrade head", cwd=BACKEND_DIR)
+    run_command("python -m alembic upgrade heads", cwd=BACKEND_DIR)
 
     # Re-check drift to handle "Partial Sync" (e.g. blocked drops)
     logger.info("Verifying sync status...")
-    drift_code_after = run_command("uv run alembic check", check=False, cwd=BACKEND_DIR)
+    drift_code_after = run_command("python -m alembic check", check=False, cwd=BACKEND_DIR)
 
     if drift_code_after == 0:
       logger.info("✅ Schema synced successfully.")

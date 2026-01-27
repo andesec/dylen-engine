@@ -1,7 +1,7 @@
 """Merge RBAC and email delivery heads.
 
 Revision ID: 50f5e7581de6
-Revises: 5d3a0b7c9f21, 6b7a7c3c1f5a
+Revises: 5d3a0b7c9f21
 Create Date: 2026-01-26 01:09:20.246188
 
 """
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 
 # revision identifiers, used by Alembic.
 revision: str = "50f5e7581de6"
-down_revision: str | Sequence[str] | None = ("5d3a0b7c9f21", "6b7a7c3c1f5a")
+down_revision: str | Sequence[str] | None = "5d3a0b7c9f21"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

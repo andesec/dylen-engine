@@ -55,7 +55,7 @@ services:
     networks:
       - dgs-network
     working_dir: /app/dgs-backend
-    command: ["-m", "alembic", "upgrade", "heads"]
+    command: [ "python", "-m", "alembic", "upgrade", "heads" ]
     restart: "no"
 
   backend:

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any
 
-from crawl4ai import AsyncWebCrawler
 from fastapi.concurrency import run_in_threadpool
 from firebase_admin import firestore
 
@@ -164,37 +162,11 @@ Query: {query}"""
   async def _crawl_urls(self, urls: list[str]) -> list[dict[str, Any]]:
     crawled_data = []
 
-    # Try Crawl4AI (might fail if browsers are missing in lean containers)
-    try:
-      async with AsyncWebCrawler(verbose=True) as crawler:
-        tasks = [crawler.arun(url=url) for url in urls]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for i, result in enumerate(results):
-          if isinstance(result, Exception):
-            logger.error(f"Failed to crawl {urls[i]}: {result}")
-            # Fallback to Tavily if crawling fails
-            fallback_content = await self._fetch_content_tavily(urls[i])
-            if fallback_content:
-              crawled_data.append({"url": urls[i], "markdown": fallback_content})
-            continue
-
-          if not result.success:
-            logger.warning(f"Crawl failed for {urls[i]}: {result.error_message}")
-            # Fallback to Tavily
-            fallback_content = await self._fetch_content_tavily(urls[i])
-            if fallback_content:
-              crawled_data.append({"url": urls[i], "markdown": fallback_content})
-            continue
-
-          crawled_data.append({"url": urls[i], "markdown": result.markdown})
-    except Exception as e:
-      logger.error(f"Crawling process failed (likely missing browsers): {e}")
-      # Fallback to Tavily for all URLs if the crawler itself fails to start
-      for url in urls:
-        fallback_content = await self._fetch_content_tavily(url)
-        if fallback_content:
-          crawled_data.append({"url": url, "markdown": fallback_content})
+    # Fallback to Tavily specifically requested to avoid heavy crawl4ai dependencies
+    for url in urls:
+      fallback_content = await self._fetch_content_tavily(url)
+      if fallback_content:
+        crawled_data.append({"url": url, "markdown": fallback_content})
 
     return crawled_data
 

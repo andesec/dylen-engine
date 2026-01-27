@@ -1,7 +1,7 @@
 """Add RBAC tables and user fields with idempotent safeguards.
 
 Revision ID: 5d3a0b7c9f21
-Revises: 459aa50bdc5e
+Revises: 4c880c225edd
 Create Date: 2026-01-25 00:00:00.000000
 
 """
@@ -15,7 +15,7 @@ from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = "5d3a0b7c9f21"
-down_revision: str | None = "459aa50bdc5e"
+down_revision: str | None = "4c880c225edd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
