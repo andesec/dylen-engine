@@ -56,6 +56,7 @@ class Settings:
   mailersend_api_key: str | None
   mailersend_timeout_seconds: int
   mailersend_base_url: str
+  tavily_api_key: str | None
 
 
 def _parse_origins(raw: str | None) -> list[str]:
@@ -176,6 +177,7 @@ def get_settings() -> Settings:
     mailersend_api_key=mailersend_api_key,
     mailersend_timeout_seconds=mailersend_timeout_seconds,
     mailersend_base_url=mailersend_base_url,
+    tavily_api_key=_optional_str(os.getenv("TAVILY_API_KEY")),
   )
 
 
