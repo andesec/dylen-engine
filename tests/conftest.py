@@ -49,3 +49,9 @@ async def async_client(override_get_db):
 @pytest.fixture
 def db_session(mock_db_session):
   return mock_db_session
+
+
+@pytest.fixture
+def anyio_backend():
+  """Force all anyio tests to use asyncio."""
+  return "asyncio"
