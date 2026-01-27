@@ -15,7 +15,7 @@ from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = "5d3a0b7c9f21"
-down_revision: str | None = "4c880c225edd"
+down_revision: str | None = "8b4f5e7c8d9a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -58,6 +58,8 @@ def _foreign_key_exists(inspector, table_name: str, fk_name: str, existing_table
 
 def upgrade() -> None:
   """Apply RBAC schema changes while handling pre-existing tables."""
+  from sqlalchemy.dialects.postgresql import ENUM
+
   # Ensure enum types exist before columns reference them.
   # We use explicit SQL block to avoid race conditions/reflection issues with asyncpg.
   op.execute("DO $$ BEGIN CREATE TYPE role_level AS ENUM ('GLOBAL', 'TENANT'); EXCEPTION WHEN duplicate_object THEN null; END $$;")

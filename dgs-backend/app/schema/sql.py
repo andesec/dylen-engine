@@ -76,7 +76,6 @@ class User(Base):
   org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
   status: Mapped[UserStatus] = mapped_column(SAEnum(UserStatus, name="user_status"), default=UserStatus.PENDING, nullable=False)
   auth_method: Mapped[AuthMethod] = mapped_column(SAEnum(AuthMethod, name="auth_method"), default=AuthMethod.GOOGLE_SSO, nullable=False)
-  is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
   profession: Mapped[str | None] = mapped_column(String, nullable=True)
   city: Mapped[str | None] = mapped_column(String, nullable=True)
   country: Mapped[str | None] = mapped_column(String, nullable=True)
