@@ -32,6 +32,11 @@ format:
 format-check:
 	uv run ruff format --check .
 
+fix:
+	uv run ruff check --fix .
+	uv run ruff format .
+	@$(MAKE) lint
+
 lint:
 	uv run ruff check .
 
@@ -150,8 +155,8 @@ security-all: security-sca security-sast security-container
 .PHONY: gp
 
 gp:
-	@echo "Formatting with Ruff"
-	@$(MAKE) format
+	@echo "Running auto-fixes..."
+	@$(MAKE) fix
 	@echo "Committing and pushing changes..."
 	@git add -A
 	@msg="$(m)"; \

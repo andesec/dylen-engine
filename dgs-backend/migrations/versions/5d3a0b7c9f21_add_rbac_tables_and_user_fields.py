@@ -59,12 +59,14 @@ def _foreign_key_exists(inspector, table_name: str, fk_name: str, existing_table
 def upgrade() -> None:
   """Apply RBAC schema changes while handling pre-existing tables."""
   # Ensure enum types exist before columns reference them.
+  # We use explicit SQL block to avoid race conditions/reflection issues with asyncpg.
+  op.execute("DO $$ BEGIN CREATE TYPE role_level AS ENUM ('GLOBAL', 'TENANT'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+  op.execute("DO $$ BEGIN CREATE TYPE user_status AS ENUM ('PENDING', 'APPROVED', 'DISABLED'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+  op.execute("DO $$ BEGIN CREATE TYPE auth_method AS ENUM ('GOOGLE_SSO', 'NATIVE'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+
   role_level_enum = sa.Enum("GLOBAL", "TENANT", name="role_level")
-  role_level_enum.create(op.get_bind(), checkfirst=True)
   user_status_enum = sa.Enum("PENDING", "APPROVED", "DISABLED", name="user_status")
-  user_status_enum.create(op.get_bind(), checkfirst=True)
   auth_method_enum = sa.Enum("GOOGLE_SSO", "NATIVE", name="auth_method")
-  auth_method_enum.create(op.get_bind(), checkfirst=True)
 
   # Inspect existing schema to keep migration idempotent.
   inspector = inspect(op.get_bind())
