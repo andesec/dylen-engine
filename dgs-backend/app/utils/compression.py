@@ -2,7 +2,6 @@
 
 import brotli
 
-
 BROTLI_QUALITY = 11
 
 

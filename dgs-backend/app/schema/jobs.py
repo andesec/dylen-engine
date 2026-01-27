@@ -13,6 +13,7 @@ class Job(Base):
   job_id: Mapped[str] = mapped_column(String, primary_key=True)
   request: Mapped[dict] = mapped_column(JSONB, nullable=False)
   status: Mapped[str] = mapped_column(String, nullable=False)
+  target_agent: Mapped[str | None] = mapped_column(String, nullable=True)
   phase: Mapped[str] = mapped_column(String, nullable=False)
   subphase: Mapped[str | None] = mapped_column(String, nullable=True)
   expected_sections: Mapped[int | None] = mapped_column(Integer, nullable=True)

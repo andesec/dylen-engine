@@ -8,11 +8,15 @@ import os
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
+from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
 
+from app.ai.agents.fenster_builder import FensterBuilderAgent
 from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult
+from app.ai.pipeline.contracts import GenerationRequest, JobContext
+from app.ai.utils.cost import calculate_total_cost
 from app.ai.utils.progress import SectionProgressUpdate
 from app.api.models import GenerateLessonRequest, WritingCheckRequest
 from app.config import Settings
@@ -20,14 +24,18 @@ from app.core.database import get_session_factory
 from app.jobs.models import JobRecord
 from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
 from app.notifications.factory import build_notification_service
+from app.schema.fenster import FensterWidget, FensterWidgetType
 from app.schema.serialize_lesson import lesson_to_shorthand
+from app.schema.service import SchemaService
 from app.schema.validate_lesson import validate_lesson
+from app.ai.router import get_model_for_mode
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.services.users import get_user_by_id
 from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord
+from app.utils.compression import compress_html
 from app.utils.ids import generate_lesson_id
 from app.writing.orchestrator import WritingCheckOrchestrator
 
@@ -46,9 +54,79 @@ class JobProcessor:
     if job.status != "queued":
       return job
 
+    if job.target_agent == "fenster_builder":
+      return await self._process_fenster_build(job)
+
     if "text" in job.request and "criteria" in job.request:
       return await self._process_writing_check(job)
     return await self._process_lesson_generation(job)
+
+  async def _process_fenster_build(self, job: JobRecord) -> JobRecord | None:
+    """Execute Fenster Widget generation."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="fenster", initial_logs=["Fenster job picked up."])
+    await tracker.set_phase(phase="building", subphase="generating_code")
+
+    try:
+      provider = "gemini"
+      model_name = _DEFAULT_FENSTER_MODEL
+
+      model_instance = get_model_for_mode(provider, model_name, agent="fenster_builder")
+
+      schema_service = SchemaService()
+
+      usage_list = []
+
+      def usage_sink(u: dict[str, Any]) -> None:
+        usage_list.append(u)
+
+      agent = FensterBuilderAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
+
+      payload = job.request.get("payload", {})
+      # Use a dummy request for context
+      dummy_req = GenerationRequest(topic="widget_build", depth="highlights", section_count=2)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name, request=dummy_req)
+
+      html_content = await agent.run(payload, job_ctx)
+
+      # Compress
+      compressed = compress_html(html_content)
+
+      # Insert DB
+      fenster_id = uuid.uuid4()
+      session_factory = get_session_factory()
+      if session_factory:
+        async with session_factory() as session:
+          widget = FensterWidget(fenster_id=fenster_id, type=FensterWidgetType.INLINE_BLOB, content=compressed, url=None)
+          session.add(widget)
+          await session.commit()
+
+      # Calculate cost
+      total_cost = calculate_total_cost(usage_list)
+      cost_summary = _summarize_cost(usage_list, total_cost)
+      await tracker.set_cost(cost_summary)
+
+      completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+      result_json = {"fenster_id": str(fenster_id)}
+
+      payload = {
+        "status": "done",
+        "phase": "complete",
+        "progress": 100.0,
+        "logs": tracker.logs + ["Widget built and stored."],
+        "result_json": result_json,
+        "cost": cost_summary,
+        "completed_at": completed_at,
+      }
+      updated = await self._jobs_repo.update_job(job.job_id, **payload)
+      return updated
+
+    except Exception as exc:
+      self._logger.error("Fenster build failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Fenster build failed: {exc}")
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      await self._jobs_repo.update_job(job.job_id, **payload)
+      return None
 
   async def _process_lesson_generation(self, job: JobRecord) -> JobRecord | None:
     """Execute a single queued lesson generation job."""
@@ -380,6 +458,25 @@ class JobProcessor:
 
         await tracker.set_phase(phase=phase, subphase=subphase, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
 
+    async def _job_creator(target_agent: str, payload: dict[str, Any]) -> None:
+      new_job_id = str(uuid.uuid4())
+      timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+      request = {
+        "payload": payload,
+        "_meta": {"parent_job_id": job_id},
+      }
+      record = JobRecord(
+        job_id=new_job_id,
+        request=request,
+        status="queued",
+        target_agent=target_agent,
+        created_at=timestamp,
+        updated_at=timestamp,
+        phase="queued",
+        logs=[],
+      )
+      await self._jobs_repo.create_job(record)
+
     result = await orchestrator.generate_lesson(
       topic=topic,
       details=request_model.details,
@@ -396,6 +493,7 @@ class JobProcessor:
       progress_callback=_progress_callback,
       section_filter=retry_section_numbers,
       enable_repair=enable_repair,
+      job_creator=_job_creator,
     )
 
     merged_logs = list(_merge_logs(logs, result.logs))
@@ -489,6 +587,7 @@ def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str,
 
 
 _ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair", "stitcher"}
+_DEFAULT_FENSTER_MODEL = "gemini-2.0-flash-exp"
 
 
 def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:

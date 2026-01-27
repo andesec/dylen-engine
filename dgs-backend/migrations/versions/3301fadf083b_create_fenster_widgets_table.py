@@ -5,17 +5,16 @@ Revises: f2f00648b393
 Create Date: 2026-01-27 22:28:55.269925
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '3301fadf083b'
-down_revision: Union[str, Sequence[str], None] = 'f2f00648b393'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = 'f2f00648b393'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
