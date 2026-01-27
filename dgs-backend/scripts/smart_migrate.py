@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -25,8 +26,10 @@ logger = logging.getLogger("smart_migrate")
 
 def run_command(cmd, check=True, cwd=None):
   logger.info(f"Running: {cmd}")
+  if isinstance(cmd, str):
+    cmd = shlex.split(cmd)
   try:
-    result = subprocess.run(cmd, shell=True, check=check, capture_output=True, text=True, cwd=cwd)
+    result = subprocess.run(cmd, shell=False, check=check, capture_output=True, text=True, cwd=cwd)
     if result.stdout:
       logger.info(result.stdout.strip())
     if result.stderr:

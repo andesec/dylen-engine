@@ -16,7 +16,7 @@ from app.services.quotas import QuotaExceededError, ResolvedQuota, consume_quota
 logger = logging.getLogger(__name__)
 
 
-async def get_db_session(session: AsyncSession = Depends(get_db)) -> AsyncSession:
+async def get_db_session(session: AsyncSession = Depends(get_db)) -> AsyncSession:  # noqa: B008
   """Dependency to get the database session."""
   return session
 

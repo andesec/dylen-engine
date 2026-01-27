@@ -1,7 +1,7 @@
+import logging
+import os
 import subprocess
 import sys
-import os
-import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("entrypoint")
