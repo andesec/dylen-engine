@@ -31,6 +31,19 @@ class SignupRequest(BaseModel):
   photo_url: str | None = Field(None, alias="photoUrl")
 
 
+class SignupUser(BaseModel):
+  email: str
+  status: UserStatus
+  id: str
+  role: dict[str, Any]
+  org_id: str | None
+
+
+class SignupResponse(BaseModel):
+  status: str
+  user: SignupUser
+
+
 @router.post("/login")
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
   """
@@ -76,8 +89,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> di
   }
 
 
-@router.post("/signup")
-async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+@router.post("/signup", response_model=SignupResponse)
+async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> SignupResponse:  # noqa: B008
   """
   Register a new user.
   """
@@ -146,4 +159,4 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to sync user claims") from e
 
   logger.info("Signup successful. Created user: %s", user.email)
-  return {"status": "success", "user": {"email": user.email, "status": user.status, "id": str(user.id), "role": {"id": str(default_role.id), "name": default_role.name, "level": default_role.level}, "org_id": None}}
+  return SignupResponse(status="success", user=SignupUser(email=user.email, status=user.status, id=str(user.id), role={"id": str(default_role.id), "name": default_role.name, "level": default_role.level}, org_id=None))

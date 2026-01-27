@@ -5,6 +5,7 @@ import firebase_admin
 from firebase_admin import auth, credentials
 
 from app.config import get_settings
+from app.schema.sql import RoleLevel, UserStatus
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def set_custom_claims(firebase_uid: str, claims: dict[str, Any]) -> None:
   auth.set_custom_user_claims(firebase_uid, claims)
 
 
-def build_rbac_claims(*, role_id: str, role_name: str, role_level: Any, org_id: str | None, status: Any) -> dict[str, Any]:
+def build_rbac_claims(*, role_id: str, role_name: str, role_level: RoleLevel | Any, org_id: str | None, status: UserStatus | Any) -> dict[str, Any]:
   """Build RBAC claims payloads so token checks are consistent across services."""
   # Normalize enum values so Firebase receives plain JSON values.
   role_level_value = role_level.value if hasattr(role_level, "value") else role_level

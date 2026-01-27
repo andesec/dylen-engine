@@ -15,7 +15,7 @@ from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = "5d3a0b7c9f21"
-down_revision: str | None = "459aa50bdc5e"
+down_revision: str | None = "8b4f5e7c8d9a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -58,13 +58,15 @@ def _foreign_key_exists(inspector, table_name: str, fk_name: str, existing_table
 
 def upgrade() -> None:
   """Apply RBAC schema changes while handling pre-existing tables."""
+  from sqlalchemy.dialects.postgresql import ENUM
+
   # Ensure enum types exist before columns reference them.
-  role_level_enum = sa.Enum("GLOBAL", "TENANT", name="role_level")
-  role_level_enum.create(op.get_bind(), checkfirst=True)
-  user_status_enum = sa.Enum("PENDING", "APPROVED", "DISABLED", name="user_status")
-  user_status_enum.create(op.get_bind(), checkfirst=True)
-  auth_method_enum = sa.Enum("GOOGLE_SSO", "NATIVE", name="auth_method")
-  auth_method_enum.create(op.get_bind(), checkfirst=True)
+  role_level_enum = ENUM("GLOBAL", "TENANT", name="role_level", create_type=False)
+  # role_level_enum.create(op.get_bind(), checkfirst=True)
+  user_status_enum = ENUM("PENDING", "APPROVED", "DISABLED", name="user_status", create_type=False)
+  # user_status_enum.create(op.get_bind(), checkfirst=True)
+  auth_method_enum = ENUM("GOOGLE_SSO", "NATIVE", name="auth_method", create_type=False)
+  # auth_method_enum.create(op.get_bind(), checkfirst=True)
 
   # Inspect existing schema to keep migration idempotent.
   inspector = inspect(op.get_bind())

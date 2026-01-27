@@ -158,7 +158,7 @@ async def main():
 
       if not missing_tables and not missing_user_columns:
         logger.info("   -> Expected RBAC tables/columns present; stamping database as 'head'...")
-        run_command([sys.executable, "-m", "alembic", "stamp", "head"])
+        run_command([sys.executable, "-m", "alembic", "stamp", "heads"])
       else:
         logger.info("   -> Missing tables: %s", ", ".join(sorted(missing_tables)) if missing_tables else "(none)")
         logger.info("   -> Missing user columns: %s", ", ".join(sorted(missing_user_columns)) if missing_user_columns else "(none)")

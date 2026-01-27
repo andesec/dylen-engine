@@ -53,7 +53,27 @@ def get_audit_repo() -> PostgresLlmAuditRepository:
   return PostgresLlmAuditRepository()
 
 
-class UserApprovalResponse(BaseModel):
+async def check_tenant_permissions(db_session: AsyncSession, current_user: User, target_org_id: uuid.UUID | None = None) -> Role:
+  """
+  Verifies that the current user has permission to access resources for the target organization.
+  Returns the current user's role.
+  """
+  role = await get_role_by_id(db_session, current_user.role_id)
+  if role is None:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Requester role missing.")
+
+  if role.level == RoleLevel.TENANT:
+    if current_user.org_id is None:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+
+    # If target_org_id provided, verify match
+    if target_org_id and current_user.org_id != target_org_id:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+
+  return role
+
+
+class UserStatusResponse(BaseModel):
   id: str
   email: str
   status: UserStatus
@@ -146,16 +166,12 @@ async def update_role_permissions(role_id: str, request: RolePermissionsUpdateRe
 async def list_user_accounts(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), current_user: User = Depends(get_current_admin_user), db_session: AsyncSession = Depends(get_db)) -> PaginatedResponse[UserRecord]:  # noqa: B008
   """List users with tenant scoping for org admins."""
   # Determine tenant scoping based on the requesting user's role.
-  role = await get_role_by_id(db_session, current_user.role_id)
-  if role is None:
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Requester role missing.")
+  role = await check_tenant_permissions(db_session, current_user)
 
   # Apply org filtering for tenant-scoped admins.
   org_filter = None
+  org_filter = None
   if role.level == RoleLevel.TENANT:
-    if current_user.org_id is None:
-      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
-
     org_filter = current_user.org_id
 
   # Load users with pagination and tenant scoping applied.
@@ -165,8 +181,8 @@ async def list_user_accounts(limit: int = Query(20, ge=1, le=100), offset: int =
   return PaginatedResponse(items=records, total=total, limit=limit, offset=offset)
 
 
-@router.patch("/users/{user_id}/status", response_model=UserApprovalResponse)
-async def update_user_account_status(user_id: str, request: UserStatusUpdateRequest, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)) -> UserApprovalResponse:  # noqa: B008
+@router.patch("/users/{user_id}/status", response_model=UserStatusResponse)
+async def update_user_account_status(user_id: str, request: UserStatusUpdateRequest, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Update a user's approval status and refresh RBAC claims."""
   # Validate user id inputs early to avoid leaking query behavior.
   try:
@@ -180,15 +196,7 @@ async def update_user_account_status(user_id: str, request: UserStatusUpdateRequ
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
   # Enforce tenant scoping for org admins.
-  current_role = await get_role_by_id(db_session, current_user.role_id)
-  if current_role is None:
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Requester role missing.")
-
-  if current_role.level == RoleLevel.TENANT and current_user.org_id != user.org_id:
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
-
-  if current_role.level == RoleLevel.TENANT and current_user.org_id is None:
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+  await check_tenant_permissions(db_session, current_user, target_org_id=user.org_id)
 
   # Persist status before syncing notifications or claims.
   user = await update_user_status(db_session, user=user, status=request.status)
@@ -205,11 +213,11 @@ async def update_user_account_status(user_id: str, request: UserStatusUpdateRequ
   if user.status == UserStatus.APPROVED:
     await build_notification_service(settings).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)
 
-  return UserApprovalResponse(id=str(user.id), email=user.email, status=user.status)
+  return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/role", response_model=UserApprovalResponse)
-async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserApprovalResponse:  # noqa: B008
+@router.patch("/users/{user_id}/role", response_model=UserStatusResponse)
+async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Update a user's role assignment and refresh RBAC claims."""
   # Validate user id inputs early to avoid leaking query behavior.
   try:
@@ -229,15 +237,7 @@ async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest,
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
   # Enforce tenant scoping for org admins.
-  current_role = await get_role_by_id(db_session, current_user.role_id)
-  if current_role is None:
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Requester role missing.")
-
-  if current_role.level == RoleLevel.TENANT and current_user.org_id != user.org_id:
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
-
-  if current_role.level == RoleLevel.TENANT and current_user.org_id is None:
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+  current_role = await check_tenant_permissions(db_session, current_user, target_org_id=user.org_id)
 
   # Ensure the target role exists before assignment.
   new_role = await get_role_by_id(db_session, parsed_role_id)
@@ -255,11 +255,11 @@ async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest,
   claims = build_rbac_claims(role_id=str(new_role.id), role_name=new_role.name, role_level=new_role.level, org_id=str(user.org_id) if user.org_id else None, status=user.status)
   await run_in_threadpool(set_custom_claims, user.firebase_uid, claims)
 
-  return UserApprovalResponse(id=str(user.id), email=user.email, status=user.status)
+  return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/approve", response_model=UserApprovalResponse, dependencies=[Depends(get_current_admin_user)])
-async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)) -> UserApprovalResponse:  # noqa: B008
+@router.patch("/users/{user_id}/approve", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user)])
+async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)) -> UserStatusResponse:  # noqa: B008
   """Approve a user account and notify the user."""
   # Validate user id inputs early to avoid leaking query behavior.
   try:
@@ -274,7 +274,7 @@ async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db),
 
   # Avoid resending notifications on repeated approval calls.
   if user.status == UserStatus.APPROVED:
-    return UserApprovalResponse(id=str(user.id), email=user.email, status=user.status)
+    return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
   # Persist approval before notifying so delivery failures cannot block access.
   user = await update_user_status(db_session, user=user, status=UserStatus.APPROVED)
@@ -287,7 +287,7 @@ async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db),
 
   # Notify the user on best-effort basis.
   await build_notification_service(settings).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)
-  return UserApprovalResponse(id=str(user.id), email=user.email, status=user.status)
+  return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
 @router.get("/jobs", response_model=PaginatedResponse[JobRecord], dependencies=[Depends(get_current_admin_user)])
