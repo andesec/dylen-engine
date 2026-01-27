@@ -34,6 +34,7 @@ class Settings:
   structurer_model_best: str | None
   repair_provider: str
   repair_model: str | None
+  research_model: str | None
   prompt_version: str
   schema_version: str
   merge_gatherer_structurer: bool
@@ -155,6 +156,7 @@ def get_settings() -> Settings:
     structurer_model_best=os.getenv("DGS_STRUCTURER_MODEL_BEST"),
     repair_provider=os.getenv("DGS_REPAIR_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "gemini")),
     repair_model=os.getenv("DGS_REPAIR_MODEL", "google/gemma-3-27b-it:free"),
+    research_model=os.getenv("DGS_RESEARCH_MODEL", "gemini-1.5-pro"),
     prompt_version=os.getenv("DGS_PROMPT_VERSION", "v1"),
     schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
     merge_gatherer_structurer=_parse_bool(os.getenv("MERGE_GATHERER_STRUCTURER")),
