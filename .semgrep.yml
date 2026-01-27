@@ -11,18 +11,6 @@ rules:
 # These will be specified via CLI: --config p/security-audit --config p/python --config p/owasp-top-ten
 # This file is for custom rules specific to your application
 
-# Example custom rule (commented out):
-# rules:
-#   - id: hardcoded-dgs-key
-#     patterns:
-#       - pattern: DGS_DEV_KEY = "..."
-#     message: Hardcoded DGS_DEV_KEY found
-#     languages: [python]
-#     severity: ERROR
-#     metadata:
-#       cwe: "CWE-798: Use of Hard-coded Credentials"
-#       owasp: "A07:2021 - Identification and Authentication Failures"
-
 # Paths to exclude from scanning
 paths:
   exclude:

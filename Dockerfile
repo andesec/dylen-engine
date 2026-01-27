@@ -34,7 +34,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8002
 
 # Run the application.
-CMD ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["dgs-backend/entrypoint.py"]
 
 # ---------- Debug Stage ----------
 FROM cgr.dev/chainguard/python@sha256:5c94ee31386cfbb226a41312a05f8f61b0d08635fc13812891be062c334d5428 AS debug

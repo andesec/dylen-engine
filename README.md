@@ -36,7 +36,6 @@ your deployment system. The app will fail fast if required values are missing.
 
 Required:
 
-- `DGS_DEV_KEY`: Shared secret required via the `X-DGS-Dev-Key` request header.
 - `DGS_ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins (no `*`).
 
 Provider secrets (required when wiring real providers or deploying with SAM):
@@ -85,5 +84,3 @@ make lint
 make typecheck
 make test
 ```
-
-

@@ -64,7 +64,6 @@ jobs:
       - name: Pytest
         env:
           DGS_PG_DSN: postgresql://dgs:dgs_password@localhost:5432/dgs_db
-          DGS_DEV_KEY: test-key
           DGS_ALLOWED_ORIGINS: http://localhost
           DGS_JOBS_AUTO_PROCESS: "0"
           FIREBASE_PROJECT_ID: test-project
@@ -283,7 +282,6 @@ jobs:
       - name: Run Docker container
         run: |
           docker run -d --name dgs-backend-test \
-            -e DGS_DEV_KEY=test-key \
             -e DGS_ALLOWED_ORIGINS=http://localhost:3000 \
             -p 8002:8002 \
             dgs-backend:test
@@ -344,7 +342,7 @@ jobs:
             --service-account=${{ secrets.GCP_CLOUD_RUN_SERVICE_ACCOUNT }} \
             --add-cloudsql-instances=${{ secrets.GCP_CLOUD_SQL_INSTANCE }} \
             --set-env-vars="INSTANCE_CONNECTION_NAME=${{ secrets.GCP_CLOUD_SQL_INSTANCE }}" \
-            --set-secrets="DGS_DEV_KEY=dgs-dev-key:latest,DGS_PG_DSN=dgs-db-connection-string:latest,OPENROUTER_API_KEY=openrouter-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
+            --set-secrets="DGS_PG_DSN=dgs-db-connection-string:latest,OPENROUTER_API_KEY=openrouter-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
             --allow-unauthenticated \
             --memory=512Mi \
             --cpu=1 \
@@ -366,4 +364,3 @@ jobs:
         run: |
           sleep 10
           curl -f ${{ steps.get-url.outputs.url }}/health || echo "Health check failed"
-

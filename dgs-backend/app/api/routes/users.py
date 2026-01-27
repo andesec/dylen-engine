@@ -3,9 +3,11 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_quota
 from app.core.database import get_db
 from app.core.security import get_current_active_user
 from app.schema.sql import User
+from app.services.quotas import ResolvedQuota
 from app.services.rbac import get_role_by_id
 
 router = APIRouter()
@@ -38,3 +40,11 @@ async def get_my_profile(current_user: User = Depends(get_current_active_user), 
     "role": {"id": str(role.id), "name": role.name, "level": role.level},
     "org_id": str(current_user.org_id) if current_user.org_id else None,
   }
+
+
+@router.get("/me/quota", response_model=ResolvedQuota)
+async def get_my_quota(quota: ResolvedQuota = Depends(get_quota)) -> ResolvedQuota:  # noqa: B008
+  """
+  Get the current user's quota and subscription tier.
+  """
+  return quota

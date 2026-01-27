@@ -50,8 +50,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> di
 
   # Extract identity details for downstream lookups.
   firebase_uid = decoded_token.get("uid")
-  email = decoded_token.get("email")
-  logger.debug("Token verified. UID: %s, Email: %s", firebase_uid, email)
+  # Masked email for debug if needed, but prefer not logging it at all.
+  logger.debug("Token verified. UID: %s", firebase_uid)
 
   if not firebase_uid:
     logger.error("Login failed: Token missing uid")
@@ -97,7 +97,7 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
   firebase_uid = decoded_token.get("uid")
   token_email = decoded_token.get("email")
   provider_id = decoded_token.get("firebase", {}).get("sign_in_provider")
-  logger.debug("Signup token verified. UID: %s, Email: %s, Provider: %s", firebase_uid, token_email, provider_id)
+  logger.debug("Signup token verified. UID: %s, Provider: %s", firebase_uid, provider_id)
 
   if not firebase_uid or not token_email:
     logger.error("Signup failed: Token missing uid or email")
@@ -134,7 +134,7 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
       auth_method=resolve_auth_method(provider_id),
     )
   except Exception as e:
-    logger.error("Signup failed: Database error during creation for %s: %s", token_email, e, exc_info=True)
+    logger.error("Signup failed: Database error during creation for UID %s: %s", firebase_uid, e, exc_info=True)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user") from e
 
   # Sync initial RBAC claims to Firebase for fast middleware checks.

@@ -305,11 +305,6 @@ These are stored in GCP Secret Manager and accessed by Cloud Run:
 ### Step 12: Create Application Secrets
 
 ```bash
-# DGS Dev Key (for API authentication)
-echo -n "your-secure-dev-key-here" | gcloud secrets create dgs-dev-key \
-  --data-file=- \
-  --replication-policy="automatic"
-
 # OpenRouter API Key
 echo -n "your-openrouter-api-key" | gcloud secrets create openrouter-api-key \
   --data-file=- \
@@ -321,7 +316,7 @@ echo -n "your-gemini-api-key" | gcloud secrets create gemini-api-key \
   --replication-policy="automatic"
 
 # Grant Cloud Run service account access to secrets
-for secret in dgs-db-password dgs-dev-key openrouter-api-key gemini-api-key; do
+for secret in dgs-db-password openrouter-api-key gemini-api-key; do
   gcloud secrets add-iam-policy-binding $secret \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="roles/secretmanager.secretAccessor"
@@ -362,7 +357,7 @@ gcloud run deploy dgs-backend \
   --service-account=$SA_EMAIL \
   --add-cloudsql-instances=$SQL_CONNECTION_NAME \
   --set-env-vars="DGS_PG_DSN=/cloudsql/${SQL_CONNECTION_NAME}" \
-  --set-secrets="DGS_DEV_KEY=dgs-dev-key:latest,OPENROUTER_API_KEY=openrouter-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
+  --set-secrets="OPENROUTER_API_KEY=openrouter-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
   --allow-unauthenticated \
   --memory=512Mi \
   --cpu=1 \
@@ -384,7 +379,7 @@ echo "✅ Service deployed at: $SERVICE_URL"
 curl $SERVICE_URL/health
 
 # Test API
-curl -H "X-DGS-Dev-Key: your-dev-key" $SERVICE_URL/api/endpoint
+curl $SERVICE_URL/api/endpoint
 ```
 
 ---

@@ -7,7 +7,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Ensure required settings are available before importing the app.
-os.environ["DGS_DEV_KEY"] = "test-key"
 os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
 os.environ["DGS_JOBS_AUTO_PROCESS"] = "0"
 
@@ -54,9 +53,9 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
   def _fake_repo(_settings: object) -> InMemoryJobsRepo:
     return repo
 
-  monkeypatch.setattr("app.api.routes.jobs._get_jobs_repo", _fake_repo)
+  monkeypatch.setattr("app.services.jobs._get_jobs_repo", _fake_repo)
 
-  # Override get_settings to ensure DGS_DEV_KEY is set correctly.
+  # Override get_settings to ensure settings are correct.
   from app.config import get_settings
 
   # We can just use the real get_settings since env vars are set at module level
@@ -71,6 +70,13 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
     return User(id="test-user-id", email="test@example.com", is_approved=True)
 
   app.dependency_overrides[get_current_active_user] = _get_current_active_user_override
+
+  from app.core.database import get_db
+
+  async def _get_db_override():
+    yield None
+
+  app.dependency_overrides[get_db] = _get_db_override
 
   client = TestClient(app)
   headers = {}
