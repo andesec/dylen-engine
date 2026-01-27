@@ -1,4 +1,3 @@
-import asyncio
 from sqlalchemy import create_engine, inspect
 
 # Sync engine for inspection

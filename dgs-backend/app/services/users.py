@@ -10,8 +10,10 @@ import logging
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schema.quotas import SubscriptionTier, UserUsageMetrics
 from app.schema.sql import User
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,7 @@ async def create_user(session: AsyncSession, *, firebase_uid: str, email: str, f
   session.add(user)
   await session.commit()
   await session.refresh(user)
+  await ensure_usage_row(session, user.id)
   return user
 
 
@@ -65,3 +68,26 @@ async def approve_user(session: AsyncSession, *, user: User) -> User:
   await session.commit()
   await session.refresh(user)
   return user
+
+
+async def ensure_usage_row(session: AsyncSession, user_id: uuid.UUID, *, tier_id: int | None = None) -> UserUsageMetrics:
+  """Ensure a usage metrics row exists for the user using atomic UPSERT."""
+
+  # Default to provided tier or 'Free' tier if not specified.
+  if tier_id is None:
+    tier_stmt = select(SubscriptionTier).where(SubscriptionTier.name == "Free")
+    tier_result = await session.execute(tier_stmt)
+    free_tier = tier_result.scalar_one_or_none()
+    if not free_tier:
+      # Critical configuration error: 'Free' tier must exist.
+      raise RuntimeError("Default 'Free' subscription tier not found in database. Seed data missing?")
+    tier_id = free_tier.id
+
+  # Use INSERT ... ON CONFLICT DO NOTHING for atomic consistency
+  stmt = insert(UserUsageMetrics).values(user_id=user_id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0).on_conflict_do_nothing(index_elements=["user_id"])
+
+  await session.execute(stmt)
+  await session.commit()
+
+  # Fetch the row, which is now guaranteed to exist (either inserted or already there)
+  return await session.get(UserUsageMetrics, user_id)

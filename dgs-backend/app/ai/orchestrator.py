@@ -15,7 +15,7 @@ from app.ai.providers.base import AIModel
 from app.ai.router import get_model_for_mode
 from app.ai.utils.artifacts import build_failure_snapshot, build_partial_lesson
 from app.ai.utils.cost import calculate_total_cost
-from app.ai.utils.progress import SectionProgressUpdate, SectionStatus, create_section_progress
+from app.ai.utils.progress import SectionProgressUpdate, create_section_progress
 from app.schema.service import SchemaService
 
 OptStr = str | None

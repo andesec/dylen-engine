@@ -2,7 +2,6 @@ import os
 
 # Mock environment to match what we see
 os.environ["DGS_ALLOWED_ORIGINS"] = "https://app.dle.orb.local,"
-os.environ["DGS_DEV_KEY"] = "test"
 
 # Import the config parsing logic
 from app.config import _parse_origins

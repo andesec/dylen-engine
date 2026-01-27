@@ -10,7 +10,6 @@ from app.services import model_routing
 def test_vertex_model_prefix_routes_to_vertexai_provider() -> None:
   """Ensure vertex-* model ids infer the Vertex AI provider."""
   # Provide required settings for get_settings.
-  os.environ["DGS_DEV_KEY"] = "test-key"
   os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
   os.environ["DGS_GATHERER_PROVIDER"] = "openrouter"
   os.environ["DGS_PLANNER_PROVIDER"] = "openrouter"
@@ -28,7 +27,6 @@ def test_vertex_model_prefix_routes_to_vertexai_provider() -> None:
 def test_unprefixed_unknown_model_keeps_fallback_provider() -> None:
   """Ensure unknown model ids do not change provider routing."""
   # Provide required settings for get_settings.
-  os.environ["DGS_DEV_KEY"] = "test-key"
   os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
   os.environ["DGS_PLANNER_PROVIDER"] = "openrouter"
   settings = get_settings.__wrapped__()

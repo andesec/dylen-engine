@@ -2,9 +2,9 @@ import asyncio
 import os
 import sys
 
-from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 from sqlalchemy.engine.url import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
 
 # Add the project root to the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

@@ -37,7 +37,6 @@ README.md
 # Project-specific
 **/tests/
 **/docs/
-**/scripts/
 .github/
 
 .DS_Store
