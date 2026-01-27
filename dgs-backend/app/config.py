@@ -15,7 +15,6 @@ load_env_file(default_env_path(), override=False)
 class Settings:
   """Typed settings for the DGS service."""
 
-  dev_key: str
   environment: str
   backup_dir: str
   allowed_origins: list[str]
@@ -88,11 +87,6 @@ def _parse_bool(raw: str | None) -> bool:
 def get_settings() -> Settings:
   """Load settings once per process."""
 
-  dev_key = os.getenv("DGS_DEV_KEY", "").strip()
-
-  if not dev_key:
-    raise ValueError("DGS_DEV_KEY must be set to a non-empty value.")
-
   environment = os.getenv("DGS_ENV", "development").lower()
   backup_dir = os.getenv("DGS_BACKUP_DIR", "./backups").strip()
 
@@ -141,7 +135,6 @@ def get_settings() -> Settings:
       raise ValueError("DGS_MAILERSEND_TIMEOUT_SECONDS must be a positive integer.")
 
   return Settings(
-    dev_key=dev_key,
     environment=environment,
     backup_dir=backup_dir,
     allowed_origins=_parse_origins(os.getenv("DGS_ALLOWED_ORIGINS")),

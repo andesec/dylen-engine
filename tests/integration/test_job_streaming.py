@@ -7,7 +7,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Ensure required settings are available before importing the app.
-os.environ["DGS_DEV_KEY"] = "test-key"
 os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
 os.environ["DGS_JOBS_AUTO_PROCESS"] = "0"
 
@@ -56,7 +55,7 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
 
   monkeypatch.setattr("app.services.jobs._get_jobs_repo", _fake_repo)
 
-  # Override get_settings to ensure DGS_DEV_KEY is set correctly.
+  # Override get_settings to ensure settings are correct.
   from app.config import get_settings
 
   # We can just use the real get_settings since env vars are set at module level

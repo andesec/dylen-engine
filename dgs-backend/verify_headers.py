@@ -8,9 +8,6 @@ try:
 
   req = urllib.request.Request(url)
   req.add_header("Origin", "https://app.dle.orb.local")
-  # Add dev key if needed, assuming 'local-dev-secret-key' from env
-  dev_key = os.environ.get("DGS_DEV_KEY", "local-dev-secret-key")
-  req.add_header("x-dgs-dev-key", dev_key)
 
   with urllib.request.urlopen(req) as response:
     print(f"Status: {response.getcode()}")
