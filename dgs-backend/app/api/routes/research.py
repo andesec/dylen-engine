@@ -23,7 +23,8 @@ async def discover(request: ResearchDiscoveryRequest, agent: Annotated[ResearchA
   Performs initial web search and returns candidate URLs.
   Requires authentication.
   """
-  return await agent.discover(query=request.query, context=request.context)
+  # Enforce that the discovery is logged for the calling user
+  return await agent.discover(query=request.query, user_id=str(current_user.id), context=request.context)
 
 
 @router.post("/synthesize", response_model=ResearchSynthesisResponse)

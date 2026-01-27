@@ -15,6 +15,7 @@ load_env_file(default_env_path(), override=False)
 class Settings:
   """Typed settings for the DGS service."""
 
+  app_id: str
   environment: str
   backup_dir: str
   allowed_origins: list[str]
@@ -89,6 +90,7 @@ def _parse_bool(raw: str | None) -> bool:
 def get_settings() -> Settings:
   """Load settings once per process."""
 
+  app_id = os.getenv("DGS_APP_ID", "dgs").strip()
   environment = os.getenv("DGS_ENV", "development").lower()
   backup_dir = os.getenv("DGS_BACKUP_DIR", "./backups").strip()
 
@@ -137,6 +139,7 @@ def get_settings() -> Settings:
       raise ValueError("DGS_MAILERSEND_TIMEOUT_SECONDS must be a positive integer.")
 
   return Settings(
+    app_id=app_id,
     environment=environment,
     backup_dir=backup_dir,
     allowed_origins=_parse_origins(os.getenv("DGS_ALLOWED_ORIGINS")),

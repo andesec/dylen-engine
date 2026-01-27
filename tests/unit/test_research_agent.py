@@ -43,7 +43,7 @@ async def test_discover(mock_gemini_provider, mock_tavily_provider):
   mock_tavily_instance.search = AsyncMock(return_value={"results": [{"title": "Test Title", "url": "http://test.com", "content": "Test content"}]})
 
   agent = ResearchAgent()
-  result = await agent.discover("test query")
+  result = await agent.discover("test query", "user123")
 
   assert len(result.sources) == 1
   assert result.sources[0].title == "Test Title"

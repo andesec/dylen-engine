@@ -34,13 +34,14 @@ class ResearchAgent:
     self.synthesis_model_name = settings.research_model or "gemini-1.5-pro"
     self.router_model_name = "gemini-1.5-flash"  # Fast model for routing
 
-  async def discover(self, query: str, context: str | None = None) -> ResearchDiscoveryResponse:
+  async def discover(self, query: str, user_id: str, context: str | None = None) -> ResearchDiscoveryResponse:
     """
     Discover sources for a given query.
 
     1. Classify intent.
     2. Enhance query.
     3. Search Tavily.
+    4. Log to Firestore.
     """
     # 1. Router
     category = await self._classify_query(query)
@@ -67,6 +68,14 @@ class ResearchAgent:
     candidates = []
     for result in search_result.get("results", []):
       candidates.append(CandidateSource(title=result.get("title", ""), url=result.get("url", ""), snippet=result.get("content", "")))
+
+    # 4. Log to Firestore
+    try:
+      # We log the raw search result or the candidates. Logging candidates is cleaner.
+      log_entry = {"action": "discover", "query": query, "context": context, "category": category, "search_query": search_query, "candidates": [c.model_dump() for c in candidates]}
+      await run_in_threadpool(self._log_to_firestore, user_id=user_id, data=log_entry)
+    except Exception as e:
+      logger.error(f"Firestore logging for discover failed: {e}")
 
     return ResearchDiscoveryResponse(sources=candidates)
 
@@ -100,7 +109,7 @@ class ResearchAgent:
 
     # 3. Prompting
     prompt = f"""Synthesize an answer using ONLY the provided context.
-Use numeric citations [{1}].
+Use numeric citations [1].
 Format the output in clean Markdown.
 
 Query: {query}
@@ -124,7 +133,8 @@ Context:
 
     # 5. Storage (Firestore)
     try:
-      await run_in_threadpool(self._log_to_firestore, user_id, query, sources_out)
+      log_entry = {"action": "synthesize", "query": query, "sources": sources_out}
+      await run_in_threadpool(self._log_to_firestore, user_id=user_id, data=log_entry)
     except Exception as e:
       logger.error(f"Firestore logging failed: {e}")
       # We don't fail the request if logging fails, but we log the error.
@@ -173,20 +183,23 @@ Query: {query}"""
 
     return crawled_data
 
-  def _log_to_firestore(self, user_id: str, query: str, sources: list[dict[str, Any]]) -> None:
-    """Logs the research synthesis to Firestore."""
+  def _log_to_firestore(self, user_id: str, data: dict[str, Any]) -> None:
+    """Logs the research activity to Firestore."""
     try:
+      settings = get_settings()
       db = firestore.client()
-      app_id = "dgs"
+      app_id = settings.app_id
       timestamp = datetime.now(datetime.UTC)
+
+      payload = {**data, "timestamp": timestamp, "user_id": user_id}
 
       # Log to Public
       public_ref = db.collection("artifacts").document(app_id).collection("public").document("data").collection("research_logs")
-      public_ref.add({"query": query, "sources": sources, "timestamp": timestamp, "user_id": user_id})
+      public_ref.add(payload)
 
       # Log to User
       user_ref = db.collection("artifacts").document(app_id).collection("users").document(user_id).collection("search_history")
-      user_ref.add({"query": query, "sources": sources, "timestamp": timestamp})
+      user_ref.add(payload)
     except Exception as e:
       logger.error(f"Failed to log to Firestore: {e}")
       raise
