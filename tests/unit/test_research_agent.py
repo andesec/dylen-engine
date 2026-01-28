@@ -18,12 +18,6 @@ def mock_tavily_provider():
 
 
 @pytest.fixture
-def mock_crawler():
-  with patch("app.ai.agents.research.AsyncWebCrawler") as mock:
-    yield mock
-
-
-@pytest.fixture
 def mock_firestore():
   with patch("app.ai.agents.research.firestore") as mock:
     yield mock
@@ -57,7 +51,7 @@ async def test_discover(mock_gemini_provider, mock_tavily_provider):
 
 
 @pytest.mark.anyio
-async def test_synthesize(mock_gemini_provider, mock_tavily_provider, mock_crawler, mock_firestore):
+async def test_synthesize(mock_gemini_provider, mock_tavily_provider, mock_firestore):
   # Setup Mocks
   mock_gemini_instance = mock_gemini_provider.return_value
   mock_model = MagicMock()
@@ -67,29 +61,25 @@ async def test_synthesize(mock_gemini_provider, mock_tavily_provider, mock_crawl
   mock_model.generate = AsyncMock(return_value=mock_response)
   mock_gemini_instance.get_model.return_value = mock_model
 
-  # Crawler Mock
-  mock_crawler_instance = mock_crawler.return_value
-  mock_crawler_instance.__aenter__.return_value = mock_crawler_instance
-  mock_crawler_instance.__aexit__.return_value = None
+  # Crawler Mock (Mock internal method)
+  mock_crawled_data = [{"url": "http://url.com", "markdown": "Markdown content", "title": "Title"}]
 
-  mock_crawl_result = MagicMock()
-  mock_crawl_result.success = True
-  mock_crawl_result.markdown = "Markdown content"
-  mock_crawler_instance.arun = AsyncMock(return_value=mock_crawl_result)
+  with patch("app.ai.agents.research.ResearchAgent._crawl_urls", new_callable=AsyncMock) as mock_crawl_urls:
+    mock_crawl_urls.return_value = mock_crawled_data
 
-  # Firestore Mock
-  mock_db = MagicMock()
-  mock_firestore.client.return_value = mock_db
+    # Firestore Mock
+    mock_db = MagicMock()
+    mock_firestore.client.return_value = mock_db
 
-  agent = ResearchAgent()
-  result = await agent.synthesize("query", ["http://url.com"], "user123")
+    agent = ResearchAgent()
+    result = await agent.synthesize("query", ["http://url.com"], "user123")
 
-  assert result.answer == "Synthesized Answer"
-  assert len(result.sources) == 1
+    assert result.answer == "Synthesized Answer"
+    assert len(result.sources) == 1
 
-  # Verify calls
-  mock_crawler_instance.arun.assert_called()
-  mock_model.generate.assert_called()
+    # Verify calls
+    mock_crawl_urls.assert_called_with(["http://url.com"])
+    mock_model.generate.assert_called()
   # Firestore should be called (via run_in_threadpool which calls _log_to_firestore)
   # We can't easily verify the threadpool execution result here without more complex mocking,
   # but we can assume if no exception raised it worked or logged error.

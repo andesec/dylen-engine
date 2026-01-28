@@ -287,7 +287,7 @@ jobs:
             dgs-backend:test
 
       - name: Wait for service to start
-        run: sleep 5
+        run: sleep 10
 
       - name: Check health
         run: |

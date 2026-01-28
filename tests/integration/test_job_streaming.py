@@ -13,7 +13,7 @@ os.environ["DGS_JOBS_AUTO_PROCESS"] = "0"
 from app.core.security import get_current_active_user  # noqa: E402
 from app.jobs.models import JobRecord  # noqa: E402
 from app.main import app  # noqa: E402
-from app.schema.sql import User  # noqa: E402
+from app.schema.sql import User, UserStatus  # noqa: E402
 
 
 class InMemoryJobsRepo:
@@ -67,7 +67,7 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
 
   # Override auth to bypass security
   def _get_current_active_user_override():
-    return User(id="test-user-id", email="test@example.com", is_approved=True)
+    return User(id="test-user-id", email="test@example.com", status=UserStatus.APPROVED)
 
   app.dependency_overrides[get_current_active_user] = _get_current_active_user_override
 

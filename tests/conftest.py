@@ -22,6 +22,7 @@ from app.main import app  # noqa: E402
 @pytest.fixture
 def mock_db_session():
   session = AsyncMock()
+  session.add = MagicMock()
   # Mock execute result
   result = MagicMock()
   result.scalar_one_or_none.return_value = None

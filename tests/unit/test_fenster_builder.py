@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -21,7 +21,7 @@ async def test_fenster_builder_run():
   # Create a minimal valid request for JobContext
   req = GenerationRequest(topic="test", depth="highlights", section_count=2)
 
-  ctx = JobContext(job_id="123", created_at=datetime.utcnow(), provider="test", model="test", request=req)
+  ctx = JobContext(job_id="123", created_at=datetime.now(UTC), provider="test", model="test", request=req)
 
   result = await agent.run(input_data, ctx)
 

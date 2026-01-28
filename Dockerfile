@@ -65,6 +65,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.13/site-packages"
 ENV PYDEVD_DISABLE_FILE_VALIDATION=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Install debugpy
 RUN uv pip install debugpy --python .venv && \
