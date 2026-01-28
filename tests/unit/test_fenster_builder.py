@@ -1,8 +1,11 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from app.ai.agents.fenster_builder import FensterBuilderAgent
-from app.ai.pipeline.contracts import JobContext, GenerationRequest
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from app.ai.agents.fenster_builder import FensterBuilderAgent
+from app.ai.pipeline.contracts import GenerationRequest, JobContext
+
 
 @pytest.mark.anyio
 async def test_fenster_builder_run():

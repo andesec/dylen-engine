@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from app.ai.agents.fenster_builder import FensterBuilderAgent
 from app.ai.orchestrator import DgsOrchestrator, OrchestrationError, OrchestrationResult
 from app.ai.pipeline.contracts import GenerationRequest, JobContext
+from app.ai.router import get_model_for_mode
 from app.ai.utils.cost import calculate_total_cost
 from app.ai.utils.progress import SectionProgressUpdate
 from app.api.models import GenerateLessonRequest, WritingCheckRequest
@@ -28,7 +29,6 @@ from app.schema.fenster import FensterWidget, FensterWidgetType
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.service import SchemaService
 from app.schema.validate_lesson import validate_lesson
-from app.ai.router import get_model_for_mode
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.services.users import get_user_by_id
@@ -67,8 +67,8 @@ class JobProcessor:
     await tracker.set_phase(phase="building", subphase="generating_code")
 
     try:
-      provider = "gemini"
-      model_name = _DEFAULT_FENSTER_MODEL
+      provider = self._settings.fenster_provider
+      model_name = self._settings.fenster_model
 
       model_instance = get_model_for_mode(provider, model_name, agent="fenster_builder")
 
@@ -587,7 +587,6 @@ def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str,
 
 
 _ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair", "stitcher"}
-_DEFAULT_FENSTER_MODEL = "gemini-2.0-flash-exp"
 
 
 def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:

@@ -101,6 +101,7 @@ class DgsOrchestrator:
     repair_model: str | None,
     schema_version: str,
     merge_gatherer_structurer: bool = False,
+    fenster_technical_constraints: dict[str, Any] | None = None,
   ) -> None:
     self._gatherer_provider = gatherer_provider
     self._gatherer_model_name = gatherer_model
@@ -113,6 +114,7 @@ class DgsOrchestrator:
     self._schema_version = schema_version
     self._schema_service = SchemaService()
     self._merge_gatherer_structurer = merge_gatherer_structurer
+    self._fenster_technical_constraints = fenster_technical_constraints or {}
 
   async def generate_lesson(
     self,
@@ -272,7 +274,7 @@ class DgsOrchestrator:
             "lesson_id": "pending",
             "concept_context": f"Widget for: {widget_context}. Context: {subsection.title} in {section.title}. Topic: {job_context.request.topic}",
             "target_audience": job_context.request.learner_level or "Student",
-            "technical_constraints": {"max_tokens": 4000, "allowed_libs": ["alpine", "tailwind"]},
+            "technical_constraints": self._fenster_technical_constraints,
           }
           await job_creator("fenster_builder", payload)
           logger.info("Created fenster_builder job for widget: %s", widget_context)
