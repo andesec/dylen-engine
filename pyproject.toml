@@ -59,6 +59,17 @@ skip-magic-trailing-comma = true
 select = ["E", "F", "I", "B", "N", "UP"]
 ignore = ["B905"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Security",
+    "fastapi.Header",
+    "fastapi.Body",
+    "fastapi.Path",
+    "fastapi.Cookie",
+]
+
 [tool.ruff.lint.isort]
 split-on-trailing-comma = false
 

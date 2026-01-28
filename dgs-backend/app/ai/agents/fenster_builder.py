@@ -24,11 +24,7 @@ class FensterBuilderAgent(BaseAgent[dict[str, Any], str]):
     constraints_str = str(constraints) if constraints else "None"
 
     # Replace tokens
-    tokens = {
-      "{{concept_context}}": input_data.get("concept_context", ""),
-      "{{target_audience}}": input_data.get("target_audience", ""),
-      "{{technical_constraints}}": constraints_str,
-    }
+    tokens = {"{{concept_context}}": input_data.get("concept_context", ""), "{{target_audience}}": input_data.get("target_audience", ""), "{{technical_constraints}}": constraints_str}
 
     prompt_text = prompt_template
     for k, v in tokens.items():

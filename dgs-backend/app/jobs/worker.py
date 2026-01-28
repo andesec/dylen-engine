@@ -109,15 +109,7 @@ class JobProcessor:
 
       result_json = {"fenster_id": str(fenster_id)}
 
-      payload = {
-        "status": "done",
-        "phase": "complete",
-        "progress": 100.0,
-        "logs": tracker.logs + ["Widget built and stored."],
-        "result_json": result_json,
-        "cost": cost_summary,
-        "completed_at": completed_at,
-      }
+      payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Widget built and stored."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **payload)
       return updated
 
@@ -461,20 +453,8 @@ class JobProcessor:
     async def _job_creator(target_agent: str, payload: dict[str, Any]) -> None:
       new_job_id = str(uuid.uuid4())
       timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-      request = {
-        "payload": payload,
-        "_meta": {"parent_job_id": job_id},
-      }
-      record = JobRecord(
-        job_id=new_job_id,
-        request=request,
-        status="queued",
-        target_agent=target_agent,
-        created_at=timestamp,
-        updated_at=timestamp,
-        phase="queued",
-        logs=[],
-      )
+      request = {"payload": payload, "_meta": {"parent_job_id": job_id}}
+      record = JobRecord(job_id=new_job_id, request=request, status="queued", target_agent=target_agent, created_at=timestamp, updated_at=timestamp, phase="queued", logs=[])
       await self._jobs_repo.create_job(record)
 
     result = await orchestrator.generate_lesson(

@@ -36,11 +36,7 @@ async def get_fenster_widget(widget_id: str, db: AsyncSession = Depends(get_db))
     if not widget.content:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Widget content missing")
 
-    return Response(
-      content=widget.content,
-      media_type="text/html; charset=utf-8",
-      headers={"Content-Encoding": "br", "Content-Security-Policy": "frame-ancestors 'self'"},
-    )
+    return Response(content=widget.content, media_type="text/html; charset=utf-8", headers={"Content-Encoding": "br", "Content-Security-Policy": "frame-ancestors 'self'"})
   elif widget.type == FensterWidgetType.CDN_URL:
     if not widget.url:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Widget URL missing")

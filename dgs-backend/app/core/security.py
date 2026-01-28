@@ -90,10 +90,7 @@ def require_tier(allowed_tiers: list[str]):  # noqa: ANN001
   """Build a dependency that checks if user has one of the allowed tiers."""
   allowed_tiers_set = {t.lower() for t in allowed_tiers}
 
-  async def _dependency(
-    current_identity: tuple[User, dict[str, Any]] = Depends(get_current_identity),
-    db: AsyncSession = Depends(get_db),
-  ) -> User:
+  async def _dependency(current_identity: tuple[User, dict[str, Any]] = Depends(get_current_identity), db: AsyncSession = Depends(get_db)) -> User:
     user, claims = current_identity
     # Check if user is active first
     if user.status != UserStatus.APPROVED:
