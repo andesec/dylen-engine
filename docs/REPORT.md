@@ -111,7 +111,7 @@ This report provides a deep-dive analysis of the `dgs-backend` application, audi
 
 ## 5. Database & Migrations
 
-*   **Audit**: `migrations/env.py` contains:
+*   **Audit**: `alembic/env.py` contains:
     ```python
     def include_object(object, name, type_, reflected, compare_to):
        # ...

@@ -168,18 +168,28 @@ gp:
 
 
 # Database migrations
-.PHONY: migrate migration
+.PHONY: migrate migration db-heads db-migration-lint db-migration-smoke db-check-drift db-check-pr-migration-count
 
 migrate:
-	@echo "Running smart migration..."
-	@cd $(APP_DIR) && uv run python scripts/smart_migrate.py
+	@echo "Running database migrations..."
+	@cd $(APP_DIR) && uv run alembic upgrade head
 
 migration:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration m='message'"; exit 1; fi
 	@echo "Generating migration: $(m)..."
 	@cd $(APP_DIR) && uv run alembic revision --autogenerate -m "$(m)"
 
-db-force-sync-prod:
-	@echo "Running FORCED production sync..."
-	@echo "WARNING: This will auto-generate migrations in PRODUCTION."
-	@cd $(APP_DIR) && uv run python scripts/smart_migrate.py --force-sync-prod
+db-heads:
+	@uv run python scripts/db_check_heads.py
+
+db-migration-lint:
+	@uv run python scripts/db_migration_lint.py
+
+db-check-pr-migration-count:
+	@uv run python scripts/db_check_pr_migration_count.py
+
+db-migration-smoke:
+	@uv run python scripts/db_migration_smoke.py --mode both
+
+db-check-drift:
+	@uv run python scripts/db_check_drift.py

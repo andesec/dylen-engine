@@ -6,12 +6,14 @@ Create Date: 2026-01-26 03:53:39.577695
 
 """
 
+# destructive: approved
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine.reflection import Inspector
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "4c880c225edd"
