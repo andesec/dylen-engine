@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock, MagicMock
 from app.main import app
 from app.core.security import get_current_identity
 from app.core.database import get_db
+import brotli
 from app.schema.fenster import FensterWidget, FensterWidgetType
 from app.schema.sql import UserStatus
 import uuid
-import base64
 
 @pytest.fixture
 def client():
@@ -48,8 +48,8 @@ async def test_fenster_success_inline(client, mock_db):
     claims = {"tier": "Plus"}
 
     widget_id = uuid.uuid4()
-    content_bytes = b"compressed_content"
-    encoded_content = base64.b64encode(content_bytes).decode("utf-8")
+    original_content = b"<b>Hello World</b>"
+    content_bytes = brotli.compress(original_content)
 
     mock_widget = MagicMock()
     mock_widget.fenster_id = widget_id
@@ -68,10 +68,44 @@ async def test_fenster_success_inline(client, mock_db):
     try:
         response = client.get(f"/api/v1/fenster/{widget_id}")
         assert response.status_code == 200
-        data = response.json()
-        assert data["fenster_id"] == str(widget_id)
-        assert data["type"] == "inline_blob"
-        assert data["content"] == encoded_content
+        # TestClient decompresses content automatically
+        assert response.content == original_content
+        assert response.headers["content-encoding"] == "br"
+        assert "text/html" in response.headers["content-type"]
+        assert response.headers["content-security-policy"] == "frame-ancestors 'self'"
+    finally:
+        del app.dependency_overrides[get_current_identity]
+        del app.dependency_overrides[get_db]
+
+
+@pytest.mark.anyio
+async def test_fenster_success_redirect(client, mock_db):
+    user = MagicMock()
+    user.status = UserStatus.APPROVED
+    user.id = uuid.uuid4()
+    claims = {"tier": "Plus"}
+
+    widget_id = uuid.uuid4()
+    target_url = "https://cdn.example.com/widget.html"
+
+    mock_widget = MagicMock()
+    mock_widget.fenster_id = widget_id
+    mock_widget.type = FensterWidgetType.CDN_URL
+    mock_widget.content = None
+    mock_widget.url = target_url
+
+    # Mock DB execution
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_widget
+    mock_db.execute.return_value = mock_result
+
+    app.dependency_overrides[get_current_identity] = lambda: (user, claims)
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    try:
+        response = client.get(f"/api/v1/fenster/{widget_id}", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["location"] == target_url
     finally:
         del app.dependency_overrides[get_current_identity]
         del app.dependency_overrides[get_db]

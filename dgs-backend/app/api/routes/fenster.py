@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import base64
 import uuid
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/{widget_id}", dependencies=[Depends(require_tier(["Plus", "Pro"]))])
-async def get_fenster_widget(widget_id: str, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def get_fenster_widget(widget_id: str, db: AsyncSession = Depends(get_db)):
   """
   Retrieve a Fenster widget by ID.
   Requires 'Plus' or 'Pro' tier.
@@ -33,15 +32,18 @@ async def get_fenster_widget(widget_id: str, db: AsyncSession = Depends(get_db))
   if not widget:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Widget not found")
 
-  response = {
-    "fenster_id": str(widget.fenster_id),
-    "type": widget.type.value,
-    "content": None,
-    "url": widget.url,
-  }
+  if widget.type == FensterWidgetType.INLINE_BLOB:
+    if not widget.content:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Widget content missing")
 
-  if widget.type == FensterWidgetType.INLINE_BLOB and widget.content:
-    # Encode binary brotli content to base64 string
-    response["content"] = base64.b64encode(widget.content).decode("utf-8")
+    return Response(
+      content=widget.content,
+      media_type="text/html; charset=utf-8",
+      headers={"Content-Encoding": "br", "Content-Security-Policy": "frame-ancestors 'self'"},
+    )
+  elif widget.type == FensterWidgetType.CDN_URL:
+    if not widget.url:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Widget URL missing")
+    return RedirectResponse(url=widget.url, status_code=status.HTTP_302_FOUND)
 
-  return response
+  raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Unsupported widget type: {widget.type}")
