@@ -65,5 +65,8 @@ jobs:
       - name: Apply migrations for drift check
         run: uv run alembic -c dgs-backend/alembic.ini upgrade head
 
+      - name: Seed-data check
+        run: uv run python scripts/db_check_seed_data.py
+
       - name: Drift detection
         run: uv run python scripts/db_check_drift.py

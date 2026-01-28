@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${SKIP_GIT_MIGRATION_HOOK:-}" == "1" ]]; then
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+staged_files="$(git diff --cached --name-only)"
+if [[ -z "$staged_files" ]]; then
+  exit 0
+fi
+
+schema_changed="0"
+while IFS= read -r file; do
+  if [[ "$file" == dgs-backend/app/schema/* ]]; then
+    schema_changed="1"
+    break
+  fi
+done <<< "$staged_files"
+
+if [[ "$schema_changed" != "1" ]]; then
+  exit 0
+fi
+
+migration_count="$(printf "%s\n" "$staged_files" | rg -c '^dgs-backend/alembic/versions/.*\.py$' || true)"
+migration_count="0"
+while IFS= read -r file; do
+  if [[ "$file" == dgs-backend/alembic/versions/*.py ]]; then
+    migration_count="$((migration_count + 1))"
+  fi
+done <<< "$staged_files"
+
+if [[ "$migration_count" -gt 1 ]]; then
+  if [[ "${DGS_AUTO_MIGRATIONS:-}" == "1" ]]; then
+    message="auto_squash_$(date +%Y%m%d_%H%M%S)"
+    base_ref="${MIGRATION_BASE_REF:-main}"
+    make migration-squash "m=$message" "MIGRATION_BASE_REF=$base_ref"
+    git add dgs-backend/alembic/versions/*.py
+  else
+    echo "ERROR: Schema changes are staged with multiple migration files staged."
+    echo "Run: make migration-squash m=\"final_schema_changes\""
+    echo "Or set DGS_AUTO_MIGRATIONS=1 to auto-squash during commit."
+    exit 1
+  fi
+fi
+
+if [[ "$migration_count" -eq 0 ]]; then
+  if [[ "${DGS_AUTO_MIGRATIONS:-}" == "1" ]]; then
+    message="auto_migration_$(date +%Y%m%d_%H%M%S)"
+    make migration-auto "m=$message"
+    git add dgs-backend/alembic/versions/*.py
+  else
+    echo "ERROR: Schema changes are staged without a migration file staged."
+    echo "Run: make migration-auto m=\"short_description\""
+    echo "Or set DGS_AUTO_MIGRATIONS=1 to auto-generate during commit."
+    exit 1
+  fi
+fi
+
+uv run python scripts/db_migration_lint.py
+uv run python scripts/db_check_heads.py
+
+if [[ "${DGS_MIGRATION_HOOK_STRICT:-}" == "1" ]]; then
+  make db-check-drift
+  make db-check-seed-data
+fi
