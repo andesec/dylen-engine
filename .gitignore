@@ -1,6 +1,9 @@
 # Security scanning reports
 reports/
 
+# Local-only backup folder created by migration squash helper.
+dgs-backend/alembic/versions/.squash_backup/
+
 # Generated dependency files
 requirements.txt
 

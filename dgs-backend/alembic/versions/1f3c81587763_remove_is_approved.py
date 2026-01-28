@@ -6,9 +6,11 @@ Create Date: 2026-01-27 15:05:15.947947
 
 """
 
+# destructive: approved
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.

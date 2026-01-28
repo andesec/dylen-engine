@@ -22,10 +22,10 @@
 ## 1. Repository Requirements
 
 ### 1.1 Directory Layout
-- `alembic/` (standard)
+- `dgs-backend/alembic/` (standard)
   - `env.py`
   - `versions/`
-- `app/models/` (SQLAlchemy models)
+- `dgs-backend/app/schema/` (SQLAlchemy models)
 - `scripts/` (CI helper scripts)
   - `db_check_heads.py`
   - `db_check_drift.py`
@@ -191,7 +191,7 @@ Checks:
 - No type narrowing without explicit multi-step plan.
 
 Implementation notes:
-- Parse revision files in `alembic/versions/*.py`.
+- Parse revision files in `dgs-backend/alembic/versions/*.py`.
 - Fail CI with actionable error messages.
 
 ---
@@ -357,4 +357,3 @@ Production deploy is allowed only if:
 6. Push PR. CI enforces all checks.
 7. After merge, staging pipeline runs migrations.
 8. Promote to production only after staging success.
-

@@ -2,10 +2,12 @@ PYTHON ?= python3
 VENV_DIR := .venv
 APP_DIR := dgs-backend
 PORT ?= 8080
+MIGRATION_BASE_REF ?= main
 
 .PHONY: install dev dev-stop lint format format-check typecheck test openapi run \
 	    security-sca security-sast-bandit security-sast-semgrep security-sast \
 	    security-container security-dast security-all
+.PHONY: hooks-install
 
 install:
 	uv sync --all-extras
@@ -52,6 +54,12 @@ openapi:
 
 run: install
 	@$(MAKE) dev
+
+hooks-install:
+	@echo "Installing git hooks..."
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/pre-commit
+	@echo "OK: core.hooksPath set to .githooks"
 
 
 # Security scanning targets
@@ -168,18 +176,49 @@ gp:
 
 
 # Database migrations
-.PHONY: migrate migration
+.PHONY: migrate migration migration-auto migration-squash db-heads db-migration-lint db-migration-smoke db-check-drift db-check-seed-data db-check-pr-migration-count
 
 migrate:
-	@echo "Running smart migration..."
-	@cd $(APP_DIR) && uv run python scripts/smart_migrate.py
+	@echo "Running database migrations..."
+	@cd $(APP_DIR) && uv run alembic upgrade head
 
 migration:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration m='message'"; exit 1; fi
 	@echo "Generating migration: $(m)..."
 	@cd $(APP_DIR) && uv run alembic revision --autogenerate -m "$(m)"
 
-db-force-sync-prod:
-	@echo "Running FORCED production sync..."
-	@echo "WARNING: This will auto-generate migrations in PRODUCTION."
-	@cd $(APP_DIR) && uv run python scripts/smart_migrate.py --force-sync-prod
+migration-auto:
+	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration-auto m='message'"; exit 1; fi
+	@echo "Ensuring local Postgres is running..."
+	@docker-compose up -d postgres postgres-init
+	@echo "Waiting for Postgres to be ready..."
+	@sleep 5
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	uv run python scripts/db_migration_autogen.py --message "$(m)"
+
+migration-squash:
+	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration-squash m='message'"; exit 1; fi
+	@echo "Ensuring local Postgres is running..."
+	@docker-compose up -d postgres postgres-init
+	@echo "Waiting for Postgres to be ready..."
+	@sleep 5
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	uv run python scripts/db_migration_squash.py --message "$(m)" --base-ref "$(MIGRATION_BASE_REF)" --yes
+
+db-heads:
+	@uv run python scripts/db_check_heads.py
+
+db-migration-lint:
+	@uv run python scripts/db_migration_lint.py
+
+db-check-pr-migration-count:
+	@uv run python scripts/db_check_pr_migration_count.py
+
+db-migration-smoke:
+	@uv run python scripts/db_migration_smoke.py --mode both
+
+db-check-drift:
+	@uv run python scripts/db_check_drift.py
+
+db-check-seed-data:
+	@uv run python scripts/db_check_seed_data.py

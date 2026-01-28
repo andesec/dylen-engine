@@ -52,10 +52,11 @@ services:
       - .env
     environment:
       - DGS_PG_DSN=postgresql://dgs:dgs_password@postgres:5432/dgs
+      - DGS_ALLOWED_ORIGINS=http://localhost:3000
     networks:
       - dgs-network
     working_dir: /app/dgs-backend
-    command: [ "python", "scripts/smart_migrate.py" ]
+    command: [ "python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head" ]
     restart: "no"
 
   backend:

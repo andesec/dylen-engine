@@ -165,12 +165,13 @@ async def ensure_usage_row(session: AsyncSession, user_id: uuid.UUID, *, tier_id
     tier_result = await session.execute(tier_stmt)
     free_tier = tier_result.scalar_one_or_none()
     if not free_tier:
-      # Critical configuration error: 'Free' tier must exist.
-      raise RuntimeError("Default 'Free' subscription tier not found in database. Seed data missing?")
+      # Critical configuration error: 'Free' tier must exist for account creation.
+      logger.error("Default 'Free' subscription tier missing; run migrations to apply seed data. Run 'alembic upgrade head' to apply seed migrations.")
+      raise RuntimeError("Default 'Free' subscription tier not available.")
     tier_id = free_tier.id
 
   # Use INSERT ... ON CONFLICT DO NOTHING for atomic consistency
-  stmt = insert(UserUsageMetrics).values(user_id=user_id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0).on_conflict_do_nothing(index_elements=["user_id"])
+  stmt = insert(UserUsageMetrics).values(user_id=user_id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0, research_usage_count=0).on_conflict_do_nothing(index_elements=["user_id"])
 
   await session.execute(stmt)
   await session.commit()

@@ -283,7 +283,6 @@ jobs:
         run: |
           docker run -d --name dgs-backend-test \
             -e DGS_ALLOWED_ORIGINS=http://localhost:3000 \
-            -e SKIP_MIGRATIONS=true \
             -p 8002:8002 \
             dgs-backend:test
 
