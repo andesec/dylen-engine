@@ -139,4 +139,5 @@ def _get_orchestrator(
     repair_model=repair_model or settings.repair_model,
     schema_version=settings.schema_version,
     merge_gatherer_structurer=settings.merge_gatherer_structurer,
+    fenster_technical_constraints=settings.fenster_technical_constraints,
   )

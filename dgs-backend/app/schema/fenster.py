@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import datetime
 import uuid
+from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, LargeBinary, String, func
+from sqlalchemy import DateTime, Enum, LargeBinary, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+
+class FensterWidgetType(str, PyEnum):
+  INLINE_BLOB = "inline_blob"
+  CDN_URL = "cdn_url"
 
 
 class FensterWidget(Base):
