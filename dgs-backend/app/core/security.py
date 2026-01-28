@@ -97,7 +97,7 @@ def require_tier(allowed_tiers: list[str]):  # noqa: ANN001
     user, claims = current_identity
     # Check if user is active first
     if user.status != UserStatus.APPROVED:
-      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INACTIVE_USER", "detail": "Inactive user"})
 
     tier = claims.get("tier")
 
