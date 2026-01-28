@@ -1,10 +1,10 @@
-# **Fenster Widget: Backend Specification (FastAPI / PostgreSQL)**
+# **Fenster Widget: Engine Specification (FastAPI / PostgreSQL)**
 
 ## **1\. Executive Summary**
 
-**Purpose**: To provide a robust, scalable backend infrastructure for "Fenster"—a Just-In-Time (JIT) educational widget system.  
+**Purpose**: To provide a robust, scalable engine infrastructure for "Fenster"—a Just-In-Time (JIT) educational widget system.  
 **Intent**: To decouple the generation of AI-driven interactive tools from the main application flow, ensuring lessons remain performant while offering premium, dynamic content.  
-**Ideal Result**: A user on a "Pro" plan loads a lesson; the backend checks permissions, retrieves a pre-generated, Brotli-compressed HTML blob (or CDN link) in \<50ms, and serves it securely.  
+**Ideal Result**: A user on a "Pro" plan loads a lesson; the engine checks permissions, retrieves a pre-generated, Brotli-compressed HTML blob (or CDN link) in \<50ms, and serves it securely.  
 **Success Criteria**:
 
 * The **Fenster Builder Agent** successfully processes jobs from the shared queue, generates code, compresses payloads, and stores widgets without blocking main threads.  

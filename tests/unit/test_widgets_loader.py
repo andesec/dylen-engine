@@ -7,7 +7,7 @@ from app.schema.widgets_loader import load_widget_registry
 
 def test_load_widget_registry() -> None:
   """Test that we can load the widget registry from widgets_prompt.md."""
-  widgets_path = Path(__file__).parents[2] / "dgs-backend" / "app" / "schema" / "widgets_prompt.md"
+  widgets_path = Path(__file__).parents[2] / "dylen-engine" / "app" / "schema" / "widgets_prompt.md"
   registry = load_widget_registry(widgets_path)
 
   # Verify known widgets are loaded
@@ -24,7 +24,7 @@ def test_load_widget_registry() -> None:
 
 def test_widget_definition_fields() -> None:
   """Test that widget definitions include field information."""
-  widgets_path = Path(__file__).parents[2] / "dgs-backend" / "app" / "schema" / "widgets_prompt.md"
+  widgets_path = Path(__file__).parents[2] / "dylen-engine" / "app" / "schema" / "widgets_prompt.md"
   registry = load_widget_registry(widgets_path)
 
   # Check that shorthand widgets are correctly identified

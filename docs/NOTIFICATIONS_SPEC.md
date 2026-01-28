@@ -58,7 +58,7 @@ Implementation:
 
 ## Data Handling and Privacy
 
-- Jobs persist only `_meta.user_id` (not email) inside `dgs_jobs.request` to enable worker-side recipient resolution.
+- Jobs persist only `_meta.user_id` (not email) inside `dylen_jobs.request` to enable worker-side recipient resolution.
 - Email addresses are sourced from the `users` table at send time.
 - Notification content avoids including sensitive artifacts or generated lesson content.
 - Failures are logged server-side; avoid logging full user emails when possible.
@@ -84,18 +84,18 @@ Follow-up recommendations:
 Email notifications are disabled unless explicitly enabled.
 
 Required when enabled:
-- `DGS_EMAIL_NOTIFICATIONS_ENABLED=true`
-- `DGS_EMAIL_FROM_ADDRESS`
-- `DGS_EMAIL_PROVIDER=mailersend`
-- `DGS_MAILERSEND_API_KEY`
+- `DYLEN_EMAIL_NOTIFICATIONS_ENABLED=true`
+- `DYLEN_EMAIL_FROM_ADDRESS`
+- `DYLEN_EMAIL_PROVIDER=mailersend`
+- `DYLEN_MAILERSEND_API_KEY`
 
 Optional:
-- `DGS_EMAIL_FROM_NAME`
-- `DGS_MAILERSEND_TIMEOUT_SECONDS` (default `10`)
-- `DGS_MAILERSEND_BASE_URL` (default `https://api.mailersend.com/v1`)
+- `DYLEN_EMAIL_FROM_NAME`
+- `DYLEN_MAILERSEND_TIMEOUT_SECONDS` (default `10`)
+- `DYLEN_MAILERSEND_BASE_URL` (default `https://api.mailersend.com/v1`)
 
 ## Extension Points
 
 - Implement a real push sender in `app.notifications.push_sender`.
-- Add more email templates under `dgs-backend/app/notifications/templates/`.
+- Add more email templates under `dylen-engine/app/notifications/templates/`.
 - Add durable outbox + retry logic behind `NotificationService.send_email_template/send_push`.

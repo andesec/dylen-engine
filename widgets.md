@@ -1,6 +1,6 @@
-# DLE Widget Usage Guide (Shorthand JSON Format)
+# Dylen Widget Usage Guide (Shorthand JSON Format)
 
-This guide defines the shorthand JSON schema used by the Dynamic Learning Engine (DLE).
+This guide defines the shorthand JSON schema used by the Dynamic Learning Engine (Dylen).
 
 Goal: keep lesson JSON compact, predictable for LLMs, and easy to render on the client.
 

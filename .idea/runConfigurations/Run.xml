@@ -1,7 +1,1 @@
-<component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run" type="CompoundRunConfigurationType">
-    <toRun name="DB" type="docker-deploy" />
-    <toRun name="Run App" type="PythonConfigurationType" />
-    <method v="2" />
-  </configuration>
-</component>
+<component name="ProjectRunConfigurationManager"></component>

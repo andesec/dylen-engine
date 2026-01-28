@@ -1,10 +1,1 @@
-<component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="DB" type="docker-deploy" factoryName="docker-compose.yml" server-name="Docker">
-    <deployment type="docker-compose.yml">
-      <settings>
-        <option name="sourceFilePath" value="docker-compose.yml" />
-      </settings>
-    </deployment>
-    <method v="2" />
-  </configuration>
-</component>
+<component name="ProjectRunConfigurationManager"></component>

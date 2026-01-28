@@ -40,7 +40,7 @@ def _load_alembic_config() -> Config:
   """Load Alembic config so revision inspection matches repo settings."""
   # Resolve repository paths relative to this script.
   repo_root = Path(__file__).resolve().parents[1]
-  backend_dir = repo_root / "dgs-backend"
+  backend_dir = repo_root / "dylen-engine"
   config_path = backend_dir / "alembic.ini"
   script_path = backend_dir / "alembic"
   config = Config(str(config_path))
@@ -77,7 +77,7 @@ def _previous_revision(config: Config) -> str | None:
 def _run_alembic(args: list[str], env: dict[str, str]) -> None:
   """Run Alembic via subprocess so env.py reads the correct variables."""
   # Resolve alembic.ini from the repository root to avoid cwd issues.
-  config_path = Path(__file__).resolve().parents[1] / "dgs-backend" / "alembic.ini"
+  config_path = Path(__file__).resolve().parents[1] / "dylen-engine" / "alembic.ini"
   command = [sys.executable, "-m", "alembic", "-c", str(config_path), *args]
   subprocess.run(command, check=True, env=env)
 
@@ -127,8 +127,8 @@ def _run_mode(*, dsn: str, allowed_origins: str, mode: str, downgrade: bool) -> 
   _create_database(admin_url, temp_name)
   # Prepare environment variables for Alembic subprocess execution.
   env = os.environ.copy()
-  env["DGS_PG_DSN"] = temp_url
-  env["DGS_ALLOWED_ORIGINS"] = allowed_origins
+  env["DYLEN_PG_DSN"] = temp_url
+  env["DYLEN_ALLOWED_ORIGINS"] = allowed_origins
   try:
     # Validate that fresh migrations apply cleanly.
     if mode == "fresh":
@@ -163,14 +163,14 @@ def main() -> None:
   args = parser.parse_args()
 
   # Ensure required environment variables are set for settings validation.
-  dsn = os.getenv("DGS_PG_DSN")
-  allowed_origins = os.getenv("DGS_ALLOWED_ORIGINS")
+  dsn = os.getenv("DYLEN_PG_DSN")
+  allowed_origins = os.getenv("DYLEN_ALLOWED_ORIGINS")
   if not dsn:
-    print("ERROR: DGS_PG_DSN is required for migration smoke tests.")
+    print("ERROR: DYLEN_PG_DSN is required for migration smoke tests.")
     sys.exit(1)
 
   if not allowed_origins:
-    print("ERROR: DGS_ALLOWED_ORIGINS is required for migration smoke tests.")
+    print("ERROR: DYLEN_ALLOWED_ORIGINS is required for migration smoke tests.")
     sys.exit(1)
 
   # Normalize the DSN to the async driver used by the application runtime.

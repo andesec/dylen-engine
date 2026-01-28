@@ -1,6 +1,6 @@
-# DGS
+# Dylen
 
-Data Generation Service for DLE. A service that uses AI to generate JSON content to be consumed and presented by the DLE.
+Data Generation Service for Dylen. A service that uses AI to generate JSON content to be consumed and presented by the Dylen.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ your deployment system. The app will fail fast if required values are missing.
 
 Required:
 
-- `DGS_ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins (no `*`).
+- `DYLEN_ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins (no `*`).
 
 Provider secrets (required when wiring real providers or deploying with SAM):
 
@@ -45,17 +45,17 @@ Provider secrets (required when wiring real providers or deploying with SAM):
 
 Storage and tuning:
 
-- `DGS_PG_DSN`: Postgres connection string (default: `postgresql://dgs:dgs_password@localhost:5432/dgs`).
-- `DGS_MAX_TOPIC_LENGTH`: Max topic length (default: `200`).
-- `DGS_GATHERER_PROVIDER`: Provider for the gatherer step (default: `gemini`).
-- `DGS_GATHERER_MODEL`: Optional model override for the gatherer step.
-- `DGS_STRUCTURER_PROVIDER`: Provider for the structurer step (default: `openrouter`).
-- `DGS_STRUCTURER_MODEL`: Default model for the structurer step.
-- `DGS_STRUCTURER_MODEL_FAST`: Optional override when `mode=fast`.
-- `DGS_STRUCTURER_MODEL_BALANCED`: Optional override when `mode=balanced`.
-- `DGS_STRUCTURER_MODEL_BEST`: Optional override when `mode=best`.
-- `DGS_PROMPT_VERSION`: Prompt version tag (default: `v1`).
-- `DGS_SCHEMA_VERSION`: Schema version tag (default: `1.0`).
+- `DYLEN_PG_DSN`: Postgres connection string (default: `postgresql://dylen:dylen_password@localhost:5432/dylen`).
+- `DYLEN_MAX_TOPIC_LENGTH`: Max topic length (default: `200`).
+- `DYLEN_GATHERER_PROVIDER`: Provider for the gatherer step (default: `gemini`).
+- `DYLEN_GATHERER_MODEL`: Optional model override for the gatherer step.
+- `DYLEN_STRUCTURER_PROVIDER`: Provider for the structurer step (default: `openrouter`).
+- `DYLEN_STRUCTURER_MODEL`: Default model for the structurer step.
+- `DYLEN_STRUCTURER_MODEL_FAST`: Optional override when `mode=fast`.
+- `DYLEN_STRUCTURER_MODEL_BALANCED`: Optional override when `mode=balanced`.
+- `DYLEN_STRUCTURER_MODEL_BEST`: Optional override when `mode=best`.
+- `DYLEN_PROMPT_VERSION`: Prompt version tag (default: `v1`).
+- `DYLEN_SCHEMA_VERSION`: Schema version tag (default: `1.0`).
 
 See [docs/database_migrations.md](docs/database_migrations.md) for details on managing database schema changes.
 
@@ -64,7 +64,7 @@ See [docs/database_migrations.md](docs/database_migrations.md) for details on ma
 Use Uvicorn to serve the FastAPI app with reload enabled:
 
 ```bash
-cd dgs-backend
+cd dylen-engine
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 

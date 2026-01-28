@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-This report provides a deep-dive analysis of the `dgs-backend` application, auditing every major module against security, compliance, design, and performance criteria.
+This report provides a deep-dive analysis of the `dylen-engine` application, auditing every major module against security, compliance, design, and performance criteria.
 
 **Overall Status**: The application is **architecturally sound** with strong foundations in asynchronous programming (`asyncpg`, `asyncio`), dependency injection, and modular service design.
 **Critical Gaps**:
@@ -18,7 +18,7 @@ This report provides a deep-dive analysis of the `dgs-backend` application, audi
 *   **`database.py`**
     *   *Status*: **Pass**
     *   *Analysis*: Correctly uses `create_async_engine` and `async_sessionmaker`. The `get_db` dependency yields sessions and ensures closure, preventing connection leaks.
-    *   *Security*: `DGS_PG_DSN` is loaded from env, not hardcoded.
+    *   *Security*: `DYLEN_PG_DSN` is loaded from env, not hardcoded.
 *   **`security.py`**
     *   *Status*: **Pass**
     *   *Analysis*: Implements `get_current_active_user`, `require_permission`, and `require_role_level`. This granular RBAC is excellent.

@@ -22,10 +22,10 @@
 ## 1. Repository Requirements
 
 ### 1.1 Directory Layout
-- `dgs-backend/alembic/` (standard)
+- `dylen-engine/alembic/` (standard)
   - `env.py`
   - `versions/`
-- `dgs-backend/app/schema/` (SQLAlchemy models)
+- `dylen-engine/app/schema/` (SQLAlchemy models)
 - `scripts/` (CI helper scripts)
   - `db_check_heads.py`
   - `db_check_drift.py`
@@ -191,7 +191,7 @@ Checks:
 - No type narrowing without explicit multi-step plan.
 
 Implementation notes:
-- Parse revision files in `dgs-backend/alembic/versions/*.py`.
+- Parse revision files in `dylen-engine/alembic/versions/*.py`.
 - Fail CI with actionable error messages.
 
 ---

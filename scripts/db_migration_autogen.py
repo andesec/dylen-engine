@@ -42,14 +42,14 @@ def main() -> None:
   args = parser.parse_args()
 
   # Require env vars explicitly to prevent accidentally targeting an unintended database.
-  _require_env("DGS_PG_DSN")
-  _require_env("DGS_ALLOWED_ORIGINS")
+  _require_env("DYLEN_PG_DSN")
+  _require_env("DYLEN_ALLOWED_ORIGINS")
   repo_root = _repo_root()
-  alembic_ini = repo_root / "dgs-backend" / "alembic.ini"
-  versions_dir = repo_root / "dgs-backend" / "alembic" / "versions"
+  alembic_ini = repo_root / "dylen-engine" / "alembic.ini"
+  versions_dir = repo_root / "dylen-engine" / "alembic" / "versions"
   env = os.environ.copy()
   # Ensure we run from a consistent root so alembic.ini relative paths resolve.
-  env["PYTHONPATH"] = str(repo_root / "dgs-backend") + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+  env["PYTHONPATH"] = str(repo_root / "dylen-engine") + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
 
   # Ensure the local DB is at head before generating autogenerate diffs.
   _run([sys.executable, "-m", "alembic", "-c", str(alembic_ini), "upgrade", "head"], env=env)

@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.debug.yml}"
-SERVICE="${SERVICE:-backend}"
+SERVICE="${SERVICE:-engine}"
 DEBUG_PORT="${DEBUG_PORT:-5678}"
 echo "Waiting for debugger on ${SERVICE}:${DEBUG_PORT}..."
-# Find the running container ID for the backend service so we can check its listener state without opening a client connection.
+# Find the running container ID for the engine service so we can check its listener state without opening a client connection.
 container_id=""
 while [ -z "${container_id}" ]; do
   container_id="$(docker compose -f "${COMPOSE_FILE}" ps -q "${SERVICE}" 2>/dev/null || true)"

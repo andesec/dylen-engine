@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 from app.jobs.models import JobRecord
 
 # Ensure required settings are available before importing the app.
-os.environ["DGS_ALLOWED_ORIGINS"] = "http://localhost"
-os.environ["DGS_JOBS_AUTO_PROCESS"] = "0"
+os.environ["DYLEN_ALLOWED_ORIGINS"] = "http://localhost"
+os.environ["DYLEN_JOBS_AUTO_PROCESS"] = "0"
 
 from app.core.security import get_current_active_user  # noqa: E402
 from app.main import app  # noqa: E402

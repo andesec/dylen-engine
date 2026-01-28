@@ -12,9 +12,9 @@
         "--port",
         "8082"
       ],
-      "cwd": "${workspaceFolder}/dgs-backend",
+      "cwd": "${workspaceFolder}/dylen-engine",
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/dgs-backend"
+        "PYTHONPATH": "${workspaceFolder}/dylen-engine"
       },
       "justMyCode": true
     },
@@ -28,8 +28,8 @@
       },
       "pathMappings": [
         {
-          "localRoot": "${workspaceFolder}/dgs-backend",
-          "remoteRoot": "/app/dgs-backend"
+          "localRoot": "${workspaceFolder}/dylen-engine",
+          "remoteRoot": "/app/dylen-engine"
         }
       ],
       "subProcess": true,

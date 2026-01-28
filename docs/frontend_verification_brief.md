@@ -1,8 +1,8 @@
-# Frontend Implementation Brief: DGS API Integration
+# Frontend Implementation Brief: Dylen API Integration
 
 ## Context
-DGS (Backend) acts as a **Backend for Frontend (BFF)** for the DLE (Frontend). It manages session security and orchestrates calls to LLM providers.
-**Crucial**: The DLE should **not** manage long-lived tokens/secrets. It exchanges a temporary Firebase credential for a secure, HTTP-only session cookie managed by DGS.
+Dylen (Engine) acts as a **Backend for Frontend (BFF)** for the Dylen (Frontend). It manages session security and orchestrates calls to LLM providers.
+**Crucial**: The Dylen should **not** manage long-lived tokens/secrets. It exchanges a temporary Firebase credential for a secure, HTTP-only session cookie managed by Dylen.
 
 ## 1. Authentication Architecture (Current State)
 > [!NOTE]
@@ -13,12 +13,12 @@ DGS (Backend) acts as a **Backend for Frontend (BFF)** for the DLE (Frontend). I
 ### Sequence
 1.  **Firebase Login (Frontend)**: User signs in via Firebase SDK (e.g., Google Sign-In).
 2.  **Get Token**: Frontend calls `user.getIdToken()` to get the JWT.
-3.  **Exchange Token (DGS)**:
+3.  **Exchange Token (Dylen)**:
     *   **Endpoint**: `POST /api/auth/login`
     *   **Payload**: `{"idToken": "<FIREBASE_ID_TOKEN>"}` 
         *   *Note: Using `camelCase` key `idToken` is required.*
     *   **Response**: `200 OK` + `Set-Cookie: session=<TOKEN>; HttpOnly; Secure; SameSite=Lax`
-4.  **Authenticated Requests**: All subsequent API calls to DGS **must** include credentials (cookies).
+4.  **Authenticated Requests**: All subsequent API calls to Dylen **must** include credentials (cookies).
     *   *Frontend Config*: Ensure `withCredentials: true` (axios/fetch) is set globally.
 
 ## 2. API Call Sequences & Workflows

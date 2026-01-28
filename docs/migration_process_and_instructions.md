@@ -4,27 +4,28 @@ This document concisely describes the migration process implemented in this repo
 
 ## Key Rules
 
-- **One migration per PR** when schema files change (`dgs-backend/app/schema/`).
+- **One migration per PR** when schema files change (`dylen-engine/app/schema/`).
 - **Single Alembic head** on `main` at all times.
 - **No auto-migrations at app startup**; migrations run in a dedicated deploy step.
 - **Autogenerate is a starting point only**; always review and edit migrations.
 - **Reference/static data must be seeded via migrations**, not request-path code (idempotent, insert-missing).
+- **Handle Enums Idempotently**: When manually creating Enums (e.g., via `DO $$` blocks), set `create_type=False` in the SQLAlchemy Enum definition to avoid `DuplicateObjectError`.
 
 ## Directory Layout
 
-- Alembic config: `dgs-backend/alembic.ini`
-- Alembic env: `dgs-backend/alembic/env.py`
-- Migrations: `dgs-backend/alembic/versions/`
+- Alembic config: `dylen-engine/alembic.ini`
+- Alembic env: `dylen-engine/alembic/env.py`
+- Migrations: `dylen-engine/alembic/versions/`
 - CI helpers: `scripts/`
 
 ## Create a Migration (Dev)
 
-Do this one thing after you change models in `dgs-backend/app/schema/`:
+Do this one thing after you change models in `dylen-engine/app/schema/`:
 ```bash
 make migration-auto m="short_description"
 ```
 Prereqs:
-- set `DGS_PG_DSN` and `DGS_ALLOWED_ORIGINS` in `.env` (or export them in your shell)
+- set `DYLEN_PG_DSN` and `DYLEN_ALLOWED_ORIGINS` in `.env` (or export them in your shell)
 
 What it does (local dev only):
 - ensures Postgres is running
@@ -43,10 +44,10 @@ If you want commits to “just work” when you stage schema changes:
 make hooks-install
 ```
 2) Optional env toggles:
-- `DGS_AUTO_MIGRATIONS=1` auto-generates or auto-squashes migrations during `git commit`
+- `DYLEN_AUTO_MIGRATIONS=1` auto-generates or auto-squashes migrations during `git commit`
 - `MIGRATION_BASE_REF=release/1.2` changes the base branch used for squashing
 - `SKIP_GIT_MIGRATION_HOOK=1` bypasses the hook
-- `DGS_MIGRATION_HOOK_STRICT=1` also runs drift detection (slower; requires DB connectivity)
+- `DYLEN_MIGRATION_HOOK_STRICT=1` also runs drift detection (slower; requires DB connectivity)
 
 ## Squash Multiple Local Migrations (Before Opening a PR)
 
@@ -54,7 +55,7 @@ If you created multiple migrations locally while iterating on a branch, squash t
 ```bash
 make migration-squash m="final_schema_changes"
 ```
-This moves your extra local migration files into `dgs-backend/alembic/versions/.squash_backup/` and generates one new migration that represents the full diff from the PR base to your current models.
+This moves your extra local migration files into `dylen-engine/alembic/versions/.squash_backup/` and generates one new migration that represents the full diff from the PR base to your current models.
 By default it computes the PR base using `git merge-base` against `origin/main`. If your PR targets another branch, set `MIGRATION_BASE_REF`:
 ```bash
 make migration-squash m="final_schema_changes" MIGRATION_BASE_REF="release/1.2"
@@ -76,22 +77,32 @@ Make sure you have a recent `git fetch` for that branch.
   ```
 - Or directly with Alembic:
   ```bash
-  cd dgs-backend
+  cd dylen-engine
   uv run alembic upgrade head
   ```
+
+## Reset Local DB + Recreate Baseline (Dev Only, Destructive)
+
+If your local DB/migrations get into a broken state and you want to treat the database as brand new, you can nuke the local Postgres volume, delete all Alembic versions, and regenerate a fresh baseline from the current models:
+```bash
+make db-nuke CONFIRM_DB_NUKE=1
+```
+Notes:
+- This deletes your local Docker Postgres volume (`docker-compose down -v`), so you will lose all local data.
+- Do not run this against staging/production.
 
 ## Run Migrations in Production
 
 1. **Staging first** (required):
    ```bash
-   cd dgs-backend
-   DGS_PG_DSN=postgresql://... DGS_ALLOWED_ORIGINS=https://your-app.example uv run alembic upgrade head
+   cd dylen-engine
+   DYLEN_PG_DSN=postgresql://... DYLEN_ALLOWED_ORIGINS=https://your-app.example uv run alembic upgrade head
    ```
 2. Validate staging health checks.
 3. **Production deploy step**:
    ```bash
-   cd dgs-backend
-   DGS_PG_DSN=postgresql://... DGS_ALLOWED_ORIGINS=https://your-app.example uv run alembic upgrade head
+   cd dylen-engine
+   DYLEN_PG_DSN=postgresql://... DYLEN_ALLOWED_ORIGINS=https://your-app.example uv run alembic upgrade head
    ```
 
 > If you ever auto-run migrations at startup, enforce a single migration lock (e.g., Postgres advisory lock) to prevent concurrent runs.
@@ -172,4 +183,4 @@ make db-check-seed-data
   make db-check-seed-data
   ```
 
-You can allowlist known-safe drift diffs by setting `DGS_MIGRATION_DRIFT_ALLOWLIST="token1,token2"` before running drift checks.
+You can allowlist known-safe drift diffs by setting `DYLEN_MIGRATION_DRIFT_ALLOWLIST="token1,token2"` before running drift checks.

@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="FastAPI in Docker (Attach)" type="PyRemoteDebugConfigurationType" factoryName="Python Remote Debug">
+    <module name="dylen" />
+    <option name="PORT" value="5678" />
+    <option name="HOST" value="127.0.0.1" />
+    <PathMappingSettings>
+      <option name="pathMappings">
+        <list>
+          <mapping local-root="$PROJECT_DIR$/dylen-engine" remote-root="/app/dylen-backend" />
+        </list>
+      </option>
+    </PathMappingSettings>
+    <option name="REDIRECT_OUTPUT" value="true" />
+    <option name="SUSPEND_AFTER_CONNECT" value="true" />
+    <method v="2" />
+  </configuration>
+</component>

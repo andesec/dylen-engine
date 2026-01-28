@@ -15,7 +15,7 @@ RUN uv venv .venv && \
     uv sync --frozen --no-dev --no-install-project
 
 # Copy the application source
-COPY dgs-backend/ ./dgs-backend/
+COPY dylen-engine/ ./dylen-engine/
 
 # ---------- Runtime Stage ----------
 FROM python:3.13-slim AS production
@@ -23,28 +23,28 @@ FROM python:3.13-slim AS production
 WORKDIR /app
 
 # Create a non-root user
-RUN groupadd -r dgs && useradd -r -g dgs dgs && \
+RUN groupadd -r dylen && useradd -r -g dylen dylen && \
     ln -sf /usr/local/bin/python /usr/bin/python
 
 # Copy the virtual environment from the builder.
-COPY --from=builder --chown=dgs:dgs /app/.venv /app/.venv
-COPY --from=builder --chown=dgs:dgs /app/dgs-backend /app/dgs-backend
+COPY --from=builder --chown=dylen:dylen /app/.venv /app/.venv
+COPY --from=builder --chown=dylen:dylen /app/dylen-engine /app/dylen-engine
 
 # Set up environment variables
-ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.13/site-packages"
+ENV PYTHONPATH="/app/dylen-engine:/app/.venv/lib/python3.13/site-packages"
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Switch to non-root user
 # Security Hardening: Remove shell and package managers (Distroless behavior)
 RUN rm -rf /bin/sh /bin/bash /usr/bin/apt* /usr/lib/apt /var/lib/apt /usr/bin/dpkg* /var/lib/dpkg
 
-USER dgs
+USER dylen
 
 # Expose the service port.
 EXPOSE 8002
 
 # Run the application.
-CMD ["python", "dgs-backend/entrypoint.py"]
+CMD ["python", "dylen-engine/entrypoint.py"]
 
 # ---------- Debug Stage ----------
 FROM python:3.13-slim AS debug
@@ -59,10 +59,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Copy dependencies and source from builder
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/dgs-backend /app/dgs-backend
+COPY --from=builder /app/dylen-engine /app/dylen-engine
 
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/dgs-backend:/app/.venv/lib/python3.13/site-packages"
+ENV PYTHONPATH="/app/dylen-engine:/app/.venv/lib/python3.13/site-packages"
 ENV PYDEVD_DISABLE_FILE_VALIDATION=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

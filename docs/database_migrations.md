@@ -4,9 +4,9 @@ This project uses [Alembic](https://alembic.sqlalchemy.org/) for database schema
 
 ## Configuration
 
-- **Configuration File**: `dgs-backend/alembic.ini`
-- **Migration Scripts**: `dgs-backend/alembic/versions/`
-- **Environment config**: `dgs-backend/alembic/env.py`
+- **Configuration File**: `dylen-engine/alembic.ini`
+- **Migration Scripts**: `dylen-engine/alembic/versions/`
+- **Environment config**: `dylen-engine/alembic/env.py`
 
 ## Common Commands
 
@@ -14,7 +14,7 @@ We provide `make` targets to simplify migration tasks.
 
 ### 1. Generating a New Migration
 
-After modifying a SQLAlchemy model in `dgs-backend/app/schema/`, generate a migration skeleton:
+After modifying a SQLAlchemy model in `dylen-engine/app/schema/`, generate a migration skeleton:
 
 ```bash
 make migration m="Description of change"
@@ -22,7 +22,7 @@ make migration m="Description of change"
 
 This will:
 1. Compare the current DB state with your SQLAlchemy models.
-2. Create a new script in `dgs-backend/alembic/versions/`.
+2. Create a new script in `dylen-engine/alembic/versions/`.
 3. **IMPORTANT**: Manually review and edit the generated migration before committing.
 
 ### 2. Applying Migrations
@@ -38,13 +38,13 @@ make migrate
 Downgrades are optional and should be used with caution:
 
 ```bash
-cd dgs-backend && uv run alembic downgrade -1
+cd dylen-engine && uv run alembic downgrade -1
 ```
 
 ## Manual Alembic Commands
 
 ```bash
-cd dgs-backend
+cd dylen-engine
 uv run alembic revision --autogenerate -m "message"
 uv run alembic upgrade head
 uv run alembic history

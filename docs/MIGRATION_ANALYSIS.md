@@ -6,7 +6,7 @@ This document compares the current Alembic workflow against industry standards f
 
 | Best Practice | Industry Standard | Our Implementation | Status |
 | :--- | :--- | :--- | :--- |
-| **Version Control** | Migrations must be committed to git. | **Yes**. Migrations live in `dgs-backend/alembic/versions/`. | ✅ |
+| **Version Control** | Migrations must be committed to git. | **Yes**. Migrations live in `dylen-engine/alembic/versions/`. | ✅ |
 | **CI Validation** | Verify migrations in CI/CD pipeline. | **Yes**. `pr-migration-check.yml` runs lint, heads check, smoke, and drift. | ✅ |
 | **Atomic/Transactional** | DDL should run in transactions. | **Yes**. Alembic uses transactional DDL by default; concurrent index ops must use autocommit. | ✅ |
 | **Environment Separation** | Strict controls for Production vs Dev. | **Yes**. Migrations only run in CI/staging/prod via explicit deploy steps. | ✅ |

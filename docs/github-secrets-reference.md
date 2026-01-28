@@ -1,6 +1,6 @@
 # GitHub Secrets Quick Reference
 
-This document lists all the GitHub secrets you need to configure for the DGS CI/CD pipeline.
+This document lists all the GitHub secrets you need to configure for the Dylen CI/CD pipeline.
 
 ## Security Scanning Secrets
 
@@ -35,7 +35,7 @@ This document lists all the GitHub secrets you need to configure for the DGS CI/
 **`GCP_PROJECT_ID`**
 - **Purpose:** Your GCP project ID
 - **How to get:** Run `gcloud config get-value project` or check GCP Console
-- **Example:** `dgs-production`
+- **Example:** `dylen-production`
 
 **`GCP_WORKLOAD_IDENTITY_PROVIDER`**
 - **Purpose:** Workload Identity Provider resource name for secure GitHub Actions auth
@@ -47,7 +47,7 @@ This document lists all the GitHub secrets you need to configure for the DGS CI/
 - **Purpose:** Service account email for GitHub Actions deployment
 - **How to get:** From Step 7 in `docs/gcp-setup-guide.md`
 - **Format:** `SERVICE_ACCOUNT_NAME@PROJECT_ID.iam.gserviceaccount.com`
-- **Example:** `github-actions-deploy@dgs-production.iam.gserviceaccount.com`
+- **Example:** `github-actions-deploy@dylen-production.iam.gserviceaccount.com`
 
 **`GCP_REGION`**
 - **Purpose:** GCP region for Cloud Run and Artifact Registry
@@ -59,19 +59,19 @@ This document lists all the GitHub secrets you need to configure for the DGS CI/
 - **Purpose:** Cloud SQL connection name
 - **How to get:** From Step 3 in `docs/gcp-setup-guide.md`
 - **Format:** `PROJECT_ID:REGION:INSTANCE_NAME`
-- **Example:** `dgs-production:us-central1:dgs-postgres`
+- **Example:** `dylen-production:us-central1:dylen-postgres`
 
 **`GCP_ARTIFACT_REGISTRY`**
 - **Purpose:** Full path to Artifact Registry repository
 - **How to get:** From Step 5 in `docs/gcp-setup-guide.md`
 - **Format:** `REGION-docker.pkg.dev/PROJECT_ID/REPOSITORY_NAME`
-- **Example:** `us-central1-docker.pkg.dev/dgs-production/dgs-docker`
+- **Example:** `us-central1-docker.pkg.dev/dylen-production/dylen-docker`
 
 **`GCP_CLOUD_RUN_SERVICE_ACCOUNT`**
 - **Purpose:** Service account email for Cloud Run service
 - **How to get:** From Step 6 in `docs/gcp-setup-guide.md`
 - **Format:** `SERVICE_ACCOUNT_NAME@PROJECT_ID.iam.gserviceaccount.com`
-- **Example:** `dgs-cloud-run@dgs-production.iam.gserviceaccount.com`
+- **Example:** `dylen-cloud-run@dylen-production.iam.gserviceaccount.com`
 
 ---
 

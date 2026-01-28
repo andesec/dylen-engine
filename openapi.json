@@ -2735,10 +2735,10 @@
         "parameters": [
           {
             "in": "header",
-            "name": "X-DGS-Dev-Key",
+            "name": "X-Dylen-Dev-Key",
             "required": true,
             "schema": {
-              "title": "X-Dgs-Dev-Key",
+              "title": "X-Dylen-Dev-Key",
               "type": "string"
             }
           }
@@ -2799,10 +2799,10 @@
           },
           {
             "in": "header",
-            "name": "X-DGS-Dev-Key",
+            "name": "X-Dylen-Dev-Key",
             "required": true,
             "schema": {
-              "title": "X-Dgs-Dev-Key",
+              "title": "X-Dylen-Dev-Key",
               "type": "string"
             }
           }

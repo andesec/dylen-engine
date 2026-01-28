@@ -1,8 +1,14 @@
 # Security scanning reports
 reports/
 
+# Local Docker volumes / state (never commit).
+postgres-data/
+
+# Local TLS certs/keys (never commit).
+.certs/
+
 # Local-only backup folder created by migration squash helper.
-dgs-backend/alembic/versions/.squash_backup/
+dylen-engine/alembic/versions/.squash_backup/
 
 # Generated dependency files
 requirements.txt
@@ -216,7 +222,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# DGS Local Development
+# Dylen Local Development
 # Postgres Local data directory
 postgres-data/
 

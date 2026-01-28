@@ -1,14 +1,14 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+build-engine = "setuptools.build_meta"
 
 [project]
-name = "dgs-backend"
+name = "dylen-engine"
 version = "0.1.0"
-description = "Data Generation Service backend for DLE."
+description = "Data Generation Engine for Dylen."
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{ name = "DGS Team" }]
+authors = [{ name = "Dylen Team" }]
 dependencies = [
     "fastapi>=0.128.0,<1.0.0",
     "pydantic>=2.12.0,<3.0.0",
@@ -40,7 +40,7 @@ dev = [
 ]
 
 [tool.setuptools]
-package-dir = {"" = "dgs-backend"}
+package-dir = {"" = "dylen-engine"}
 packages = ["app"]
 py-modules = ["lambda_handler"]
 
@@ -50,7 +50,7 @@ py-modules = ["lambda_handler"]
 line-length = 255
 indent-width = 2
 target-version = "py313"
-src = ["dgs-backend"]
+src = ["dylen-engine"]
 
 [tool.ruff.format]
 skip-magic-trailing-comma = true
@@ -82,7 +82,7 @@ disallow_untyped_defs = true
 no_implicit_optional = true
 pretty = true
 show_error_codes = true
-mypy_path = ["dgs-backend"]
+mypy_path = ["dylen-engine"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

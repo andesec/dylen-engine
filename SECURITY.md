@@ -28,7 +28,7 @@ make security-sca
 
 ### 2. SAST (Static Application Security Testing) - Bandit
 
-**What it scans:** Python source code in `dgs-backend/app/`
+**What it scans:** Python source code in `dylen-engine/app/`
 
 **Detects:**
 - Hardcoded passwords and secrets
@@ -68,7 +68,7 @@ make security-sast-semgrep
 
 ### 4. Container Scanning - Snyk Container
 
-**What it scans:** Docker image `dgs-backend`
+**What it scans:** Docker image `dylen-engine`
 
 **Detects:**
 - OS package vulnerabilities

@@ -1,4 +1,4 @@
-# DLE learning selectors (user-facing)
+# Dylen learning selectors (user-facing)
 
 Use **Blueprint** to pick the *learning outcome* (what you want to be able to do). Use **Implementation** to pick the *teaching route* (how it’s taught).
 

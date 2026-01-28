@@ -1,8 +1,9 @@
 PYTHON ?= python3
 VENV_DIR := .venv
-APP_DIR := dgs-backend
+APP_DIR := dylen-engine
 PORT ?= 8080
 MIGRATION_BASE_REF ?= main
+BASELINE_MESSAGE ?= baseline
 
 .PHONY: install dev dev-stop lint format format-check typecheck test openapi run \
 	    security-sca security-sast-bandit security-sast-semgrep security-sast \
@@ -75,7 +76,7 @@ security-sca:
 	@echo "Running Snyk test..."
 	snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high || true
 	@echo "Uploading results to Snyk dashboard..."
-	snyk monitor --file=requirements.txt --package-manager=pip --project-name=dgs-backend || true
+	snyk monitor --file=requirements.txt --package-manager=pip --project-name=dylen-engine || true
 	@echo "Cleaning up requirements.txt..."
 	@rm -f requirements.txt
 
@@ -117,16 +118,16 @@ security-sast: security-sast-bandit security-sast-semgrep
 .PHONY: security-container
 security-container:
 	@echo "Building Docker image for scanning (production target)..."
-	docker build --pull --target production -t dgs-backend:security-scan .
+	docker build --pull --target production -t dylen-engine:security-scan .
 	@echo "Running Snyk Container scan..."
 	@command -v snyk >/dev/null 2>&1 || { echo "Error: snyk CLI not found. Install with: brew install snyk or npm install -g snyk"; exit 1; }
-	snyk container test dgs-backend:security-scan \
+	snyk container test dylen-engine:security-scan \
 		--file=Dockerfile \
 		--severity-threshold=high || true
 	@echo "Uploading container scan to Snyk dashboard..."
-	snyk container monitor dgs-backend:security-scan \
+	snyk container monitor dylen-engine:security-scan \
 		--file=Dockerfile \
-		--project-name=dgs-backend-container || true
+		--project-name=dylen-engine-container || true
 
 .PHONY: security-dast
 security-dast:
@@ -176,7 +177,7 @@ gp:
 
 
 # Database migrations
-.PHONY: migrate migration migration-auto migration-squash db-heads db-migration-lint db-migration-smoke db-check-drift db-check-seed-data db-check-pr-migration-count
+.PHONY: migrate migration migration-auto migration-squash db-heads db-migration-lint db-migration-smoke db-check-drift db-check-seed-data db-check-pr-migration-count db-nuke
 
 migrate:
 	@echo "Running database migrations..."
@@ -204,6 +205,11 @@ migration-squash:
 	@sleep 5
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	uv run python scripts/db_migration_squash.py --message "$(m)" --base-ref "$(MIGRATION_BASE_REF)" --yes
+
+db-nuke:
+	@if [ "$(CONFIRM_DB_NUKE)" != "1" ]; then echo "Refusing to nuke DB without CONFIRM_DB_NUKE=1."; echo "Run: make db-nuke CONFIRM_DB_NUKE=1"; exit 1; fi
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	CONFIRM_DB_NUKE=1 uv run python scripts/db_reset_baseline.py --app-dir "$(APP_DIR)" --message "$(BASELINE_MESSAGE)"
 
 db-heads:
 	@uv run python scripts/db_check_heads.py

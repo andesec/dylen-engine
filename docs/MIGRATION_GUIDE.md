@@ -5,7 +5,7 @@ This repository follows the production migration process defined in `docs/produc
 ## CI/CD Automation
 
 ### Pull Requests (`pr-migration-check.yml`)
-Every PR touching backend code runs migration checks:
+Every PR touching engine code runs migration checks:
 - One-migration-per-PR enforcement when schema files change (`scripts/db_check_pr_migration_count.py`)
 - Migration lint & policy checks (`scripts/db_migration_lint.py`)
 - Single Alembic head check (`scripts/db_check_heads.py`)
@@ -19,7 +19,7 @@ Every PR touching backend code runs migration checks:
    ```bash
    make migrate
    ```
-2. Modify models in `dgs-backend/app/schema/`.
+2. Modify models in `dylen-engine/app/schema/`.
 3. Generate a migration skeleton:
    ```bash
    make migration m="short_description"
@@ -42,7 +42,7 @@ Migration lint recognizes explicit tags for exceptional cases:
 - `# type-change: approved` — required for type changes in `upgrade()`
 
 Drift detection supports an explicit allowlist:
-- `DGS_MIGRATION_DRIFT_ALLOWLIST="token1,token2"` filters known-safe diffs by substring.
+- `DYLEN_MIGRATION_DRIFT_ALLOWLIST="token1,token2"` filters known-safe diffs by substring.
 
 ## Production Workflow
 
@@ -54,7 +54,7 @@ Drift detection supports an explicit allowlist:
 ## Manual Alembic Operations
 
 ```bash
-cd dgs-backend
+cd dylen-engine
 uv run alembic current
 uv run alembic history
 uv run alembic stamp <revision_id>

@@ -34,9 +34,10 @@ async def _check_subscription_tiers(*, dsn: str) -> list[str]:
 
 def main() -> None:
   """Exit non-zero when required static seed data is missing."""
-  dsn = os.getenv("DGS_PG_DSN", "").strip()
+  # Support both env var names so the check works during repo renames.
+  dsn = (os.getenv("DYLEN_PG_DSN", "") or os.getenv("DGS_PG_DSN", "")).strip()
   if not dsn:
-    print("ERROR: DGS_PG_DSN is required for seed-data checks.")
+    print("ERROR: DYLEN_PG_DSN (or DGS_PG_DSN) is required for seed-data checks.")
     sys.exit(1)
 
   normalized_dsn = _normalize_async_dsn(dsn)

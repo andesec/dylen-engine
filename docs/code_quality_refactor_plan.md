@@ -1,14 +1,14 @@
 # Code Quality Audit & Refactoring Plan
 
 **Date:** January 26, 2026
-**Scope:** `dgs-backend/app`
+**Scope:** `dylen-engine/app`
 **Focus:** FastAPI Design, SOLID Principles, OOD, AppSec, AGENTS.md Compliance
 
 ---
 
 ## Executive Summary
 
-A code review of the `dgs-backend` has identified several opportunities to improve code maintainability, security, and architectural strictness. The following developer stories outline the specific tasks required to address these issues.
+A code review of the `dylen-engine` has identified several opportunities to improve code maintainability, security, and architectural strictness. The following developer stories outline the specific tasks required to address these issues.
 
 ---
 
@@ -17,7 +17,7 @@ A code review of the `dgs-backend` has identified several opportunities to impro
 ### 1. Refactor Jobs Route Logic to Service Layer
 
 **Context:**
-Currently, the `dgs-backend/app/api/routes/jobs.py` file contains significant business logic, specifically within the `create_job_record` function and the `_process_job_async` helper. This violates the Single Responsibility Principle (SRP) by mixing HTTP transport concerns (FastAPI routes) with domain logic (database operations, job scheduling).
+Currently, the `dylen-engine/app/api/routes/jobs.py` file contains significant business logic, specifically within the `create_job_record` function and the `_process_job_async` helper. This violates the Single Responsibility Principle (SRP) by mixing HTTP transport concerns (FastAPI routes) with domain logic (database operations, job scheduling).
 
 **Issue:**
 - `jobs.py` handles both request parsing and complex job creation logic.
@@ -39,7 +39,7 @@ Currently, the `dgs-backend/app/api/routes/jobs.py` file contains significant bu
 ### 2. Decompose Orchestrator Monolith
 
 **Context:**
-The `DGSOrchestrator` class in `app/ai/orchestrator.py` acts as a "God Object." The `generate_lesson` method is approximately 200 lines long and handles agent coordination, error handling, logging, progress reporting, artifact management, and cost calculation.
+The `DYLENOrchestrator` class in `app/ai/orchestrator.py` acts as a "God Object." The `generate_lesson` method is approximately 200 lines long and handles agent coordination, error handling, logging, progress reporting, artifact management, and cost calculation.
 
 **Issue:**
 - High complexity makes the code hard to read, test, and maintain.
@@ -55,7 +55,7 @@ The `DGSOrchestrator` class in `app/ai/orchestrator.py` acts as a "God Object." 
 - [x] `generate_lesson` method size is significantly reduced (target < 100 lines).
 - [x] Cost calculation logic is isolated in a separate function/method.
 - [x] Progress reporting logic is abstracted or simplified within the main flow.
-- [x] The `DGSOrchestrator` remains responsible only for the high-level flow of agent execution.
+- [x] The `DYLENOrchestrator` remains responsible only for the high-level flow of agent execution.
 
 ---
 
@@ -103,16 +103,16 @@ In `app/api/routes/jobs.py`, the function `_process_job_async` imports `JobProce
 ### 5. Review CORS and Dev Key Security
 
 **Context:**
-`app/config.py` and `app/main.py` configure CORS to explicitly allow the `x-dgs-dev-key` header.
+`app/config.py` and `app/main.py` configure CORS to explicitly allow the `x-dylen-dev-key` header.
 
 **Issue:**
 - If this key is a sensitive administrative secret, exposing it in client-facing CORS headers is a security risk (Security via Obscurity). It suggests clients might be expected to send it.
 
 **Proposed Fix:**
-- Confirm the intended use case of `x-dgs-dev-key`.
+- Confirm the intended use case of `x-dylen-dev-key`.
 - If it is for server-to-server or internal admin tools only, ensure it is not required/allowed for standard frontend client requests.
 - If it is maintained, add comments explaining the security model.
 
 **Acceptance Criteria:**
-- [x] Usage of `x-dgs-dev-key` is verified.
+- [x] Usage of `x-dylen-dev-key` is verified.
 - [x] If confirmed as sensitive/internal-only, it is removed from the default CORS allowed headers OR documentation is added justifying its presence.

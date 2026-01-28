@@ -48,7 +48,7 @@ def _merge_base(*, base_ref: str) -> str:
 def _migration_paths_at_ref(*, ref: str) -> list[str]:
   """List migration version file paths at a given git ref."""
   # Use git ls-tree so we can read the previous migration graph without checking it out.
-  output = _run_git(["git", "ls-tree", "-r", "--name-only", ref, "dgs-backend/alembic/versions"])
+  output = _run_git(["git", "ls-tree", "-r", "--name-only", ref, "dylen-engine/alembic/versions"])
   if not output:
     return []
 
@@ -171,17 +171,17 @@ def main() -> None:
 
   if not args.yes:
     print("ERROR: Refusing to modify migration files without --yes.")
-    print("This command moves non-base migrations into dgs-backend/alembic/versions/.squash_backup/.")
+    print("This command moves non-base migrations into dylen-engine/alembic/versions/.squash_backup/.")
     sys.exit(1)
 
   # Require env vars explicitly so Alembic doesn't target a default database implicitly.
-  dsn = _require_env("DGS_PG_DSN")
-  _require_env("DGS_ALLOWED_ORIGINS")
+  dsn = _require_env("DYLEN_PG_DSN")
+  _require_env("DYLEN_ALLOWED_ORIGINS")
   repo_root = _repo_root()
-  alembic_ini = repo_root / "dgs-backend" / "alembic.ini"
-  versions_dir = repo_root / "dgs-backend" / "alembic" / "versions"
+  alembic_ini = repo_root / "dylen-engine" / "alembic.ini"
+  versions_dir = repo_root / "dylen-engine" / "alembic" / "versions"
   env = os.environ.copy()
-  env["PYTHONPATH"] = str(repo_root / "dgs-backend") + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+  env["PYTHONPATH"] = str(repo_root / "dylen-engine") + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
 
   # Compute merge base and identify the PR base migration head.
   merge_base_ref = _merge_base(base_ref=args.base_ref)
@@ -199,7 +199,7 @@ def main() -> None:
   # Use an isolated DB at base schema so autogenerate produces one combined diff.
   temp_url, admin_url, temp_name = _build_temp_database_url(dsn, label="squash")
   _create_database(admin_url, temp_name)
-  env["DGS_PG_DSN"] = temp_url
+  env["DYLEN_PG_DSN"] = temp_url
   try:
     _run([sys.executable, "-m", "alembic", "-c", str(alembic_ini), "upgrade", "head"], env=env)
     _run([sys.executable, "-m", "alembic", "-c", str(alembic_ini), "revision", "--autogenerate", "-m", args.message], env=env)
@@ -210,7 +210,7 @@ def main() -> None:
     _drop_database(admin_url, temp_name)
 
   # Restore env so follow-up commands use the developer's configured DSN again.
-  env["DGS_PG_DSN"] = dsn
+  env["DYLEN_PG_DSN"] = dsn
   print("OK: Squashed migration generated.")
   print("NOTE: If you previously applied the backed-up migrations to your dev DB, recreate it before running make migrate.")
 

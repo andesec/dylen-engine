@@ -10,8 +10,8 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy.ext.asyncio import create_async_engine
 
-# Add the backend package root to sys.path for model imports.
-BACKEND_DIR = Path(__file__).resolve().parents[1] / "dgs-backend"
+# Add the engine package root to sys.path for model imports.
+BACKEND_DIR = Path(__file__).resolve().parents[1] / "dylen-engine"
 sys.path.insert(0, str(BACKEND_DIR))
 
 import app.schema.audit  # noqa: E402, F401
@@ -27,7 +27,7 @@ from app.core.migrations import build_migration_context_options  # noqa: E402
 def _load_allowlist() -> list[str]:
   """Parse allowlist tokens so known-safe diffs can be ignored explicitly."""
   # Read allowlist tokens from environment to keep config out of code.
-  raw = os.getenv("DGS_MIGRATION_DRIFT_ALLOWLIST", "")
+  raw = os.getenv("DYLEN_MIGRATION_DRIFT_ALLOWLIST", "")
   if not raw:
     return []
 
@@ -58,7 +58,7 @@ async def _collect_drift() -> list[Any]:
   """Compare live schema with metadata using Alembic's autogenerate engine."""
   # Fail fast when database configuration is missing.
   if not DATABASE_URL:
-    raise RuntimeError("DGS_PG_DSN is not set, cannot run drift detection.")
+    raise RuntimeError("DYLEN_PG_DSN is not set, cannot run drift detection.")
 
   # Use the async engine so drift checks run against the runtime driver.
   engine = create_async_engine(DATABASE_URL)

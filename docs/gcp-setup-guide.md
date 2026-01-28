@@ -1,6 +1,6 @@
 # GCP Cloud Run Deployment Setup Guide
 
-Complete step-by-step guide for deploying the DGS application to Google Cloud Platform using Cloud Run and Cloud SQL.
+Complete step-by-step guide for deploying the Dylen application to Google Cloud Platform using Cloud Run and Cloud SQL.
 
 ## Prerequisites
 
@@ -20,8 +20,8 @@ Complete step-by-step guide for deploying the DGS application to Google Cloud Pl
 gcloud auth login
 
 # Create a new project (or use existing)
-export PROJECT_ID="dgs-production"  # Change this to your project ID
-gcloud projects create $PROJECT_ID --name="DGS Production"
+export PROJECT_ID="dylen-production"  # Change this to your project ID
+gcloud projects create $PROJECT_ID --name="Dylen Production"
 
 # Set as default project
 gcloud config set project $PROJECT_ID
@@ -56,9 +56,9 @@ gcloud services enable \
 ```bash
 # Set variables
 export REGION="us-central1"  # Change to your preferred region
-export SQL_INSTANCE_NAME="dgs-postgres"
-export DB_NAME="dgs"
-export DB_USER="dgs_user"
+export SQL_INSTANCE_NAME="dylen-postgres"
+export DB_NAME="dylen"
+export DB_USER="dylen_user"
 
 # Create PostgreSQL instance (this takes 5-10 minutes)
 gcloud sql instances create $SQL_INSTANCE_NAME \
@@ -93,7 +93,7 @@ echo "Cloud SQL Connection Name: $SQL_CONNECTION_NAME"
 export DB_PASSWORD=$(openssl rand -base64 32)
 
 # Store in Secret Manager
-echo -n "$DB_PASSWORD" | gcloud secrets create dgs-db-password \
+echo -n "$DB_PASSWORD" | gcloud secrets create dylen-db-password \
   --data-file=- \
   --replication-policy="automatic"
 
@@ -102,7 +102,7 @@ gcloud sql users set-password $DB_USER \
   --instance=$SQL_INSTANCE_NAME \
   --password=$DB_PASSWORD
 
-echo "Database password stored in Secret Manager as 'dgs-db-password'"
+echo "Database password stored in Secret Manager as 'dylen-db-password'"
 ```
 
 ---
@@ -113,12 +113,12 @@ echo "Database password stored in Secret Manager as 'dgs-db-password'"
 
 ```bash
 # Create Artifact Registry repository
-export ARTIFACT_REPO="dgs-docker"
+export ARTIFACT_REPO="dylen-docker"
 
 gcloud artifacts repositories create $ARTIFACT_REPO \
   --repository-format=docker \
   --location=$REGION \
-  --description="Docker images for DGS application"
+  --description="Docker images for Dylen application"
 
 # Configure Docker authentication
 gcloud auth configure-docker ${REGION}-docker.pkg.dev
@@ -134,11 +134,11 @@ echo "Artifact Registry: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}
 
 ```bash
 # Create service account
-export SA_NAME="dgs-cloud-run"
+export SA_NAME="dylen-cloud-run"
 export SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 gcloud iam service-accounts create $SA_NAME \
-  --display-name="DGS Cloud Run Service Account"
+  --display-name="Dylen Cloud Run Service Account"
 
 # Grant necessary permissions
 gcloud projects add-iam-policy-binding $PROJECT_ID \
@@ -207,7 +207,7 @@ echo "Workload Identity Pool: $POOL_ID"
 ```bash
 # Replace with your GitHub org/username and repo
 export GITHUB_ORG="your-github-org"  # CHANGE THIS
-export GITHUB_REPO="dgs"              # CHANGE THIS
+export GITHUB_REPO="dylen"              # CHANGE THIS
 
 # Create provider
 gcloud iam workload-identity-pools providers create-oidc "github-provider" \
@@ -295,7 +295,7 @@ Click **"New repository secret"** and add each of the following:
 #### Security Secrets (Already in Secret Manager):
 
 These are stored in GCP Secret Manager and accessed by Cloud Run:
-- `dgs-db-password` - Database password
+- `dylen-db-password` - Database password
 - Add other secrets as needed (API keys, etc.)
 
 ---
@@ -316,7 +316,7 @@ echo -n "your-gemini-api-key" | gcloud secrets create gemini-api-key \
   --replication-policy="automatic"
 
 # Grant Cloud Run service account access to secrets
-for secret in dgs-db-password openrouter-api-key gemini-api-key; do
+for secret in dylen-db-password openrouter-api-key gemini-api-key; do
   gcloud secrets add-iam-policy-binding $secret \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="roles/secretmanager.secretAccessor"
@@ -333,10 +333,10 @@ echo "✅ Application secrets created and permissions granted!"
 
 ```bash
 # From your project root
-cd /path/to/dgs
+cd /path/to/dylen
 
 # Build image
-export IMAGE_NAME="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/dgs-backend:latest"
+export IMAGE_NAME="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/dylen-engine:latest"
 
 docker build -t $IMAGE_NAME .
 
@@ -350,13 +350,13 @@ echo "✅ Image pushed: $IMAGE_NAME"
 
 ```bash
 # Deploy to Cloud Run
-gcloud run deploy dgs-backend \
+gcloud run deploy dylen-engine \
   --image=$IMAGE_NAME \
   --platform=managed \
   --region=$REGION \
   --service-account=$SA_EMAIL \
   --add-cloudsql-instances=$SQL_CONNECTION_NAME \
-  --set-env-vars="DGS_PG_DSN=/cloudsql/${SQL_CONNECTION_NAME}" \
+  --set-env-vars="DYLEN_PG_DSN=/cloudsql/${SQL_CONNECTION_NAME}" \
   --set-secrets="OPENROUTER_API_KEY=openrouter-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
   --allow-unauthenticated \
   --memory=512Mi \
@@ -365,7 +365,7 @@ gcloud run deploy dgs-backend \
   --max-instances=10
 
 # Get the service URL
-export SERVICE_URL=$(gcloud run services describe dgs-backend \
+export SERVICE_URL=$(gcloud run services describe dylen-engine \
   --region=$REGION \
   --format='value(status.url)')
 
@@ -411,7 +411,7 @@ The GitHub Actions workflow will now automatically:
 
 1. **Enable VPC Connector** (for production):
    ```bash
-   gcloud compute networks vpc-access connectors create dgs-connector \
+   gcloud compute networks vpc-access connectors create dylen-connector \
      --region=$REGION \
      --range=10.8.0.0/28
    ```
@@ -419,7 +419,7 @@ The GitHub Actions workflow will now automatically:
 2. **Restrict Cloud Run Access** (if needed):
    ```bash
    # Remove --allow-unauthenticated and add IAM bindings
-   gcloud run services add-iam-policy-binding dgs-backend \
+   gcloud run services add-iam-policy-binding dylen-engine \
      --region=$REGION \
      --member="user:your-email@example.com" \
      --role="roles/run.invoker"
@@ -516,19 +516,19 @@ SERVICE_URL: $SERVICE_URL
 
 ```bash
 # View Cloud Run logs
-gcloud run services logs read dgs-backend --region=$REGION --limit=50
+gcloud run services logs read dylen-engine --region=$REGION --limit=50
 
 # View Cloud SQL logs
 gcloud sql operations list --instance=$SQL_INSTANCE_NAME
 
 # Update Cloud Run service
-gcloud run services update dgs-backend --region=$REGION [options]
+gcloud run services update dylen-engine --region=$REGION [options]
 
 # List secrets
 gcloud secrets list
 
 # Access secret value (for debugging)
-gcloud secrets versions access latest --secret=dgs-dev-key
+gcloud secrets versions access latest --secret=dylen-dev-key
 ```
 
 ---
