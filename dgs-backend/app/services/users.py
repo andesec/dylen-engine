@@ -18,6 +18,7 @@ from app.schema.sql import AuthMethod, User, UserStatus
 
 logger = logging.getLogger(__name__)
 
+
 async def get_user_by_firebase_uid(session: AsyncSession, firebase_uid: str) -> User | None:
   """Fetch a user by Firebase UID to support auth and session validation."""
   # Use a direct lookup to keep auth path predictable.

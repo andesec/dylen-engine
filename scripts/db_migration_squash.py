@@ -126,6 +126,7 @@ def _build_temp_database_url(dsn: str, *, label: str) -> tuple[str, str, str]:
 
 def _create_database(admin_url: str, db_name: str) -> None:
   """Create a temporary database for squashed migration autogeneration."""
+
   async def _create() -> None:
     """Create the database via a short-lived async engine."""
     engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
@@ -141,6 +142,7 @@ def _create_database(admin_url: str, db_name: str) -> None:
 
 def _drop_database(admin_url: str, db_name: str) -> None:
   """Drop the temporary database after autogenerate completes."""
+
   async def _drop() -> None:
     """Drop the database via a short-lived async engine."""
     engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")

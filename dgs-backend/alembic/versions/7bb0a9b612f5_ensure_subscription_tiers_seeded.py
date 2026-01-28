@@ -28,9 +28,42 @@ def upgrade() -> None:
   """Insert required subscription tiers if they are missing."""
   # Seed only missing rows to avoid overwriting operator customization.
   tiers = [
-    {"name": "Free", "max_file_upload_kb": 512, "highest_lesson_depth": "highlights", "max_sections_per_lesson": 2, "file_upload_quota": 0, "image_upload_quota": 0, "gen_sections_quota": 20, "coach_mode_enabled": False, "coach_voice_tier": "none", "research_quota": None},
-    {"name": "Plus", "max_file_upload_kb": 1024, "highest_lesson_depth": "detailed", "max_sections_per_lesson": 6, "file_upload_quota": 5, "image_upload_quota": 5, "gen_sections_quota": 100, "coach_mode_enabled": True, "coach_voice_tier": "device", "research_quota": None},
-    {"name": "Pro", "max_file_upload_kb": 2048, "highest_lesson_depth": "training", "max_sections_per_lesson": 10, "file_upload_quota": 10, "image_upload_quota": 10, "gen_sections_quota": 250, "coach_mode_enabled": True, "coach_voice_tier": "premium", "research_quota": None},
+    {
+      "name": "Free",
+      "max_file_upload_kb": 512,
+      "highest_lesson_depth": "highlights",
+      "max_sections_per_lesson": 2,
+      "file_upload_quota": 0,
+      "image_upload_quota": 0,
+      "gen_sections_quota": 20,
+      "coach_mode_enabled": False,
+      "coach_voice_tier": "none",
+      "research_quota": None,
+    },
+    {
+      "name": "Plus",
+      "max_file_upload_kb": 1024,
+      "highest_lesson_depth": "detailed",
+      "max_sections_per_lesson": 6,
+      "file_upload_quota": 5,
+      "image_upload_quota": 5,
+      "gen_sections_quota": 100,
+      "coach_mode_enabled": True,
+      "coach_voice_tier": "device",
+      "research_quota": None,
+    },
+    {
+      "name": "Pro",
+      "max_file_upload_kb": 2048,
+      "highest_lesson_depth": "training",
+      "max_sections_per_lesson": 10,
+      "file_upload_quota": 10,
+      "image_upload_quota": 10,
+      "gen_sections_quota": 250,
+      "coach_mode_enabled": True,
+      "coach_voice_tier": "premium",
+      "research_quota": None,
+    },
   ]
   table = sa.table(
     "subscription_tiers",
@@ -53,4 +86,3 @@ def downgrade() -> None:
   """Downgrades are intentionally a no-op for seed data."""
   # Seed rows may have been modified by operators; do not delete on downgrade.
   return
-
