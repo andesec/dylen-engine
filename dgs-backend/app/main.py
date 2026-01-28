@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.orchestrator import OrchestrationError
-from app.api.routes import admin, auth, jobs, lessons, notifications, purgatory, research, resources, tasks, users, writing
+from app.api.routes import admin, auth, fenster, jobs, lessons, notifications, purgatory, research, resources, tasks, users, writing
 from app.config import get_settings
 from app.core.exceptions import global_exception_handler, orchestration_exception_handler
 from app.core.json import DecimalJSONResponse
@@ -44,3 +44,4 @@ app.include_router(resources.router, prefix="/resource", tags=["resources"])
 app.include_router(resources.router, prefix="/resource", tags=["resources"])
 app.include_router(notifications.router, prefix="/v1/notifications", tags=["notifications"])
 app.include_router(tasks.router, prefix="/internal", tags=["tasks"])
+app.include_router(fenster.router, prefix="/api/v1/fenster", tags=["fenster"])

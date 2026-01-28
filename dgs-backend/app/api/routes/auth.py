@@ -152,7 +152,7 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
 
   # Sync initial RBAC claims to Firebase for fast middleware checks.
   try:
-    claims = build_rbac_claims(role_id=str(default_role.id), role_name=default_role.name, role_level=default_role.level, org_id=None, status=user.status)
+    claims = build_rbac_claims(role_id=str(default_role.id), role_name=default_role.name, role_level=default_role.level, org_id=None, status=user.status, tier="Free")
     await run_in_threadpool(set_custom_claims, firebase_uid, claims)
   except Exception as e:
     logger.error("Signup failed: Unable to set custom claims for %s: %s", token_email, e, exc_info=True)
