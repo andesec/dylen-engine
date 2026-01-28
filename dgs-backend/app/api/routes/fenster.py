@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/{widget_id}", dependencies=[Depends(require_tier(["Plus", "Pro"]))])
-async def get_fenster_widget(widget_id: str, db: AsyncSession = Depends(get_db)):
+async def get_fenster_widget(widget_id: str, db: AsyncSession = Depends(get_db)) -> Response:
   """
   Retrieve a Fenster widget by ID.
   Requires 'Plus' or 'Pro' tier.
