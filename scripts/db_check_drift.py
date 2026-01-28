@@ -16,6 +16,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 import app.schema.audit  # noqa: E402, F401
 import app.schema.email_delivery_logs  # noqa: E402, F401
+import app.schema.fenster  # noqa: E402, F401
 import app.schema.jobs  # noqa: E402, F401
 import app.schema.lessons  # noqa: E402, F401
 import app.schema.sql  # noqa: E402, F401

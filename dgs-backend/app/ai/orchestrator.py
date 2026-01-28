@@ -21,6 +21,7 @@ from app.schema.service import SchemaService
 OptStr = str | None
 Msgs = list[str] | None
 ProgressCallback = Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], Awaitable[None]] | None
+JobCreator = Callable[[str, dict[str, Any]], Awaitable[None]] | None
 MERGED_DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"
 
 
@@ -100,6 +101,7 @@ class DgsOrchestrator:
     repair_model: str | None,
     schema_version: str,
     merge_gatherer_structurer: bool = False,
+    fenster_technical_constraints: dict[str, Any] | None = None,
   ) -> None:
     self._gatherer_provider = gatherer_provider
     self._gatherer_model_name = gatherer_model
@@ -112,6 +114,7 @@ class DgsOrchestrator:
     self._schema_version = schema_version
     self._schema_service = SchemaService()
     self._merge_gatherer_structurer = merge_gatherer_structurer
+    self._fenster_technical_constraints = fenster_technical_constraints or {}
 
   async def generate_lesson(
     self,
@@ -131,6 +134,7 @@ class DgsOrchestrator:
     enable_repair: bool = True,
     progress_callback: ProgressCallback = None,
     section_filter: set[int] | None = None,
+    job_creator: JobCreator = None,
   ) -> OrchestrationResult:
     """Run the 5-agent pipeline and return lesson JSON."""
     logger = logging.getLogger(__name__)
@@ -155,7 +159,7 @@ class DgsOrchestrator:
     agents = self._initialize_agents(ctx.usage.append, gatherer_model, structurer_model)
 
     # Plan
-    await self._run_planning_phase(ctx, agents, logger)
+    await self._run_planning_phase(ctx, agents, logger, job_creator)
 
     # Generate Sections
     await self._run_section_generation_phase(ctx, agents, logger, section_filter, enable_repair)
@@ -249,7 +253,7 @@ class DgsOrchestrator:
       repairer_model=repairer_model_instance,
     )
 
-  async def _run_planning_phase(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger) -> None:
+  async def _run_planning_phase(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, job_creator: JobCreator) -> None:
     await ctx.progress_reporter("plan", "planner_start", ["Planning lesson sections..."])
     try:
       ctx.lesson_plan = await agents.planner.run(ctx.job_context.request, ctx.job_context)
@@ -258,6 +262,22 @@ class DgsOrchestrator:
       _handle_agent_failure(ctx, logger, "Planner", self._planner_provider, agents.planner_model, exc)
 
     await ctx.progress_reporter("plan", "planner_complete", ["Lesson plan ready."])
+
+    if job_creator and ctx.lesson_plan:
+      await self._create_widget_jobs(ctx.lesson_plan, ctx.job_context, job_creator, logger)
+
+  async def _create_widget_jobs(self, plan: LessonPlan, job_context: JobContext, job_creator: Callable[[str, dict[str, Any]], Awaitable[None]], logger: logging.Logger) -> None:
+    for section in plan.sections:
+      for subsection in section.subsections:
+        for widget_context in subsection.planned_widgets:
+          payload = {
+            "lesson_id": "pending",
+            "concept_context": f"Widget for: {widget_context}. Context: {subsection.title} in {section.title}. Topic: {job_context.request.topic}",
+            "target_audience": job_context.request.learner_level or "Student",
+            "technical_constraints": self._fenster_technical_constraints,
+          }
+          await job_creator("fenster_builder", payload)
+          logger.info("Created fenster_builder job for widget: %s", widget_context)
 
   async def _run_section_generation_phase(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, section_filter: set[int] | None, enable_repair: bool) -> None:
     assert ctx.lesson_plan is not None

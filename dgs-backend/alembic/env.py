@@ -25,6 +25,7 @@ if config.config_file_name is not None:
 
 import app.schema.audit  # noqa: E402, F401
 import app.schema.email_delivery_logs  # noqa: E402, F401
+import app.schema.fenster  # noqa: E402, F401
 import app.schema.jobs  # noqa: E402, F401
 import app.schema.lessons  # noqa: E402, F401
 

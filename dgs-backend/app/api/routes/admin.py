@@ -15,7 +15,7 @@ from app.notifications.factory import build_notification_service
 from app.schema.sql import Role, RoleLevel, User, UserStatus
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, set_role_permissions
-from app.services.users import delete_user, get_user_by_id, list_users, update_user_role, update_user_status
+from app.services.users import delete_user, get_user_by_id, get_user_tier_name, list_users, update_user_role, update_user_status
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.postgres_audit_repo import LlmAuditRecord, PostgresLlmAuditRepository
@@ -124,6 +124,13 @@ class UserRoleUpdateRequest(BaseModel):
   role_id: str
 
 
+async def _update_firebase_claims(db_session: AsyncSession, user: User, role: Role) -> None:
+  """Helper to sync user RBAC claims to Firebase."""
+  tier_name = await get_user_tier_name(db_session, user.id)
+  claims = build_rbac_claims(role_id=str(role.id), role_name=role.name, role_level=role.level, org_id=str(user.org_id) if user.org_id else None, status=user.status, tier=tier_name)
+  await run_in_threadpool(set_custom_claims, user.firebase_uid, claims)
+
+
 @router.post("/roles", response_model=RoleRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
 async def create_role(request: RoleCreateRequest, db_session: AsyncSession = Depends(get_db)) -> RoleRecord:  # noqa: B008
   """Create a new role for RBAC management."""
@@ -206,8 +213,7 @@ async def update_user_account_status(user_id: str, request: UserStatusUpdateRequ
   if role is None:
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User role missing.")
 
-  claims = build_rbac_claims(role_id=str(role.id), role_name=role.name, role_level=role.level, org_id=str(user.org_id) if user.org_id else None, status=user.status)
-  await run_in_threadpool(set_custom_claims, user.firebase_uid, claims)
+  await _update_firebase_claims(db_session, user, role)
 
   # Notify the user on best-effort basis when approved.
   if user.status == UserStatus.APPROVED:
@@ -252,8 +258,7 @@ async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest,
   user = await update_user_role(db_session, user=user, role_id=new_role.id)
 
   # Update Firebase custom claims so tokens reflect the new role.
-  claims = build_rbac_claims(role_id=str(new_role.id), role_name=new_role.name, role_level=new_role.level, org_id=str(user.org_id) if user.org_id else None, status=user.status)
-  await run_in_threadpool(set_custom_claims, user.firebase_uid, claims)
+  await _update_firebase_claims(db_session, user, new_role)
 
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
@@ -282,8 +287,7 @@ async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db),
   if role is None:
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User role missing.")
 
-  claims = build_rbac_claims(role_id=str(role.id), role_name=role.name, role_level=role.level, org_id=str(user.org_id) if user.org_id else None, status=user.status)
-  await run_in_threadpool(set_custom_claims, user.firebase_uid, claims)
+  await _update_firebase_claims(db_session, user, role)
 
   # Notify the user on best-effort basis.
   await build_notification_service(settings).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)

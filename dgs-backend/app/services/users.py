@@ -35,6 +35,14 @@ async def get_user_by_id(session: AsyncSession, user_id: uuid.UUID) -> User | No
   return result.scalar_one_or_none()
 
 
+async def get_user_tier_name(session: AsyncSession, user_id: uuid.UUID) -> str:
+  """Fetch the subscription tier name for a user."""
+  stmt = select(SubscriptionTier.name).join(UserUsageMetrics, UserUsageMetrics.subscription_tier_id == SubscriptionTier.id).where(UserUsageMetrics.user_id == user_id)
+  result = await session.execute(stmt)
+  tier_name = result.scalar_one_or_none()
+  return tier_name or "Free"
+
+
 def resolve_auth_method(provider: str | None) -> AuthMethod:
   """Resolve auth method from provider so RBAC status stays consistent with Firebase sign-in."""
   # Map Firebase provider identifiers into the enum used by RBAC.

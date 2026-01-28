@@ -1,7 +1,7 @@
 """Ensure subscription tiers seed data exists.
 
 Revision ID: 7bb0a9b612f5
-Revises: f2f00648b393
+Revises: 53950bbdb137
 Create Date: 2026-01-28
 
 How and why:
@@ -19,7 +19,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "7bb0a9b612f5"
-down_revision: str | None = "f2f00648b393"
+down_revision: str | None = "53950bbdb137"
 branch_labels: str | None = None
 depends_on: str | None = None
 

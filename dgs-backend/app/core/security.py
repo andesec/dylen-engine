@@ -12,7 +12,7 @@ from app.core.database import get_db
 from app.core.firebase import verify_id_token
 from app.schema.sql import RoleLevel, User, UserStatus
 from app.services.rbac import get_role_by_id, role_has_permission
-from app.services.users import get_user_by_firebase_uid, update_user_provider
+from app.services.users import get_user_by_firebase_uid, get_user_tier_name, update_user_provider
 
 security_scheme = HTTPBearer()
 
@@ -82,6 +82,34 @@ def require_permission(permission_slug: str):  # noqa: ANN001
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
     return current_user
+
+  return _dependency
+
+
+def require_tier(allowed_tiers: list[str]):  # noqa: ANN001
+  """Build a dependency that checks if user has one of the allowed tiers."""
+  allowed_tiers_set = {t.lower() for t in allowed_tiers}
+
+  async def _dependency(
+    current_identity: tuple[User, dict[str, Any]] = Depends(get_current_identity),
+    db: AsyncSession = Depends(get_db),
+  ) -> User:
+    user, claims = current_identity
+    # Check if user is active first
+    if user.status != UserStatus.APPROVED:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "INACTIVE_USER", "detail": "Inactive user"})
+
+    tier = claims.get("tier")
+
+    if not tier:
+      # Fallback to DB
+      tier = await get_user_tier_name(db, user.id)
+
+    if tier.lower() not in allowed_tiers_set:
+      # Return specific error payload as per spec
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "UPGRADE_REQUIRED", "min_tier": allowed_tiers[0].lower()})
+
+    return user
 
   return _dependency
 

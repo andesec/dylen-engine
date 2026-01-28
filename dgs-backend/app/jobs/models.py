@@ -17,6 +17,7 @@ class JobRecord:
   status: JobStatus
   created_at: str
   updated_at: str
+  target_agent: str | None = None
   phase: str | None = None
   subphase: str | None = None
   expected_sections: int | None = None

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Any
 
 from app.utils.env import default_env_path, load_env_file
 
@@ -35,6 +37,9 @@ class Settings:
   structurer_model_best: str | None
   repair_provider: str
   repair_model: str | None
+  fenster_provider: str
+  fenster_model: str | None
+  fenster_technical_constraints: dict[str, Any]
   research_model: str | None
   prompt_version: str
   schema_version: str
@@ -80,6 +85,15 @@ def _parse_origins(raw: str | None) -> list[str]:
     raise ValueError("DGS_ALLOWED_ORIGINS must not include wildcard origins.")
 
   return origins
+
+
+def _parse_json_dict(raw: str | None, default: dict[str, Any]) -> dict[str, Any]:
+  if not raw:
+    return default
+  try:
+    return json.loads(raw)
+  except json.JSONDecodeError:
+    return default
 
 
 def _parse_bool(raw: str | None) -> bool:
@@ -165,6 +179,9 @@ def get_settings() -> Settings:
     structurer_model_best=os.getenv("DGS_STRUCTURER_MODEL_BEST"),
     repair_provider=os.getenv("DGS_REPAIR_PROVIDER", os.getenv("DGS_STRUCTURER_PROVIDER", "gemini")),
     repair_model=os.getenv("DGS_REPAIR_MODEL", "google/gemma-3-27b-it:free"),
+    fenster_provider=os.getenv("DGS_FENSTER_PROVIDER", "gemini"),
+    fenster_model=os.getenv("DGS_FENSTER_MODEL", "gemini-2.0-flash-exp"),
+    fenster_technical_constraints=_parse_json_dict(os.getenv("DGS_FENSTER_TECHNICAL_CONSTRAINTS"), {"max_tokens": 4000, "allowed_libs": ["alpine", "tailwind"]}),
     research_model=os.getenv("DGS_RESEARCH_MODEL", "gemini-1.5-pro"),
     prompt_version=os.getenv("DGS_PROMPT_VERSION", "v1"),
     schema_version=os.getenv("DGS_SCHEMA_VERSION", "1.0"),
