@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -137,8 +137,8 @@ async def get_config_values(scope: ConfigScopeLiteral = Query("GLOBAL"), org_id:
   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid scope")
 
 
-@router.put("/config/values", status_code=status.HTTP_204_NO_CONTENT)
-async def set_config_value(request: RuntimeConfigSetRequest, current_user: User = CONFIG_READ_DEP, db: AsyncSession = Depends(get_db)) -> None:  # noqa: B008
+@router.put("/config/values", status_code=status.HTTP_200_OK)
+async def set_config_value(request: RuntimeConfigSetRequest, current_user: User = CONFIG_READ_DEP, db: AsyncSession = Depends(get_db)) -> dict[str, str]:  # noqa: B008
   """Set a runtime config value for the requested scope."""
   # Validate key metadata before enforcing authorization rules.
   definition = get_runtime_config_definition(request.key)
@@ -153,7 +153,7 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
     await _require_global_role(db, current_user)
     _ = await require_permission("config:write_global")(current_user=current_user, db=db)  # type: ignore[misc]
     await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.GLOBAL, value=request.value, org_id=None, subscription_tier_id=None)
-    return
+    return {"status": "ok"}
 
   if request.scope == "TIER":
     await _require_global_role(db, current_user)
@@ -162,7 +162,7 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tier_name is required for TIER scope")
     tier_id = await _resolve_tier_id(db, request.tier_name)
     await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TIER, value=request.value, org_id=None, subscription_tier_id=tier_id)
-    return
+    return {"status": "ok"}
 
   if request.scope == "TENANT":
     _ = await require_permission("config:write_org")(current_user=current_user, db=db)  # type: ignore[misc]
@@ -171,7 +171,7 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
     parsed_org_id = uuid.UUID(request.org_id)
     await _require_tenant_scope(db, current_user, parsed_org_id)
     await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TENANT, value=request.value, org_id=parsed_org_id, subscription_tier_id=None)
-    return
+    return {"status": "ok"}
 
   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid scope")
 
@@ -206,8 +206,8 @@ async def create_flag(request: FeatureFlagCreateRequest, current_user: User = De
   return FeatureFlagRecord(id=str(flag.id), key=flag.key, description=flag.description, default_enabled=bool(flag.default_enabled))
 
 
-@router.put("/feature-flags/override", status_code=status.HTTP_204_NO_CONTENT)
-async def set_flag_override(request: FeatureFlagOverrideRequest, current_user: User = FLAGS_READ_DEP, db: AsyncSession = Depends(get_db)) -> None:  # noqa: B008
+@router.put("/feature-flags/override", status_code=status.HTTP_200_OK)
+async def set_flag_override(request: FeatureFlagOverrideRequest, current_user: User = FLAGS_READ_DEP, db: AsyncSession = Depends(get_db)) -> dict[str, str]:  # noqa: B008
   """Set a tier or tenant override for a feature flag."""
   flag = await get_feature_flag_by_key(db, key=request.key)
   if flag is None:
@@ -218,14 +218,14 @@ async def set_flag_override(request: FeatureFlagOverrideRequest, current_user: U
     await _require_global_role(db, current_user)
     tier_id = await _resolve_tier_id(db, request.tier_name)
     await set_tier_feature_flag(db, subscription_tier_id=tier_id, feature_flag_id=flag.id, enabled=request.enabled)
-    return
+    return {"status": "ok"}
 
   if request.org_id:
     _ = await require_permission("flags:write_org")(current_user=current_user, db=db)  # type: ignore[misc]
     parsed_org_id = uuid.UUID(request.org_id)
     await _require_tenant_scope(db, current_user, parsed_org_id)
     await set_org_feature_flag(db, org_id=parsed_org_id, feature_flag_id=flag.id, enabled=request.enabled)
-    return
+    return {"status": "ok"}
 
   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Either org_id or tier_name is required")
 
