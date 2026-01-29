@@ -134,7 +134,7 @@ class GeminiModel(AIModel):
       # Enhance prompt to ensure clear reading
       prompt = f"Read the following text clearly and naturally:\n\n{text}"
 
-      response = self._client.models.generate_content(model=self.name, contents=prompt, config=config)
+      response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config=config)
 
       # Extract audio bytes
       if response.parts:
