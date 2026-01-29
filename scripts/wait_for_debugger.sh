@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.debug.yml}"
-SERVICE="${SERVICE:-engine}"
+SERVICE="${SERVICE:-app}"
 DEBUG_PORT="${DEBUG_PORT:-5678}"
 echo "Waiting for debugger on ${SERVICE}:${DEBUG_PORT}..."
 # Find the running container ID for the engine service so we can check its listener state without opening a client connection.

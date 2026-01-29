@@ -12,9 +12,9 @@
         "--port",
         "8082"
       ],
-      "cwd": "${workspaceFolder}/dylen-engine",
+      "cwd": "${workspaceFolder}",
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/dylen-engine"
+        "PYTHONPATH": "${workspaceFolder}"
       },
       "justMyCode": true
     },
@@ -28,8 +28,8 @@
       },
       "pathMappings": [
         {
-          "localRoot": "${workspaceFolder}/dylen-engine",
-          "remoteRoot": "/app/dylen-engine"
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "/app"
         }
       ],
       "subProcess": true,
