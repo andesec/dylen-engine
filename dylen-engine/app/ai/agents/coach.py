@@ -26,6 +26,9 @@ class CoachAgent(BaseAgent[dict[str, Any], list[int]]):
 
     # We iterate over subsections to generate audio
     subsections = section_data.get("subsections", [])
+    if not subsections and section_data.get("items"):
+      # If there are no subsections, treat the whole section as one unit for audio generation.
+      subsections = [section_data]
 
     audio_ids = []
 
