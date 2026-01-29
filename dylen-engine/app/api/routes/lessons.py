@@ -68,13 +68,7 @@ async def generate_lesson(  # noqa: B008
   selection = _resolve_model_selection(settings, models=request.models)
   (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
   orchestrator = _get_orchestrator(
-    settings,
-    section_builder_provider=section_builder_provider,
-    section_builder_model=section_builder_model,
-    planner_provider=planner_provider,
-    planner_model=planner_model,
-    repair_provider=repairer_provider,
-    repair_model=repairer_model,
+    settings, section_builder_provider=section_builder_provider, section_builder_model=section_builder_model, planner_provider=planner_provider, planner_model=planner_model, repair_provider=repairer_provider, repair_model=repairer_model
   )
   language = _resolve_primary_language(request)
   learner_level = _resolve_learner_level(request)

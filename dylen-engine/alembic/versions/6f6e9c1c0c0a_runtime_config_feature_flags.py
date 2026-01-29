@@ -97,11 +97,7 @@ def upgrade() -> None:
   permission_flags_write_tier_id = uuid.UUID("5c0d5b18-7c4a-4d34-8f8b-1a0b8b1d8a0c")
   permission_flags_write_org_id = uuid.UUID("c0a1a5f1-9e5b-4b2e-9b7b-7b3f1e2c0a1b")
 
-  op.execute(
-    insert(roles_table)
-    .values([{"id": role_admin_id, "name": "Admin", "level": "GLOBAL", "description": "Global administrator (non-super)."}])
-    .on_conflict_do_nothing(index_elements=["name"])
-  )
+  op.execute(insert(roles_table).values([{"id": role_admin_id, "name": "Admin", "level": "GLOBAL", "description": "Global administrator (non-super)."}]).on_conflict_do_nothing(index_elements=["name"]))
 
   op.execute(
     insert(permissions_table)
@@ -200,11 +196,7 @@ def upgrade() -> None:
     if tiers.get("Pro") is not None:
       rows.append({"subscription_tier_id": tiers["Pro"], "feature_flag_id": fenster_flag_id, "enabled": True})
       rows.append({"subscription_tier_id": tiers["Pro"], "feature_flag_id": research_flag_id, "enabled": True})
-    op.execute(
-      insert(tier_flags_table)
-      .values(rows)
-      .on_conflict_do_nothing(index_elements=["subscription_tier_id", "feature_flag_id"])
-    )
+    op.execute(insert(tier_flags_table).values(rows).on_conflict_do_nothing(index_elements=["subscription_tier_id", "feature_flag_id"]))
 
 
 def downgrade() -> None:
