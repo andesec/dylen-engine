@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_quota
 from app.config import get_settings
 from app.core.database import get_db
-from app.core.security import get_current_active_user, get_current_user
+from app.core.security import get_current_user
 from app.schema.sql import User
 from app.services.feature_flags import resolve_effective_feature_flags
 from app.services.quotas import ResolvedQuota
@@ -25,17 +25,9 @@ async def get_my_profile(current_user: User = Depends(get_current_user), db: Asy
   # Fetch role metadata to return friendly profile details.
   role = await get_role_by_id(db, current_user.role_id)
   if role is None:
-    return {
-      "status": current_user.status,
-      "role": None,
-      "org_id": str(current_user.org_id) if current_user.org_id else None,
-    }
+    return {"status": current_user.status, "role": None, "org_id": str(current_user.org_id) if current_user.org_id else None}
 
-  return {
-    "status": current_user.status,
-    "role": {"id": str(role.id), "name": role.name, "level": role.level},
-    "org_id": str(current_user.org_id) if current_user.org_id else None,
-  }
+  return {"status": current_user.status, "role": {"id": str(role.id), "name": role.name, "level": role.level}, "org_id": str(current_user.org_id) if current_user.org_id else None}
 
 
 @router.get("/me/quota", response_model=ResolvedQuota)
@@ -47,7 +39,7 @@ async def get_my_quota(quota: ResolvedQuota = Depends(get_quota)) -> ResolvedQuo
 
 
 @router.get("/me/features")
-async def get_my_features(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+async def get_my_features(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
   """
   Get effective feature flags, runtime config, and permission hints for the current user.
   """

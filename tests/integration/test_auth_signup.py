@@ -162,15 +162,11 @@ async def test_get_profile(async_client: AsyncClient, db_session, mock_verify_id
 
   # Sequence for Login: [User, Role]
 
-  # Sequence for Get Me (PENDING): [User] (fails at dependency, no role lookup?)
+  # Sequence for Get Me (PENDING): [User, Role] (Success 200)
 
-  # Actually, get_current_active_user calls get_current_identity (User lookup) -> checks status -> raises 403.
+  # Sequence for Get Me (APPROVED): [User, Role] (Success 200)
 
-  # So DB calls: Login (2), Get Me (1 - User only).
-
-  # Sequence for Get Me (APPROVED): [User, Role]
-
-  result_mock.scalar_one_or_none.side_effect = [user, mock_role, user, user, mock_role]
+  result_mock.scalar_one_or_none.side_effect = [user, mock_role, user, mock_role, user, mock_role]
 
   db_session.execute.return_value = result_mock
 
@@ -180,11 +176,12 @@ async def test_get_profile(async_client: AsyncClient, db_session, mock_verify_id
 
   assert login_resp.status_code == 200
 
-  # 3. Get Me (PENDING) -> Should be 403
+  # 3. Get Me (PENDING) -> Should be 200 (Profile is accessible even if pending)
 
   response = await async_client.get("/api/user/me", headers={"Authorization": "Bearer token"})
 
-  assert response.status_code == 403
+  assert response.status_code == 200
+  assert response.json()["status"] == UserStatus.PENDING
 
   # 4. Approve
 
