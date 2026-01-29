@@ -816,6 +816,7 @@ class SectionBlock(BaseModel):
   section: StrictStr = Field(min_length=1)
   items: list[Widget] = Field(default_factory=list)
   subsections: list[SubsectionBlock] = Field(default_factory=list)
+  learning_data_points: list[StrictStr] = Field(default_factory=list)
 
 
 class LessonDocument(BaseModel):

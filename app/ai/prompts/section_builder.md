@@ -25,6 +25,7 @@ OUTPUT
 * VALID JSON ONLY
 * Section title must match the planner title verbatim
 * Strictly follow supported widget schema
+* Include "learning_data_points": a list of key concepts or data points covered in this section
 
 REQUIRED COVERAGE
 (might change based on the Planner's vision)
@@ -41,6 +42,7 @@ RULES
 * planned_widgets required in every subsection
 * Do NOT invent new knowledge
 * Follow learner level and teaching style
+* Provide "learning_data_points" as a top-level list of strings
 
 PROHIBITED
 * Meta commentary or explanations

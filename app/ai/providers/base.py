@@ -83,6 +83,10 @@ class AIModel(ABC):
     """Generate a response using the provided prompt and files."""
     raise NotImplementedError("Generation with files is not supported by this model.")
 
+  async def generate_speech(self, text: str, voice: str | None = None) -> bytes:
+    """Generate speech audio from text."""
+    raise NotImplementedError("Text-to-speech is not supported by this model.")
+
   @staticmethod
   def strip_json_fences(raw: str) -> str:
     stripped = raw.strip()

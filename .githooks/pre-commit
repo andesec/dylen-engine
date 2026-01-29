@@ -57,7 +57,19 @@ fi
 
 migration_count="0"
 while IFS=$'\t' read -r status path_a path_b; do
-  # Only count actual new/modified migration files, not renames/moves.
+  # Count actual new/modified migration files. For renames, only count when the
+  # content changed substantially (layout moves often show as R99/R100 and should
+  # not be treated as "multiple migrations" for the one-migration rule).
+  if [[ "$status" == R* ]]; then
+    similarity="${status#R}"
+    if [[ "$path_a" == alembic/versions/*.py || "${path_b:-}" == alembic/versions/*.py ]]; then
+      if [[ "$similarity" =~ ^[0-9]+$ ]] && (( 10#$similarity < 95 )); then
+        migration_count="$((migration_count + 1))"
+      fi
+    fi
+    continue
+  fi
+
   if [[ "$status" != "A" && "$status" != "M" ]]; then
     continue
   fi

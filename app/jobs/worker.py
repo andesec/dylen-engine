@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.ai.agents.coach import CoachAgent
 from app.ai.agents.fenster_builder import FensterBuilderAgent
 from app.ai.orchestrator import DylenOrchestrator, OrchestrationError, OrchestrationResult
 from app.ai.pipeline.contracts import GenerationRequest, JobContext
@@ -56,6 +57,9 @@ class JobProcessor:
 
     if job.target_agent == "fenster_builder":
       return await self._process_fenster_build(job)
+
+    if job.target_agent == "coach":
+      return await self._process_coach_job(job)
 
     if "text" in job.request and "criteria" in job.request:
       return await self._process_writing_check(job)
@@ -116,6 +120,52 @@ class JobProcessor:
     except Exception as exc:
       self._logger.error("Fenster build failed", exc_info=True)
       await tracker.fail(phase="failed", message=f"Fenster build failed: {exc}")
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      await self._jobs_repo.update_job(job.job_id, **payload)
+      return None
+
+  async def _process_coach_job(self, job: JobRecord) -> JobRecord | None:
+    """Execute Coach generation."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="coach", initial_logs=["Coach job picked up."])
+    await tracker.set_phase(phase="building", subphase="generating_audio")
+
+    try:
+      # Use section_builder_provider settings as default for Coach
+      provider = self._settings.section_builder_provider
+      model_name = self._settings.section_builder_model
+
+      model_instance = get_model_for_mode(provider, model_name, agent="coach")
+      schema_service = SchemaService()
+
+      usage_list = []
+
+      def usage_sink(u: dict[str, Any]) -> None:
+        usage_list.append(u)
+
+      agent = CoachAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
+
+      payload = job.request.get("payload", {})
+      # Context
+      dummy_req = GenerationRequest(topic=payload.get("topic", "unknown"), depth="highlights", section_count=1)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=dummy_req)
+
+      audio_ids = await agent.run(payload, job_ctx)
+
+      # Cost
+      total_cost = calculate_total_cost(usage_list)
+      cost_summary = _summarize_cost(usage_list, total_cost)
+      await tracker.set_cost(cost_summary)
+
+      completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+      result_json = {"audio_ids": audio_ids, "count": len(audio_ids)}
+
+      payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + [f"Generated {len(audio_ids)} audio segments."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
+      updated = await self._jobs_repo.update_job(job.job_id, **payload)
+      return updated
+
+    except Exception as exc:
+      self._logger.error("Coach job failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Coach job failed: {exc}")
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
       return None
