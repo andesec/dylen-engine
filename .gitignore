@@ -1,6 +1,9 @@
 # Security scanning reports
 reports/
 
+# macOS
+.DS_Store
+
 # Local Docker volumes / state (never commit).
 postgres-data/
 
