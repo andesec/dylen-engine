@@ -26,6 +26,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Initialize Firebase
     initialize_firebase()
 
+    # Import models to ensure they are registered with Base.metadata
+    import app.schema.coach  # noqa: F401
+
     # Create database tables if database is configured
     db_engine = get_db_engine()
     if db_engine:

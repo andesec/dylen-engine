@@ -59,6 +59,23 @@ class VertexAIModel(AIModel):
       logger.error(f"Vertex AI structured generation failed: {e}")
       raise
 
+  async def generate_speech(self, text: str, voice: str | None = None) -> bytes:
+    try:
+      config = {"response_mime_type": "audio/mp3"}
+      prompt = f"Read the following text clearly and naturally:\n\n{text}"
+
+      response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config=config)
+
+      if response.parts:
+        for part in response.parts:
+          if part.inline_data and part.inline_data.data:
+            return part.inline_data.data
+
+      raise RuntimeError("No audio data received from Vertex AI.")
+    except Exception as e:
+      logger.error(f"Vertex AI speech generation failed: {e}")
+      raise
+
 
 class VertexAIProvider(Provider):
   _DEFAULT_MODEL: Final[str] = "gemini-2.0-flash"

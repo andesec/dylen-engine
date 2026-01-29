@@ -152,7 +152,7 @@ class DylenOrchestrator:
     await self._run_planning_phase(ctx, agents, logger, job_creator)
 
     # Generate Sections
-    await self._run_section_generation_phase(ctx, agents, logger, section_filter, enable_repair)
+    await self._run_section_generation_phase(ctx, agents, logger, section_filter, enable_repair, job_creator)
 
     # Stitch
     lesson_json = await self._run_stitching_phase(ctx, agents, logger)
@@ -244,7 +244,7 @@ class DylenOrchestrator:
           await job_creator("fenster_builder", payload)
           logger.info("Created fenster_builder job for widget: %s", widget_context)
 
-  async def _run_section_generation_phase(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, section_filter: set[int] | None, enable_repair: bool) -> None:
+  async def _run_section_generation_phase(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, section_filter: set[int] | None, enable_repair: bool, job_creator: JobCreator) -> None:
     assert ctx.lesson_plan is not None
 
     sections: dict[int, SectionDraft] = {}
@@ -261,7 +261,7 @@ class DylenOrchestrator:
       if target_sections is not None and section_index not in target_sections:
         continue
 
-      await self._generate_section(ctx, agents, logger, plan_section, sections, enable_repair)
+      await self._generate_section(ctx, agents, logger, plan_section, sections, enable_repair, job_creator)
 
     # Validation of collected sections
     if len(sections) < target_section_count:
@@ -275,7 +275,7 @@ class DylenOrchestrator:
       await ctx.progress_reporter("collect", "missing_sections", [error_msg], advance=False)
       raise OrchestrationError(error_msg, logs=list(ctx.logs))
 
-  async def _generate_section(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, plan_section: Any, sections: dict[int, SectionDraft], enable_repair: bool) -> None:
+  async def _generate_section(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, plan_section: Any, sections: dict[int, SectionDraft], enable_repair: bool, job_creator: JobCreator) -> None:
     section_index = plan_section.section_number
 
     subphase = f"build_section_{section_index}_of_{ctx.section_count}"
@@ -295,9 +295,9 @@ class DylenOrchestrator:
     ctx.draft_artifacts.append(draft.model_dump(mode="python"))
     ctx.structured_artifacts.append(structured.model_dump(mode="python"))
 
-    await self._validate_and_repair_section(ctx, agents, logger, draft, structured, section_index, enable_repair)
+    await self._validate_and_repair_section(ctx, agents, logger, draft, structured, section_index, enable_repair, job_creator)
 
-  async def _validate_and_repair_section(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, draft: SectionDraft, structured: StructuredSection, section_index: int, enable_repair: bool) -> None:
+  async def _validate_and_repair_section(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, draft: SectionDraft, structured: StructuredSection, section_index: int, enable_repair: bool, job_creator: JobCreator) -> None:
     if structured.validation_errors and not enable_repair:
       ctx.validation_errors = structured.validation_errors
       msg = f"Section {section_index} failed validation: {structured.validation_errors}"
@@ -338,6 +338,11 @@ class DylenOrchestrator:
     await ctx.progress_reporter("transform", f"validate_section_{section_index}_of_{ctx.section_count}", [f"Section {section_index} validated."])
     final_section = StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
     ctx.structured_sections.append(final_section)
+
+    if job_creator:
+      payload = {"section_index": section_index, "topic": ctx.topic, "section_data": section_json, "learning_data_points": section_json.get("learning_data_points", [])}
+      await job_creator("coach", payload)
+      logger.info("Created coach job for section %s", section_index)
 
     await ctx.progress_reporter(
       "transform",

@@ -123,6 +123,31 @@ class GeminiModel(AIModel):
     except Exception as e:
       raise RuntimeError(f"Gemini generation with files failed: {e}") from e
 
+  async def generate_speech(self, text: str, voice: str | None = None) -> bytes:
+    """Generate speech audio from text using Gemini."""
+    logger = logging.getLogger("app.ai.providers.gemini")
+
+    try:
+      # Request audio output
+      config = {"response_mime_type": "audio/mp3"}
+
+      # Enhance prompt to ensure clear reading
+      prompt = f"Read the following text clearly and naturally:\n\n{text}"
+
+      response = self._client.models.generate_content(model=self.name, contents=prompt, config=config)
+
+      # Extract audio bytes
+      if response.parts:
+        for part in response.parts:
+          if part.inline_data and part.inline_data.data:
+            return part.inline_data.data
+
+      raise RuntimeError("No audio data received from Gemini.")
+
+    except Exception as e:
+      logger.error(f"Gemini speech generation failed: {e}")
+      raise RuntimeError(f"Gemini speech generation failed: {e}") from e
+
 
 class GeminiProvider(Provider):
   """Gemini provider."""
