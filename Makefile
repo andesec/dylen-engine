@@ -72,7 +72,7 @@ security-sca:
 	uv export --format requirements-txt --no-hashes --output-file requirements.txt
 	@# Remove editable install (-e .) and local packages from requirements.txt to satisfy Snyk
 	@sed -i.bak '/^-e/d' requirements.txt && rm requirements.txt.bak
-	@sed -i.bak '/^myapplication/d' requirements.txt && rm requirements.txt.bak
+	@sed -i.bak '/^dylen[-_]engine/d' requirements.txt && rm requirements.txt.bak
 	@echo "Running Snyk test..."
 	snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high || true
 	@echo "Uploading results to Snyk dashboard..."

@@ -1,5 +1,13 @@
+"""Database initialization helper.
+
+This script is intended for local/dev environments where a database may not exist yet.
+It validates the target database name before using it in SQL, because CREATE DATABASE
+cannot be parameterized in PostgreSQL.
+"""
+
 import asyncio
 import os
+import re
 import sys
 
 from sqlalchemy import text
@@ -9,10 +17,33 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # Add the project root to the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.config import get_settings
+
+_DB_NAME_PATTERN = re.compile(r"^[A-Za-z0-9]+$")
+
+
+def _validate_database_name(db_name: str) -> str:
+  """Validate a PostgreSQL database name used as an identifier.
+
+  How/Why:
+  - The name cannot be passed as a bind parameter for `CREATE DATABASE`.
+  - Restricting to strict alphanumeric prevents SQL injection via identifier context.
+  """
+  # Ensure a non-empty string is provided before applying regex validation.
+  if not db_name:
+    raise ValueError("Target database name is empty.")
+
+  # Only allow strict alphanumeric names so the value is safe in identifier context.
+  if not _DB_NAME_PATTERN.fullmatch(db_name):
+    raise ValueError("Target database name contains invalid characters (allowed: A-Z, a-z, 0-9).")
+
+  return db_name
 
 
 async def create_database_if_not_exists():
+  """Create the configured database if it does not already exist."""
+  # Import after path setup so the script works when run directly.
+  from app.config import get_settings
+
   settings = get_settings()
   dsn = settings.pg_dsn
 
@@ -21,7 +52,7 @@ async def create_database_if_not_exists():
     sys.exit(1)
 
   url = make_url(dsn)
-  target_db = url.database
+  target_db = _validate_database_name(url.database or "")
 
   # Connect to the default 'postgres' database to check/create the target DB
   # We need to modify the URL to point to 'postgres' database
@@ -39,7 +70,7 @@ async def create_database_if_not_exists():
   try:
     async with engine.connect() as conn:
       # Check if database exists
-      result = await conn.execute(text(f"SELECT 1 FROM pg_database WHERE datname = '{target_db}'"))
+      result = await conn.execute(text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": target_db})
       exists = result.scalar() == 1
 
       if not exists:

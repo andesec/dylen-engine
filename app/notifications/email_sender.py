@@ -11,6 +11,7 @@ import logging
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from app.notifications.contracts import EmailNotification, EmailSender
 
@@ -34,6 +35,28 @@ class MailerSendEmailSender(EmailSender):
   def __init__(self, *, config: MailerSendConfig) -> None:
     self._config = config
 
+  def _validated_base_url(self) -> str:
+    """Validate and normalize the configured base URL.
+
+    How/Why:
+    - `urllib` supports `file://`, so a misconfigured or attacker-controlled URL can
+      lead to SSRF and local file reads.
+    - Restricting to http/https prevents non-network schemes.
+    """
+    # Normalize by trimming whitespace and removing a trailing slash for safe concatenation.
+    base_url = self._config.base_url.strip().rstrip("/")
+    parsed = urlparse(base_url)
+
+    # Only allow http(s) to prevent local file reads and unexpected protocols.
+    if parsed.scheme not in {"http", "https"}:
+      raise ValueError("MailerSend base_url must start with http:// or https://")
+
+    # Require a network location so `http:///path` and other malformed values are rejected.
+    if not parsed.netloc:
+      raise ValueError("MailerSend base_url must include a hostname.")
+
+    return base_url
+
   def send(self, notification: EmailNotification) -> dict[str, str | None]:
     """Send an email using the MailerSend API and return provider identifiers."""
     from_payload: dict[str, str] = {"email": self._config.from_address}
@@ -45,10 +68,9 @@ class MailerSendEmailSender(EmailSender):
       to_payload["name"] = notification.to_name
 
     payload: dict[str, object] = {"from": from_payload, "to": [to_payload], "subject": notification.subject, "text": notification.text, "html": notification.html}
+    base_url = self._validated_base_url()
 
-    request = urllib.request.Request(
-      url=f"{self._config.base_url}/email", data=json.dumps(payload).encode("utf-8"), method="POST", headers={"Authorization": f"Bearer {self._config.api_key}", "Content-Type": "application/json", "Accept": "application/json"}
-    )
+    request = urllib.request.Request(url=f"{base_url}/email", data=json.dumps(payload).encode("utf-8"), method="POST", headers={"Authorization": f"Bearer {self._config.api_key}", "Content-Type": "application/json", "Accept": "application/json"})
 
     try:
       with urllib.request.urlopen(request, timeout=self._config.timeout_seconds) as response:

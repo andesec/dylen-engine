@@ -54,7 +54,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> di
   try:
     decoded_token = await run_in_threadpool(verify_id_token, request.id_token)
   except Exception as e:
-    logger.error("Login failed: Token verification crashed: %s", e, exc_info=True)
+    logger.error("Login failed: Token verification failed error_type=%s", type(e).__name__)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid ID token") from e
 
   if not decoded_token:
@@ -74,7 +74,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> di
   user = await get_user_by_firebase_uid(db, firebase_uid)
 
   if not user:
-    logger.info("Login checked: User not registered. UID: %s", firebase_uid)
+    logger.debug("Login checked: User not registered. UID: %s", firebase_uid)
     return {"exists": False, "user": None}
 
   # Resolve role metadata for frontend display.
@@ -82,7 +82,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> di
   if role is None:
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User role missing")
 
-  logger.info("Login successful. User: %s", user.email)
+  logger.info("Login successful.")
   return {
     "exists": True,
     "user": {"email": user.email, "status": user.status, "full_name": user.full_name, "photo_url": user.photo_url, "role": {"id": str(role.id), "name": role.name, "level": role.level}, "org_id": str(user.org_id) if user.org_id else None},
@@ -94,12 +94,12 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
   """
   Register a new user.
   """
-  logger.info("Signup request received. Full Name: %s", request.full_name)
+  logger.info("Signup request received.")
   # Verify the Firebase token before provisioning a user record.
   try:
     decoded_token = await run_in_threadpool(verify_id_token, request.id_token)
   except Exception as e:
-    logger.error("Signup failed: Token verification crashed: %s", e, exc_info=True)
+    logger.error("Signup failed: Token verification failed error_type=%s", type(e).__name__)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid ID token") from e
 
   if not decoded_token:
@@ -147,7 +147,7 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
       auth_method=resolve_auth_method(provider_id),
     )
   except Exception as e:
-    logger.error("Signup failed: Database error during creation for UID %s: %s", firebase_uid, e, exc_info=True)
+    logger.error("Signup failed: Database error during creation error_type=%s", type(e).__name__)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user") from e
 
   # Sync initial RBAC claims to Firebase for fast middleware checks.
@@ -155,8 +155,8 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
     claims = build_rbac_claims(role_id=str(default_role.id), role_name=default_role.name, role_level=default_role.level, org_id=None, status=user.status, tier="Free")
     await run_in_threadpool(set_custom_claims, firebase_uid, claims)
   except Exception as e:
-    logger.error("Signup failed: Unable to set custom claims for %s: %s", token_email, e, exc_info=True)
+    logger.error("Signup failed: Unable to set custom claims error_type=%s", type(e).__name__)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to sync user claims") from e
 
-  logger.info("Signup successful. Created user: %s", user.email)
+  logger.info("Signup successful.")
   return SignupResponse(status="success", user=SignupUser(email=user.email, status=user.status, id=str(user.id), role={"id": str(default_role.id), "name": default_role.name, "level": default_role.level}, org_id=None))

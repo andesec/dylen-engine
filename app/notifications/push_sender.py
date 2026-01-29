@@ -18,4 +18,4 @@ class NullPushSender(PushSender):
 
   def send(self, notification: PushNotification) -> None:
     """Drop the notification while recording a debug log."""
-    logger.debug("Push notifications disabled; dropping push token_prefix=%s", (notification.token or "")[:8])
+    logger.debug("Push notifications disabled; dropping push token_present=%s", bool(notification.token))
