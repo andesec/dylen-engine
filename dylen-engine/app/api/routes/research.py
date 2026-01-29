@@ -5,7 +5,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.ai.agents.research import ResearchAgent
-from app.api.deps import consume_research_quota, get_current_active_user
+from app.api.deps import consume_research_quota
+from app.core.security import get_current_active_user, require_feature_flag
 from app.schema.research import ResearchDiscoveryRequest, ResearchDiscoveryResponse, ResearchSynthesisRequest, ResearchSynthesisResponse
 from app.schema.sql import User
 
@@ -17,7 +18,7 @@ def get_research_agent() -> ResearchAgent:
   return ResearchAgent()
 
 
-@router.post("/discover", response_model=ResearchDiscoveryResponse)
+@router.post("/discover", response_model=ResearchDiscoveryResponse, dependencies=[Depends(require_feature_flag("feature.research"))])
 async def discover(
   request: ResearchDiscoveryRequest, agent: Annotated[ResearchAgent, Depends(get_research_agent)], current_user: Annotated[User, Depends(get_current_active_user)], quota: Annotated[None, Depends(consume_research_quota)]
 ) -> ResearchDiscoveryResponse:
@@ -29,7 +30,7 @@ async def discover(
   return await agent.discover(query=request.query, user_id=str(current_user.id), context=request.context)
 
 
-@router.post("/synthesize", response_model=ResearchSynthesisResponse)
+@router.post("/synthesize", response_model=ResearchSynthesisResponse, dependencies=[Depends(require_feature_flag("feature.research"))])
 async def synthesize(request: ResearchSynthesisRequest, agent: Annotated[ResearchAgent, Depends(get_research_agent)], current_user: Annotated[User, Depends(get_current_active_user)]) -> ResearchSynthesisResponse:
   """
   Deep crawls provided URLs and generates a cited report.

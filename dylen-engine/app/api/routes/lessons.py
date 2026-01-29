@@ -15,9 +15,12 @@ from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.sql import User
 from app.schema.validate_lesson import validate_lesson
 from app.services.audit import log_llm_interaction
+from app.services.feature_flags import is_feature_enabled
 from app.services.jobs import create_job
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language, _validate_generate_request
+from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.users import get_user_subscription_tier
 from app.storage.factory import _get_repo
 from app.storage.lessons_repo import LessonRecord
 from app.utils.ids import generate_lesson_id
@@ -28,10 +31,11 @@ _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 @router.get("/catalog", response_model=LessonCatalogResponse)
-async def get_lesson_catalog(response: Response, settings: Settings = Depends(get_settings)) -> LessonCatalogResponse:  # noqa: B008
+async def get_lesson_catalog(response: Response, settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db)) -> LessonCatalogResponse:  # noqa: B008
   """Return blueprint, teaching style, and widget metadata for clients."""
-  # Toggle cache control with an environment flag for dynamic refreshes.
-  if settings.cache_lesson_catalog:
+  # Toggle cache control with DB-backed config so operators can refresh dynamically.
+  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=None, subscription_tier_id=None)
+  if runtime_config.get("lessons.cache_catalog") is True:
     response.headers["Cache-Control"] = "public, max-age=86400"
   # Build a static payload so the client can cache the response safely.
   payload = build_lesson_catalog(settings)
@@ -55,20 +59,20 @@ async def generate_lesson(  # noqa: B008
   _=Depends(consume_section_quota),  # noqa: B008
 ) -> GenerateLessonResponse:
   """Generate a lesson from a topic using the two-step pipeline."""
-  _validate_generate_request(request, settings)
+  tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
+  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id)
+  _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
 
   start = time.monotonic()
   # Resolve per-agent model overrides and provider routing for this request.
   selection = _resolve_model_selection(settings, models=request.models)
-  (gatherer_provider, gatherer_model, planner_provider, planner_model, structurer_provider, structurer_model, repairer_provider, repairer_model) = selection
+  (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
   orchestrator = _get_orchestrator(
     settings,
-    gatherer_provider=gatherer_provider,
-    gatherer_model=gatherer_model,
+    section_builder_provider=section_builder_provider,
+    section_builder_model=section_builder_model,
     planner_provider=planner_provider,
     planner_model=planner_model,
-    structurer_provider=structurer_provider,
-    structurer_model=structurer_model,
     repair_provider=repairer_provider,
     repair_model=repairer_model,
   )
@@ -76,7 +80,7 @@ async def generate_lesson(  # noqa: B008
   learner_level = _resolve_learner_level(request)
 
   if current_user.id:
-    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},gatherer:{gatherer_model},structurer:{structurer_model}", prompt_summary=request.topic, status="started", session=db_session)
+    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, status="started", session=db_session)
 
   result = await orchestrator.generate_lesson(
     topic=request.topic,
@@ -86,8 +90,7 @@ async def generate_lesson(  # noqa: B008
     learner_level=learner_level,
     depth=request.depth,
     schema_version=request.schema_version or settings.schema_version,
-    structurer_model=structurer_model,
-    gatherer_model=gatherer_model,
+    section_builder_model=section_builder_model,
     structured_output=True,
     language=language,
     widgets=request.widgets,
@@ -99,7 +102,7 @@ async def generate_lesson(  # noqa: B008
       for entry in result.usage:
         total_tokens += int(entry.get("prompt_tokens", 0)) + int(entry.get("completion_tokens", 0))
 
-    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},gatherer:{gatherer_model},structurer:{structurer_model}", prompt_summary=request.topic, tokens_used=total_tokens, status="completed", session=db_session)
+    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, tokens_used=total_tokens, status="completed", session=db_session)
 
   lesson_id = generate_lesson_id()
   latency_ms = int((time.monotonic() - start) * 1000)
@@ -124,7 +127,8 @@ async def generate_lesson(  # noqa: B008
   repo = _get_repo(settings)
   await repo.create_lesson(record)
   # Notify the user after a successful persistence write.
-  await build_notification_service(settings).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
+  email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=current_user.org_id, subscription_tier_id=tier_id)
+  await build_notification_service(settings, email_enabled=email_enabled).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
 
   return GenerateLessonResponse(
     lesson_id=lesson_id,

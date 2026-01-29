@@ -36,6 +36,7 @@
         "type": "object"
       },
       "BatchResponse": {
+        "description": "Bundle OCR extraction results to keep batch ordering intact.",
         "properties": {
           "results": {
             "items": {
@@ -77,6 +78,30 @@
           "files"
         ],
         "title": "Body_extract_text_from_images_resource_image_extract_text_post",
+        "type": "object"
+      },
+      "CandidateSource": {
+        "description": "A candidate source found during the discovery phase.",
+        "properties": {
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "url",
+          "snippet"
+        ],
+        "title": "CandidateSource",
         "type": "object"
       },
       "CurrentSectionStatus": {
@@ -128,6 +153,7 @@
         "type": "object"
       },
       "ExtractionResult": {
+        "description": "Represent OCR output to keep filenames aligned with extracted text.",
         "properties": {
           "content": {
             "title": "Content",
@@ -143,6 +169,112 @@
           "content"
         ],
         "title": "ExtractionResult",
+        "type": "object"
+      },
+      "FeatureFlagCreateRequest": {
+        "properties": {
+          "default_enabled": {
+            "default": false,
+            "title": "Default Enabled",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "key": {
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "FeatureFlagCreateRequest",
+        "type": "object"
+      },
+      "FeatureFlagOverrideRequest": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "tier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Name"
+          }
+        },
+        "required": [
+          "key",
+          "enabled"
+        ],
+        "title": "FeatureFlagOverrideRequest",
+        "type": "object"
+      },
+      "FeatureFlagRecord": {
+        "properties": {
+          "default_enabled": {
+            "title": "Default Enabled",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "description",
+          "default_enabled"
+        ],
+        "title": "FeatureFlagRecord",
         "type": "object"
       },
       "GenerateLessonRequest": {
@@ -237,10 +369,9 @@
             "description": "Optional per-agent model selection overrides.",
             "examples": [
               {
-                "gatherer_model": "xiaomi/mimo-v2-flash:free",
                 "planner_model": "openai/gpt-oss-120b:free",
                 "repairer_model": "google/gemma-3-27b-it:free",
-                "structurer_model": "openai/gpt-oss-20b:free"
+                "section_builder_model": "xiaomi/mimo-v2-flash:free"
               }
             ]
           },
@@ -662,6 +793,17 @@
             ],
             "title": "Subphase"
           },
+          "target_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Agent"
+          },
           "total_steps": {
             "anyOf": [
               {
@@ -721,8 +863,7 @@
                 "items": {
                   "enum": [
                     "planner",
-                    "gatherer",
-                    "structurer",
+                    "section_builder",
                     "repair",
                     "stitcher"
                   ],
@@ -1464,21 +1605,6 @@
         "additionalProperties": false,
         "description": "Per-agent model selection overrides.",
         "properties": {
-          "gatherer_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Model used for the gatherer agent (provider inferred when possible).",
-            "examples": [
-              "xiaomi/mimo-v2-flash:free"
-            ],
-            "title": "Gatherer Model"
-          },
           "planner_model": {
             "anyOf": [
               {
@@ -1509,7 +1635,7 @@
             ],
             "title": "Repairer Model"
           },
-          "structurer_model": {
+          "section_builder_model": {
             "anyOf": [
               {
                 "type": "string"
@@ -1518,11 +1644,11 @@
                 "type": "null"
               }
             ],
-            "description": "Model used for lesson structuring (provider inferred when possible).",
+            "description": "Model used for the section builder agent (provider inferred when possible).",
             "examples": [
-              "openai/gpt-oss-20b:free"
+              "xiaomi/mimo-v2-flash:free"
             ],
-            "title": "Structurer Model"
+            "title": "Section Builder Model"
           }
         },
         "title": "ModelsConfig",
@@ -1672,6 +1798,539 @@
         "title": "PaginatedResponse[LlmAuditRecord]",
         "type": "object"
       },
+      "PaginatedResponse_UserRecord_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedResponse[UserRecord]",
+        "type": "object"
+      },
+      "PermissionRecord": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "display_name",
+          "description"
+        ],
+        "title": "PermissionRecord",
+        "type": "object"
+      },
+      "ProviderMode": {
+        "description": "Supported provider modes.",
+        "enum": [
+          "gemini",
+          "openrouter",
+          "vertexai"
+        ],
+        "title": "ProviderMode",
+        "type": "string"
+      },
+      "ResearchDiscoveryRequest": {
+        "additionalProperties": false,
+        "description": "Request to discover sources for a research topic.",
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional context to refine the search.",
+            "title": "Context"
+          },
+          "query": {
+            "description": "The research query.",
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "ResearchDiscoveryRequest",
+        "type": "object"
+      },
+      "ResearchDiscoveryResponse": {
+        "description": "Response containing discovered candidate sources.",
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "title": "ResearchDiscoveryResponse",
+        "type": "object"
+      },
+      "ResearchSynthesisRequest": {
+        "additionalProperties": false,
+        "description": "Request to synthesize a report from selected URLs.",
+        "properties": {
+          "query": {
+            "description": "The original research query.",
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "urls": {
+            "description": "List of URLs to crawl and synthesize.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Urls",
+            "type": "array"
+          },
+          "user_id": {
+            "description": "User ID for audit logging.",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "urls",
+          "user_id"
+        ],
+        "title": "ResearchSynthesisRequest",
+        "type": "object"
+      },
+      "ResearchSynthesisResponse": {
+        "description": "The synthesized research report.",
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "answer",
+          "sources"
+        ],
+        "title": "ResearchSynthesisResponse",
+        "type": "object"
+      },
+      "ResolvedQuota": {
+        "properties": {
+          "coach_mode_enabled": {
+            "title": "Coach Mode Enabled",
+            "type": "boolean"
+          },
+          "coach_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coach Voice Tier"
+          },
+          "highest_lesson_depth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Lesson Depth"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "max_sections_per_lesson": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sections Per Lesson"
+          },
+          "remaining_file_uploads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining File Uploads"
+          },
+          "remaining_image_uploads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Image Uploads"
+          },
+          "remaining_research": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Research"
+          },
+          "remaining_sections": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Sections"
+          },
+          "tier_name": {
+            "title": "Tier Name",
+            "type": "string"
+          },
+          "total_file_uploads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total File Uploads"
+          },
+          "total_image_uploads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Image Uploads"
+          },
+          "total_research": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Research"
+          },
+          "total_sections": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Sections"
+          }
+        },
+        "required": [
+          "tier_name",
+          "max_file_upload_kb",
+          "highest_lesson_depth",
+          "max_sections_per_lesson",
+          "total_file_uploads",
+          "total_image_uploads",
+          "total_sections",
+          "total_research",
+          "remaining_file_uploads",
+          "remaining_image_uploads",
+          "remaining_sections",
+          "remaining_research",
+          "coach_mode_enabled",
+          "coach_voice_tier"
+        ],
+        "title": "ResolvedQuota",
+        "type": "object"
+      },
+      "RoleCreateRequest": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RoleLevel"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "level"
+        ],
+        "title": "RoleCreateRequest",
+        "type": "object"
+      },
+      "RoleLevel": {
+        "enum": [
+          "GLOBAL",
+          "TENANT"
+        ],
+        "title": "RoleLevel",
+        "type": "string"
+      },
+      "RolePermissionsResponse": {
+        "properties": {
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/PermissionRecord"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id",
+          "permissions"
+        ],
+        "title": "RolePermissionsResponse",
+        "type": "object"
+      },
+      "RolePermissionsUpdateRequest": {
+        "properties": {
+          "permission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permission Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "permission_ids"
+        ],
+        "title": "RolePermissionsUpdateRequest",
+        "type": "object"
+      },
+      "RoleRecord": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RoleLevel"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "level",
+          "description"
+        ],
+        "title": "RoleRecord",
+        "type": "object"
+      },
+      "RuntimeConfigDefinitionRecord": {
+        "properties": {
+          "allowed_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Scopes",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "super_admin_only": {
+            "title": "Super Admin Only",
+            "type": "boolean"
+          },
+          "value_type": {
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value_type",
+          "description",
+          "allowed_scopes",
+          "super_admin_only"
+        ],
+        "title": "RuntimeConfigDefinitionRecord",
+        "type": "object"
+      },
+      "RuntimeConfigSetRequest": {
+        "properties": {
+          "key": {
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "scope": {
+            "enum": [
+              "GLOBAL",
+              "TIER",
+              "TENANT"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "tier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Name"
+          },
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "scope",
+          "value"
+        ],
+        "title": "RuntimeConfigSetRequest",
+        "type": "object"
+      },
       "SignupRequest": {
         "properties": {
           "age": {
@@ -1756,7 +2415,24 @@
         "title": "SignupRequest",
         "type": "object"
       },
-      "UserApprovalResponse": {
+      "SignupResponse": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/SignupUser"
+          }
+        },
+        "required": [
+          "status",
+          "user"
+        ],
+        "title": "SignupResponse",
+        "type": "object"
+      },
+      "SignupUser": {
         "properties": {
           "email": {
             "title": "Email",
@@ -1766,17 +2442,142 @@
             "title": "Id",
             "type": "string"
           },
-          "is_approved": {
-            "title": "Is Approved",
-            "type": "boolean"
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "role": {
+            "additionalProperties": true,
+            "title": "Role",
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        },
+        "required": [
+          "email",
+          "status",
+          "id",
+          "role",
+          "org_id"
+        ],
+        "title": "SignupUser",
+        "type": "object"
+      },
+      "TaskPayload": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "TaskPayload",
+        "type": "object"
+      },
+      "UserRecord": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
           }
         },
         "required": [
           "id",
           "email",
-          "is_approved"
+          "status",
+          "role_id",
+          "org_id"
         ],
-        "title": "UserApprovalResponse",
+        "title": "UserRecord",
+        "type": "object"
+      },
+      "UserRoleUpdateRequest": {
+        "properties": {
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id"
+        ],
+        "title": "UserRoleUpdateRequest",
+        "type": "object"
+      },
+      "UserStatus": {
+        "enum": [
+          "PENDING",
+          "APPROVED",
+          "DISABLED"
+        ],
+        "title": "UserStatus",
+        "type": "string"
+      },
+      "UserStatusResponse": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "status"
+        ],
+        "title": "UserStatusResponse",
+        "type": "object"
+      },
+      "UserStatusUpdateRequest": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "UserStatusUpdateRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -1849,7 +2650,7 @@
             ],
             "description": "Optional model override for writing evaluation (provider inferred when possible).",
             "examples": [
-              "openai/gpt-oss-20b:free"
+              "openai/gpt-oss-120b:free"
             ],
             "title": "Checker Model"
           },
@@ -1887,8 +2688,412 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/admin/config/definitions": {
+      "get": {
+        "description": "List supported runtime configuration keys for admin UIs.",
+        "operationId": "list_config_definitions_admin_config_definitions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RuntimeConfigDefinitionRecord"
+                  },
+                  "title": "Response List Config Definitions Admin Config Definitions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Config Definitions",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/config/effective": {
+      "get": {
+        "description": "Return effective runtime config for a tenant context (admin helper endpoint).",
+        "operationId": "get_effective_config_admin_config_effective_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Effective Config Admin Config Effective Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Effective Config",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/config/values": {
+      "get": {
+        "description": "List explicitly set values for the requested config scope.",
+        "operationId": "get_config_values_admin_config_values_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "GLOBAL",
+              "enum": [
+                "GLOBAL",
+                "TIER",
+                "TENANT"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "org_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tier Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Config Values Admin Config Values Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Config Values",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Set a runtime config value for the requested scope.",
+        "operationId": "set_config_value_admin_config_values_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeConfigSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Config Value",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/feature-flags": {
+      "get": {
+        "description": "List all feature flag definitions.",
+        "operationId": "list_flags_admin_feature_flags_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FeatureFlagRecord"
+                  },
+                  "title": "Response List Flags Admin Feature Flags Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Flags",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "description": "Create a new feature flag definition (global-only).",
+        "operationId": "create_flag_admin_feature_flags_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureFlagCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureFlagRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Flag",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/feature-flags/effective": {
+      "get": {
+        "description": "Return effective feature flags for a tenant/tier context (admin helper endpoint).",
+        "operationId": "get_effective_flags_admin_feature_flags_effective_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tier Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Effective Flags Admin Feature Flags Effective Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Effective Flags",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/feature-flags/override": {
+      "put": {
+        "description": "Set a tier or tenant override for a feature flag.",
+        "operationId": "set_flag_override_admin_feature_flags_override_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureFlagOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Flag Override",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/jobs": {
       "get": {
+        "description": "List jobs for admins with pagination to control load and exposure.",
         "operationId": "list_jobs_admin_jobs_get",
         "parameters": [
           {
@@ -1989,6 +3194,7 @@
     },
     "/admin/lessons": {
       "get": {
+        "description": "List lessons with pagination to keep responses bounded and predictable.",
         "operationId": "list_lessons_admin_lessons_get",
         "parameters": [
           {
@@ -2082,6 +3288,7 @@
     },
     "/admin/llm-calls": {
       "get": {
+        "description": "List LLM audit records with pagination to keep admin views efficient.",
         "operationId": "list_llm_calls_admin_llm_calls_get",
         "parameters": [
           {
@@ -2189,6 +3396,214 @@
         ]
       }
     },
+    "/admin/roles": {
+      "post": {
+        "description": "Create a new role for RBAC management.",
+        "operationId": "create_role_admin_roles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Role",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/roles/{role_id}/permissions": {
+      "put": {
+        "description": "Assign permissions to a role in bulk.",
+        "operationId": "update_role_permissions_admin_roles__role_id__permissions_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "role_id",
+            "required": true,
+            "schema": {
+              "title": "Role Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolePermissionsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolePermissionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Role Permissions",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "description": "List users with tenant scoping for org admins.",
+        "operationId": "list_user_accounts_admin_users_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_UserRecord_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List User Accounts",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}": {
+      "delete": {
+        "description": "Delete a user account permanently (GDPR erasure).",
+        "operationId": "delete_user_account_admin_users__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete User Account",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/users/{user_id}/approve": {
       "patch": {
         "description": "Approve a user account and notify the user.",
@@ -2209,7 +3624,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserApprovalResponse"
+                  "$ref": "#/components/schemas/UserStatusResponse"
                 }
               }
             },
@@ -2232,6 +3647,122 @@
           }
         ],
         "summary": "Approve User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/role": {
+      "patch": {
+        "description": "Update a user's role assignment and refresh RBAC claims.",
+        "operationId": "update_user_account_role_admin_users__user_id__role_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRoleUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Account Role",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/status": {
+      "patch": {
+        "description": "Update a user's approval status and refresh RBAC claims.",
+        "operationId": "update_user_account_status_admin_users__user_id__status_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserStatusUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Account Status",
         "tags": [
           "admin"
         ]
@@ -2300,9 +3831,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Signup Api Auth Signup Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SignupResponse"
                 }
               }
             },
@@ -2322,6 +3851,35 @@
         "summary": "Signup",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/purgatory": {
+      "get": {
+        "description": "Get the current user's approval status while access is pending.",
+        "operationId": "get_purgatory_status_api_purgatory_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Purgatory Status Api Purgatory Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Purgatory Status",
+        "tags": [
+          "purgatory"
         ]
       }
     },
@@ -2354,10 +3912,190 @@
         ]
       }
     },
+    "/api/user/me/features": {
+      "get": {
+        "description": "Get effective feature flags, runtime config, and permission hints for the current user.",
+        "operationId": "get_my_features_api_user_me_features_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get My Features Api User Me Features Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Features",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/user/me/quota": {
+      "get": {
+        "description": "Get the current user's quota and subscription tier.",
+        "operationId": "get_my_quota_api_user_me_quota_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolvedQuota"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Quota",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/fenster/{widget_id}": {
+      "get": {
+        "description": "Retrieve a Fenster widget by ID.\nRequires 'Plus' or 'Pro' tier.",
+        "operationId": "get_fenster_widget_api_v1_fenster__widget_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "widget_id",
+            "required": true,
+            "schema": {
+              "title": "Widget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Fenster Widget",
+        "tags": [
+          "fenster"
+        ]
+      }
+    },
+    "/internal/tasks/process-job": {
+      "post": {
+        "description": "Handler for Cloud Tasks (and local simulation).\nExecutes the job synchronously so the task queue knows when it's done.",
+        "operationId": "process_job_task_internal_tasks_process_job_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Process Job Task Internal Tasks Process Job Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Process Job Task",
+        "tags": [
+          "tasks",
+          "tasks"
+        ]
+      }
+    },
     "/resource/image/extract-text": {
       "post": {
-        "description": "Endpoint to upload multiple photos and extract formatted text\nusing Gemini 2.0 Flash Lite.",
+        "description": "Validate OCR uploads, delegate extraction, and log audit data.",
         "operationId": "extract_text_from_images_resource_image_extract_text_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider_mode",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ProviderMode",
+              "default": "gemini"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_name",
+            "required": false,
+            "schema": {
+              "default": "gemini-2.0-flash-lite",
+              "title": "Model Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_file_size",
+            "required": false,
+            "schema": {
+              "default": 1048576,
+              "title": "Max File Size",
+              "type": "integer"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -2732,17 +4470,6 @@
       "post": {
         "description": "Validate lesson payloads from stored lessons or job results against schema and widgets.",
         "operationId": "validate_endpoint_v1_lessons_validate_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Dylen-Dev-Key",
-            "required": true,
-            "schema": {
-              "title": "X-Dylen-Dev-Key",
-              "type": "string"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2796,15 +4523,6 @@
               "title": "Lesson Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "X-Dylen-Dev-Key",
-            "required": true,
-            "schema": {
-              "title": "X-Dylen-Dev-Key",
-              "type": "string"
-            }
           }
         ],
         "responses": {
@@ -2832,6 +4550,184 @@
         "summary": "Get Lesson",
         "tags": [
           "lessons"
+        ]
+      }
+    },
+    "/v1/notifications/": {
+      "get": {
+        "description": "Poll for recent notifications for the current user.\n\nReturns a list of notifications derived from email delivery logs,\nformatted for frontend display with navigation data.\n\n- **limit**: Max number of notifications to return.\n- **offset**: Number of notifications to skip (for pagination).\n- **created_after**: Only return notifications created after this timestamp (useful for polling).",
+        "operationId": "list_notifications_v1_notifications__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Notifications V1 Notifications  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/v1/research/discover": {
+      "post": {
+        "description": "Performs initial web search and returns candidate URLs.\nRequires authentication.",
+        "operationId": "discover_v1_research_discover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchDiscoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchDiscoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Discover",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/synthesize": {
+      "post": {
+        "description": "Deep crawls provided URLs and generates a cited report.\nRequires authentication.",
+        "operationId": "synthesize_v1_research_synthesize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchSynthesisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchSynthesisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Synthesize",
+        "tags": [
+          "research"
         ]
       }
     },

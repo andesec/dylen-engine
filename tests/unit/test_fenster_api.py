@@ -48,7 +48,16 @@ def test_fenster_forbidden_free_tier(client, mock_db):
 
 
 @pytest.mark.anyio
-async def test_fenster_success_inline(client, mock_db):
+async def test_fenster_success_inline(client, mock_db, monkeypatch):
+  async def _is_feature_enabled_override(*args, **kwargs):
+    return True
+
+  async def _get_user_subscription_tier_override(*args, **kwargs):
+    return 2, "Plus"
+
+  monkeypatch.setattr("app.core.security.is_feature_enabled", _is_feature_enabled_override)
+  monkeypatch.setattr("app.core.security.get_user_subscription_tier", _get_user_subscription_tier_override)
+
   user = MagicMock()
   user.status = UserStatus.APPROVED
   user.id = uuid.uuid4()
@@ -86,7 +95,16 @@ async def test_fenster_success_inline(client, mock_db):
 
 
 @pytest.mark.anyio
-async def test_fenster_success_redirect(client, mock_db):
+async def test_fenster_success_redirect(client, mock_db, monkeypatch):
+  async def _is_feature_enabled_override(*args, **kwargs):
+    return True
+
+  async def _get_user_subscription_tier_override(*args, **kwargs):
+    return 2, "Plus"
+
+  monkeypatch.setattr("app.core.security.is_feature_enabled", _is_feature_enabled_override)
+  monkeypatch.setattr("app.core.security.get_user_subscription_tier", _get_user_subscription_tier_override)
+
   user = MagicMock()
   user.status = UserStatus.APPROVED
   user.id = uuid.uuid4()

@@ -13,9 +13,10 @@ from app.core.security import get_current_admin_user, require_role_level
 from app.jobs.models import JobRecord, JobStatus
 from app.notifications.factory import build_notification_service
 from app.schema.sql import Role, RoleLevel, User, UserStatus
+from app.services.feature_flags import is_feature_enabled
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, set_role_permissions
-from app.services.users import delete_user, get_user_by_id, get_user_tier_name, list_users, update_user_role, update_user_status
+from app.services.users import delete_user, get_user_by_id, get_user_subscription_tier, get_user_tier_name, list_users, update_user_role, update_user_status
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.postgres_audit_repo import LlmAuditRecord, PostgresLlmAuditRepository
@@ -217,7 +218,9 @@ async def update_user_account_status(user_id: str, request: UserStatusUpdateRequ
 
   # Notify the user on best-effort basis when approved.
   if user.status == UserStatus.APPROVED:
-    await build_notification_service(settings).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)
+    tier_id, _tier_name = await get_user_subscription_tier(db_session, user.id)
+    email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=user.org_id, subscription_tier_id=tier_id)
+    await build_notification_service(settings, email_enabled=email_enabled).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)
 
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
@@ -290,7 +293,9 @@ async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db),
   await _update_firebase_claims(db_session, user, role)
 
   # Notify the user on best-effort basis.
-  await build_notification_service(settings).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)
+  tier_id, _tier_name = await get_user_subscription_tier(db_session, user.id)
+  email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=user.org_id, subscription_tier_id=tier_id)
+  await build_notification_service(settings, email_enabled=email_enabled).notify_account_approved(user_id=user.id, user_email=user.email, full_name=user.full_name)
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 

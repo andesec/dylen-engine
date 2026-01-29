@@ -95,7 +95,7 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
   client = TestClient(app)
   # Remove dev key header, use empty headers or valid bearer if needed (but overridden)
   headers = {}
-  payload = {"sections": [1], "agents": ["structurer"]}
+  payload = {"sections": [1], "agents": ["section_builder"]}
   # Invoke the retry endpoint with section/agent targeting.
   response = client.post("/v1/jobs/job-retry-1/retry", json=payload, headers=headers)
   assert response.status_code == 200
@@ -103,4 +103,4 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
   assert body["status"] == "queued"
   assert body["retry_count"] == 1
   assert body["retry_sections"] == [1]
-  assert body["retry_agents"] == ["structurer"]
+  assert body["retry_agents"] == ["section_builder"]

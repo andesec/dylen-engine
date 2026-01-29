@@ -260,9 +260,8 @@ def _build_agent_models(settings: Settings) -> list[dict[str, Any]]:
   options: list[dict[str, Any]] = []
 
   # Build each agent entry with default model values.
-  options.append({"agent": "gatherer", "default": settings.gatherer_model, "options": _GATHERER_MODELS})
+  options.append({"agent": "section_builder", "default": settings.section_builder_model, "options": _GATHERER_MODELS})
   options.append({"agent": "planner", "default": settings.planner_model, "options": _PLANNER_MODELS})
-  options.append({"agent": "structurer", "default": settings.structurer_model, "options": _STRUCTURER_MODELS})
   options.append({"agent": "repairer", "default": settings.repair_model, "options": _REPAIRER_MODELS})
 
   # Keep a blank line after the loop for readability.

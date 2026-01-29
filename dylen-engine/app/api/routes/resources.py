@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_feature_flag
 from app.schema.ocr import BatchResponse
 from app.schema.sql import User
 from app.services.audit import log_llm_interaction
@@ -17,7 +17,7 @@ MESSAGE_FIELD = Form(None)
 OCR_SERVICE_DEPENDENCY = Depends(OcrService)
 
 
-@router.post("/image/extract-text", response_model=BatchResponse)
+@router.post("/image/extract-text", response_model=BatchResponse, dependencies=[Depends(require_feature_flag("feature.ocr"))])
 async def extract_text_from_images(files: list[UploadFile] = FILES_FIELD, message: str | None = MESSAGE_FIELD, current_user: User = Depends(get_current_active_user), service: OcrService = OCR_SERVICE_DEPENDENCY) -> BatchResponse:  # noqa: B008
   """Validate OCR uploads, delegate extraction, and log audit data."""
   # Guard against empty uploads to return a clear client error.

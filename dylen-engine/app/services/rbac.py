@@ -91,3 +91,11 @@ async def role_has_permission(session: AsyncSession, *, role_id: uuid.UUID, perm
   stmt = select(Permission.id).join(RolePermission, Permission.id == RolePermission.permission_id).where(RolePermission.role_id == role_id, Permission.slug == permission_slug)
   result = await session.execute(stmt)
   return result.scalar_one_or_none() is not None
+
+
+async def list_permission_slugs_for_role(session: AsyncSession, *, role_id: uuid.UUID) -> list[str]:
+  """List permission slugs attached to a role for UI authorization hints."""
+  # Load slugs in one query so clients can render without extra round trips.
+  stmt = select(Permission.slug).join(RolePermission, Permission.id == RolePermission.permission_id).where(RolePermission.role_id == role_id).order_by(Permission.slug.asc())
+  result = await session.execute(stmt)
+  return [str(row[0]) for row in result.fetchall()]

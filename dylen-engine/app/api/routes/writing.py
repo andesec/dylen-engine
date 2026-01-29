@@ -7,7 +7,7 @@ from app.api.deps import consume_section_quota
 from app.api.models import JobCreateResponse, WritingCheckRequest
 from app.config import Settings, get_settings
 from app.core.database import get_db
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_feature_flag
 from app.jobs.models import JobRecord
 from app.schema.sql import User
 from app.services.audit import log_llm_interaction
@@ -27,7 +27,7 @@ def _compute_job_ttl(settings: Settings) -> int | None:
   return int(time.time()) + settings.jobs_ttl_seconds
 
 
-@router.post("/check", response_model=JobCreateResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/check", response_model=JobCreateResponse, status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_feature_flag("feature.writing"))])
 async def create_writing_check(  # noqa: B008
   request: WritingCheckRequest,
   background_tasks: BackgroundTasks,

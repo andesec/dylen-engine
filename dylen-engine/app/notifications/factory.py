@@ -9,10 +9,13 @@ from app.notifications.push_sender import NullPushSender
 from app.notifications.service import NotificationService
 
 
-def build_notification_service(settings: Settings) -> NotificationService:
+def build_notification_service(settings: Settings, *, email_enabled: bool | None = None) -> NotificationService:
   """Construct a notification service based on environment configuration."""
+  # Allow callers to override email enablement using feature flags.
+  effective_email_enabled = settings.email_notifications_enabled if email_enabled is None else bool(email_enabled)
+
   # Email is disabled by default to avoid accidental delivery in dev/test.
-  if settings.email_notifications_enabled:
+  if effective_email_enabled:
     mailersend_config = MailerSendConfig(
       api_key=settings.mailersend_api_key or "", from_address=settings.email_from_address or "", from_name=settings.email_from_name, timeout_seconds=settings.mailersend_timeout_seconds, base_url=settings.mailersend_base_url
     )
@@ -28,4 +31,4 @@ def build_notification_service(settings: Settings) -> NotificationService:
 
   # Push is currently a no-op until a provider integration is configured.
   push_sender = NullPushSender()
-  return NotificationService(email_sender=email_sender, email_log_repo=email_log_repo, push_sender=push_sender, email_enabled=settings.email_notifications_enabled, push_enabled=False)
+  return NotificationService(email_sender=email_sender, email_log_repo=email_log_repo, push_sender=push_sender, email_enabled=effective_email_enabled, push_enabled=False)

@@ -25,10 +25,12 @@ if config.config_file_name is not None:
 
 import app.schema.audit  # noqa: E402, F401
 import app.schema.email_delivery_logs  # noqa: E402, F401
+import app.schema.feature_flags  # noqa: E402, F401
 import app.schema.fenster  # noqa: E402, F401
 import app.schema.jobs  # noqa: E402, F401
 import app.schema.lessons  # noqa: E402, F401
 import app.schema.quotas  # noqa: E402, F401
+import app.schema.runtime_config  # noqa: E402, F401
 
 # Must import models so they are attached to Base.metadata
 import app.schema.sql  # noqa: E402, F401

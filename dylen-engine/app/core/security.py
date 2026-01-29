@@ -11,8 +11,9 @@ from starlette.concurrency import run_in_threadpool
 from app.core.database import get_db
 from app.core.firebase import verify_id_token
 from app.schema.sql import RoleLevel, User, UserStatus
+from app.services.feature_flags import get_feature_flag_by_key, is_feature_enabled
 from app.services.rbac import get_role_by_id, role_has_permission
-from app.services.users import get_user_by_firebase_uid, get_user_tier_name, update_user_provider
+from app.services.users import get_user_by_firebase_uid, get_user_subscription_tier, get_user_tier_name, update_user_provider
 
 security_scheme = HTTPBearer()
 
@@ -81,6 +82,30 @@ def require_permission(permission_slug: str):  # noqa: ANN001
     if not has_permission:
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
+    # Support feature-flagging permissions without changing RBAC role tables.
+    permission_flag_key = f"perm.{permission_slug}"
+    flag = await get_feature_flag_by_key(db, key=permission_flag_key)
+    if flag is not None:
+      tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
+      enabled = await is_feature_enabled(db, key=permission_flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id)
+      if not enabled:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission disabled")
+
+    return current_user
+
+  return _dependency
+
+
+def require_feature_flag(flag_key: str):  # noqa: ANN001
+  """Build a dependency that blocks requests when a feature flag is disabled."""
+
+  async def _dependency(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> User:  # noqa: B008
+    """Resolve the flag for the current tenant/tier and enforce it."""
+    # Enforce secure defaults by treating missing flags as disabled.
+    tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
+    enabled = await is_feature_enabled(db, key=flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id)
+    if not enabled:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "FEATURE_DISABLED", "flag": flag_key})
     return current_user
 
   return _dependency

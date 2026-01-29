@@ -43,6 +43,25 @@ async def get_user_tier_name(session: AsyncSession, user_id: uuid.UUID) -> str:
   return tier_name or "Free"
 
 
+async def get_user_subscription_tier(session: AsyncSession, user_id: uuid.UUID) -> tuple[int, str]:
+  """Fetch the subscription tier id and name for a user."""
+  # Join usage metrics to tier metadata so callers can use both id and name.
+  stmt = select(SubscriptionTier.id, SubscriptionTier.name).join(UserUsageMetrics, UserUsageMetrics.subscription_tier_id == SubscriptionTier.id).where(UserUsageMetrics.user_id == user_id)
+  result = await session.execute(stmt)
+  row = result.one_or_none()
+  if row is not None:
+    return int(row[0]), str(row[1])
+
+  # Fall back to the Free tier when usage metrics are missing.
+  tier_stmt = select(SubscriptionTier).where(SubscriptionTier.name == "Free")
+  tier_result = await session.execute(tier_stmt)
+  free_tier = tier_result.scalar_one_or_none()
+  if not free_tier:
+    logger.error("Default 'Free' subscription tier missing; run migrations to apply seed data.")
+    raise RuntimeError("Default 'Free' subscription tier not available.")
+  return int(free_tier.id), str(free_tier.name)
+
+
 def resolve_auth_method(provider: str | None) -> AuthMethod:
   """Resolve auth method from provider so RBAC status stays consistent with Firebase sign-in."""
   # Map Firebase provider identifiers into the enum used by RBAC.

@@ -10,10 +10,14 @@ def _count_words(text: str) -> int:
   return len(text.split())
 
 
-def _validate_generate_request(request: GenerateLessonRequest, settings: Settings) -> None:
+def _validate_generate_request(request: GenerateLessonRequest, settings: Settings, *, max_topic_length: int | None = None) -> None:
   """Enforce topic/detail length and persistence size constraints."""
-  if len(request.topic) > settings.max_topic_length:
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Topic exceeds max length of {settings.max_topic_length} chars.")
+  # Allow callers to override max topic length using runtime configuration.
+  effective_max_topic_length = settings.max_topic_length if max_topic_length is None else int(max_topic_length)
+  if effective_max_topic_length <= 0:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid max topic length configuration.")
+  if len(request.topic) > effective_max_topic_length:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Topic exceeds max length of {effective_max_topic_length} chars.")
   if request.details:
     # Guardrail to keep user-provided detail payloads within size limits.
     word_count = _count_words(request.details)
@@ -21,13 +25,7 @@ def _validate_generate_request(request: GenerateLessonRequest, settings: Setting
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"User details are too long ({word_count} words). Max 250 words.")
   if estimate_bytes(request.model_dump(mode="python", by_alias=True)) > MAX_REQUEST_BYTES:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request payload is too large for persistence.")
-
-  try:
-    from app.jobs.progress import build_call_plan  # Local import to avoid circular deps
-
-    build_call_plan(request.model_dump(mode="python", by_alias=True), merge_gatherer_structurer=settings.merge_gatherer_structurer)
-  except ValueError as exc:
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+  # Keep validation deterministic; avoid request-shape checks that drift from the current pipeline.
 
 
 def _validate_writing_request(request: WritingCheckRequest) -> None:
