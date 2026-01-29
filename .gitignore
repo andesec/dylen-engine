@@ -8,7 +8,7 @@ reports/
 postgres-data/
 
 # Local TLS certs/keys (never commit).
-.certs/
+secrets/
 
 # Local-only backup folder created by migration squash helper.
 dylen-engine/alembic/versions/.squash_backup/
@@ -230,5 +230,3 @@ __marimo__/
 postgres-data/
 
 logs/
-
-service-account.json

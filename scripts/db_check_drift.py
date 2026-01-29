@@ -11,7 +11,7 @@ from alembic.migration import MigrationContext
 from sqlalchemy.ext.asyncio import create_async_engine
 
 # Add the engine package root to sys.path for model imports.
-BACKEND_DIR = Path(__file__).resolve().parents[1] / "dylen-engine"
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
 import app.schema.audit  # noqa: E402, F401

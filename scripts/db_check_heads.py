@@ -11,7 +11,7 @@ def _load_alembic_config() -> Config:
   """Build the Alembic config with a stable script path for CI and local runs."""
   # Resolve repository paths relative to this script.
   repo_root = Path(__file__).resolve().parents[1]
-  backend_dir = repo_root / "dylen-engine"
+  backend_dir = repo_root
   config_path = backend_dir / "alembic.ini"
   script_path = backend_dir / "alembic"
   config = Config(str(config_path))

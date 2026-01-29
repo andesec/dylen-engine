@@ -39,13 +39,13 @@ def _changed_files(base_ref: str) -> list[str]:
 def _schema_changes(files: list[str]) -> bool:
   """Check whether SQLAlchemy schema files were modified."""
   # Treat any changes under app/schema as schema-impacting.
-  return any(path.startswith("dylen-engine/app/schema/") for path in files)
+  return any(path.startswith("app/schema/") for path in files)
 
 
 def _migration_changes(files: list[str]) -> list[str]:
   """Return migration file paths changed in the PR diff."""
   # Limit to versioned migration scripts.
-  return [path for path in files if path.startswith("dylen-engine/alembic/versions/") and path.endswith(".py")]
+  return [path for path in files if path.startswith("alembic/versions/") and path.endswith(".py")]
 
 
 def main() -> None:

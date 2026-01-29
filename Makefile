@@ -1,6 +1,6 @@
 PYTHON ?= python3
 VENV_DIR := .venv
-APP_DIR := dylen-engine
+APP_DIR := .
 PORT ?= 8080
 MIGRATION_BASE_REF ?= main
 BASELINE_MESSAGE ?= baseline
@@ -23,7 +23,7 @@ dev: openapi
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	PORT=$${PORT:-$(PORT)}; \
 	echo "Starting FastAPI app on port $$PORT..."; \
-	cd $(APP_DIR) && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port $$PORT
+	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port $$PORT
 
 dev-stop:
 	@echo "Stopping Docker services..."
@@ -51,7 +51,7 @@ test:
 
 openapi:
 	@set -a; [ -f .env ] && . ./.env; set +a; \
-	cd $(APP_DIR) && uv run python -c "import json, os, sys; repo_root=os.path.abspath(os.path.join(os.getcwd(), '..')); sys.path.insert(0, os.getcwd()); from app.main import app; openapi=app.openapi(); f=open(os.path.join(repo_root, 'openapi.json'), 'w', encoding='utf-8'); json.dump(openapi, f, indent=2, sort_keys=True); f.write('\n'); f.close()"
+	uv run python -c "import json, os, sys; repo_root=os.path.abspath(os.path.join(os.getcwd(), '..')); sys.path.insert(0, os.getcwd()); from app.main import app; openapi=app.openapi(); f=open(os.path.join(repo_root, 'openapi.json'), 'w', encoding='utf-8'); json.dump(openapi, f, indent=2, sort_keys=True); f.write('\n'); f.close()"
 
 run: install
 	@$(MAKE) dev
@@ -84,7 +84,7 @@ security-sca:
 security-sast-bandit:
 	@echo "Running Bandit SAST scan..."
 	@mkdir -p reports
-	uv run bandit -r $(APP_DIR)/app \
+	uv run bandit -r app \
 		-f json -o reports/bandit-report.json \
 		--severity-level medium || true
 	@echo "Bandit report saved to reports/bandit-report.json"
@@ -166,13 +166,20 @@ security-all: security-sca security-sast security-container
 gp:
 	@echo "Running auto-fixes..."
 	@$(MAKE) fix
-	@echo "Committing and pushing changes..."
-	@git add -A
-	@msg="$(m)"; \
+	@echo "Preparing commit..."
+	@set -euo pipefail; \
+	git add -A; \
+	if git diff --cached --quiet; then \
+		echo "No changes to commit"; \
+		exit 0; \
+	fi; \
+	msg="$(m)"; \
 	if [ -z "$$msg" ]; then \
 		msg="Auto commit $$(date '+%Y-%m-%d %H:%M:%S') - $$(git diff --name-only --cached)"; \
 	fi; \
-	git commit -m "$$msg" || echo "No changes to commit"; \
+	echo "Committing..."; \
+	git commit -m "$$msg"; \
+	echo "Pushing..."; \
 	git push
 
 
@@ -181,12 +188,12 @@ gp:
 
 migrate:
 	@echo "Running database migrations..."
-	@cd $(APP_DIR) && uv run alembic upgrade head
+	@uv run alembic upgrade head
 
 migration:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration m='message'"; exit 1; fi
 	@echo "Generating migration: $(m)..."
-	@cd $(APP_DIR) && uv run alembic revision --autogenerate -m "$(m)"
+	@uv run alembic revision --autogenerate -m "$(m)"
 
 migration-auto:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration-auto m='message'"; exit 1; fi

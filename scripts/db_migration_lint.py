@@ -127,7 +127,7 @@ def _migration_paths() -> list[Path]:
   """Locate migration files so lint runs against a deterministic set."""
   # Resolve repository paths relative to this script.
   repo_root = Path(__file__).resolve().parents[1]
-  versions_dir = repo_root / "dylen-engine" / "alembic" / "versions"
+  versions_dir = repo_root / "alembic" / "versions"
   return sorted(versions_dir.glob("*.py"))
 
 

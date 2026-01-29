@@ -55,7 +55,7 @@ services:
       - DYLEN_ALLOWED_ORIGINS=http://localhost:3000
     networks:
       - dylen-network
-    working_dir: /app/dylen-engine
+    working_dir: /app
     command: [ "python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head" ]
     restart: "no"
 
@@ -80,8 +80,8 @@ services:
     networks:
       - dylen-network
     volumes:
-      - ./.certs:/app/.certs:ro
-    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/.certs/origin.key", "--ssl-certfile", "/app/.certs/origin.crt" ]
+      - ./secrets/certs:/app/secrets/certs:ro
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt" ]
 
   cloudflared:
     image: cloudflare/cloudflared:latest
