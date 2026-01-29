@@ -1,3 +1,22 @@
+# Security scanning reports
+reports/
+
+# macOS
+.DS_Store
+
+# Local Docker volumes / state (never commit).
+postgres-data/
+
+# Local TLS certs/keys (never commit).
+secrets/
+.certs/
+
+# Local-only backup folder created by migration squash helper.
+dylen-engine/alembic/versions/.squash_backup/
+
+# Generated dependency files
+requirements.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -174,6 +193,7 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+aws.xml
 
 # Abstra
 # Abstra is an AI-powered process automation framework.
@@ -205,3 +225,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Dylen Local Development
+# Postgres Local data directory
+postgres-data/
+
+logs/

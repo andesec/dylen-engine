@@ -1,6 +1,488 @@
 {
   "components": {
     "schemas": {
+      "AgentModelOption": {
+        "description": "Valid model choices for a pipeline agent.",
+        "properties": {
+          "agent": {
+            "title": "Agent",
+            "type": "string"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent",
+          "default",
+          "options"
+        ],
+        "title": "AgentModelOption",
+        "type": "object"
+      },
+      "BatchResponse": {
+        "description": "Bundle OCR extraction results to keep batch ordering intact.",
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "BatchResponse",
+        "type": "object"
+      },
+      "Body_extract_text_from_images_resource_image_extract_text_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "format": "binary",
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "Body_extract_text_from_images_resource_image_extract_text_post",
+        "type": "object"
+      },
+      "CandidateSource": {
+        "description": "A candidate source found during the discovery phase.",
+        "properties": {
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "url",
+          "snippet"
+        ],
+        "title": "CandidateSource",
+        "type": "object"
+      },
+      "CurrentSectionStatus": {
+        "additionalProperties": false,
+        "description": "Section status metadata for streaming job progress.",
+        "properties": {
+          "index": {
+            "description": "0-based index of the active section.",
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "retry_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retry attempts for the active section when applicable.",
+            "title": "Retry Count"
+          },
+          "status": {
+            "description": "Section generation status.",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Title of the active section when known.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "index",
+          "status"
+        ],
+        "title": "CurrentSectionStatus",
+        "type": "object"
+      },
+      "ExtractionResult": {
+        "description": "Represent OCR output to keep filenames aligned with extracted text.",
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "content"
+        ],
+        "title": "ExtractionResult",
+        "type": "object"
+      },
+      "FeatureFlagCreateRequest": {
+        "properties": {
+          "default_enabled": {
+            "default": false,
+            "title": "Default Enabled",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "key": {
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "FeatureFlagCreateRequest",
+        "type": "object"
+      },
+      "FeatureFlagOverrideRequest": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "tier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Name"
+          }
+        },
+        "required": [
+          "key",
+          "enabled"
+        ],
+        "title": "FeatureFlagOverrideRequest",
+        "type": "object"
+      },
+      "FeatureFlagRecord": {
+        "properties": {
+          "default_enabled": {
+            "title": "Default Enabled",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "description",
+          "default_enabled"
+        ],
+        "title": "FeatureFlagRecord",
+        "type": "object"
+      },
+      "GenerateLessonRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for lesson generation.",
+        "properties": {
+          "blueprint": {
+            "anyOf": [
+              {
+                "enum": [
+                  "skillbuilding",
+                  "knowledgeunderstanding",
+                  "communicationskills",
+                  "planningandproductivity",
+                  "movementandfitness",
+                  "growthmindset",
+                  "criticalthinking",
+                  "creativeskills",
+                  "webdevandcoding",
+                  "languagepractice"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional blueprint or learning outcome guidance for lesson planning.",
+            "title": "Blueprint"
+          },
+          "depth": {
+            "default": "highlights",
+            "description": "Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
+            "enum": [
+              "highlights",
+              "detailed",
+              "training"
+            ],
+            "title": "Depth",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional user-supplied details (max 250 words).",
+            "examples": [
+              "Focus on lists and loops"
+            ],
+            "title": "Details"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Idempotency key to prevent duplicate lesson generation.",
+            "title": "Idempotency Key"
+          },
+          "learner_level": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional learner level hint used for prompt guidance.",
+            "title": "Learner Level"
+          },
+          "models": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelsConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional per-agent model selection overrides.",
+            "examples": [
+              {
+                "planner_model": "openai/gpt-oss-120b:free",
+                "repairer_model": "google/gemma-3-27b-it:free",
+                "section_builder_model": "xiaomi/mimo-v2-flash:free"
+              }
+            ]
+          },
+          "primary_language": {
+            "default": "English",
+            "description": "Primary language for lesson output.",
+            "enum": [
+              "English",
+              "German",
+              "Urdu"
+            ],
+            "title": "Primary Language",
+            "type": "string"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional schema version to pin the lesson output to.",
+            "title": "Schema Version"
+          },
+          "teaching_style": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "conceptual",
+                    "theoretical",
+                    "practical"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional teaching style or pedagogy guidance for lesson planning.",
+            "title": "Teaching Style"
+          },
+          "topic": {
+            "description": "Topic to generate a lesson for.",
+            "examples": [
+              "Introduction to Python"
+            ],
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
+          },
+          "widgets": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional list of allowed widgets (overrides defaults).",
+            "title": "Widgets"
+          }
+        },
+        "required": [
+          "topic"
+        ],
+        "title": "GenerateLessonRequest",
+        "type": "object"
+      },
+      "GenerateLessonResponse": {
+        "description": "Response payload for lesson generation.",
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "lesson_json": {
+            "additionalProperties": true,
+            "title": "Lesson Json",
+            "type": "object"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LessonMeta"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "lesson_json",
+          "meta",
+          "logs"
+        ],
+        "title": "GenerateLessonResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -12,6 +494,2090 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JobCreateResponse": {
+        "description": "Response payload for job creation.",
+        "properties": {
+          "expected_sections": {
+            "description": "Total number of sections expected for the lesson job (0 for non-lesson jobs).",
+            "minimum": 0.0,
+            "title": "Expected Sections",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "expected_sections"
+        ],
+        "title": "JobCreateResponse",
+        "type": "object"
+      },
+      "JobRecord": {
+        "properties": {
+          "artifacts": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifacts"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "completed_section_indexes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed Section Indexes"
+          },
+          "completed_sections": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed Sections"
+          },
+          "completed_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed Steps"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_section_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Section Index"
+          },
+          "current_section_retry_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Section Retry Count"
+          },
+          "current_section_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Section Status"
+          },
+          "current_section_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Section Title"
+          },
+          "expected_sections": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Sections"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
+          "max_retries": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Retries"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "request": {
+            "additionalProperties": true,
+            "title": "Request",
+            "type": "object"
+          },
+          "result_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Json"
+          },
+          "retry_agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Agents"
+          },
+          "retry_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Count"
+          },
+          "retry_parent_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Parent Job Id"
+          },
+          "retry_sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Sections"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "error",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subphase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subphase"
+          },
+          "target_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Agent"
+          },
+          "total_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Steps"
+          },
+          "ttl": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ttl"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation"
+          }
+        },
+        "required": [
+          "job_id",
+          "request",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobRecord",
+        "type": "object"
+      },
+      "JobRetryRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for retrying a failed job.",
+        "properties": {
+          "agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "planner",
+                    "section_builder",
+                    "repair",
+                    "stitcher"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline agents to retry (defaults to full pipeline).",
+            "title": "Agents"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-based section indexes to retry (defaults to all sections).",
+            "title": "Sections"
+          }
+        },
+        "title": "JobRetryRequest",
+        "type": "object"
+      },
+      "JobStatusResponse": {
+        "description": "Status payload for an asynchronous job.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "completed_section_indexes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-based section indexes that have been completed so far.",
+            "title": "Completed Section Indexes"
+          },
+          "completed_sections": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of lesson sections completed so far.",
+            "title": "Completed Sections"
+          },
+          "completed_steps": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Completed progress steps when available.",
+            "title": "Completed Steps"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_section": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CurrentSectionStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_sections": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total number of expected sections for lesson jobs.",
+            "title": "Expected Sections"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
+          "max_retries": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Maximum retry attempts allowed for this job.",
+            "title": "Max Retries"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Progress percent (0-100) when available.",
+            "title": "Progress"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "retry_agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline agents targeted for retry, when applicable.",
+            "title": "Retry Agents"
+          },
+          "retry_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retry attempts already used for this job.",
+            "title": "Retry Count"
+          },
+          "retry_sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-based section indexes targeted for retry, when applicable.",
+            "title": "Retry Sections"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "error",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subphase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subphase"
+          },
+          "total_steps": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total number of progress steps when available.",
+            "title": "Total Steps"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "LessonCatalogResponse": {
+        "description": "Response payload for lesson option metadata.",
+        "properties": {
+          "agent_models": {
+            "items": {
+              "$ref": "#/components/schemas/AgentModelOption"
+            },
+            "title": "Agent Models",
+            "type": "array"
+          },
+          "blueprints": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Blueprints",
+            "type": "array"
+          },
+          "default_widgets": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            "title": "Default Widgets",
+            "type": "object"
+          },
+          "depths": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Depths",
+            "type": "array"
+          },
+          "learner_levels": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Learner Levels",
+            "type": "array"
+          },
+          "teaching_styles": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Teaching Styles",
+            "type": "array"
+          },
+          "widgets": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "blueprints",
+          "teaching_styles",
+          "learner_levels",
+          "depths",
+          "widgets",
+          "agent_models",
+          "default_widgets"
+        ],
+        "title": "LessonCatalogResponse",
+        "type": "object"
+      },
+      "LessonMeta": {
+        "description": "Metadata about the lesson generation process.",
+        "properties": {
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "model_a": {
+            "title": "Model A",
+            "type": "string"
+          },
+          "model_b": {
+            "title": "Model B",
+            "type": "string"
+          },
+          "provider_a": {
+            "title": "Provider A",
+            "type": "string"
+          },
+          "provider_b": {
+            "title": "Provider B",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_a",
+          "model_a",
+          "provider_b",
+          "model_b",
+          "latency_ms"
+        ],
+        "title": "LessonMeta",
+        "type": "object"
+      },
+      "LessonRecord": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "lesson_json": {
+            "title": "Lesson Json",
+            "type": "string"
+          },
+          "model_a": {
+            "title": "Model A",
+            "type": "string"
+          },
+          "model_b": {
+            "title": "Model B",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider_a": {
+            "title": "Provider A",
+            "type": "string"
+          },
+          "provider_b": {
+            "title": "Provider B",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "topic",
+          "title",
+          "created_at",
+          "schema_version",
+          "prompt_version",
+          "provider_a",
+          "model_a",
+          "provider_b",
+          "model_b",
+          "lesson_json",
+          "status",
+          "latency_ms"
+        ],
+        "title": "LessonRecord",
+        "type": "object"
+      },
+      "LessonRecordResponse": {
+        "description": "Response payload for lesson retrieval.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "lesson_json": {
+            "additionalProperties": true,
+            "title": "Lesson Json",
+            "type": "object"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LessonMeta"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "topic",
+          "title",
+          "created_at",
+          "schema_version",
+          "prompt_version",
+          "lesson_json",
+          "meta"
+        ],
+        "title": "LessonRecordResponse",
+        "type": "object"
+      },
+      "LlmAuditRecord": {
+        "properties": {
+          "agent": {
+            "title": "Agent",
+            "type": "string"
+          },
+          "call_index": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Index"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "lesson_topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Topic"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          },
+          "request_payload": {
+            "title": "Request Payload",
+            "type": "string"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "response_payload": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Payload"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp_request": {
+            "format": "date-time",
+            "title": "Timestamp Request",
+            "type": "string"
+          },
+          "timestamp_response": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp Response"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          }
+        },
+        "required": [
+          "record_id",
+          "timestamp_request",
+          "timestamp_response",
+          "started_at",
+          "duration_ms",
+          "agent",
+          "provider",
+          "model",
+          "lesson_topic",
+          "request_payload",
+          "response_payload",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "request_type",
+          "purpose",
+          "call_index",
+          "job_id",
+          "status",
+          "error_message"
+        ],
+        "title": "LlmAuditRecord",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "idToken": {
+            "title": "Idtoken",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idToken"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "ModelsConfig": {
+        "additionalProperties": false,
+        "description": "Per-agent model selection overrides.",
+        "properties": {
+          "planner_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model used for the planner agent (provider inferred when possible).",
+            "examples": [
+              "openai/gpt-oss-120b:free"
+            ],
+            "title": "Planner Model"
+          },
+          "repairer_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model used for repair validation and fixes (provider inferred when possible).",
+            "examples": [
+              "google/gemma-3-27b-it:free"
+            ],
+            "title": "Repairer Model"
+          },
+          "section_builder_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model used for the section builder agent (provider inferred when possible).",
+            "examples": [
+              "xiaomi/mimo-v2-flash:free"
+            ],
+            "title": "Section Builder Model"
+          }
+        },
+        "title": "ModelsConfig",
+        "type": "object"
+      },
+      "OptionDetail": {
+        "description": "Metadata describing an option with tooltip guidance.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "tooltip": {
+            "title": "Tooltip",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "tooltip"
+        ],
+        "title": "OptionDetail",
+        "type": "object"
+      },
+      "OrchestrationFailureResponse": {
+        "description": "Response payload for orchestration failures.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail",
+          "error",
+          "logs"
+        ],
+        "title": "OrchestrationFailureResponse",
+        "type": "object"
+      },
+      "PaginatedResponse_JobRecord_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedResponse[JobRecord]",
+        "type": "object"
+      },
+      "PaginatedResponse_LessonRecord_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LessonRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedResponse[LessonRecord]",
+        "type": "object"
+      },
+      "PaginatedResponse_LlmAuditRecord_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LlmAuditRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedResponse[LlmAuditRecord]",
+        "type": "object"
+      },
+      "PaginatedResponse_UserRecord_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedResponse[UserRecord]",
+        "type": "object"
+      },
+      "PermissionRecord": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "display_name",
+          "description"
+        ],
+        "title": "PermissionRecord",
+        "type": "object"
+      },
+      "ProviderMode": {
+        "description": "Supported provider modes.",
+        "enum": [
+          "gemini",
+          "openrouter",
+          "vertexai"
+        ],
+        "title": "ProviderMode",
+        "type": "string"
+      },
+      "ResearchDiscoveryRequest": {
+        "additionalProperties": false,
+        "description": "Request to discover sources for a research topic.",
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional context to refine the search.",
+            "title": "Context"
+          },
+          "query": {
+            "description": "The research query.",
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "ResearchDiscoveryRequest",
+        "type": "object"
+      },
+      "ResearchDiscoveryResponse": {
+        "description": "Response containing discovered candidate sources.",
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "title": "ResearchDiscoveryResponse",
+        "type": "object"
+      },
+      "ResearchSynthesisRequest": {
+        "additionalProperties": false,
+        "description": "Request to synthesize a report from selected URLs.",
+        "properties": {
+          "query": {
+            "description": "The original research query.",
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "urls": {
+            "description": "List of URLs to crawl and synthesize.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Urls",
+            "type": "array"
+          },
+          "user_id": {
+            "description": "User ID for audit logging.",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "urls",
+          "user_id"
+        ],
+        "title": "ResearchSynthesisRequest",
+        "type": "object"
+      },
+      "ResearchSynthesisResponse": {
+        "description": "The synthesized research report.",
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "answer",
+          "sources"
+        ],
+        "title": "ResearchSynthesisResponse",
+        "type": "object"
+      },
+      "ResolvedQuota": {
+        "properties": {
+          "coach_mode_enabled": {
+            "title": "Coach Mode Enabled",
+            "type": "boolean"
+          },
+          "coach_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coach Voice Tier"
+          },
+          "highest_lesson_depth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Lesson Depth"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "max_sections_per_lesson": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sections Per Lesson"
+          },
+          "remaining_file_uploads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining File Uploads"
+          },
+          "remaining_image_uploads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Image Uploads"
+          },
+          "remaining_research": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Research"
+          },
+          "remaining_sections": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Sections"
+          },
+          "tier_name": {
+            "title": "Tier Name",
+            "type": "string"
+          },
+          "total_file_uploads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total File Uploads"
+          },
+          "total_image_uploads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Image Uploads"
+          },
+          "total_research": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Research"
+          },
+          "total_sections": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Sections"
+          }
+        },
+        "required": [
+          "tier_name",
+          "max_file_upload_kb",
+          "highest_lesson_depth",
+          "max_sections_per_lesson",
+          "total_file_uploads",
+          "total_image_uploads",
+          "total_sections",
+          "total_research",
+          "remaining_file_uploads",
+          "remaining_image_uploads",
+          "remaining_sections",
+          "remaining_research",
+          "coach_mode_enabled",
+          "coach_voice_tier"
+        ],
+        "title": "ResolvedQuota",
+        "type": "object"
+      },
+      "RoleCreateRequest": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RoleLevel"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "level"
+        ],
+        "title": "RoleCreateRequest",
+        "type": "object"
+      },
+      "RoleLevel": {
+        "enum": [
+          "GLOBAL",
+          "TENANT"
+        ],
+        "title": "RoleLevel",
+        "type": "string"
+      },
+      "RolePermissionsResponse": {
+        "properties": {
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/PermissionRecord"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id",
+          "permissions"
+        ],
+        "title": "RolePermissionsResponse",
+        "type": "object"
+      },
+      "RolePermissionsUpdateRequest": {
+        "properties": {
+          "permission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permission Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "permission_ids"
+        ],
+        "title": "RolePermissionsUpdateRequest",
+        "type": "object"
+      },
+      "RoleRecord": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RoleLevel"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "level",
+          "description"
+        ],
+        "title": "RoleRecord",
+        "type": "object"
+      },
+      "RuntimeConfigDefinitionRecord": {
+        "properties": {
+          "allowed_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Scopes",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "super_admin_only": {
+            "title": "Super Admin Only",
+            "type": "boolean"
+          },
+          "value_type": {
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value_type",
+          "description",
+          "allowed_scopes",
+          "super_admin_only"
+        ],
+        "title": "RuntimeConfigDefinitionRecord",
+        "type": "object"
+      },
+      "RuntimeConfigSetRequest": {
+        "properties": {
+          "key": {
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "scope": {
+            "enum": [
+              "GLOBAL",
+              "TIER",
+              "TENANT"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "tier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Name"
+          },
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "scope",
+          "value"
+        ],
+        "title": "RuntimeConfigSetRequest",
+        "type": "object"
+      },
+      "SignupRequest": {
+        "properties": {
+          "age": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "fullName": {
+            "title": "Fullname",
+            "type": "string"
+          },
+          "idToken": {
+            "title": "Idtoken",
+            "type": "string"
+          },
+          "photoUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photourl"
+          },
+          "profession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profession"
+          }
+        },
+        "required": [
+          "idToken",
+          "fullName"
+        ],
+        "title": "SignupRequest",
+        "type": "object"
+      },
+      "SignupResponse": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/SignupUser"
+          }
+        },
+        "required": [
+          "status",
+          "user"
+        ],
+        "title": "SignupResponse",
+        "type": "object"
+      },
+      "SignupUser": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "role": {
+            "additionalProperties": true,
+            "title": "Role",
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        },
+        "required": [
+          "email",
+          "status",
+          "id",
+          "role",
+          "org_id"
+        ],
+        "title": "SignupUser",
+        "type": "object"
+      },
+      "TaskPayload": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "TaskPayload",
+        "type": "object"
+      },
+      "UserRecord": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "status",
+          "role_id",
+          "org_id"
+        ],
+        "title": "UserRecord",
+        "type": "object"
+      },
+      "UserRoleUpdateRequest": {
+        "properties": {
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id"
+        ],
+        "title": "UserRoleUpdateRequest",
+        "type": "object"
+      },
+      "UserStatus": {
+        "enum": [
+          "PENDING",
+          "APPROVED",
+          "DISABLED"
+        ],
+        "title": "UserStatus",
+        "type": "string"
+      },
+      "UserStatusResponse": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "status"
+        ],
+        "title": "UserStatusResponse",
+        "type": "object"
+      },
+      "UserStatusUpdateRequest": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "UserStatusUpdateRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -68,6 +2634,51 @@
         ],
         "title": "ValidationResponse",
         "type": "object"
+      },
+      "WritingCheckRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for response evaluation.",
+        "properties": {
+          "checker_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional model override for writing evaluation (provider inferred when possible).",
+            "examples": [
+              "openai/gpt-oss-120b:free"
+            ],
+            "title": "Checker Model"
+          },
+          "criteria": {
+            "additionalProperties": true,
+            "description": "The evaluation criteria from the lesson.",
+            "title": "Criteria",
+            "type": "object"
+          },
+          "text": {
+            "description": "The user-written response to check (max 300 words).",
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "criteria"
+        ],
+        "title": "WritingCheckRequest",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -77,9 +2688,1346 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/health": {
+    "/admin/config/definitions": {
       "get": {
-        "operationId": "health_health_get",
+        "description": "List supported runtime configuration keys for admin UIs.",
+        "operationId": "list_config_definitions_admin_config_definitions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RuntimeConfigDefinitionRecord"
+                  },
+                  "title": "Response List Config Definitions Admin Config Definitions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Config Definitions",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/config/effective": {
+      "get": {
+        "description": "Return effective runtime config for a tenant context (admin helper endpoint).",
+        "operationId": "get_effective_config_admin_config_effective_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Effective Config Admin Config Effective Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Effective Config",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/config/values": {
+      "get": {
+        "description": "List explicitly set values for the requested config scope.",
+        "operationId": "get_config_values_admin_config_values_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "GLOBAL",
+              "enum": [
+                "GLOBAL",
+                "TIER",
+                "TENANT"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "org_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tier Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Config Values Admin Config Values Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Config Values",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Set a runtime config value for the requested scope.",
+        "operationId": "set_config_value_admin_config_values_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeConfigSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Config Value",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/feature-flags": {
+      "get": {
+        "description": "List all feature flag definitions.",
+        "operationId": "list_flags_admin_feature_flags_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FeatureFlagRecord"
+                  },
+                  "title": "Response List Flags Admin Feature Flags Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Flags",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "description": "Create a new feature flag definition (global-only).",
+        "operationId": "create_flag_admin_feature_flags_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureFlagCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureFlagRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Flag",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/feature-flags/effective": {
+      "get": {
+        "description": "Return effective feature flags for a tenant/tier context (admin helper endpoint).",
+        "operationId": "get_effective_flags_admin_feature_flags_effective_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Org Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tier Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Effective Flags Admin Feature Flags Effective Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Effective Flags",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/feature-flags/override": {
+      "put": {
+        "description": "Set a tier or tenant override for a feature flag.",
+        "operationId": "set_flag_override_admin_feature_flags_override_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureFlagOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Flag Override",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/jobs": {
+      "get": {
+        "description": "List jobs for admins with pagination to control load and exposure.",
+        "operationId": "list_jobs_admin_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "running",
+                    "done",
+                    "error",
+                    "canceled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_JobRecord_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Jobs",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/lessons": {
+      "get": {
+        "description": "List lessons with pagination to keep responses bounded and predictable.",
+        "operationId": "list_lessons_admin_lessons_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_LessonRecord_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Lessons",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/llm-calls": {
+      "get": {
+        "description": "List LLM audit records with pagination to keep admin views efficient.",
+        "operationId": "list_llm_calls_admin_llm_calls_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_LlmAuditRecord_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Llm Calls",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/roles": {
+      "post": {
+        "description": "Create a new role for RBAC management.",
+        "operationId": "create_role_admin_roles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Role",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/roles/{role_id}/permissions": {
+      "put": {
+        "description": "Assign permissions to a role in bulk.",
+        "operationId": "update_role_permissions_admin_roles__role_id__permissions_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "role_id",
+            "required": true,
+            "schema": {
+              "title": "Role Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolePermissionsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolePermissionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Role Permissions",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "description": "List users with tenant scoping for org admins.",
+        "operationId": "list_user_accounts_admin_users_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_UserRecord_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List User Accounts",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}": {
+      "delete": {
+        "description": "Delete a user account permanently (GDPR erasure).",
+        "operationId": "delete_user_account_admin_users__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete User Account",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/approve": {
+      "patch": {
+        "description": "Approve a user account and notify the user.",
+        "operationId": "approve_user_admin_users__user_id__approve_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/role": {
+      "patch": {
+        "description": "Update a user's role assignment and refresh RBAC claims.",
+        "operationId": "update_user_account_role_admin_users__user_id__role_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRoleUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Account Role",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/status": {
+      "patch": {
+        "description": "Update a user's approval status and refresh RBAC claims.",
+        "operationId": "update_user_account_status_admin_users__user_id__status_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserStatusUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Account Status",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "description": "Check if user exists and return status.",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Login Api Auth Login Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/signup": {
+      "post": {
+        "description": "Register a new user.",
+        "operationId": "signup_api_auth_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Signup",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/purgatory": {
+      "get": {
+        "description": "Get the current user's approval status while access is pending.",
+        "operationId": "get_purgatory_status_api_purgatory_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Purgatory Status Api Purgatory Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Purgatory Status",
+        "tags": [
+          "purgatory"
+        ]
+      }
+    },
+    "/api/user/me": {
+      "get": {
+        "description": "Get the current user's profile.",
+        "operationId": "get_my_profile_api_user_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get My Profile Api User Me Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Profile",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/user/me/features": {
+      "get": {
+        "description": "Get effective feature flags, runtime config, and permission hints for the current user.",
+        "operationId": "get_my_features_api_user_me_features_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get My Features Api User Me Features Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Features",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/user/me/quota": {
+      "get": {
+        "description": "Get the current user's quota and subscription tier.",
+        "operationId": "get_my_quota_api_user_me_quota_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolvedQuota"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Quota",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/fenster/{widget_id}": {
+      "get": {
+        "description": "Retrieve a Fenster widget by ID.\nRequires 'Plus' or 'Pro' tier.",
+        "operationId": "get_fenster_widget_api_v1_fenster__widget_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "widget_id",
+            "required": true,
+            "schema": {
+              "title": "Widget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Fenster Widget",
+        "tags": [
+          "fenster"
+        ]
+      }
+    },
+    "/internal/tasks/process-job": {
+      "post": {
+        "description": "Handler for Cloud Tasks (and local simulation).\nExecutes the job synchronously so the task queue knows when it's done.",
+        "operationId": "process_job_task_internal_tasks_process_job_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskPayload"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -88,20 +4036,439 @@
                   "additionalProperties": {
                     "type": "string"
                   },
-                  "title": "Response Health Health Get",
+                  "title": "Response Process Job Task Internal Tasks Process Job Post",
                   "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Process Job Task",
+        "tags": [
+          "tasks",
+          "tasks"
+        ]
+      }
+    },
+    "/resource/image/extract-text": {
+      "post": {
+        "description": "Validate OCR uploads, delegate extraction, and log audit data.",
+        "operationId": "extract_text_from_images_resource_image_extract_text_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider_mode",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ProviderMode",
+              "default": "gemini"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_name",
+            "required": false,
+            "schema": {
+              "default": "gemini-2.0-flash-lite",
+              "title": "Model Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_file_size",
+            "required": false,
+            "schema": {
+              "default": 1048576,
+              "title": "Max File Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_extract_text_from_images_resource_image_extract_text_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Extract Text From Images",
+        "tags": [
+          "resources"
+        ]
+      }
+    },
+    "/v1/jobs": {
+      "post": {
+        "description": "Create a background lesson generation job.",
+        "operationId": "create_job_v1_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "description": "Fetch the status and result of a background job.",
+        "operationId": "get_job_status_v1_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Job Status",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/v1/jobs/{job_id}/cancel": {
+      "post": {
+        "description": "Request cancellation of a running background job.",
+        "operationId": "cancel_job_v1_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/v1/jobs/{job_id}/retry": {
+      "post": {
+        "description": "Retry a failed job with optional section/agent targeting.",
+        "operationId": "retry_job_v1_jobs__job_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobRetryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/v1/lessons/catalog": {
+      "get": {
+        "description": "Return blueprint, teaching style, and widget metadata for clients.",
+        "operationId": "get_lesson_catalog_v1_lessons_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonCatalogResponse"
                 }
               }
             },
             "description": "Successful Response"
           }
         },
-        "summary": "Health"
+        "summary": "Get Lesson Catalog",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/v1/lessons/generate": {
+      "post": {
+        "description": "Generate a lesson from a topic using the two-step pipeline.",
+        "operationId": "generate_lesson_v1_lessons_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateLessonResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrchestrationFailureResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Generate Lesson",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/v1/lessons/jobs": {
+      "post": {
+        "description": "Alias route for creating a background lesson generation job.",
+        "operationId": "create_lesson_job_v1_lessons_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Lesson Job",
+        "tags": [
+          "lessons"
+        ]
       }
     },
     "/v1/lessons/validate": {
       "post": {
-        "description": "Validate a lesson payload against schema + widget registry.",
+        "description": "Validate lesson payloads from stored lessons or job results against schema and widgets.",
         "operationId": "validate_endpoint_v1_lessons_validate_post",
         "requestBody": {
           "content": {
@@ -137,7 +4504,278 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Validate Endpoint"
+        "summary": "Validate Endpoint",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/v1/lessons/{lesson_id}": {
+      "get": {
+        "description": "Fetch a stored lesson by identifier, consistent with async job persistence.",
+        "operationId": "get_lesson_v1_lessons__lesson_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
+            "schema": {
+              "title": "Lesson Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonRecordResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Lesson",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/v1/notifications/": {
+      "get": {
+        "description": "Poll for recent notifications for the current user.\n\nReturns a list of notifications derived from email delivery logs,\nformatted for frontend display with navigation data.\n\n- **limit**: Max number of notifications to return.\n- **offset**: Number of notifications to skip (for pagination).\n- **created_after**: Only return notifications created after this timestamp (useful for polling).",
+        "operationId": "list_notifications_v1_notifications__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Notifications V1 Notifications  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/v1/research/discover": {
+      "post": {
+        "description": "Performs initial web search and returns candidate URLs.\nRequires authentication.",
+        "operationId": "discover_v1_research_discover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchDiscoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchDiscoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Discover",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/synthesize": {
+      "post": {
+        "description": "Deep crawls provided URLs and generates a cited report.\nRequires authentication.",
+        "operationId": "synthesize_v1_research_synthesize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchSynthesisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchSynthesisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Synthesize",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/writing/check": {
+      "post": {
+        "description": "Create a background job to check a writing task response.",
+        "operationId": "create_writing_check_v1_writing_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WritingCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Writing Check",
+        "tags": [
+          "writing"
+        ]
       }
     }
   }

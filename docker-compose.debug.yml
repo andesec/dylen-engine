@@ -1,0 +1,92 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dylen-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=dylen
+      - POSTGRES_PASSWORD=dylen_password
+      - POSTGRES_DB=dylen
+    volumes:
+      - dylen_pg_data:/var/lib/postgresql/data
+    networks:
+      - dylen-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dylen -d postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  migrator:
+    build:
+      context: .
+      target: debug
+    container_name: dylen-migrator
+    entrypoint: []
+    command: [ "python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head" ]
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+#      - DYLEN_ALLOWED_ORIGINS=http://localhost:3000
+      - DYLEN_ALLOWED_ORIGINS=https://dev.dylen.app
+    networks:
+      - dylen-network
+    volumes:
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./app:/app/app
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: debug
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+      - GOOGLE_APPLICATION_CREDENTIALS=/home/nonroot/.config/gcloud/application_default_credentials.json
+      - DYLEN_DUMMY_PLANNER_RESPONSE_PATH=./fixtures/dummy_planner_response.md
+      - DYLEN_DUMMY_GATHERER_RESPONSE_PATH=./fixtures/dummy_gatherer_response.md
+      - DYLEN_DUMMY_STRUCTURER_RESPONSE_PATH=./fixtures/dummy_structurer_response.md
+      - DYLEN_DUMMY_REPAIRER_RESPONSE_PATH=./fixtures/dummy_repairer_response.md
+    networks:
+      - dylen-network
+    ports:
+      - "8002:8002"
+      - "5678:5678" # debug port
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+      - ~/.config/gcloud/application_default_credentials.json:/home/nonroot/.config/gcloud/application_default_credentials.json:ro
+      - ./secrets/service-account.json:/app/service-account.json:ro
+      - ./fixtures:/app/fixtures:ro
+      - ./secrets/certs:/app/secrets/certs:ro
+    command: [ "python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt" ]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: dylen-cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - dylen-network
+
+networks:
+  dylen-network:
+    driver: bridge
+
+volumes:
+  dylen_pg_data:

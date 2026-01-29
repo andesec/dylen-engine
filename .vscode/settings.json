@@ -1,0 +1,25 @@
+{
+    "chatgpt.openOnStartup": true,
+    "sonarlint.connectedMode.project": {
+        "connectionId": "andesec",
+        "projectKey": "andesec_dylen"
+    },
+    "files.exclude": {
+        "**/*.egg-info": true,
+        "**/__pycache__": true,
+        ".pytest_cache": true,
+        ".ruff_cache": true,
+        ".venv": true,
+        ".idea": true,
+    },
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+        }
+    },
+    "snyk.advanced.organization": "c26fee8c-8513-4930-be8e-f0408edee26a",
+    "snyk.advanced.autoSelectOrganization": true
+}

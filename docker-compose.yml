@@ -1,0 +1,101 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dylen-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=dylen
+      - POSTGRES_PASSWORD=dylen_password
+      - POSTGRES_DB=dylen
+    volumes:
+      - dylen_pg_data:/var/lib/postgresql/data
+    networks:
+      - dylen-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dylen -d dylen" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  postgres-init:
+    image: postgres:16-alpine
+    container_name: dylen-postgres-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./scripts/init-postgres.sh:/init-postgres.sh:ro
+      - ./scripts/postgres:/init:ro
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=dylen
+      - POSTGRES_PASSWORD=dylen_password
+      - POSTGRES_DB=dylen
+    networks:
+      - dylen-network
+    entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
+    restart: "no"
+
+  engine-migrate:
+    build:
+      context: .
+      target: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+      - DYLEN_ALLOWED_ORIGINS=http://localhost:3000
+    networks:
+      - dylen-network
+    working_dir: /app
+    command: [ "python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head" ]
+    restart: "no"
+
+  engine:
+    build:
+      context: .
+      target: production
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+      engine-migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+      - GOOGLE_APPLICATION_CREDENTIALS=/root/.config/gcloud/application_default_credentials.json
+    networks:
+      - dylen-network
+    volumes:
+      - ./secrets/certs:/app/secrets/certs:ro
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt" ]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: dylen-cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - dylen-network
+
+networks:
+  dylen-network:
+    driver: bridge
+
+volumes:
+  dylen_pg_data:

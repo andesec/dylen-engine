@@ -1,0 +1,7 @@
+Your lesson has finished generating.
+
+Topic: {{topic}}
+Lesson ID: {{lesson_id}}
+
+If you didn’t request this, you can safely ignore this email.
+

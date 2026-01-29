@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${SKIP_GIT_MIGRATION_HOOK:-}" == "1" ]]; then
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+git_add_migration_versions() {
+  # Avoid failing commits when the glob matches no files.
+  shopt -s nullglob
+  files=(alembic/versions/*.py)
+  shopt -u nullglob
+  if (( ${#files[@]} > 0 )); then
+    git add "${files[@]}"
+  fi
+}
+
+staged_changes="$(git diff --cached --name-status)"
+if [[ -z "$staged_changes" ]]; then
+  exit 0
+fi
+
+schema_changed="0"
+while IFS=$'\t' read -r status path_a path_b; do
+  # Ignore renames/moves; they don't imply schema semantics changed.
+  if [[ "$status" == R* ]]; then
+    continue
+  fi
+
+  if [[ "$path_a" == app/schema/* ]]; then
+    schema_changed="1"
+    break
+  fi
+done <<< "$staged_changes"
+
+if [[ "$schema_changed" != "1" ]]; then
+  exit 0
+fi
+
+base_ref="${MIGRATION_BASE_REF:-main}"
+base_target="origin/${base_ref}"
+# If the PR base has no migrations yet (bootstrap / repo move), skip enforcement here.
+if git rev-parse --verify "$base_target" >/dev/null 2>&1; then
+  merge_base_ref="$(git merge-base HEAD "$base_target")"
+  base_migrations="$(git ls-tree -r --name-only "$merge_base_ref" alembic/versions 2>/dev/null || true)"
+  if [[ -z "$base_migrations" ]]; then
+    base_migrations="$(git ls-tree -r --name-only "$merge_base_ref" dylen-engine/alembic/versions 2>/dev/null || true)"
+  fi
+  if [[ -z "$base_migrations" ]]; then
+    echo "WARN: $base_target has no migrations at merge-base ($merge_base_ref); skipping migration enforcement for this commit."
+    exit 0
+  fi
+fi
+
+migration_count="0"
+while IFS=$'\t' read -r status path_a path_b; do
+  # Only count actual new/modified migration files, not renames/moves.
+  if [[ "$status" != "A" && "$status" != "M" ]]; then
+    continue
+  fi
+
+  if [[ "$path_a" == alembic/versions/*.py ]]; then
+    migration_count="$((migration_count + 1))"
+  fi
+done <<< "$staged_changes"
+
+if [[ "$migration_count" -gt 1 ]]; then
+  if [[ "${DYLEN_AUTO_MIGRATIONS:-}" == "1" ]]; then
+    message="auto_squash_$(date +%Y%m%d_%H%M%S)"
+    base_ref="${MIGRATION_BASE_REF:-main}"
+    make migration-squash "m=$message" "MIGRATION_BASE_REF=$base_ref"
+    git_add_migration_versions
+  else
+    echo "ERROR: Schema changes are staged with multiple migration files staged."
+    echo "Run: make migration-squash m=\"final_schema_changes\""
+    echo "Or set DYLEN_AUTO_MIGRATIONS=1 to auto-squash during commit."
+    exit 1
+  fi
+fi
+
+if [[ "$migration_count" -eq 0 ]]; then
+  if [[ "${DYLEN_AUTO_MIGRATIONS:-}" == "1" ]]; then
+    message="auto_migration_$(date +%Y%m%d_%H%M%S)"
+    make migration-auto "m=$message"
+    git_add_migration_versions
+  else
+    echo "ERROR: Schema changes are staged without a migration file staged."
+    echo "Run: make migration-auto m=\"short_description\""
+    echo "Or set DYLEN_AUTO_MIGRATIONS=1 to auto-generate during commit."
+    exit 1
+  fi
+fi
+
+python3 scripts/db_migration_lint.py
+python3 scripts/db_check_heads.py
+
+if [[ "${DYLEN_MIGRATION_HOOK_STRICT:-}" == "1" ]]; then
+  make db-check-drift
+  make db-check-seed-data
+fi

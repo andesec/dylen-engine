@@ -1,0 +1,72 @@
+name: PR Migration Check
+
+on:
+  pull_request:
+    paths:
+      - 'dylen-engine/**'
+      - 'scripts/**'
+      - '.github/workflows/pr-migration-check.yml'
+
+jobs:
+  migration-checks:
+    runs-on: ubuntu-latest
+    env:
+      DYLEN_PG_DSN: postgresql://postgres:password@localhost:5432/dylen
+      DYLEN_ALLOWED_ORIGINS: http://localhost:3000
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dylen
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: One migration per PR check
+        run: uv run python scripts/db_check_pr_migration_count.py
+
+      - name: Migration lint
+        run: uv run python scripts/db_migration_lint.py
+
+      - name: Single head check
+        run: uv run python scripts/db_check_heads.py
+
+      - name: Fresh DB apply all migrations
+        run: uv run python scripts/db_migration_smoke.py --mode fresh
+
+      - name: Upgrade from previous revision
+        run: uv run python scripts/db_migration_smoke.py --mode upgrade-from-previous
+
+      - name: Apply migrations for drift check
+        run: uv run alembic -c dylen-engine/alembic.ini upgrade head
+
+      - name: Seed-data check
+        run: uv run python scripts/db_check_seed_data.py
+
+      - name: Drift detection
+        run: uv run python scripts/db_check_drift.py

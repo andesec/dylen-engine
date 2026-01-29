@@ -1,0 +1,52 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Local API",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--port",
+        "8082"
+      ],
+      "cwd": "${workspaceFolder}/dylen-engine",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/dylen-engine"
+      },
+      "justMyCode": true
+    },
+    {
+      "name": "FastAPI in Docker (attach)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5678
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/dylen-engine",
+          "remoteRoot": "/app/dylen-engine"
+        }
+      ],
+      "subProcess": true,
+      "preLaunchTask": "docker-compose: debug",
+      "justMyCode": false,
+      "logToFile": true
+    },
+    {
+      "name": "Docker Production (no debug)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "docker-compose: production",
+      "serverReadyAction": {
+        "pattern": "Application startup complete",
+        "uriFormat": "http://localhost:8002/docs",
+        "action": "openExternally"
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+rules:
+  # Use Semgrep's curated rulesets for Python security
+  - id: python-security-audit
+    patterns:
+      - pattern: $X
+    message: Security audit ruleset
+    languages: [python]
+    severity: WARNING
+
+# Configure which rulesets to use
+# These will be specified via CLI: --config p/security-audit --config p/python --config p/owasp-top-ten
+# This file is for custom rules specific to your application
+
+# Paths to exclude from scanning
+paths:
+  exclude:
+    - "tests/"
+    - ".venv/"
+    - "postgres-data/"
+    - "*.pyc"
+    - "__pycache__/"
+    - ".pytest_cache/"
+    - ".ruff_cache/"

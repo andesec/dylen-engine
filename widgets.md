@@ -1,6 +1,6 @@
-# DLE Widget Usage Guide (Shorthand JSON Format)
+# Dylen Widget Usage Guide (Shorthand JSON Format)
 
-This guide defines the shorthand JSON schema used by the Dynamic Learning Engine (DLE).
+This guide defines the shorthand JSON schema used by the Dynamic Learning Engine (Dylen).
 
 Goal: keep lesson JSON compact, predictable for LLMs, and easy to render on the client.
 
@@ -16,7 +16,8 @@ Goal: keep lesson JSON compact, predictable for LLMs, and easy to render on the 
 ```
 
 - `title` (string, required): lesson title.
-- `blocks` (array, required): ordered lesson blocks. Only `section` and `quiz` are valid block types.
+- `title` (string, required): lesson title.
+- `blocks` (array, required): ordered lesson blocks. Only `section` is a valid block type.
 
 Note:
 - The Table of Contents is inferred from `section` and `subsections` titles.
@@ -50,14 +51,16 @@ Recommendation:
 
 ---
 
-### `quiz` (Assessment Block or Widget)
+### `mcqs` (Assessment Widget)
+
+Note: `mcqs` is the canonical widget for assessments. It must be placed inside `items`.
 
 ```json
 {
   "section": "Quiz",
   "items": [
     {
-      "quiz": {
+      "mcqs": {
         "title": "Quiz Title",
         "questions": [
           {
@@ -93,7 +96,7 @@ Each item is either:
 - an object with exactly one shorthand key, or
 - a full-form widget object with `type` (advanced escape hatch).
 
-Unless the object is a block (`section`, `quiz`) or uses `type`, it must use exactly one key.
+Unless the object is a block (`section`) or uses `type`, it must use exactly one key.
 
 Note:
 - Dividers are auto-inserted between widgets when a section/subsection has multiple items.
@@ -106,21 +109,18 @@ Note:
 
 Notes:
 - A plain string is equivalent to `{ "p": "..." }`.
-
 ---
 
-### `info` / `tip` / `warn` / `err` / `success` (Callouts)
+### `warn` / `err` / `success` (Alert Boxes)
 
 ```json
-{ "info": "Key insight / rule of thumb." }
-{ "tip": "Helpful tactic or shortcut." }
 { "warn": "Common pitfall / misconception." }
 { "err": "Critical mistake or anti-pattern." }
 { "success": "Checkpoint: how to know you understood it." }
 ```
 
 Recommendation:
-- Keep callouts short and action-oriented so they remain skimmable.
+- Keep callouts short and action-oriented so they remain skimmable. Use for critical warnings or success checkpoints only.
 
 ---
 
@@ -148,10 +148,10 @@ Constraints:
 
 ---
 
-### `blank` (Fill-in-the-Blank)
+### `fillblank` (Fill-in-the-Blank)
 
 ```json
-{ "blank": ["Prompt with ___", "Correct answer", "Hint", "Why it's correct"] }
+{ "fillblank": ["Prompt with ___", "Correct answer", "Hint", "Why it's correct"] }
 ```
 
 Constraints (array order is required):
@@ -202,11 +202,11 @@ Constraints:
 
 ---
 
-### `swipe` (Binary Swipe Drill)
+### `swipecards` (Binary Swipe Drill)
 
 ```json
 {
-  "swipe": [
+  "swipecards": [
     "Quick Drill: XSS Basics",
     ["No", "Yes"],
     [
@@ -232,29 +232,46 @@ Recommendation:
 
 ---
 
-### `freeText` (Free Text Editor)
+### `freeText` (Free Text Editor - Multiline)
 
 ```json
-{ "freeText": ["What do you mean by Clarity?.", "In my view,", "", "en", "clarity,structure,example,reason,summary", "multi"] }
+{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary"] }
 ```
 
 Schema (array positions):
 1. `prompt` (string): title shown above the editor.
 2. `seedLocked` (string, optional): non-removable prefix.
-3. `text` (string): initial editable content (can be empty).
-4. `lang` (string, optional): language key. Default: `en`.
-5. `wordlistCsv` (string, optional): comma-separated terms as one string.
-6. `mode` (string, optional): `single` or `multi`. Default: `multi`.
+3. `lang` (string, optional): language key. Default: `en`.
+4. `wordlistCsv` (string, optional): comma-separated terms as one string.
 
 Notes:
 - Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
 - The Wordlist button becomes available after the first rating run.
-- Export produces a `.txt` with `seedLocked + text`.
+- Export produces a `.txt` with `seedLocked + userText`.
+- Always multi-line.
 
 Where to use:
 - Writing exercises, reflections, short answers, note-taking, “explain in your own words”.
 - Use `wordlistCsv` for topic-specific vocabulary learners should practice.
 - Confidence checking involves usage of suggested vocabulary provided in wordlistcsv.
+
+---
+
+### `inputLine` (Single Line Input)
+
+```json
+{ "inputLine": ["Prompt text", "en", "term1,term2,term3"] }
+```
+
+Schema (array positions):
+1. `prompt` (string): label/prompt for the input.
+2. `lang` (string, optional): language code. Default: `en`.
+3. `wordlistCsv` (string, optional): comma-separated terms for checking.
+
+Notes:
+- Single-line input only.
+- No seed locking.
+- Checks against wordlist if provided.
 
 ---
 
@@ -325,56 +342,85 @@ Where to use:
 
 ---
 
-### `console` (Terminal Simulator)
+### `interactiveTerminal` (Guided Command Practice)
 
 ```json
 {
-  "console": [
-    "Try these commands (interactive):",
-    1,
-    [["^help$", "ok", "Commands: help, list, open <name>\\n"], [".*", "err", "Unknown command."]],
-    [["Read the built-in help output.", "help"]]
-  ]
-}
-```
-```json
-{
-  "console": [
-    "Watch a Git demo:",
-    0,
-    [["git status", 400, "On branch main\nnothing to commit"], ["git log -1 --oneline", 600, "a1b2c3 add tests"]]
-  ]
+  "interactiveTerminal": {
+    "lead": "Try these commands:",
+    "rules": [
+      ["^help$", "ok", "Commands: help, list, open <name>\\n"],
+      [".*", "err", "Unknown command."]
+    ],
+    "guided": [
+      ["Type <b>help</b> to see commands.", "help"]
+    ]
+  }
 }
 ```
 
-Schema (array positions):
-1. `lead` (string): title shown above the console.
-2. `mode` (number): `0` = scripted demo (plays back commands), `1` = interactive (user types commands that must match regex rules).
-3. `rulesOrScript` (array): demo script entries `[command, delayMs, output]` **or** interactive rules `[regex, level, output]`.
-4. `guided` (array, optional): `[[task, solutionCommand], ...]`. When present in interactive mode, the console enforces that sequence and accepts only the next expected command.
+Schema:
+- `lead` (string): Title shown above the terminal.
+- `rules` (array): List of `[regexString, level, outputString]` tuples.
+  - `regexString`: matching pattern for user input.
+  - `level`: `ok` (standard output) or `err` (error styling).
+  - `outputString`: response to print.
+- `guided` (array): List of `[taskHtml, solutionString]` tuples.
+  - Usage: Enforces a specific sequence of commands.
+  - `taskHtml`: Description shown in the guide panel. Can use `<b>`, `<code>`.
+  - `solutionString`: The exact command the user must type.
 
 Where to use:
-- Guided command practice (safe simulation), workflows, CLI learning, “follow along” demos. Only use real commands from the tool being taught (Linux shell, PowerShell, Git, etc.)—never invent new commands.
-- The guide panel is for rich, teachable hints (can include `<pre>`, `<code>`, paragraphs, and line breaks) that walk the learner through each meaningful step.
-- Demo mode is best for “watch how this command behaves”; interactive mode is for “now you try it” with validation.
+- Interactive CLI training where you want the user to type specific commands.
 
 ---
 
-### `codeviewer` (Code Viewer / Editor)
+### `terminalDemo` (Scripted Command Playback)
 
 ```json
-{ "codeviewer": ["{\n  \"hello\": \"world\"\n}", "json", false, "json-input"] }
+{
+  "terminalDemo": {
+    "lead": "Watch the Git flow:",
+    "rules": [
+      ["git status", 400, "On branch main\\nnothing to commit"],
+      ["git log --oneline", 600, "a1b2c3 add tests"]
+    ]
+  }
+}
+```
+
+Schema:
+- `lead` (string): Title.
+- `rules` (array): List of `[commandString, delayMs, outputString]` tuples.
+  - `commandString`: The command to simulate typing.
+  - `delayMs`: Time in milliseconds to wait before showing output (simulates processing).
+  - `outputString`: The command output.
+
+Where to use:
+- Demonstrating a sequence of commands passively (user watches).
+
+
+---
+
+### `codeEditor` (Modern Code Editor)
+
+```json
+{ "codeEditor": ["console.log('hello');", "javascript", false, [1, 3]] }
 ```
 
 Schema (array positions):
-1. `code` (string|object): code to display; objects are JSON-stringified.
-2. `language` (string, required): language for highlighting (e.g., `json`, `python`, `C#`).
-3. `editable` (boolean, optional): shows textarea when true. Default: false.
-4. `textareaId` (string, optional): id assigned to textarea when editable.
+1. `code` (string|object): Code to display. Objects are JSON-stringified.
+2. `language` (string): Language for syntax highlighting (e.g., `javascript`, `python`).
+3. `readOnly` (boolean, optional): If true, the editor is read-only. Default: false (editable).
+4. `highlightedLines` (array, optional): List of 1-based line numbers to highlight.
 
 Notes:
 - Use inside `items` like any other widget.
 - Provide the language whenever possible; inference works for shebangs (`#!/usr/bin/env python`) or `// language: ruby`-style comments on the first line.
+
+Where to use:
+- Interactive coding exercises, code examples with highlighting.
+- Preferred over codeviewer for new content.
 
 ---
 
@@ -402,10 +448,10 @@ Notes:
    - Use `subsections` when nested structure is needed.
 
 2. Teach with a reliable loop
-   - Explanation (`p`) -> key insight (`info`) -> pitfall (`warn`) -> translation (`tr`) -> practice (`blank`) -> checkpoint (`quiz`).
+   - Explanation (`p`) -> pitfall (`warn`) -> translation (`tr`) -> practice (`fillblank`) -> checkpoint (`mcqs`).
 
 3. End with assessment
-   - Final block should be a quiz that targets the most important learning outcomes.
+   - Final block should be a quiz (`mcqs`) that targets the most important learning outcomes.
    - Include at least 3 questions per taught section (more is fine).
 
 ---
@@ -429,7 +475,6 @@ Notes:
       "section": "What it is",
       "items": [
         { "p": "Define the concept in plain language." },
-        { "info": "Rule of thumb that learners can reuse." },
         { "warn": "Common misunderstanding to avoid." }
       ]
     },
@@ -443,14 +488,14 @@ Notes:
     {
       "section": "Practice",
       "items": [
-        { "blank": ["Fill in: ___ is used when ...", "The concept", "Definition", "It matches the definition you learned."] }
+        { "fillblank": ["Fill in: ___ is used when ...", "The concept", "Definition", "It matches the definition you learned."] }
       ]
     },
     {
       "section": "Check your understanding",
       "items": [
         {
-          "quiz": {
+          "mcqs": {
             "title": "Check your understanding",
             "questions": [
               { "q": "What is the best description?", "c": ["A", "B", "C"], "a": 1, "e": "B matches the definition; A/C miss key parts." }

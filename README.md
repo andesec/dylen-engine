@@ -1,6 +1,6 @@
-# DGS
+# Dylen
 
-Data Generation Service for DLE. A service that uses AI to generate JSON content to be consumed and presented by the DLE.
+Data Generation Service for Dylen. A service that uses AI to generate JSON content to be consumed and presented by the Dylen.
 
 ## Prerequisites
 
@@ -29,12 +29,42 @@ Data Generation Service for DLE. A service that uses AI to generate JSON content
    make install
    ```
 
+## Secrets and environment variables
+
+Store local values in `.env` (never commit it) and pass production secrets through
+your deployment system. The app will fail fast if required values are missing.
+
+Required:
+
+- `DYLEN_ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins (no `*`).
+
+Provider secrets (required when wiring real providers or deploying with SAM):
+
+- `OPENROUTER_API_KEY`: API key for the OpenRouter provider.
+- `GEMINI_API_KEY`: API key for the Gemini provider.
+
+Storage and tuning:
+
+- `DYLEN_PG_DSN`: Postgres connection string (default: `postgresql://dylen:dylen_password@localhost:5432/dylen`).
+- `DYLEN_MAX_TOPIC_LENGTH`: Max topic length (default: `200`).
+- `DYLEN_GATHERER_PROVIDER`: Provider for the gatherer step (default: `gemini`).
+- `DYLEN_GATHERER_MODEL`: Optional model override for the gatherer step.
+- `DYLEN_STRUCTURER_PROVIDER`: Provider for the structurer step (default: `openrouter`).
+- `DYLEN_STRUCTURER_MODEL`: Default model for the structurer step.
+- `DYLEN_STRUCTURER_MODEL_FAST`: Optional override when `mode=fast`.
+- `DYLEN_STRUCTURER_MODEL_BALANCED`: Optional override when `mode=balanced`.
+- `DYLEN_STRUCTURER_MODEL_BEST`: Optional override when `mode=best`.
+- `DYLEN_PROMPT_VERSION`: Prompt version tag (default: `v1`).
+- `DYLEN_SCHEMA_VERSION`: Schema version tag (default: `1.0`).
+
+See [docs/database_migrations.md](docs/database_migrations.md) for details on managing database schema changes.
+
 ## Running locally
 
 Use Uvicorn to serve the FastAPI app with reload enabled:
 
 ```bash
-cd dgs-backend
+cd dylen-engine
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -54,37 +84,3 @@ make lint
 make typecheck
 make test
 ```
-
-## Local SAM emulation
-
-To emulate the Lambda/API Gateway locally with SAM, ensure the SAM CLI is installed and then run:
-
-```bash
-make sam-local
-```
-
-This uses the settings from `.env` to set the stage, log level, and port for the local API Gateway emulator.
-
-For templates that use the Function URL, you can also start the local emulator directly:
-
-```bash
-sam local start-api \
-  --template infra/sam-template.yaml \
-  --parameter-overrides Stage=local LogLevel=debug AllowedOrigins=http://localhost:3000 OpenRouterApiKey=dev-openrouter GeminiApiKey=dev-gemini \
-  --port 8000
-```
-
-## Deploying with AWS SAM
-
-Use the dedicated template for deploying the FastAPI Lambda with a Function URL:
-
-```bash
-sam build --template-file infra/sam-template.yaml
-sam deploy \
-  --template-file infra/sam-template.yaml \
-  --stack-name dgs-fastapi \
-  --capabilities CAPABILITY_IAM \
-  --parameter-overrides Stage=prod LogLevel=info AllowedOrigins=https://example.com OpenRouterApiKey=your-openrouter-key GeminiApiKey=your-gemini-key
-```
-
-The `AllowedOrigins` parameter accepts a comma-delimited list; avoid permissive values such as `*` to keep CORS strict. SAM will provision a Function URL secured by the specified origins while retaining the API Gateway-style event for local emulation.
