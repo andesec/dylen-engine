@@ -23,7 +23,19 @@ async def get_job_audios(job_id: str, db_session: AsyncSession = Depends(get_db)
   result = await db_session.execute(stmt)
   audios = result.scalars().all()
 
-  return {"job_id": job_id, "audios": [{"id": audio.id, "section_number": audio.section_number, "subsection_index": audio.subsection_index, "text_content": audio.text_content, "audio_url": f"/v1/coach/audio/{audio.id}/content"} for audio in audios]}
+  return {
+    "job_id": job_id,
+    "audios": [
+      {
+        "id": audio.id,
+        "section_number": audio.section_number,
+        "subsection_index": audio.subsection_index,
+        "text_content": audio.text_content,
+        "audio_url": f"/v1/coach/audio/{audio.id}/content",
+      }
+      for audio in audios
+    ],
+  }
 
 
 @router.get("/audio/{audio_id}/content")

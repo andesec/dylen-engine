@@ -146,7 +146,7 @@ class GeminiModel(AIModel):
 
     except Exception as e:
       logger.error(f"Gemini speech generation failed: {e}")
-      raise
+      raise RuntimeError(f"Gemini speech generation failed: {e}") from e
 
 
 class GeminiProvider(Provider):
