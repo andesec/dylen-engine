@@ -48,11 +48,15 @@ def _merge_base(*, base_ref: str) -> str:
 def _migration_paths_at_ref(*, ref: str) -> list[str]:
   """List migration version file paths at a given git ref."""
   # Use git ls-tree so we can read the previous migration graph without checking it out.
-  output = _run_git(["git", "ls-tree", "-r", "--name-only", ref, "dylen-engine/alembic/versions"])
-  if not output:
-    return []
+  # Support both the current repo layout (alembic/versions) and the previous nested
+  # layout (dylen-engine/alembic/versions) so squashing keeps working across moves.
+  candidates = ["alembic/versions", "dylen-engine/alembic/versions"]
+  for base in candidates:
+    output = _run_git(["git", "ls-tree", "-r", "--name-only", ref, base])
+    if output:
+      return [line.strip() for line in output.splitlines() if line.strip().endswith(".py")]
 
-  return [line.strip() for line in output.splitlines() if line.strip().endswith(".py")]
+  return []
 
 
 def _read_file_at_ref(*, ref: str, path: str) -> str:
@@ -90,7 +94,7 @@ def _head_revision_at_ref(*, ref: str) -> str:
   # Heads are revisions that are not referenced as a parent by any other revision.
   heads = sorted([rev for rev in revisions if rev not in referenced])
   if len(heads) != 1:
-    raise RuntimeError(f"Expected exactly one head at {ref}, found: {heads if heads else 'none'}")
+    raise RuntimeError(f"Expected exactly one head at {ref}, found: {heads if heads else 'none'}. If this is a repo layout move, ensure the base ref contains migrations under alembic/versions/ or dylen-engine/alembic/versions/.")
 
   return heads[0]
 
@@ -171,17 +175,20 @@ def main() -> None:
 
   if not args.yes:
     print("ERROR: Refusing to modify migration files without --yes.")
-    print("This command moves non-base migrations into dylen-engine/alembic/versions/.squash_backup/.")
+    print("This command moves non-base migrations into alembic/versions/.squash_backup/.")
     sys.exit(1)
 
   # Require env vars explicitly so Alembic doesn't target a default database implicitly.
   dsn = _require_env("DYLEN_PG_DSN")
   _require_env("DYLEN_ALLOWED_ORIGINS")
   repo_root = _repo_root()
-  alembic_ini = repo_root / "dylen-engine" / "alembic.ini"
-  versions_dir = repo_root / "dylen-engine" / "alembic" / "versions"
+  # Paths
+  alembic_ini = repo_root / "alembic.ini"
+  versions_dir = repo_root / "alembic" / "versions"
+
+  # Ensure PYTHONPATH includes the repo root so 'app' is importable
   env = os.environ.copy()
-  env["PYTHONPATH"] = str(repo_root / "dylen-engine") + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+  env["PYTHONPATH"] = str(repo_root) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
 
   # Compute merge base and identify the PR base migration head.
   merge_base_ref = _merge_base(base_ref=args.base_ref)

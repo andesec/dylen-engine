@@ -15,7 +15,10 @@ RUN uv venv .venv && \
     uv sync --frozen --no-dev --no-install-project
 
 # Copy the application source
-COPY dylen-engine/ ./dylen-engine/
+COPY app/ ./app/
+COPY scripts/ ./scripts/
+COPY alembic/ ./alembic/
+COPY alembic.ini .
 
 # ---------- Runtime Stage ----------
 FROM python:3.13-slim AS production
@@ -28,10 +31,13 @@ RUN groupadd -r dylen && useradd -r -g dylen dylen && \
 
 # Copy the virtual environment from the builder.
 COPY --from=builder --chown=dylen:dylen /app/.venv /app/.venv
-COPY --from=builder --chown=dylen:dylen /app/dylen-engine /app/dylen-engine
+COPY --from=builder --chown=dylen:dylen /app/app /app/app
+COPY --from=builder --chown=dylen:dylen /app/scripts /app/scripts
+COPY --from=builder --chown=dylen:dylen /app/alembic /app/alembic
+COPY --from=builder --chown=dylen:dylen /app/alembic.ini /app/alembic.ini
 
 # Set up environment variables
-ENV PYTHONPATH="/app/dylen-engine:/app/.venv/lib/python3.13/site-packages"
+ENV PYTHONPATH="/app:/app/.venv/lib/python3.13/site-packages"
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Switch to non-root user
@@ -44,7 +50,7 @@ USER dylen
 EXPOSE 8002
 
 # Run the application.
-CMD ["python", "dylen-engine/entrypoint.py"]
+CMD ["python", "scripts/entrypoint.py"]
 
 # ---------- Debug Stage ----------
 FROM python:3.13-slim AS debug
@@ -59,10 +65,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Copy dependencies and source from builder
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/dylen-engine /app/dylen-engine
+COPY --from=builder /app/app /app/app
+COPY --from=builder /app/scripts /app/scripts
+COPY --from=builder /app/alembic /app/alembic
+COPY --from=builder /app/alembic.ini /app/alembic.ini
 
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/dylen-engine:/app/.venv/lib/python3.13/site-packages"
+ENV PYTHONPATH="/app:/app/.venv/lib/python3.13/site-packages"
 ENV PYDEVD_DISABLE_FILE_VALIDATION=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

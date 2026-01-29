@@ -1,10 +1,14 @@
 # Security scanning reports
 reports/
 
+# macOS
+.DS_Store
+
 # Local Docker volumes / state (never commit).
 postgres-data/
 
 # Local TLS certs/keys (never commit).
+secrets/
 .certs/
 
 # Local-only backup folder created by migration squash helper.
@@ -227,5 +231,3 @@ __marimo__/
 postgres-data/
 
 logs/
-
-service-account.json

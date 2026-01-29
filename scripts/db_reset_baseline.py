@@ -195,7 +195,7 @@ def _nuke_migrations(*, versions_dir: Path) -> None:
 def main() -> None:
   """Nuke the local DB + Alembic versions and rebuild a baseline migration from models."""
   parser = argparse.ArgumentParser(description="Nuke local DB + migrations and regenerate a baseline migration from code.")
-  parser.add_argument("--app-dir", default="dylen-engine")
+  parser.add_argument("--app-dir", default=".")
   parser.add_argument("--message", default="baseline")
   args = parser.parse_args()
 

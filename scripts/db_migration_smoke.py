@@ -38,9 +38,14 @@ def _build_temp_database_url(dsn: str, *, label: str) -> tuple[str, str, str]:
 
 def _load_alembic_config() -> Config:
   """Load Alembic config so revision inspection matches repo settings."""
-  # Resolve repository paths relative to this script.
+  # Assume repo_root is the parent of the scripts directory
   repo_root = Path(__file__).resolve().parents[1]
-  backend_dir = repo_root / "dylen-engine"
+  backend_dir = repo_root
+
+  # 1. Validate alembic.ini exists
+  if not (backend_dir / "alembic.ini").exists():
+    print(f"Error: alembic.ini not found at {backend_dir / 'alembic.ini'}")
+    sys.exit(1)
   config_path = backend_dir / "alembic.ini"
   script_path = backend_dir / "alembic"
   config = Config(str(config_path))
@@ -77,7 +82,8 @@ def _previous_revision(config: Config) -> str | None:
 def _run_alembic(args: list[str], env: dict[str, str]) -> None:
   """Run Alembic via subprocess so env.py reads the correct variables."""
   # Resolve alembic.ini from the repository root to avoid cwd issues.
-  config_path = Path(__file__).resolve().parents[1] / "dylen-engine" / "alembic.ini"
+  # 3. Get current head
+  config_path = Path(__file__).resolve().parents[1] / "alembic.ini"
   command = [sys.executable, "-m", "alembic", "-c", str(config_path), *args]
   subprocess.run(command, check=True, env=env)
 

@@ -40,7 +40,6 @@ dev = [
 ]
 
 [tool.setuptools]
-package-dir = {"" = "dylen-engine"}
 packages = ["app"]
 py-modules = ["lambda_handler"]
 
@@ -50,7 +49,7 @@ py-modules = ["lambda_handler"]
 line-length = 255
 indent-width = 2
 target-version = "py313"
-src = ["dylen-engine"]
+src = ["app"]
 
 [tool.ruff.format]
 skip-magic-trailing-comma = true
@@ -82,7 +81,7 @@ disallow_untyped_defs = true
 no_implicit_optional = true
 pretty = true
 show_error_codes = true
-mypy_path = ["dylen-engine"]
+mypy_path = ["app"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -2,10 +2,9 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from httpx import AsyncClient
-
 from app.schema.quotas import SubscriptionTier
 from app.schema.sql import Role, RoleLevel, User, UserStatus
+from httpx import AsyncClient
 
 
 # Mock Firebase verify_id_token

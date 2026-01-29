@@ -3,13 +3,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import brotli
 import pytest
-from fastapi.testclient import TestClient
-
 from app.core.database import get_db
 from app.core.security import get_current_identity
 from app.main import app
 from app.schema.fenster import FensterWidgetType
 from app.schema.sql import UserStatus
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture

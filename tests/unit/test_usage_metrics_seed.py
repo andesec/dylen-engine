@@ -6,7 +6,6 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.schema.quotas import UserUsageMetrics
 from app.services.users import ensure_usage_row
 

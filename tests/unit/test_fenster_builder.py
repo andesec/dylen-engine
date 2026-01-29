@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.ai.agents.fenster_builder import FensterBuilderAgent
 from app.ai.pipeline.contracts import GenerationRequest, JobContext
 

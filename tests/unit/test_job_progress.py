@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-
 from app.jobs.models import JobRecord
 from app.jobs.progress import JobProgressTracker, SectionProgress
 

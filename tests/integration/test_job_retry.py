@@ -4,9 +4,8 @@ import os
 from dataclasses import replace
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.jobs.models import JobRecord
+from fastapi.testclient import TestClient
 
 # Ensure required settings are available before importing the app.
 os.environ["DYLEN_ALLOWED_ORIGINS"] = "http://localhost"
