@@ -62,7 +62,9 @@ class VertexAIModel(AIModel):
   async def generate_speech(self, text: str, voice: str | None = None) -> bytes:
     try:
       config = {"response_mime_type": "audio/mp3"}
-      prompt = f"Read the following text clearly and naturally:\n\n{text}"
+      # Include voice/style hints when provided, since the SDK does not expose a stable voice selector here.
+      voice_hint = f"Voice/style: {voice}\n" if voice else ""
+      prompt = f"{voice_hint}Read the following text clearly and naturally:\n\n{text}"
 
       response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config=config)
 

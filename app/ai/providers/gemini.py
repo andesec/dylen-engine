@@ -9,6 +9,7 @@ import warnings
 from typing import Any, Final, cast
 
 from pydantic.warnings import ArbitraryTypeWarning
+from starlette.concurrency import run_in_threadpool
 
 with warnings.catch_warnings():
   warnings.filterwarnings("ignore", message=r"<built-in function any> is not a Python type.*", category=ArbitraryTypeWarning)
@@ -44,7 +45,8 @@ class GeminiModel(AIModel):
       logger.info("Gemini GATHERER dummy response:\n%s", response.content)
       return response
 
-    response = self._client.models.generate_content(model=self.name, contents=prompt)
+    # Use the async client to avoid blocking the asyncio event loop.
+    response = await self._client.aio.models.generate_content(model=self.name, contents=prompt)
     logger.info("Gemini response:\n%s", response.text)
     usage = None
 
@@ -71,7 +73,8 @@ class GeminiModel(AIModel):
       #     "response_mime_type": "application/json",
       #     "response_schema": schema,
       # }
-      response = self._client.models.generate_content(model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
+      # Use the async client to avoid blocking the asyncio event loop.
+      response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
       logger.info("Gemini structured response (raw):\n%s", response.text)
     except Exception as e:
       raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
@@ -98,7 +101,8 @@ class GeminiModel(AIModel):
       # but we are in an async method. For now, running it directly is acceptable if it's fast,
       # or we might need run_in_executor if it strictly blocking.
       # Assuming 2.0 SDK simple usage:
-      uploaded_file = self._client.files.upload(file=file_content, config=types.UploadFileConfig(mime_type=mime_type, display_name=display_name))
+      # Wrap synchronous SDK calls so we don't block the event loop.
+      uploaded_file = await run_in_threadpool(self._client.files.upload, file=file_content, config=types.UploadFileConfig(mime_type=mime_type, display_name=display_name))
       return uploaded_file
     except Exception as e:
       raise RuntimeError(f"Gemini file upload failed: {e}") from e
@@ -113,7 +117,8 @@ class GeminiModel(AIModel):
     contents.append(prompt)
 
     try:
-      response = self._client.models.generate_content(model=self.name, contents=contents)
+      # Use the async client to avoid blocking the asyncio event loop.
+      response = await self._client.aio.models.generate_content(model=self.name, contents=contents)
       logger.info("Gemini file-based response:\n%s", response.text)
 
       usage = None
@@ -131,8 +136,9 @@ class GeminiModel(AIModel):
       # Request audio output
       config = {"response_mime_type": "audio/mp3"}
 
-      # Enhance prompt to ensure clear reading
-      prompt = f"Read the following text clearly and naturally:\n\n{text}"
+      # Include voice/style hints when provided, since the SDK does not expose a stable voice selector here.
+      voice_hint = f"Voice/style: {voice}\n" if voice else ""
+      prompt = f"{voice_hint}Read the following text clearly and naturally:\n\n{text}"
 
       response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config=config)
 

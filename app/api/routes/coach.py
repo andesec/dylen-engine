@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/job/{job_id}/audios")
-async def get_job_audios(job_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)) -> dict[str, Any]:
+async def get_job_audios(job_id: str, request: Request, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)) -> dict[str, Any]:
   """Retrieve list of generated audios for a job."""
   stmt = select(CoachAudio).where(CoachAudio.job_id == job_id).order_by(CoachAudio.section_number, CoachAudio.subsection_index)
   result = await db_session.execute(stmt)
@@ -31,7 +31,8 @@ async def get_job_audios(job_id: str, db_session: AsyncSession = Depends(get_db)
         "section_number": audio.section_number,
         "subsection_index": audio.subsection_index,
         "text_content": audio.text_content,
-        "audio_url": f"/v1/coach/audio/{audio.id}/content",
+        # Avoid hardcoded paths so refactors don't break API clients.
+        "audio_url": str(request.url_for("get_audio_content", audio_id=audio.id)),
       }
       for audio in audios
     ],
