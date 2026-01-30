@@ -13,11 +13,31 @@ services:
     networks:
       - dylen-network
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U dylen -d postgres" ]
+      test: [ "CMD-SHELL", "pg_isready -U dylen -d dylen" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  postgres-init:
+    image: postgres:16-alpine
+    container_name: dylen-postgres-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./scripts/init-postgres.sh:/init-postgres.sh:ro
+      - ./scripts/postgres:/init:ro
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=dylen
+      - POSTGRES_PASSWORD=dylen_password
+      - POSTGRES_DB=dylen
+    networks:
+      - dylen-network
+    entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
+    restart: "no"
 
   migrator:
     build:
@@ -30,6 +50,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:

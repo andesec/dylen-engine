@@ -40,6 +40,10 @@ COPY --from=builder --chown=dylen:dylen /app/alembic.ini /app/alembic.ini
 ENV PYTHONPATH="/app:/app/.venv/lib/python3.13/site-packages"
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Create runtime-writable directories for the non-root user.
+RUN mkdir -p /app/logs /app/backups && \
+    chown -R dylen:dylen /app/logs /app/backups
+
 # Switch to non-root user
 # Security Hardening: Remove shell and package managers (Distroless behavior)
 RUN rm -rf /bin/sh /bin/bash /usr/bin/apt* /usr/lib/apt /var/lib/apt /usr/bin/dpkg* /var/lib/dpkg
@@ -87,3 +91,7 @@ RUN uv pip install debugpy --python .venv && \
 EXPOSE 8002 5678
 
 CMD ["python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+
+# Default build target.
+# How/Why: Docker builds the last stage by default; keep production as the default so `docker build .` does not start debugpy.
+FROM production AS final

@@ -52,14 +52,13 @@ services:
       - .env
     environment:
       - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
-      - DYLEN_ALLOWED_ORIGINS=http://localhost:3000
     networks:
       - dylen-network
     working_dir: /app
     command: [ "python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head" ]
     restart: "no"
 
-  engine:
+  app:
     build:
       context: .
       target: production
@@ -76,11 +75,12 @@ services:
       - .env
     environment:
       - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
-      - GOOGLE_APPLICATION_CREDENTIALS=/root/.config/gcloud/application_default_credentials.json
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
     networks:
       - dylen-network
     volumes:
       - ./secrets/certs:/app/secrets/certs:ro
+      - ./secrets/service-account.json:/app/service-account.json:ro
     command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt" ]
 
   cloudflared:
