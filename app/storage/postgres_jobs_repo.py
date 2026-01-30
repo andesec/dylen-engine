@@ -33,6 +33,7 @@ class PostgresJobsRepository(JobsRepository):
 
       job = Job(
         job_id=record.job_id,
+        user_id=record.user_id,
         request=record.request,
         status=record.status,
         target_agent=record.target_agent,
@@ -224,6 +225,7 @@ class PostgresJobsRepository(JobsRepository):
     """Convert a SQLAlchemy model to a domain record."""
     return JobRecord(
       job_id=job.job_id,
+      user_id=job.user_id,
       request=job.request,
       status=job.status,
       target_agent=job.target_agent,

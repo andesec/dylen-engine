@@ -11,6 +11,7 @@ class Job(Base):
   __tablename__ = "dylen_jobs"
 
   job_id: Mapped[str] = mapped_column(String, primary_key=True)
+  user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
   request: Mapped[dict] = mapped_column(JSONB, nullable=False)
   status: Mapped[str] = mapped_column(String, nullable=False)
   target_agent: Mapped[str | None] = mapped_column(String, nullable=True)

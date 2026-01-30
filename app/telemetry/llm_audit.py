@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -74,8 +75,11 @@ async def start_llm_call(*, provider: str, model: str, request_type: str, reques
   if repo is None:
     return None
 
+  # Scrub PII from payload before storage.
+  safe_payload = _scrub_pii(request_payload)
+
   # Build the record and insert asynchronously.
-  event = LlmAuditStart(provider=provider, model=model, request_type=request_type, request_payload=request_payload, started_at=started_at)
+  event = LlmAuditStart(provider=provider, model=model, request_type=request_type, request_payload=safe_payload or "", started_at=started_at)
   record = _build_pending_record(event)
 
   await _insert_record(repo, record)
@@ -115,8 +119,11 @@ async def finalize_llm_call(*, call_id: str | None, response_payload: str | None
     completion_tokens = _coerce_int(usage.get("completion_tokens"))
     total_tokens = _coerce_int(usage.get("total_tokens"))
 
+  # Scrub PII from response before storage.
+  safe_response = _scrub_pii(response_payload)
+
   await _update_record(
-    repo, call_id, finished_at=finished_at, response_payload=response_payload, status=status, error_message=error_message, duration_ms=duration_ms, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens
+    repo, call_id, finished_at=finished_at, response_payload=safe_response, status=status, error_message=error_message, duration_ms=duration_ms, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens
   )
 
 
@@ -241,3 +248,17 @@ def serialize_response(value: Any) -> str | None:
 def utc_now() -> datetime:
   """Return a UTC timestamp for audit records."""
   return datetime.now(tz=UTC)
+
+
+def _scrub_pii(text: str | None) -> str | None:
+  """Redact common PII patterns from audit logs."""
+  if not text:
+    return text
+
+  # Redact Email
+  text = re.sub(r"[\w\.-]+@[\w\.-]+\.\w+", "[EMAIL REDACTED]", text)
+
+  # Redact Phone (simple pattern: 3-3-4 digits with separators)
+  text = re.sub(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b", "[PHONE REDACTED]", text)
+
+  return text

@@ -13,6 +13,7 @@ class JobRecord:
   """Represents a background lesson generation job."""
 
   job_id: str
+  user_id: str | None
   request: dict[str, Any]
   status: JobStatus
   created_at: str

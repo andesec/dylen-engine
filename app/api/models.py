@@ -73,7 +73,7 @@ class GenerateLessonRequest(BaseModel):
   """Request payload for lesson generation."""
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
-  details: StrictStr | None = Field(default=None, min_length=1, description="Optional user-supplied details (max 250 words).", examples=["Focus on lists and loops"])
+  details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
   blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] | None = Field(
     default=None, description="Optional blueprint or learning outcome guidance for lesson planning."
   )
@@ -83,7 +83,6 @@ class GenerateLessonRequest(BaseModel):
   primary_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
   widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=8, description="Optional list of allowed widgets (overrides defaults).")
   schema_version: StrictStr | None = Field(default=None, description="Optional schema version to pin the lesson output to.")
-  idempotency_key: StrictStr | None = Field(default=None, description="Idempotency key to prevent duplicate lesson generation.")
   models: ModelsConfig | None = Field(
     default=None, description="Optional per-agent model selection overrides.", examples=[{"section_builder_model": "xiaomi/mimo-v2-flash:free", "planner_model": "openai/gpt-oss-120b:free", "repairer_model": "google/gemma-3-27b-it:free"}]
   )

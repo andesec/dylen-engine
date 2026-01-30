@@ -114,7 +114,7 @@ def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusR
   )
 
 
-async def create_job(request: GenerateLessonRequest, settings: Settings, background_tasks: BackgroundTasks, db_session: AsyncSession, *, user_id: str | None = None) -> JobCreateResponse:
+async def create_job(request: GenerateLessonRequest, settings: Settings, background_tasks: BackgroundTasks, db_session: AsyncSession, *, user_id: str | None = None, target_agent: str | None = None) -> JobCreateResponse:
   """Create a background lesson generation job."""
   _validate_generate_request(request, settings)
 
@@ -132,13 +132,6 @@ async def create_job(request: GenerateLessonRequest, settings: Settings, backgro
   # Precompute section count so the client can render placeholders immediately.
   expected_sections = _expected_sections_from_request(request, settings)
 
-  if request.idempotency_key:
-    existing = await repo.find_by_idempotency_key(request.idempotency_key)
-
-    if existing:
-      response_expected = existing.expected_sections or expected_sections
-      return JobCreateResponse(job_id=existing.job_id, expected_sections=response_expected)
-
   job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
   request_payload = request.model_dump(mode="python", by_alias=True)
@@ -148,8 +141,10 @@ async def create_job(request: GenerateLessonRequest, settings: Settings, backgro
 
   record = JobRecord(
     job_id=job_id,
+    user_id=user_id,
     request=request_payload,
     status="queued",
+    target_agent=target_agent,
     phase="queued",
     subphase=None,
     expected_sections=expected_sections,
@@ -168,7 +163,6 @@ async def create_job(request: GenerateLessonRequest, settings: Settings, backgro
     updated_at=timestamp,
     completed_at=None,
     ttl=_compute_job_ttl(settings),
-    idempotency_key=request.idempotency_key,
   )
   await repo.create_job(record)
 
@@ -178,13 +172,16 @@ async def create_job(request: GenerateLessonRequest, settings: Settings, backgro
   return JobCreateResponse(job_id=job_id, expected_sections=expected_sections)
 
 
-async def retry_job(job_id: str, payload: JobRetryRequest, settings: Settings, background_tasks: BackgroundTasks) -> JobStatusResponse:
+async def retry_job(job_id: str, payload: JobRetryRequest, settings: Settings, background_tasks: BackgroundTasks, user_id: str | None = None) -> JobStatusResponse:
   """Retry a failed job with optional section/agent targeting."""
   repo = _get_jobs_repo(settings)
   record = await repo.get_job(job_id)
 
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
+
+  if user_id and record.user_id != user_id:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
   # Only finalized failures should be eligible for retry.
   if record.status not in ("error", "canceled"):
@@ -255,12 +252,16 @@ async def retry_job(job_id: str, payload: JobRetryRequest, settings: Settings, b
   return _job_status_from_record(updated, settings)
 
 
-async def cancel_job(job_id: str, settings: Settings) -> JobStatusResponse:
+async def cancel_job(job_id: str, settings: Settings, user_id: str | None = None) -> JobStatusResponse:
   """Request cancellation of a running background job."""
   repo = _get_jobs_repo(settings)
   record = await repo.get_job(job_id)
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
+
+  if user_id and record.user_id != user_id:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
   if record.status in ("done", "error", "canceled"):
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is already finalized and cannot be canceled.")
   updated = await repo.update_job(job_id, status="canceled", phase="canceled", subphase=None, progress=100.0, logs=record.logs + ["Job cancellation requested by client."], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
@@ -269,12 +270,16 @@ async def cancel_job(job_id: str, settings: Settings) -> JobStatusResponse:
   return _job_status_from_record(updated, settings)
 
 
-async def get_job_status(job_id: str, settings: Settings) -> JobStatusResponse:
+async def get_job_status(job_id: str, settings: Settings, user_id: str | None = None) -> JobStatusResponse:
   """Fetch the status and result of a background job."""
   repo = _get_jobs_repo(settings)
   record = await repo.get_job(job_id)
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
+
+  if user_id and record.user_id != user_id:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
   return _job_status_from_record(record, settings)
 
   return _job_status_from_record(record, settings)

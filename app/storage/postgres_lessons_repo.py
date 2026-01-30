@@ -29,6 +29,7 @@ class PostgresLessonsRepository(LessonsRepository):
 
       lesson = Lesson(
         lesson_id=record.lesson_id,
+        user_id=record.user_id,
         topic=record.topic,
         title=record.title,
         created_at=record.created_at,
@@ -85,6 +86,7 @@ class PostgresLessonsRepository(LessonsRepository):
     tags = set(lesson.tags) if lesson.tags else None
     return LessonRecord(
       lesson_id=lesson.lesson_id,
+      user_id=lesson.user_id,
       topic=lesson.topic,
       title=lesson.title,
       created_at=lesson.created_at,

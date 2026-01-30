@@ -182,3 +182,37 @@ The `GenerateLessonRequest` model has a `details` field with a description stati
 
 **Remediation:**
 1.  Add `max_length` to the `Field` definition (e.g., `max_length=2000` characters approx for 250 words).
+
+---
+
+## Fixed Issues Checklist
+
+- [x] **1. Missing Ownership Checks for Jobs (BOLA)**
+    - Added `user_id` to `Job` model and `dylen_jobs` table.
+    - Updated `JobRecord` to include `user_id`.
+    - Enforced ownership checks in `get_job_status`, `retry_job`, and `cancel_job`.
+
+- [x] **2. Missing Ownership Checks for Lessons (BOLA)**
+    - Added `user_id` to `Lesson` model and `dylen_lessons` table.
+    - Updated `LessonRecord` to include `user_id`.
+    - Enforced ownership checks in `get_lesson`.
+
+- [x] **3. Unsecured Internal Task Endpoint (Broken Authentication)**
+    - Implemented `DYLEN_TASK_SECRET` configuration.
+    - Added `Authorization` header verification in `/tasks/process-job`.
+
+- [x] **4. Blind SSRF via Research Agent**
+    - Added `_is_safe_url` validation in `ResearchAgent`.
+    - Checks for HTTP/HTTPS scheme.
+    - Resolves hostname and blocks private/internal IP ranges using `ipaddress`.
+
+- [x] **5. Sensitive Data Exposure in Logs (Request Body)**
+    - Implemented `_redact_sensitive_keys` in `RequestLoggingMiddleware`.
+    - Redacts keys: `password`, `token`, `key`, `authorization`, `cookie`, `secret`.
+
+- [x] **6. Sensitive PII Storage in Audit Logs**
+    - Implemented `_scrub_pii` in `app/telemetry/llm_audit.py`.
+    - Redacts email addresses and phone numbers from request and response payloads.
+
+- [x] **7. Missing Length Constraints on Input**
+    - Added `max_length=300` to `GenerateLessonRequest.details` in `app/api/models.py`.
