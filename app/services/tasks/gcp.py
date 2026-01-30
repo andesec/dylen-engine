@@ -27,7 +27,7 @@ class CloudTasksEnqueuer(TaskEnqueuer):
       logger.error("Base URL not configured.")
       return
 
-    url = f"{self.settings.base_url}/tasks/process-job"
+    url = f"{self.settings.base_url}/internal/tasks/process-job"
     task = {
       "http_request": {
         "http_method": tasks_v2.HttpMethod.POST,

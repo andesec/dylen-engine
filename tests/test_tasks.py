@@ -1,20 +1,20 @@
+from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.config import get_settings
 from app.main import app
 from app.services.tasks.factory import get_task_enqueuer
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_local_task_dispatch():
   """Verify that the local enqueuer posts to the correct endpoint."""
 
   settings = get_settings()
   # Force settings for test
-  # Note: Settings are cached, so we might need to mock or clear cache if this wasn't a fresh process.
-  # For unit testing, mocking the enqueuer logic is safer.
+  settings = replace(settings, base_url="http://localhost:8000")
 
   with patch("app.services.tasks.local.httpx.AsyncClient") as mock_client_cls:
     mock_client = AsyncMock()
@@ -32,12 +32,12 @@ async def test_local_task_dispatch():
     assert kwargs["json"] == {"job_id": job_id}
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_task_handler_endpoint():
   """Verify the handler endpoint calls the job processor."""
 
   with patch("app.api.routes.tasks.process_job_sync", new_callable=AsyncMock) as mock_process:
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
       response = await ac.post("/internal/tasks/process-job", json={"job_id": "job-abc"})
 
     assert response.status_code == 200
