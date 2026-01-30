@@ -149,7 +149,7 @@ The `RequestLoggingMiddleware` logs the full body of JSON requests when `debug` 
 ### 6. Sensitive PII Storage in Audit Logs
 
 **Severity:** Medium
-**OWASP:** API3:2023 Broken Object Property Level Authorization / Improper Inventory Management
+**OWASP:** API8:2023 Security Misconfiguration / Sensitive Data Exposure
 
 **Description:**
 The `LLMAuditLog` mechanism stores the full `request_payload` and `response_payload` in the database. If users include PII (names, emails, health info) in their prompts, this data is persisted permanently in the audit logs, complicating GDPR compliance (Right to Erasure).
