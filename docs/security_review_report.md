@@ -127,7 +127,7 @@ The `ResearchAgent` allows the system to fetch arbitrary URLs provided by the us
 ### 5. Sensitive Data Exposure in Logs (Request Body)
 
 **Severity:** Medium
-**OWASP:** API3:2023 Broken Object Property Level Authorization / Sensitive Data Exposure
+**OWASP:** API8:2023 Security Misconfiguration / Sensitive Data Exposure
 
 **Description:**
 The `RequestLoggingMiddleware` logs the full body of JSON requests when `debug` logging is enabled (which might occur in non-prod or via accidental config). This includes login requests with `idToken` or other credentials.
