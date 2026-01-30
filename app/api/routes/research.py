@@ -76,7 +76,7 @@ async def discover(
     return result
   except Exception as e:
     await jobs_repo.update_job(tracking_job_id, status="error", phase="error", logs=[str(e)], completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-    raise e
+    raise
 
 
 @router.post("/synthesize", response_model=ResearchSynthesisResponse, dependencies=[Depends(require_feature_flag("feature.research")), Depends(verify_concurrency("research"))])
@@ -127,4 +127,4 @@ async def synthesize(
     return result
   except Exception as e:
     await jobs_repo.update_job(tracking_job_id, status="error", phase="error", logs=[str(e)], completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-    raise e
+    raise

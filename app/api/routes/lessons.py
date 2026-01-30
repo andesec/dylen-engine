@@ -178,7 +178,7 @@ async def generate_lesson(  # noqa: B008
   except Exception as e:
     # Mark tracking job as error
     await jobs_repo.update_job(tracking_job_id, status="error", phase="error", logs=[str(e)], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
-    raise e
+    raise
 
 
 @router.get("/{lesson_id}", response_model=LessonRecordResponse)
