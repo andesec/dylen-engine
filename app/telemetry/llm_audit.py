@@ -123,16 +123,7 @@ async def finalize_llm_call(*, call_id: str | None, response_payload: str | None
   safe_response = _scrub_pii(response_payload)
 
   await _update_record(
-    repo,
-    call_id,
-    finished_at=finished_at,
-    response_payload=safe_response,
-    status=status,
-    error_message=error_message,
-    duration_ms=duration_ms,
-    prompt_tokens=prompt_tokens,
-    completion_tokens=completion_tokens,
-    total_tokens=total_tokens,
+    repo, call_id, finished_at=finished_at, response_payload=safe_response, status=status, error_message=error_message, duration_ms=duration_ms, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens
   )
 
 
