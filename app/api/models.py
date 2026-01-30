@@ -86,6 +86,7 @@ class GenerateLessonRequest(BaseModel):
   models: ModelsConfig | None = Field(
     default=None, description="Optional per-agent model selection overrides.", examples=[{"section_builder_model": "xiaomi/mimo-v2-flash:free", "planner_model": "openai/gpt-oss-120b:free", "repairer_model": "google/gemma-3-27b-it:free"}]
   )
+  idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
   model_config = ConfigDict(extra="forbid")
 
   @model_validator(mode="before")
@@ -228,6 +229,7 @@ class WritingCheckRequest(BaseModel):
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
   criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
   checker_model: StrictStr | None = Field(default=None, description="Optional model override for writing evaluation (provider inferred when possible).", examples=["openai/gpt-oss-120b:free"])
+  idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
   model_config = ConfigDict(extra="forbid")
 
 

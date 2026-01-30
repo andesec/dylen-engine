@@ -56,13 +56,7 @@ async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
   return ValidationResponse(ok=ok, errors=errors)
 
 
-async def _process_lesson_generation(
-  request: GenerateLessonRequest,
-  settings: Settings,
-  current_user: User,
-  db_session: AsyncSession,
-  tier_id: int,
-) -> GenerateLessonResponse:
+async def _process_lesson_generation(request: GenerateLessonRequest, settings: Settings, current_user: User, db_session: AsyncSession, tier_id: int) -> GenerateLessonResponse:
   """Execute core lesson generation logic."""
   start = time.monotonic()
   # Resolve per-agent model overrides and provider routing for this request.
@@ -147,6 +141,23 @@ async def generate_lesson(  # noqa: B008
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
   runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id)
   _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
+
+  # Idempotency Check: Return existing lesson or job if key matches.
+  if request.idempotency_key:
+    jobs_repo = _get_jobs_repo(settings)
+
+    # Note: Currently repo does not have find_lesson_by_idempotency_key, but we can check jobs.
+    # If a synchronous lesson generation was successful, it created a job record and a lesson record.
+    existing_job = await jobs_repo.find_by_idempotency_key(request.idempotency_key)
+    if existing_job and existing_job.user_id == str(current_user.id):
+      logger.info("Found existing job %s for idempotency key %s", existing_job.job_id, request.idempotency_key)
+
+      if existing_job.status == "done" and existing_job.result_json:
+        # Reconstruct GenerateLessonResponse from stored result.
+        return GenerateLessonResponse.model_validate(existing_job.result_json)
+
+      if existing_job.status in ("queued", "processing", "in_progress"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A request with this idempotency key is already being processed.")
 
   # Tracking job for concurrency
   jobs_repo = _get_jobs_repo(settings)

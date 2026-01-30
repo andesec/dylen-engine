@@ -114,9 +114,21 @@ def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusR
   )
 
 
-async def create_job(request: GenerateLessonRequest, settings: Settings, background_tasks: BackgroundTasks, db_session: AsyncSession, *, user_id: str | None = None, target_agent: str | None = None) -> JobCreateResponse:
+async def create_job(request: GenerateLessonRequest | WritingCheckRequest, settings: Settings, background_tasks: BackgroundTasks, db_session: AsyncSession, *, user_id: str | None = None, target_agent: str | None = None) -> JobCreateResponse:
   """Create a background lesson generation job."""
-  _validate_generate_request(request, settings)
+  if isinstance(request, GenerateLessonRequest):
+    _validate_generate_request(request, settings)
+
+  repo = _get_jobs_repo(settings)
+
+  # Idempotency Check: Return existing job if the key is already present.
+  if request.idempotency_key:
+    existing = await repo.find_by_idempotency_key(request.idempotency_key)
+    if existing:
+      # Verify ownership if user_id is provided to prevent key hijacking across users.
+      if user_id is None or existing.user_id == user_id:
+        logger.info("Retrieved existing job %s for idempotency key %s", existing.job_id, request.idempotency_key)
+        return JobCreateResponse(job_id=existing.job_id, expected_sections=existing.expected_sections or 0)
 
   selection = _resolve_model_selection(settings, models=request.models)
   model_name = f"job:{selection[1]},{selection[3]},{selection[5]}"
@@ -163,6 +175,7 @@ async def create_job(request: GenerateLessonRequest, settings: Settings, backgro
     updated_at=timestamp,
     completed_at=None,
     ttl=_compute_job_ttl(settings),
+    idempotency_key=request.idempotency_key,
   )
   await repo.create_job(record)
 

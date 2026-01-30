@@ -9,7 +9,7 @@ from pathlib import Path
 def default_env_path() -> Path:
   """Return the default .env path at the repo root."""
 
-  return Path(__file__).resolve().parents[3] / ".env"
+  return Path(__file__).resolve().parents[2] / ".env"
 
 
 def load_env_file(path: Path, *, override: bool = False) -> None:
