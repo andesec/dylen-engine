@@ -229,6 +229,7 @@ class WritingCheckRequest(BaseModel):
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
   criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
   checker_model: StrictStr | None = Field(default=None, description="Optional model override for writing evaluation (provider inferred when possible).", examples=["openai/gpt-oss-120b:free"])
+  idempotency_key: StrictStr | None = Field(default=None, description="Idempotency key to prevent duplicate requests.")
   model_config = ConfigDict(extra="forbid")
 
 

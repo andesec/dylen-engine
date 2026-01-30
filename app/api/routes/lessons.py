@@ -6,10 +6,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import consume_section_quota
+from app.api.deps_concurrency import verify_concurrency
 from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
+from app.jobs.models import JobRecord
 from app.notifications.factory import build_notification_service
 from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.sql import User
@@ -21,9 +23,9 @@ from app.services.model_routing import _get_orchestrator, _resolve_model_selecti
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language, _validate_generate_request
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_subscription_tier
-from app.storage.factory import _get_repo
+from app.storage.factory import _get_jobs_repo, _get_repo
 from app.storage.lessons_repo import LessonRecord
-from app.utils.ids import generate_lesson_id
+from app.utils.ids import generate_job_id, generate_lesson_id
 
 router = APIRouter()
 
@@ -56,81 +58,140 @@ async def generate_lesson(  # noqa: B008
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
-  _=Depends(consume_section_quota),  # noqa: B008
+  quota_check=Depends(consume_section_quota),  # noqa: B008
+  concurrency_check=Depends(verify_concurrency("lesson")),  # noqa: B008
 ) -> GenerateLessonResponse:
   """Generate a lesson from a topic using the two-step pipeline."""
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
   runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id)
   _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
 
-  start = time.monotonic()
-  # Resolve per-agent model overrides and provider routing for this request.
-  selection = _resolve_model_selection(settings, models=request.models)
-  (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
-  orchestrator = _get_orchestrator(
-    settings, section_builder_provider=section_builder_provider, section_builder_model=section_builder_model, planner_provider=planner_provider, planner_model=planner_model, repair_provider=repairer_provider, repair_model=repairer_model
+  # Tracking job for concurrency
+  jobs_repo = _get_jobs_repo(settings)
+
+  if request.idempotency_key:
+    existing = await jobs_repo.find_by_idempotency_key(request.idempotency_key)
+    if existing and existing.status == "done" and existing.result_json:
+        # Return cached result
+        return GenerateLessonResponse.model_validate(existing.result_json)
+
+  tracking_job_id = generate_job_id()
+  timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
+  # Set TTL to 1 hour to prevent zombie jobs blocking concurrency forever
+  job_ttl = int(time.time()) + 3600
+
+  tracking_job = JobRecord(
+      job_id=tracking_job_id,
+      user_id=str(current_user.id),
+      request=request.model_dump(mode="python", by_alias=True),
+      status="processing",
+      target_agent="lesson", # Mark as lesson job
+      phase="processing",
+      created_at=timestamp,
+      updated_at=timestamp,
+      idempotency_key=request.idempotency_key,
+      expected_sections=0, # Not strictly tracked for sync
+      completed_sections=0,
+      completed_section_indexes=[],
+      retry_count=0,
+      max_retries=0,
+      logs=[],
+      progress=0.0,
+      ttl=job_ttl
   )
-  language = _resolve_primary_language(request)
-  learner_level = _resolve_learner_level(request)
+  await jobs_repo.create_job(tracking_job)
 
-  if current_user.id:
-    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, status="started", session=db_session)
+  try:
+    start = time.monotonic()
+    # Resolve per-agent model overrides and provider routing for this request.
+    selection = _resolve_model_selection(settings, models=request.models)
+    (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
+    orchestrator = _get_orchestrator(
+      settings, section_builder_provider=section_builder_provider, section_builder_model=section_builder_model, planner_provider=planner_provider, planner_model=planner_model, repair_provider=repairer_provider, repair_model=repairer_model
+    )
+    language = _resolve_primary_language(request)
+    learner_level = _resolve_learner_level(request)
 
-  result = await orchestrator.generate_lesson(
-    topic=request.topic,
-    details=request.details,
-    blueprint=request.blueprint,
-    teaching_style=request.teaching_style,
-    learner_level=learner_level,
-    depth=request.depth,
-    schema_version=request.schema_version or settings.schema_version,
-    section_builder_model=section_builder_model,
-    structured_output=True,
-    language=language,
-    widgets=request.widgets,
-  )
+    if current_user.id:
+      await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, status="started", session=db_session)
 
-  if current_user.id:
-    total_tokens = 0
-    if result.usage:
-      for entry in result.usage:
-        total_tokens += int(entry.get("prompt_tokens", 0)) + int(entry.get("completion_tokens", 0))
+    result = await orchestrator.generate_lesson(
+      topic=request.topic,
+      details=request.details,
+      blueprint=request.blueprint,
+      teaching_style=request.teaching_style,
+      learner_level=learner_level,
+      depth=request.depth,
+      schema_version=request.schema_version or settings.schema_version,
+      section_builder_model=section_builder_model,
+      structured_output=True,
+      language=language,
+      widgets=request.widgets,
+    )
 
-    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, tokens_used=total_tokens, status="completed", session=db_session)
+    if current_user.id:
+      total_tokens = 0
+      if result.usage:
+        for entry in result.usage:
+          total_tokens += int(entry.get("prompt_tokens", 0)) + int(entry.get("completion_tokens", 0))
 
-  lesson_id = generate_lesson_id()
-  latency_ms = int((time.monotonic() - start) * 1000)
+      await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, tokens_used=total_tokens, status="completed", session=db_session)
 
-  record = LessonRecord(
-    lesson_id=lesson_id,
-    user_id=str(current_user.id),
-    topic=request.topic,
-    title=result.lesson_json["title"],
-    created_at=time.strftime(_DATE_FORMAT, time.gmtime()),
-    schema_version=request.schema_version or settings.schema_version,
-    prompt_version=settings.prompt_version,
-    provider_a=result.provider_a,
-    model_a=result.model_a,
-    provider_b=result.provider_b,
-    model_b=result.model_b,
-    lesson_json=json.dumps(result.lesson_json, ensure_ascii=True),
-    status="ok",
-    latency_ms=latency_ms,
-    idempotency_key=request.idempotency_key,
-  )
+    lesson_id = generate_lesson_id()
+    latency_ms = int((time.monotonic() - start) * 1000)
 
-  repo = _get_repo(settings)
-  await repo.create_lesson(record)
-  # Notify the user after a successful persistence write.
-  email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=current_user.org_id, subscription_tier_id=tier_id)
-  await build_notification_service(settings, email_enabled=email_enabled).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
+    record = LessonRecord(
+      lesson_id=lesson_id,
+      user_id=str(current_user.id),
+      topic=request.topic,
+      title=result.lesson_json["title"],
+      created_at=time.strftime(_DATE_FORMAT, time.gmtime()),
+      schema_version=request.schema_version or settings.schema_version,
+      prompt_version=settings.prompt_version,
+      provider_a=result.provider_a,
+      model_a=result.model_a,
+      provider_b=result.provider_b,
+      model_b=result.model_b,
+      lesson_json=json.dumps(result.lesson_json, ensure_ascii=True),
+      status="ok",
+      latency_ms=latency_ms,
+      idempotency_key=request.idempotency_key,
+    )
 
-  return GenerateLessonResponse(
-    lesson_id=lesson_id,
-    lesson_json=result.lesson_json,
-    meta=LessonMeta(provider_a=result.provider_a, model_a=result.model_a, provider_b=result.provider_b, model_b=result.model_b, latency_ms=latency_ms),
-    logs=result.logs,  # Include logs from orchestrator
-  )
+    repo = _get_repo(settings)
+    await repo.create_lesson(record)
+    # Notify the user after a successful persistence write.
+    email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=current_user.org_id, subscription_tier_id=tier_id)
+    await build_notification_service(settings, email_enabled=email_enabled).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
+
+    response_payload = GenerateLessonResponse(
+      lesson_id=lesson_id,
+      lesson_json=result.lesson_json,
+      meta=LessonMeta(provider_a=result.provider_a, model_a=result.model_a, provider_b=result.provider_b, model_b=result.model_b, latency_ms=latency_ms),
+      logs=result.logs,  # Include logs from orchestrator
+    )
+
+    # Mark tracking job as completed
+    await jobs_repo.update_job(
+        tracking_job_id,
+        status="done",
+        phase="done",
+        progress=100.0,
+        completed_at=time.strftime(_DATE_FORMAT, time.gmtime()),
+        result_json=response_payload.model_dump(mode="json")
+    )
+
+    return response_payload
+  except Exception as e:
+    # Mark tracking job as error
+    await jobs_repo.update_job(
+        tracking_job_id,
+        status="error",
+        phase="error",
+        logs=[str(e)],
+        completed_at=time.strftime(_DATE_FORMAT, time.gmtime())
+    )
+    raise e
 
 
 @router.get("/{lesson_id}", response_model=LessonRecordResponse)
@@ -168,6 +229,7 @@ async def create_lesson_job(  # noqa: B008
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
+  _=Depends(verify_concurrency("lesson")),  # noqa: B008
 ) -> JobCreateResponse:
   """Alias route for creating a background lesson generation job."""
-  return await create_job(request, settings, background_tasks, db_session, user_id=str(current_user.id))
+  return await create_job(request, settings, background_tasks, db_session, user_id=str(current_user.id), target_agent="lesson")

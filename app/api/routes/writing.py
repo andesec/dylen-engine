@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import consume_section_quota
+from app.api.deps_concurrency import verify_concurrency
 from app.api.models import JobCreateResponse, WritingCheckRequest
 from app.config import Settings, get_settings
 from app.core.database import get_db
@@ -27,7 +28,7 @@ def _compute_job_ttl(settings: Settings) -> int | None:
   return int(time.time()) + settings.jobs_ttl_seconds
 
 
-@router.post("/check", response_model=JobCreateResponse, status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_feature_flag("feature.writing"))])
+@router.post("/check", response_model=JobCreateResponse, status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_feature_flag("feature.writing")), Depends(verify_concurrency("writing"))])
 async def create_writing_check(  # noqa: B008
   request: WritingCheckRequest,
   background_tasks: BackgroundTasks,
@@ -43,13 +44,21 @@ async def create_writing_check(  # noqa: B008
 
   _validate_writing_request(request)
   repo = _get_jobs_repo(settings)
+
+  if request.idempotency_key:
+    existing = await repo.find_by_idempotency_key(request.idempotency_key)
+    if existing:
+      return JobCreateResponse(job_id=existing.job_id, expected_sections=0)
+
   job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
 
   record = JobRecord(
     job_id=job_id,
+    user_id=str(current_user.id),
     request=request.model_dump(mode="python"),
     status="queued",
+    target_agent="writing",
     phase="queued",
     expected_sections=0,
     completed_sections=0,
@@ -61,6 +70,7 @@ async def create_writing_check(  # noqa: B008
     created_at=timestamp,
     updated_at=timestamp,
     ttl=_compute_job_ttl(settings),
+    idempotency_key=request.idempotency_key,
   )
   await repo.create_job(record)
   response = JobCreateResponse(job_id=job_id, expected_sections=0)
