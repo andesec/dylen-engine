@@ -1,8 +1,7 @@
+from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from dataclasses import replace
-
 from app.config import get_settings
 from app.main import app
 from app.services.tasks.factory import get_task_enqueuer
