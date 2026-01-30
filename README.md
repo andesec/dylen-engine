@@ -84,3 +84,8 @@ make lint
 make typecheck
 make test
 ```
+
+## Legal
+
+- Privacy Policy: `docs/legal/PRIVACY_POLICY.md`
+- Terms of Service: `docs/legal/TERMS_OF_SERVICE.md`
