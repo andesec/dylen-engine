@@ -21,7 +21,7 @@ class LocalHttpEnqueuer(TaskEnqueuer):
       logger.warning("Base URL not configured, strictly required for LocalHttpEnqueuer.")
       return
 
-    url = f"{self.settings.base_url.rstrip('/')}/tasks/process-job"
+    url = f"{self.settings.base_url.rstrip('/')}/internal/tasks/process-job"
 
     # Fire and forget-ish: we want to trigger it but not block excessively?
     # Actually, `httpx.AsyncClient` usage here:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -20,7 +20,7 @@ class Settings:
   app_id: str
   environment: str
   backup_dir: str
-  allowed_origins: list[str]
+  allowed_origins: tuple[str, ...]
   debug: bool
   max_topic_length: int
   job_max_retries: int
@@ -34,7 +34,7 @@ class Settings:
   repair_model: str | None
   fenster_provider: str
   fenster_model: str | None
-  fenster_technical_constraints: dict[str, Any]
+  fenster_technical_constraints: dict[str, Any] = field(hash=False)
   research_model: str | None
   prompt_version: str
   schema_version: str
@@ -66,7 +66,7 @@ class Settings:
   research_search_max_results: int
 
 
-def _parse_origins(raw: str | None) -> list[str]:
+def _parse_origins(raw: str | None) -> tuple[str, ...]:
   if not raw:
     raise ValueError("DYLEN_ALLOWED_ORIGINS must be set to one or more origins.")
 
@@ -78,7 +78,7 @@ def _parse_origins(raw: str | None) -> list[str]:
   if "*" in origins:
     raise ValueError("DYLEN_ALLOWED_ORIGINS must not include wildcard origins.")
 
-  return origins
+  return tuple(origins)
 
 
 def _parse_json_dict(raw: str | None, default: dict[str, Any]) -> dict[str, Any]:
