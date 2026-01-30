@@ -38,11 +38,6 @@ async def discover(
   """
   jobs_repo = _get_jobs_repo(settings)
 
-  if request.idempotency_key:
-    existing = await jobs_repo.find_by_idempotency_key(request.idempotency_key)
-    if existing and existing.status == "done" and existing.result_json:
-      return ResearchDiscoveryResponse.model_validate(existing.result_json)
-
   tracking_job_id = generate_job_id()
   timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
   job_ttl = int(time.time()) + 3600
@@ -56,7 +51,6 @@ async def discover(
     phase="processing",
     created_at=timestamp,
     updated_at=timestamp,
-    idempotency_key=request.idempotency_key,
     expected_sections=0,
     completed_sections=0,
     completed_section_indexes=[],
@@ -89,11 +83,6 @@ async def synthesize(
   """
   jobs_repo = _get_jobs_repo(settings)
 
-  if request.idempotency_key:
-    existing = await jobs_repo.find_by_idempotency_key(request.idempotency_key)
-    if existing and existing.status == "done" and existing.result_json:
-      return ResearchSynthesisResponse.model_validate(existing.result_json)
-
   tracking_job_id = generate_job_id()
   timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
   job_ttl = int(time.time()) + 3600
@@ -107,7 +96,6 @@ async def synthesize(
     phase="processing",
     created_at=timestamp,
     updated_at=timestamp,
-    idempotency_key=request.idempotency_key,
     expected_sections=0,
     completed_sections=0,
     completed_section_indexes=[],

@@ -45,11 +45,6 @@ async def create_writing_check(  # noqa: B008
   _validate_writing_request(request)
   repo = _get_jobs_repo(settings)
 
-  if request.idempotency_key:
-    existing = await repo.find_by_idempotency_key(request.idempotency_key)
-    if existing:
-      return JobCreateResponse(job_id=existing.job_id, expected_sections=0)
-
   job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
 
@@ -70,7 +65,6 @@ async def create_writing_check(  # noqa: B008
     created_at=timestamp,
     updated_at=timestamp,
     ttl=_compute_job_ttl(settings),
-    idempotency_key=request.idempotency_key,
   )
   await repo.create_job(record)
   response = JobCreateResponse(job_id=job_id, expected_sections=0)

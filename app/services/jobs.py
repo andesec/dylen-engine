@@ -132,13 +132,6 @@ async def create_job(request: GenerateLessonRequest, settings: Settings, backgro
   # Precompute section count so the client can render placeholders immediately.
   expected_sections = _expected_sections_from_request(request, settings)
 
-  if request.idempotency_key:
-    existing = await repo.find_by_idempotency_key(request.idempotency_key)
-
-    if existing:
-      response_expected = existing.expected_sections or expected_sections
-      return JobCreateResponse(job_id=existing.job_id, expected_sections=response_expected)
-
   job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
   request_payload = request.model_dump(mode="python", by_alias=True)
@@ -170,7 +163,6 @@ async def create_job(request: GenerateLessonRequest, settings: Settings, backgro
     updated_at=timestamp,
     completed_at=None,
     ttl=_compute_job_ttl(settings),
-    idempotency_key=request.idempotency_key,
   )
   await repo.create_job(record)
 

@@ -151,12 +151,6 @@ async def generate_lesson(  # noqa: B008
   # Tracking job for concurrency
   jobs_repo = _get_jobs_repo(settings)
 
-  if request.idempotency_key:
-    existing = await jobs_repo.find_by_idempotency_key(request.idempotency_key)
-    if existing and existing.status == "done" and existing.result_json:
-      # Return cached result
-      return GenerateLessonResponse.model_validate(existing.result_json)
-
   tracking_job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
   # Set TTL to 1 hour to prevent zombie jobs blocking concurrency forever
@@ -171,7 +165,6 @@ async def generate_lesson(  # noqa: B008
     phase="processing",
     created_at=timestamp,
     updated_at=timestamp,
-    idempotency_key=request.idempotency_key,
     expected_sections=0,  # Not strictly tracked for sync
     completed_sections=0,
     completed_section_indexes=[],

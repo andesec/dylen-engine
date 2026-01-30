@@ -19,7 +19,6 @@ class ResearchDiscoveryRequest(BaseModel):
 
   query: StrictStr = Field(..., min_length=1, description="The research query.")
   context: StrictStr | None = Field(default=None, description="Optional context to refine the search.")
-  idempotency_key: StrictStr | None = Field(default=None, description="Idempotency key to prevent duplicate requests.")
   model_config = ConfigDict(extra="forbid")
 
 
@@ -35,7 +34,6 @@ class ResearchSynthesisRequest(BaseModel):
   query: StrictStr = Field(..., min_length=1, description="The original research query.")
   urls: list[StrictStr] = Field(..., min_length=1, description="List of URLs to crawl and synthesize.")
   user_id: StrictStr = Field(..., description="User ID for audit logging.")
-  idempotency_key: StrictStr | None = Field(default=None, description="Idempotency key to prevent duplicate requests.")
   model_config = ConfigDict(extra="forbid")
 
 

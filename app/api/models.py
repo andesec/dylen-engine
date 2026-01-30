@@ -83,7 +83,6 @@ class GenerateLessonRequest(BaseModel):
   primary_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
   widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=8, description="Optional list of allowed widgets (overrides defaults).")
   schema_version: StrictStr | None = Field(default=None, description="Optional schema version to pin the lesson output to.")
-  idempotency_key: StrictStr | None = Field(default=None, description="Idempotency key to prevent duplicate lesson generation.")
   models: ModelsConfig | None = Field(
     default=None, description="Optional per-agent model selection overrides.", examples=[{"section_builder_model": "xiaomi/mimo-v2-flash:free", "planner_model": "openai/gpt-oss-120b:free", "repairer_model": "google/gemma-3-27b-it:free"}]
   )
@@ -229,7 +228,6 @@ class WritingCheckRequest(BaseModel):
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
   criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
   checker_model: StrictStr | None = Field(default=None, description="Optional model override for writing evaluation (provider inferred when possible).", examples=["openai/gpt-oss-120b:free"])
-  idempotency_key: StrictStr | None = Field(default=None, description="Idempotency key to prevent duplicate requests.")
   model_config = ConfigDict(extra="forbid")
 
 
