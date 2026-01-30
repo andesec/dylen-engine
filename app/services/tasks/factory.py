@@ -8,7 +8,6 @@ from app.services.tasks.interface import TaskEnqueuer
 from app.services.tasks.local import LocalHttpEnqueuer
 
 
-@lru_cache
 def get_task_enqueuer(settings: Settings) -> TaskEnqueuer:
   """Factory to get the configured task enqueuer."""
   if settings.task_service_provider == "gcp":
