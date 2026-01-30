@@ -1,11 +1,22 @@
+import os
 from unittest.mock import patch
 
 import pytest
 from app.ai.agents.research import ResearchAgent
 from app.api.models import GenerateLessonRequest
+from app.config import get_settings
 from app.core.middleware import _redact_sensitive_keys
 from app.telemetry.llm_audit import _scrub_pii
 from pydantic import ValidationError
+
+
+@pytest.fixture(autouse=True)
+def setup_test_env():
+  with patch.dict(os.environ, {"TAVILY_API_KEY": "dummy", "GEMINI_API_KEY": "dummy", "DYLEN_ALLOWED_ORIGINS": "http://localhost:3000"}):
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
 
 # --- ResearchAgent SSRF Tests ---
 
