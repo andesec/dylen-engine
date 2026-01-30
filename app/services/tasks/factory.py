@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from functools import lru_cache
-
 from app.config import Settings
 from app.services.tasks.gcp import CloudTasksEnqueuer
 from app.services.tasks.interface import TaskEnqueuer
