@@ -11,6 +11,7 @@ class LessonRecord:
   """Record stored in the lessons repository."""
 
   lesson_id: str
+  user_id: str | None
   topic: str
   title: str
   created_at: str

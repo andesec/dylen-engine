@@ -73,7 +73,7 @@ class GenerateLessonRequest(BaseModel):
   """Request payload for lesson generation."""
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
-  details: StrictStr | None = Field(default=None, min_length=1, description="Optional user-supplied details (max 250 words).", examples=["Focus on lists and loops"])
+  details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
   blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] | None = Field(
     default=None, description="Optional blueprint or learning outcome guidance for lesson planning."
   )

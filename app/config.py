@@ -64,6 +64,7 @@ class Settings:
   gemini_api_key: str | None
   research_router_model: str
   research_search_max_results: int
+  task_secret: str | None
 
 
 def _parse_origins(raw: str | None) -> tuple[str, ...]:
@@ -200,6 +201,7 @@ def get_settings() -> Settings:
     gemini_api_key=_optional_str(os.getenv("GEMINI_API_KEY")),
     research_router_model=os.getenv("DYLEN_RESEARCH_ROUTER_MODEL", "gemini-1.5-flash"),
     research_search_max_results=int(os.getenv("DYLEN_RESEARCH_SEARCH_MAX_RESULTS", "5")),
+    task_secret=_optional_str(os.getenv("DYLEN_TASK_SECRET")),
   )
 
 

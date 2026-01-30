@@ -103,6 +103,7 @@ async def generate_lesson(  # noqa: B008
 
   record = LessonRecord(
     lesson_id=lesson_id,
+    user_id=str(current_user.id),
     topic=request.topic,
     title=result.lesson_json["title"],
     created_at=time.strftime(_DATE_FORMAT, time.gmtime()),
@@ -136,12 +137,16 @@ async def generate_lesson(  # noqa: B008
 async def get_lesson(  # noqa: B008
   lesson_id: str,
   settings: Settings = Depends(get_settings),  # noqa: B008
+  current_user: User = Depends(get_current_active_user),  # noqa: B008
 ) -> LessonRecordResponse:
   """Fetch a stored lesson by identifier, consistent with async job persistence."""
   repo = _get_repo(settings)
   record = await repo.get_lesson(lesson_id)
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
+
+  if record.user_id != str(current_user.id):
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
   lesson_json = json.loads(record.lesson_json)
   return LessonRecordResponse(

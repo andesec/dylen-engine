@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import socket
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi.concurrency import run_in_threadpool
 from firebase_admin import firestore
@@ -172,6 +175,10 @@ Query: {query}"""
     # Fallback to Tavily specifically requested to avoid heavy crawl4ai dependencies
     try:
       for url in urls:
+        if not await self._is_safe_url(url):
+          logger.warning(f"Skipping unsafe URL: {url}")
+          continue
+
         try:
           fallback_data = await self._fetch_content_tavily(url)
           if fallback_data:
@@ -207,6 +214,35 @@ Query: {query}"""
     except Exception as e:
       logger.error(f"Tavily fallback failed for {url}: {e}")
     return None
+
+  async def _is_safe_url(self, url: str) -> bool:
+    """Check if a URL is safe to crawl (no private/internal IPs)."""
+    return await run_in_threadpool(self._validate_url_sync, url)
+
+  def _validate_url_sync(self, url: str) -> bool:
+    try:
+      parsed = urlparse(url)
+      if parsed.scheme not in ("http", "https"):
+        return False
+
+      hostname = parsed.hostname
+      if not hostname:
+        return False
+
+      # Resolve hostname to IP
+      try:
+        ip = socket.gethostbyname(hostname)
+      except socket.gaierror:
+        return False
+
+      # Check for private IP
+      ip_obj = ipaddress.ip_address(ip)
+      if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
+        return False
+
+      return True
+    except Exception:
+      return False
 
   def _log_to_firestore(self, user_id: str, data: dict[str, Any]) -> None:
     """Logs the research activity to Firestore."""

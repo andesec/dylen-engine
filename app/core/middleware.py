@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -7,6 +8,15 @@ from fastapi import Request, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger("app.core.middleware")
+
+
+def _redact_sensitive_keys(data: Any) -> Any:
+  """Redact sensitive keys from a dictionary or list recursively."""
+  if isinstance(data, dict):
+    return {k: ("***" if k.lower() in ("password", "token", "key", "authorization", "cookie", "secret") else _redact_sensitive_keys(v)) for k, v in data.items()}
+  if isinstance(data, list):
+    return [_redact_sensitive_keys(item) for item in data]
+  return data
 
 
 def _normalize_headers(scope: Scope) -> dict[str, str]:
@@ -64,7 +74,13 @@ class RequestLoggingMiddleware:
       headers = _normalize_headers(scope)
       content_type = headers.get("content-type", "")
       if content_type.startswith("application/json") and body:
-        logger.debug(f"Request Body: {body.decode('utf-8')}")
+        try:
+          payload = json.loads(body)
+          safe_payload = _redact_sensitive_keys(payload)
+          logger.debug(f"Request Body: {json.dumps(safe_payload)}")
+        except json.JSONDecodeError:
+          # Fallback if valid JSON but not parseable (or strict parsing fails)
+          logger.debug(f"Request Body (raw): {body.decode('utf-8')}")
 
     except Exception as exc:
       # Log body parsing errors so observability does not hide logging issues.

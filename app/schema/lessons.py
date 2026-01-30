@@ -10,6 +10,7 @@ class Lesson(Base):
   __tablename__ = "dylen_lessons"
 
   lesson_id: Mapped[str] = mapped_column(String, primary_key=True)
+  user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
   topic: Mapped[str] = mapped_column(String, nullable=False)
   title: Mapped[str] = mapped_column(String, nullable=False)
   created_at: Mapped[str] = mapped_column(String, nullable=False)  # Stored as text in legacy
