@@ -1,0 +1,91 @@
+substitutions:
+  _REGION: "us-central1"
+  _AR_REPO: "dylen-stage"
+  _IMAGE: "app"
+  _TAG: "stage"
+
+  _SERVICE: "dylen-engine-stage"
+  _MIGRATE_JOB: "dylen-engine-stage-migrate"
+
+  _RUN_SA: "sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com"
+  _CLOUDSQL_INSTANCE: "dylen-stage-485900:us-central1:dylen-stage"
+
+  _ENV_FILE: ".env.example"
+  _DBURL_SECRET: "STAGE_DATABASE_URL"
+
+steps:
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        gcloud config set run/region "${_REGION}"
+        test -f "${_ENV_FILE}" || { echo "Missing ${_ENV_FILE}. Commit a non-secret env file for stage."; exit 2; }
+        gcloud secrets describe "${_DBURL_SECRET}" >/dev/null 2>&1 || { echo "Missing Secret Manager secret: ${_DBURL_SECRET}"; exit 3; }
+        gcloud artifacts repositories describe "${_AR_REPO}" --location "${_REGION}" >/dev/null 2>&1 || \
+          gcloud artifacts repositories create "${_AR_REPO}" --location "${_REGION}" --repository-format docker
+
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "build",
+        "--target", "production",
+        "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}",
+        "."
+      ]
+
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "push",
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
+      ]
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
+
+        if ! gcloud run jobs describe "${_MIGRATE_JOB}" --region "${_REGION}" >/dev/null 2>&1; then
+          gcloud run jobs create "${_MIGRATE_JOB}" \
+            --region "${_REGION}" \
+            --image "$${IMAGE}" \
+            --service-account "${_RUN_SA}" \
+            --env-vars-file "/workspace/env.stage.yaml" \
+            --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
+            --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest" \
+            --command "python" \
+            --args "-m,alembic,-c,alembic.ini,upgrade,head"
+        else
+          gcloud run jobs update "${_MIGRATE_JOB}" \
+            --region "${_REGION}" \
+            --image "$${IMAGE}" \
+            --service-account "${_RUN_SA}" \
+            --env-vars-file "/workspace/env.stage.yaml" \
+            --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
+            --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest"
+        fi
+
+        gcloud run jobs execute "${_MIGRATE_JOB}" --region "${_REGION}" --wait
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
+
+        gcloud run deploy "${_SERVICE}" \
+          --region "${_REGION}" \
+          --image "$${IMAGE}" \
+          --service-account "${_RUN_SA}" \
+          --env-vars-file "/workspace/env.stage.yaml" \
+          --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
+          --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
+          --port 8002 \
+          --allow-unauthenticated
+
+images:
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
