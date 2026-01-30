@@ -114,15 +114,7 @@ def _job_status_from_record(record: JobRecord, settings: Settings) -> JobStatusR
   )
 
 
-async def create_job(
-  request: GenerateLessonRequest,
-  settings: Settings,
-  background_tasks: BackgroundTasks,
-  db_session: AsyncSession,
-  *,
-  user_id: str | None = None,
-  target_agent: str | None = None,
-) -> JobCreateResponse:
+async def create_job(request: GenerateLessonRequest, settings: Settings, background_tasks: BackgroundTasks, db_session: AsyncSession, *, user_id: str | None = None, target_agent: str | None = None) -> JobCreateResponse:
   """Create a background lesson generation job."""
   _validate_generate_request(request, settings)
 

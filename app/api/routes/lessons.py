@@ -72,8 +72,8 @@ async def generate_lesson(  # noqa: B008
   if request.idempotency_key:
     existing = await jobs_repo.find_by_idempotency_key(request.idempotency_key)
     if existing and existing.status == "done" and existing.result_json:
-        # Return cached result
-        return GenerateLessonResponse.model_validate(existing.result_json)
+      # Return cached result
+      return GenerateLessonResponse.model_validate(existing.result_json)
 
   tracking_job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
@@ -81,23 +81,23 @@ async def generate_lesson(  # noqa: B008
   job_ttl = int(time.time()) + 3600
 
   tracking_job = JobRecord(
-      job_id=tracking_job_id,
-      user_id=str(current_user.id),
-      request=request.model_dump(mode="python", by_alias=True),
-      status="processing",
-      target_agent="lesson", # Mark as lesson job
-      phase="processing",
-      created_at=timestamp,
-      updated_at=timestamp,
-      idempotency_key=request.idempotency_key,
-      expected_sections=0, # Not strictly tracked for sync
-      completed_sections=0,
-      completed_section_indexes=[],
-      retry_count=0,
-      max_retries=0,
-      logs=[],
-      progress=0.0,
-      ttl=job_ttl
+    job_id=tracking_job_id,
+    user_id=str(current_user.id),
+    request=request.model_dump(mode="python", by_alias=True),
+    status="processing",
+    target_agent="lesson",  # Mark as lesson job
+    phase="processing",
+    created_at=timestamp,
+    updated_at=timestamp,
+    idempotency_key=request.idempotency_key,
+    expected_sections=0,  # Not strictly tracked for sync
+    completed_sections=0,
+    completed_section_indexes=[],
+    retry_count=0,
+    max_retries=0,
+    logs=[],
+    progress=0.0,
+    ttl=job_ttl,
   )
   await jobs_repo.create_job(tracking_job)
 
@@ -172,25 +172,12 @@ async def generate_lesson(  # noqa: B008
     )
 
     # Mark tracking job as completed
-    await jobs_repo.update_job(
-        tracking_job_id,
-        status="done",
-        phase="done",
-        progress=100.0,
-        completed_at=time.strftime(_DATE_FORMAT, time.gmtime()),
-        result_json=response_payload.model_dump(mode="json")
-    )
+    await jobs_repo.update_job(tracking_job_id, status="done", phase="done", progress=100.0, completed_at=time.strftime(_DATE_FORMAT, time.gmtime()), result_json=response_payload.model_dump(mode="json"))
 
     return response_payload
   except Exception as e:
     # Mark tracking job as error
-    await jobs_repo.update_job(
-        tracking_job_id,
-        status="error",
-        phase="error",
-        logs=[str(e)],
-        completed_at=time.strftime(_DATE_FORMAT, time.gmtime())
-    )
+    await jobs_repo.update_job(tracking_job_id, status="error", phase="error", logs=[str(e)], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
     raise e
 
 

@@ -18,9 +18,7 @@ class TaskPayload(BaseModel):
 
 
 @router.post("/process-job", status_code=status.HTTP_200_OK)
-async def process_job_task(
-  payload: TaskPayload, settings: Annotated[Settings, Depends(get_settings)], authorization: str | None = Header(default=None)
-) -> dict[str, str]:
+async def process_job_task(payload: TaskPayload, settings: Annotated[Settings, Depends(get_settings)], authorization: str | None = Header(default=None)) -> dict[str, str]:
   """
   Handler for Cloud Tasks (and local simulation).
   Executes the job synchronously so the task queue knows when it's done.
