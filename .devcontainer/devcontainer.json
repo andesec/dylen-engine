@@ -1,10 +1,10 @@
 {
-  "name": "My Codespace",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu", 
+  "name": "My Project with Docker",
+  "image": "mcr.microsoft.com/devcontainers/universal:latest",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:1": {
-      "version": "latest",
-      "moby": true
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest"
     }
-  }
+  },
+  "postCreateCommand": "docker info"
 }
