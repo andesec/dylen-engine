@@ -99,7 +99,7 @@ class User(Base):
   privacy_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class LLMAuditLog(Base):

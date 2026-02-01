@@ -58,9 +58,8 @@ async def complete_onboarding(
   current_user.intended_use = data.personalization.intended_use
   current_user.intended_use_other = data.personalization.intended_use_other
 
-  now = datetime.datetime.now(datetime.UTC)
-  current_user.accepted_terms_at = now
-  current_user.accepted_privacy_at = now
+  current_user.accepted_terms_at = datetime.datetime.now(datetime.UTC)
+  current_user.accepted_privacy_at = datetime.datetime.now(datetime.UTC)
   current_user.terms_version = data.legal.terms_version
   current_user.privacy_version = data.legal.privacy_version
 
