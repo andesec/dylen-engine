@@ -4,8 +4,9 @@ import datetime
 import uuid
 from enum import Enum
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -24,6 +25,7 @@ class UserStatus(str, Enum):
   PENDING = "PENDING"
   APPROVED = "APPROVED"
   DISABLED = "DISABLED"
+  REJECTED = "REJECTED"
 
 
 class AuthMethod(str, Enum):
@@ -81,7 +83,23 @@ class User(Base):
   country: Mapped[str | None] = mapped_column(String, nullable=True)
   age: Mapped[int | None] = mapped_column(Integer, nullable=True)
   photo_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
+  # Onboarding fields
+  gender: Mapped[str | None] = mapped_column(String, nullable=True)
+  gender_other: Mapped[str | None] = mapped_column(String, nullable=True)
+  occupation: Mapped[str | None] = mapped_column(String, nullable=True)
+  topics_of_interest: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+  intended_use: Mapped[str | None] = mapped_column(String, nullable=True)
+  intended_use_other: Mapped[str | None] = mapped_column(String, nullable=True)
+  onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+  accepted_terms_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+  accepted_privacy_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+  terms_version: Mapped[str | None] = mapped_column(String, nullable=True)
+  privacy_version: Mapped[str | None] = mapped_column(String, nullable=True)
+
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class LLMAuditLog(Base):

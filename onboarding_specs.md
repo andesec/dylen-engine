@@ -146,3 +146,40 @@ Acceptance Criteria
 	•	User becomes PENDING
 	•	Frontend routing works purely via /me
 	•	No way to bypass legal agreement
+
+---
+
+## Task Checklist
+
+### Database Migration
+- [ ] Update `User` table schema:
+    - [ ] Add `gender` (String, nullable)
+    - [ ] Add `gender_other` (String, nullable)
+    - [ ] Add `occupation` (String, nullable)
+    - [ ] Add `topics_of_interest` (JSONB, nullable)
+    - [ ] Add `intended_use` (String, nullable)
+    - [ ] Add `intended_use_other` (String, nullable)
+    - [ ] Add `onboarding_completed` (Boolean, default False, nullable=False)
+    - [ ] Add `accepted_terms_at` (DateTime, nullable)
+    - [ ] Add `accepted_privacy_at` (DateTime, nullable)
+    - [ ] Add `terms_version` (String, nullable)
+    - [ ] Add `privacy_version` (String, nullable)
+    - [ ] Add `updated_at` (DateTime, server_default=func.now(), onupdate=func.now())
+- [ ] Update `UserStatus` enum: add `REJECTED`.
+- [ ] Create and run Alembic migration.
+
+### API Implementation
+- [ ] Update `GET /api/me`:
+    - [ ] Return `id`, `email`, `status`, `onboardingCompleted`.
+- [ ] Create `POST /api/onboarding/complete`:
+    - [ ] Define Pydantic models for validation.
+    - [ ] Implement validation logic (age, empty topics, etc.).
+    - [ ] Check if onboarding is already completed (Idempotency).
+    - [ ] Update user record in database.
+    - [ ] Return success response.
+
+### Tests
+- [ ] Test `GET /api/me` returns correct structure.
+- [ ] Test `POST /api/onboarding/complete` success path.
+- [ ] Test validations (age < 13, empty topics, etc.).
+- [ ] Test idempotency (calling complete twice).
