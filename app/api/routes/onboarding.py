@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -8,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.schema.sql import User, UserStatus
+from app.schema.sql import User
 from app.schema.users import OnboardingRequest
+from app.services.users import complete_user_onboarding
 
 router = APIRouter()
 
@@ -45,32 +45,9 @@ async def complete_onboarding(
         "onboardingCompleted": True,
     }
 
-  # Update User record
-  current_user.age = data.basic.age
-  current_user.gender = data.basic.gender
-  current_user.gender_other = data.basic.gender_other
-  current_user.city = data.basic.city
-  current_user.country = data.basic.country
-  current_user.occupation = data.basic.occupation
-
-  # JSONB field: assignment ensures change tracking
-  current_user.topics_of_interest = data.personalization.topics_of_interest
-  current_user.intended_use = data.personalization.intended_use
-  current_user.intended_use_other = data.personalization.intended_use_other
-
-  current_user.accepted_terms_at = datetime.datetime.now(datetime.UTC)
-  current_user.accepted_privacy_at = datetime.datetime.now(datetime.UTC)
-  current_user.terms_version = data.legal.terms_version
-  current_user.privacy_version = data.legal.privacy_version
-
-  current_user.onboarding_completed = True
-  current_user.status = UserStatus.PENDING
-
-  db.add(current_user)
-  await db.commit()
-  await db.refresh(current_user)
+  user = await complete_user_onboarding(db, user=current_user, data=data)
 
   return {
-      "status": current_user.status,
+      "status": user.status,
       "onboardingCompleted": True,
   }
