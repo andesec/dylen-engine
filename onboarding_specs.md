@@ -1,4 +1,4 @@
-# 📕 BACKEND_ONBOARDING_SPEC.md
+# Backend Onboarding & Waitlist Specification
 
 ```md
 # Backend Spec — Onboarding & Waitlist (FastAPI)
