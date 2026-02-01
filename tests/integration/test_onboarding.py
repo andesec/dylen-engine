@@ -5,6 +5,7 @@ import pytest
 from app.schema.sql import User, UserStatus
 from httpx import AsyncClient
 
+
 # Mock verify_id_token
 @pytest.fixture
 def mock_verify_id_token():
