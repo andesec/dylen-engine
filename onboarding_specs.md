@@ -1,10 +1,7 @@
-# Backend Onboarding & Waitlist Specification
-
-```md
 # Backend Spec — Onboarding & Waitlist (FastAPI)
 
 ## Purpose
-Accept a complete onboarding submission, validate it, store legal consent, and move the user into a WAITLISTED state.
+Accept a complete onboarding submission, validate it, store legal consent, and move the user into a PENDING state.
 
 ---
 
@@ -45,10 +42,10 @@ created_at
 updated_at
 
 Status Enum
-	•	ACTIVE
-	•	WAITLISTED
-	•	PENDING_APPROVAL
+	•	APPROVED
+	•	PENDING
 	•	REJECTED
+	•	DISABLED
 
 ⸻
 
@@ -60,7 +57,7 @@ Returns:
 {
   "id": "uuid",
   "email": "user@email.com",
-  "status": "WAITLISTED",
+  "status": "PENDING",
   "onboardingCompleted": true
 }
 
@@ -104,7 +101,7 @@ Backend Logic Flow
 	7.	Set:
 
 onboarding_completed = true
-status = WAITLISTED
+status = PENDING
 
 8.	Return success
 
@@ -112,7 +109,7 @@ status = WAITLISTED
 
 Example Response
 {
-  "status": "WAITLISTED",
+  "status": "PENDING",
   "onboardingCompleted": true
 }
 
@@ -146,7 +143,6 @@ Optional Enhancements
 Acceptance Criteria
 	•	Single API call completes onboarding
 	•	Legal consent is auditable
-	•	User becomes WAITLISTED
+	•	User becomes PENDING
 	•	Frontend routing works purely via /me
 	•	No way to bypass legal agreement
-```
