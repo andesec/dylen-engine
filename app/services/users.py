@@ -6,11 +6,13 @@ layers (routes, auth dependencies, workers) don't duplicate query logic.
 
 from __future__ import annotations
 
+import datetime
 import logging
 import uuid
 
 from app.schema.quotas import SubscriptionTier, UserUsageMetrics
 from app.schema.sql import AuthMethod, User, UserStatus
+from app.schema.users import OnboardingRequest
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -135,6 +137,38 @@ async def update_user_role(session: AsyncSession, *, user: User, role_id: uuid.U
 
   # Persist role changes before updating any downstream claims.
   user.role_id = role_id
+  session.add(user)
+  await session.commit()
+  await session.refresh(user)
+  return user
+
+
+async def complete_user_onboarding(session: AsyncSession, *, user: User, data: OnboardingRequest) -> User:
+  """Apply onboarding data to the user record and transition status."""
+  if user.onboarding_completed:
+    return user
+
+  # Update User record
+  user.age = data.basic.age
+  user.gender = data.basic.gender
+  user.gender_other = data.basic.gender_other
+  user.city = data.basic.city
+  user.country = data.basic.country
+  user.occupation = data.basic.occupation
+
+  # JSONB field: assignment ensures change tracking
+  user.topics_of_interest = data.personalization.topics_of_interest
+  user.intended_use = data.personalization.intended_use
+  user.intended_use_other = data.personalization.intended_use_other
+
+  user.accepted_terms_at = datetime.datetime.now(datetime.UTC)
+  user.accepted_privacy_at = datetime.datetime.now(datetime.UTC)
+  user.terms_version = data.legal.terms_version
+  user.privacy_version = data.legal.privacy_version
+
+  user.onboarding_completed = True
+  user.status = UserStatus.PENDING
+
   session.add(user)
   await session.commit()
   await session.refresh(user)
