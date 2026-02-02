@@ -92,13 +92,13 @@ async def process_lesson_endpoint(
       progress=100.0,
       completed_at=time.strftime(_DATE_FORMAT, time.gmtime()),
       result_json=result.model_dump(mode="json"),
-      logs=current_logs + ["Worker completed successfully."],
+      logs=current_logs + ["Worker started processing.", "Worker completed successfully."],
     )
 
   except Exception as e:
     logger.error("Job %s failed: %s", task.job_id, e, exc_info=True)
     await jobs_repo.update_job(
-      task.job_id, status="error", phase="error", logs=current_logs + [f"Error: {e!s}"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime())
+      task.job_id, status="error", phase="error", logs=current_logs + ["Worker started processing.", f"Error: {e!s}"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime())
     )
     return {"status": "error", "detail": str(e)}
 

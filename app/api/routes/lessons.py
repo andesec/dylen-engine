@@ -81,24 +81,24 @@ async def generate_lesson(  # noqa: B008
       if existing_job.status == "done" and existing_job.result_json:
         # If we have the result, we can try to extract lesson_id if not in request meta
         if not lesson_id:
-            try:
-                res = GenerateLessonResponse.model_validate(existing_job.result_json)
-                lesson_id = res.lesson_id
-            except Exception:
-                pass
+          try:
+            res = GenerateLessonResponse.model_validate(existing_job.result_json)
+            lesson_id = res.lesson_id
+          except Exception:
+            logger.warning("Failed to recover lesson_id from existing job %s result.", existing_job.job_id)
 
         if lesson_id:
-             return LessonJobResponse(job_id=existing_job.job_id, expected_sections=existing_job.expected_sections or 0, lesson_id=lesson_id)
+          return LessonJobResponse(job_id=existing_job.job_id, expected_sections=existing_job.expected_sections or 0, lesson_id=lesson_id)
 
       # If still processing or queued, we return the job info if we have lesson_id
       if lesson_id:
-          return LessonJobResponse(job_id=existing_job.job_id, expected_sections=existing_job.expected_sections or 0, lesson_id=lesson_id)
+        return LessonJobResponse(job_id=existing_job.job_id, expected_sections=existing_job.expected_sections or 0, lesson_id=lesson_id)
 
       # If we can't find lesson_id, we might need to error or create new?
       # Assuming idempotency key means "same result", so if we can't give same result, it's a problem.
       # But for now, let's fall through if we really can't find it (which shouldn't happen for new jobs).
       if existing_job.status in ("queued", "processing", "in_progress"):
-           raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A request with this idempotency key is already being processed.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A request with this idempotency key is already being processed.")
 
   # Generate IDs
   lesson_id = generate_lesson_id()
