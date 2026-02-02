@@ -92,7 +92,7 @@ async def process_lesson_endpoint(
       progress=100.0,
       completed_at=time.strftime(_DATE_FORMAT, time.gmtime()),
       result_json=result.model_dump(mode="json"),
-      logs=current_logs + ["Worker started processing.", "Worker completed successfully."],
+      logs=current_logs + ["Worker completed successfully."],
     )
 
   except Exception as e:
