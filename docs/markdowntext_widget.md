@@ -20,9 +20,10 @@ This is a **hard cutover** (development phase): remove the old widget types enti
 
 ## New widget
 
-### Name
+### Name and key
 
-- `MarkdownText`
+- Widget name: `MarkdownText`
+- Widget key in JSON: `markdown`
 
 ### Payload contract
 
@@ -33,16 +34,20 @@ This is a **hard cutover** (development phase): remove the old widget types enti
 
 Use the shortest widget representation your backend currently supports.
 
-**Newline rule (strict):** inside `md` strings, newlines must be encoded as literal `\\n` (do not embed actual line breaks in the JSON string value).
+Schema (array positions):
+1. `md` (string): The markdown content.
+2. `align` (string, optional): 'left' (default) or 'center'.
+
+**Newline rule:** follow standard JSON string escaping for newlines (i.e., internal strings may contain real newlines; when serialized to JSON they appear as `\n`).
 
 Examples:
 
 ```json
-["MarkdownText", {"md":"**Hello**\\n\\n- one\\n- two"}]
+{"markdown": ["**Hello**\n\n- one\n- two"]}
 ```
 
 ```json
-["MarkdownText", {"md":"## Note\\nThis is centered.", "align":"center"}]
+{"markdown": ["## Note\nThis is centered.", "center"]}
 ```
 
 ## Backend requirements for the coding agent
@@ -59,26 +64,26 @@ Before changes, inspect the repo and document (briefly, in PR description):
 
 ### 2) Update lesson/widget schema in the backend
 
-- Add `MarkdownText` to the allowed widget set.
+- Add `MarkdownText` (key: `markdown`) to the allowed widget set.
 - Remove all legacy widget definitions from:
   - validation models/logic
   - any schema emitters
   - any widget registries/lists used by generation or repair
 
-### 3) Update all generators and post-processors to emit `MarkdownText`
+### 3) Update all generators and post-processors to emit `MarkdownText` (key: `markdown`)
 
 Replace every place that currently emits any removed widget type.
 
 #### Mapping guidance (generation-time only)
 
-- Emit `MarkdownText` for **all** non-interactive text content.
-- Convert stray lines of text in JSON to MarkdownText widget automatically during the repair phase by the Repairer agent.
+- Emit `MarkdownText` (key: `markdown`) for **all** non-interactive text content.
+- Convert stray lines of text in JSON to `MarkdownText` automatically during the repair phase by the Repairer agent.
 
-### 4) Enforce the newline rule (`\\n`) in emitted JSON
+### 4) Enforce standard JSON newlines in emitted JSON
 
 - Normalize markdown right before storing/returning JSON:
   - internal representation may use real newlines
-  - serialized JSON must contain escaped newlines (`\\n`)
+  - serialized JSON must use standard JSON escaping (newlines as `\n`)
 
 ### 5) Strict rejection of legacy widget types
 
@@ -100,14 +105,13 @@ Match existing error-handling patterns.
 - Unit tests:
   - `MarkdownText` validation accepts the shorthand shape.
   - Legacy widget types are rejected.
-  - Newline normalization outputs `\\n` (not literal newlines) in serialized JSON.
+  - Newline normalization outputs standard JSON newlines (`\n`) in serialized JSON.
 - Integration test (if present):
   - end-to-end generation emits only `MarkdownText` for text-only sections.
 
 ## Acceptance criteria
 
-- Backend emits **only** `MarkdownText` for text/formatting content.
+- Backend emits **only** `MarkdownText` (key: `markdown`) for text/formatting content.
 - No legacy widget types exist in backend schemas, validators, registries, fixtures, or outputs.
-- All markdown strings comply with the strict `\\n` newline rule at serialization time.
+- All markdown strings use standard JSON escaping for newlines at serialization time.
 - API responses remain valid and consistent with the current response envelope.
-
