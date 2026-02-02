@@ -490,7 +490,7 @@ def _coerce_items_list(value: Any) -> list[Any]:
   if isinstance(value, dict):
     return [value]
 
-  # Parse string payloads when they look like JSON, otherwise fallback to a paragraph widget.
+  # Parse string payloads when they look like JSON, otherwise fallback to MarkdownText.
   if isinstance(value, str):
     stripped = value.strip()
 
@@ -509,13 +509,13 @@ def _coerce_items_list(value: Any) -> list[Any]:
       if isinstance(parsed, dict):
         return [parsed]
 
-    return [{"p": stripped}]
+    return [{"markdown": [stripped]}]
 
-  # Fallback to a paragraph string for scalar values to preserve context.
+  # Fallback to MarkdownText for scalar values to preserve context.
   if value is None:
     return []
 
-  return [{"p": str(value)}]
+  return [{"markdown": [str(value)]}]
 
 
 def _detect_widget_type(widget: Any) -> str | None:
@@ -530,7 +530,7 @@ def _detect_widget_type(widget: Any) -> str | None:
         return str(other_keys[0])
       return str(widget["type"])
   if isinstance(widget, str):
-    return "p"
+    return "markdown"
   return None
 
 

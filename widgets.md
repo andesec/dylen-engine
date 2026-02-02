@@ -92,7 +92,6 @@ Recommendation:
 ## Item Widgets (inside `items`)
 
 Each item is either:
-- a string (shorthand paragraph), or
 - an object with exactly one shorthand key, or
 - a full-form widget object with `type` (advanced escape hatch).
 
@@ -101,26 +100,21 @@ Unless the object is a block (`section`) or uses `type`, it must use exactly one
 Note:
 - Dividers are auto-inserted between widgets when a section/subsection has multiple items.
 
-### `p` (Paragraph)
+### `markdown` (MarkdownText)
 
 ```json
-{ "p": "A short explanation, definition, or narrative context." }
+{ "markdown": ["A short explanation, definition, or narrative context."] }
+{ "markdown": ["**Warning:** Common pitfall / misconception."] }
+{ "markdown": ["**Success:** Checkpoint: how to know you understood it."] }
+{ "markdown": ["- Item 1\n- Item 2\n- Item 3"] }
+{ "markdown": ["1. Step 1\n2. Step 2\n3. Step 3"] }
+{ "markdown": ["Centered note.", "center"] }
+{ "markdown": ["Left aligned by default.", "left"] }
 ```
 
-Notes:
-- A plain string is equivalent to `{ "p": "..." }`.
----
-
-### `warn` / `err` / `success` (Alert Boxes)
-
-```json
-{ "warn": "Common pitfall / misconception." }
-{ "err": "Critical mistake or anti-pattern." }
-{ "success": "Checkpoint: how to know you understood it." }
-```
-
-Recommendation:
-- Keep callouts short and action-oriented so they remain skimmable. Use for critical warnings or success checkpoints only.
+Rules:
+- Position 0 is markdown text (`md`).
+- Position 1 is optional alignment: `"left"` or `"center"`.
 
 ---
 
@@ -159,21 +153,6 @@ Constraints (array order is required):
 2. Correct answer string (case-insensitive matching).
 3. Hint string (brief, helpful and precise).
 4. Explanation string (short and concrete).
-
----
-
-### `ul` / `ol` (Lists)
-
-```json
-{ "ul": ["Item 1", "Item 2", "Item 3"] }
-{ "ol": ["Step 1", "Step 2", "Step 3"] }
-```
-
-Constraints:
-- Value must be an array of strings.
-
-Recommendation:
-- Use `ol` when order matters; avoid embedding numbering in the strings.
 
 ---
 
@@ -448,7 +427,7 @@ Notes:
    - Use `subsections` when nested structure is needed.
 
 2. Teach with a reliable loop
-   - Explanation (`p`) -> pitfall (`warn`) -> translation (`tr`) -> practice (`fillblank`) -> checkpoint (`mcqs`).
+   - Explain with `markdown` -> translate with `tr` -> practice with `fillblank` -> checkpoint with `mcqs`.
 
 3. End with assessment
    - Final block should be a quiz (`mcqs`) that targets the most important learning outcomes.
@@ -474,8 +453,8 @@ Notes:
     {
       "section": "What it is",
       "items": [
-        { "p": "Define the concept in plain language." },
-        { "warn": "Common misunderstanding to avoid." }
+        { "markdown": ["Define the concept in plain language."] },
+        { "markdown": ["**Warning:** Common misunderstanding to avoid."] }
       ]
     },
     {

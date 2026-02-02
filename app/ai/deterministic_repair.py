@@ -65,12 +65,12 @@ def _normalize_block(block: Any, idx: int, depth: int) -> dict[str, Any] | None:
   # Skip empty blocks entirely to avoid creating empty sections.
   if block is None:
     return None
-  # Wrap raw strings into sections with a paragraph widget.
+  # Wrap raw strings into sections with a MarkdownText widget.
   if isinstance(block, str):
     text = _sanitize_text(block)
     if not text:
       return None
-    return {"section": "Untitled Section", "items": [{"p": text}]}
+    return {"section": "Untitled Section", "items": [{"markdown": [text]}]}
   # Drop unsupported block shapes that cannot be normalized safely.
   if not isinstance(block, dict):
     return None
@@ -165,28 +165,25 @@ def _coerce_items_list(value: Any) -> list[Any]:
 
 def _normalize_widget_item(item: Any) -> list[dict[str, Any]]:
   """Normalize a single widget or split multi-key payloads into widgets."""
-  # Convert raw strings into paragraph widgets.
+  # Convert raw strings into MarkdownText widgets.
   if isinstance(item, str):
     text = _sanitize_text(item)
     if not text:
       return []
-    return [{"p": text}]
+    return [{"markdown": [text]}]
   # Drop non-dict widgets that cannot be mapped to shorthand.
   if not isinstance(item, dict):
     return []
   # Split multi-key shorthand widgets into separate items.
   shorthand_keys = {
-    "p",
-    "warn",
-    "err",
-    "success",
+    "markdown",
+    "paragraph",
+    "callouts",
     "flip",
     "tr",
     "ex",
     "fillblank",
     "blank",
-    "ul",
-    "ol",
     "table",
     "compare",
     "swipecards",
@@ -210,19 +207,46 @@ def _normalize_widget_item(item: Any) -> list[dict[str, Any]]:
     for key in hits:
       split_items.extend(_normalize_widget_item({key: item[key]}))
     return split_items
-  # Normalize paragraph widgets.
+  # Normalize MarkdownText widgets.
+  if "markdown" in item:
+    payload = item.get("markdown")
+    if isinstance(payload, str):
+      payload = [payload]
+    if not isinstance(payload, list) or not payload:
+      return []
+    md = _sanitize_text(payload[0])
+    if not md:
+      return []
+    if len(payload) > 1:
+      align = _sanitize_text(payload[1])
+      if align not in ("left", "center"):
+        align = "left"
+      return [{"markdown": [md, align]}]
+    return [{"markdown": [md]}]
+  if "paragraph" in item:
+    text = _sanitize_text(item.get("paragraph"))
+    if not text:
+      return []
+    return [{"markdown": [text]}]
+  if "callouts" in item:
+    text = _sanitize_text(item.get("callouts"))
+    if not text:
+      return []
+    return [{"markdown": [text]}]
   if "p" in item:
     text = _sanitize_text(item.get("p"))
     if not text:
       return []
-    return [{"p": text}]
-  # Normalize callout widgets.
+    return [{"markdown": [text]}]
+  # Normalize callout widgets by converting them into MarkdownText.
   if any(key in item for key in ("warn", "err", "success")):
     key = "warn" if "warn" in item else "err" if "err" in item else "success"
     text = _sanitize_text(item.get(key))
     if not text:
       return []
-    return [{key: text}]
+    label = "Warning" if key == "warn" else "Error" if key == "err" else "Success"
+    md = f"**{label}:** {text}"
+    return [{"markdown": [md]}]
   # Normalize translation widgets with language prefixes.
   if "tr" in item or "ex" in item:
     pair = item.get("tr") or item.get("ex")
@@ -233,13 +257,17 @@ def _normalize_widget_item(item: Any) -> list[dict[str, Any]]:
     if not primary or not secondary:
       return []
     return [{"tr": [primary, secondary]}]
-  # Normalize list widgets.
+  # Normalize list widgets into MarkdownText.
   if "ul" in item or "ol" in item:
     key = "ul" if "ul" in item else "ol"
     items = _normalize_list_items(item.get(key))
     if not items:
       return []
-    return [{key: items}]
+    if key == "ul":
+      md = "\n".join(f"- {entry}" for entry in items)
+    else:
+      md = "\n".join(f"{index + 1}. {entry}" for index, entry in enumerate(items))
+    return [{"markdown": [md]}]
   # Normalize flipcards.
   if "flip" in item:
     flip = item.get("flip")

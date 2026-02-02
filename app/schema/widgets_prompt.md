@@ -7,7 +7,6 @@ Use this guide to format lesson widgets correctly. Keep outputs concise, factual
 1. Output only valid JSON.
 2. Every widget must go inside `items`.
 3. Each `items` entry is either:
-   - a string (paragraph),
    - an object with exactly one shorthand key, or
    - a full-form widget object with `type` (advanced escape hatch).
 4. Never mix multiple widget keys in one object.
@@ -17,32 +16,21 @@ Use this guide to format lesson widgets correctly. Keep outputs concise, factual
 ## Item Widgets (inside `items`)
 
 Each item is either:
-- a string (shorthand paragraph), or
 - an object with exactly one shorthand key.
 Note:
 - Dividers are auto-inserted between widgets when a section/subsection has multiple items.
 
-### `p` (Paragraph)
+### `markdown` (MarkdownText)
 
 ```json
-{ "p": "A short explanation, definition, or narrative context." }
+{ "markdown": ["**Hello**\n\n- one\n- two"] }
+{ "markdown": ["## Note\nThis is centered.", "center"] }
+{ "markdown": ["Left aligned by default.", "left"] }
 ```
 
-Notes:
-- A plain string is equivalent to `{ "p": "..." }`.
-
----
-
-### `warn` / `err` / `success` (Callouts)
-
-```json
-{ "warn": "Common pitfall / misconception." }
-{ "err": "Critical mistake or anti-pattern." }
-{ "success": "Checkpoint: how to know you understood it." }
-```
-
-Recommendation:
-- Keep callouts short and action-oriented so they remain skimmable. Use for critical warnings, reminders (in text) or success checkpoints only.
+Rules:
+- Position 0 is the markdown string (`md`).
+- Position 1 is optional alignment: `"left"` or `"center"`.
 
 ---
 
@@ -81,21 +69,6 @@ Constraints (array order is required):
 2. Correct answer string (case-insensitive matching).
 3. Hint string (brief, helpful and precise).
 4. Explanation string (short and concrete).
-
----
-
-### `ul` / `ol` (Lists)
-
-```json
-{ "ul": ["Item 1", "Item 2", "Item 3"] }
-{ "ol": ["Step 1", "Step 2", "Step 3"] }
-```
-
-Constraints:
-- Value must be an array of strings.
-
-Recommendation:
-- Use `ol` when order matters; avoid embedding numbering in the strings.
 
 ---
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from .lesson_models import LessonDocument, ParagraphWidget, SectionBlock, SubsectionBlock, Widget
+from .lesson_models import LessonDocument, SectionBlock, SubsectionBlock, Widget
 
 
 def _dump_model(model: Any, *, by_alias: bool = False) -> dict[str, Any]:
@@ -15,17 +15,7 @@ def _dump_model(model: Any, *, by_alias: bool = False) -> dict[str, Any]:
 
 
 def _widget_to_shorthand(widget: Widget) -> Any:
-  # If it's a plain string, it's a paragraph shorthand
-  if isinstance(widget, str):
-    return widget
-
   # If it's a model, we can just dump it because the models ARE the shorthand now.
-  # Exception: ParagraphWidget might be used explicitly, dump it to { "p": ... }
-  # but usually we might want to convert to string if possible?
-  # The user requirements didn't say we MUST convert {p: "..."} to "...", but it's cleaner.
-  if isinstance(widget, ParagraphWidget):
-    return widget.p  # Convert explicit p-widget to string shorthand if preferred, or keep as object
-
   return _dump_model(widget, by_alias=True)
 
 

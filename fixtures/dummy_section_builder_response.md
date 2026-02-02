@@ -2,17 +2,11 @@
 {
   "section": "Python Lists: Storing Collections of Data",
   "items": [
-    "Python lists are ordered, mutable collections used to store multiple items under one variable. They can hold different data types like numbers, strings, and even other lists.",
-    { "info": "Lists use square brackets [] and items are separated by commas." },
-    { "warn": "Lists are zero-indexed, so the first element is at index 0." },
+    { "markdown": ["Python lists are ordered, mutable collections used to store multiple items under one variable. They can hold different data types like numbers, strings, and even other lists."] },
+    { "markdown": ["**Note:** Lists use square brackets [] and items are separated by commas."] },
+    { "markdown": ["**Warning:** Lists are zero-indexed, so the first element is at index 0."] },
     { "codeEditor": ["# Creating a list\nmy_list = [1, 2, 3, \"apple\", \"banana\", True]\n\n# Accessing elements\nmy_list[0]      # first element\nmy_list[-1]     # last element\n\n# Slicing\nmy_list[1:4]\n\n# Modifying elements\nmy_list[0] = 100\n\n# Adding elements\nmy_list.append(\"cherry\")\nmy_list.insert(1, \"orange\")\n\n# Removing elements\nmy_list.remove(\"apple\")\npopped_item = my_list.pop(0)", "python", false, [1, 3]] },
-    { "ul": [
-        "Lists are ordered and mutable",
-        "They can store mixed data types",
-        "Elements are accessed using zero-based indexing",
-        "Common methods: append(), insert(), remove(), pop()"
-      ]
-    },
+    { "markdown": ["- Lists are ordered and mutable\n- They can store mixed data types\n- Elements are accessed using zero-based indexing\n- Common methods: append(), insert(), remove(), pop()"] },
     { "flip": [
         "What does mutable mean for lists?",
         "You can change, add, or remove items after creation",
@@ -67,7 +61,7 @@
         ]
       }
     },
-    { "success": "You can confidently create, access, and modify Python lists." }
+    { "markdown": ["**Success:** You can confidently create, access, and modify Python lists."] }
   ]
 }
 ```

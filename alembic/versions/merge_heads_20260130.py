@@ -12,6 +12,8 @@ down_revision = ("3a2bfc86881f", "9c9c9c9c9c9c")
 branch_labels = None
 depends_on = None
 
+# empty: allow
+
 
 def upgrade() -> None:
   pass

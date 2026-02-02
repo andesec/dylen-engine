@@ -128,9 +128,7 @@ def _build_widget_tooltip(description: str, label: str) -> str:
   widget_key = label.strip()
   normalized = "".join(ch for ch in widget_key.lower() if ch.isalnum())
   tooltip_map = {
-    "p": "Tell a clear idea in a warm, human voice.",
-    "ul": "Snapshot the essentials in a fast, skimmable list.",
-    "ol": "Walk the learner through a precise sequence of steps.",
+    "markdown": "Explain and format content with Markdown (text, callouts, lists).",
     "table": "Lay out facts so patterns and comparisons pop.",
     "compare": "Contrast two sides so the difference is obvious.",
     "asciidiagram": "Sketch a concept with simple text visuals.",
@@ -142,10 +140,6 @@ def _build_widget_tooltip(description: str, label: str) -> str:
     "swipecards": "Sort ideas into buckets to reveal structure.",
     "stepflow": "Guide a journey with branching, guided steps.",
     "checklist": "Track progress with a satisfying, nested checklist.",
-    "info": "Spotlight a key insight the learner should pause on.",
-    "warn": "Flag pitfalls and risks before they bite.",
-    "success": "Celebrate a win or confirm the right move.",
-    "err": "Name a common mistake and steer back on track.",
     "tr": "Practice translation pairs with quick recall loops.",
     "codeeditor": "Work through code with room to test and tweak.",
     "interactiveterminal": "Practice commands like a real terminal session.",
@@ -196,9 +190,7 @@ def _build_widget_options() -> list[dict[str, str]]:
   options: list[dict[str, str]] = []
   registry = load_widget_registry(DEFAULT_WIDGETS_PATH)
   label_map = {
-    "p": "Paragraph",
-    "ul": "Bullet List",
-    "ol": "Numbered List",
+    "markdown": "Markdown Text",
     "table": "Table",
     "compare": "Comparison Table",
     "asciidiagram": "ASCII Diagram",
@@ -210,9 +202,6 @@ def _build_widget_options() -> list[dict[str, str]]:
     "swipecards": "Swipe Widget",
     "stepflow": "Step by Step Flow",
     "checklist": "Checklist",
-    "warn": "Warning",
-    "success": "Success Callout",
-    "err": "Error Callout",
     "tr": "Translation Panel",
     "codeeditor": "Code Editor",
     "interactiveterminal": "Interactive Terminal",

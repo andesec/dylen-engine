@@ -20,10 +20,8 @@ dev: openapi
 	@docker-compose up -d postgres postgres-init
 	@echo "Waiting for Postgres to be ready..."
 	@sleep 5
-	@set -a; [ -f .env ] && . ./.env; set +a; \
-	PORT=$${PORT:-$(PORT)}; \
-	echo "Starting FastAPI app on port $$PORT..."; \
-	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port $$PORT
+	@echo "Starting FastAPI app on port $(PORT)..."
+	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python -m uvicorn app.main:app --reload --host 0.0.0.0 --port $(PORT)
 
 dev-stop:
 	@echo "Stopping Docker services..."
@@ -50,8 +48,7 @@ test:
 	uv run pytest
 
 openapi:
-	@set -a; [ -f .env ] && . ./.env; set +a; \
-	uv run python -c "import json, os, sys; repo_root=os.path.abspath(os.path.join(os.getcwd(), '..')); sys.path.insert(0, os.getcwd()); from app.main import app; openapi=app.openapi(); f=open(os.path.join(repo_root, 'openapi.json'), 'w', encoding='utf-8'); json.dump(openapi, f, indent=2, sort_keys=True); f.write('\n'); f.close()"
+	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python -c "import json, os, sys; repo_root=os.path.abspath(os.path.join(os.getcwd(), '..')); sys.path.insert(0, os.getcwd()); from app.main import app; openapi=app.openapi(); f=open(os.path.join(repo_root, 'openapi.json'), 'w', encoding='utf-8'); json.dump(openapi, f, indent=2, sort_keys=True); f.write('\\n'); f.close()"
 
 run: install
 	@$(MAKE) dev
@@ -201,8 +198,7 @@ migration-auto:
 	@docker-compose up -d postgres postgres-init
 	@echo "Waiting for Postgres to be ready..."
 	@sleep 5
-	@set -a; [ -f .env ] && . ./.env; set +a; \
-	uv run python scripts/db_migration_autogen.py --message "$(m)"
+	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python scripts/db_migration_autogen.py --message "$(m)"
 
 migration-squash:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration-squash m='message'"; exit 1; fi
@@ -210,13 +206,11 @@ migration-squash:
 	@docker-compose up -d postgres postgres-init
 	@echo "Waiting for Postgres to be ready..."
 	@sleep 5
-	@set -a; [ -f .env ] && . ./.env; set +a; \
-	uv run python scripts/db_migration_squash.py --message "$(m)" --base-ref "$(MIGRATION_BASE_REF)" --yes
+	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python scripts/db_migration_squash.py --message "$(m)" --base-ref "$(MIGRATION_BASE_REF)" --yes
 
 db-nuke:
 	@if [ "$(CONFIRM_DB_NUKE)" != "1" ]; then echo "Refusing to nuke DB without CONFIRM_DB_NUKE=1."; echo "Run: make db-nuke CONFIRM_DB_NUKE=1"; exit 1; fi
-	@set -a; [ -f .env ] && . ./.env; set +a; \
-	CONFIRM_DB_NUKE=1 uv run python scripts/db_reset_baseline.py --app-dir "$(APP_DIR)" --message "$(BASELINE_MESSAGE)"
+	@CONFIRM_DB_NUKE=1 uv run python scripts/dotenv_run.py --dotenv-file .env -- python scripts/db_reset_baseline.py --app-dir "$(APP_DIR)" --message "$(BASELINE_MESSAGE)"
 
 db-heads:
 	@uv run python scripts/db_check_heads.py

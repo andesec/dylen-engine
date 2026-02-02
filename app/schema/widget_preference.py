@@ -14,29 +14,23 @@ from __future__ import annotations
 #     }
 # }
 
-CORE = ["p", "asciiDiagram", "mcqs"]
-CORE_UL = ["ul"] + CORE
-CORE_UL_WARN = ["ul", "warn"] + CORE
+CORE = ["markdown", "asciiDiagram", "mcqs"]
 
 WIDGET_PREFERENCES: dict[str, dict[str, list[str]]] = {
-  "Knowledge & Understanding": {"conceptual": CORE_UL + ["table", "compare", "flip"], "theoretical": CORE + ["table", "compare", "flip", "fillblank"], "practical": CORE + ["fillblank", "flip", "swipecards"]},
-  "Skill Building": {"conceptual": CORE_UL + ["ol", "table"], "theoretical": CORE + ["ol", "table", "compare"], "practical": CORE_UL_WARN + ["ol", "stepFlow", "checklist", "inputLine"]},
+  "Knowledge & Understanding": {"conceptual": CORE + ["table", "compare", "flip"], "theoretical": CORE + ["table", "compare", "flip", "fillblank"], "practical": CORE + ["fillblank", "flip", "swipecards"]},
+  "Skill Building": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare"], "practical": CORE + ["stepFlow", "checklist", "inputLine"]},
   "Critical Thinking": {"conceptual": CORE + ["compare", "table"], "theoretical": CORE + ["compare", "table", "flip", "stepFlow"], "practical": CORE + ["compare", "table", "swipecards", "stepFlow", "freeText", "fillblank"]},
-  "Planning and Productivity": {"conceptual": CORE_UL_WARN + ["table", "compare"], "theoretical": CORE_UL_WARN + ["table", "compare", "flip"], "practical": CORE_UL_WARN + ["ol", "stepFlow", "checklist", "table", "inputLine", "freeText"]},
-  "Growth Mindset": {"conceptual": CORE_UL + ["compare"], "theoretical": CORE_UL + ["compare", "table", "flip"], "practical": CORE + ["flip", "freeText", "inputLine", "swipecards"]},
-  "Communication Skills": {"conceptual": CORE_UL + ["compare"], "theoretical": CORE_UL + ["compare", "table", "flip"], "practical": CORE + ["compare", "swipecards", "freeText", "inputLine", "stepFlow"]},
-  "Movement and Fitness": {"conceptual": CORE_UL + ["table"], "theoretical": CORE_UL + ["warn", "table", "compare"], "practical": CORE_UL_WARN + ["checklist", "stepFlow", "freeText", "inputLine"]},
-  "Creative Skills": {"conceptual": CORE_UL + ["table"], "theoretical": CORE + ["table", "compare", "flip", "fillblank"], "practical": CORE + ["freeText", "inputLine", "checklist", "swipecards"]},
+  "Planning and Productivity": {"conceptual": CORE + ["table", "compare"], "theoretical": CORE + ["table", "compare", "flip"], "practical": CORE + ["stepFlow", "checklist", "table", "inputLine", "freeText"]},
+  "Growth Mindset": {"conceptual": CORE + ["compare"], "theoretical": CORE + ["compare", "table", "flip"], "practical": CORE + ["flip", "freeText", "inputLine", "swipecards"]},
+  "Communication Skills": {"conceptual": CORE + ["compare"], "theoretical": CORE + ["compare", "table", "flip"], "practical": CORE + ["compare", "swipecards", "freeText", "inputLine", "stepFlow"]},
+  "Movement and Fitness": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare"], "practical": CORE + ["checklist", "stepFlow", "freeText", "inputLine"]},
+  "Creative Skills": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare", "flip", "fillblank"], "practical": CORE + ["freeText", "inputLine", "checklist", "swipecards"]},
   "Web Dev and Coding": {
-    "conceptual": CORE_UL_WARN + ["table", "compare", "checklist", "terminalDemo", "codeEditor"],
-    "theoretical": CORE_UL_WARN + ["table", "compare", "asciiDiagram", "terminalDemo", "codeEditor"],
-    "practical": CORE_UL_WARN + ["ol", "stepFlow", "checklist", "codeEditor", "interactiveTerminal", "terminalDemo", "swipecards", "err", "success"],
+    "conceptual": CORE + ["table", "compare", "checklist", "terminalDemo", "codeEditor"],
+    "theoretical": CORE + ["table", "compare", "asciiDiagram", "terminalDemo", "codeEditor"],
+    "practical": CORE + ["stepFlow", "checklist", "codeEditor", "interactiveTerminal", "terminalDemo", "swipecards"],
   },
-  "Language Practice": {
-    "conceptual": CORE_UL + ["tr", "flip", "fillblank", "inputLine"],
-    "theoretical": CORE_UL + ["tr", "table", "compare", "fillblank", "flip"],
-    "practical": CORE_UL_WARN + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText", "ol"],
-  },
+  "Language Practice": {"conceptual": CORE + ["tr", "flip", "fillblank", "inputLine"], "theoretical": CORE + ["tr", "table", "compare", "fillblank", "flip"], "practical": CORE + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText"]},
 }
 
 
