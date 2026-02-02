@@ -4,8 +4,6 @@ import json
 import logging
 import time
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.api.models import GenerateLessonRequest, GenerateLessonResponse, LessonMeta
 from app.config import Settings
 from app.notifications.factory import build_notification_service
@@ -16,6 +14,7 @@ from app.services.model_routing import _get_orchestrator, _resolve_model_selecti
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.storage.factory import _get_repo
 from app.storage.lessons_repo import LessonRecord
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
