@@ -71,4 +71,44 @@ class CloudTasksEnqueuer(TaskEnqueuer):
       logger.info(f"Enqueued task {response.name} for job {job_id}")
     except Exception as e:
       logger.error(f"Failed to enqueue task for job {job_id}: {e}", exc_info=True)
-      # We might want to raise here depending on reliability requirements
+      raise
+
+  async def enqueue_lesson(self, lesson_id: str, job_id: str, params: dict, user_id: str) -> None:
+    """Enqueue a lesson generation task to Cloud Tasks."""
+    if not self.settings.cloud_tasks_queue_path:
+      logger.error("Cloud Tasks queue path not configured.")
+      return
+
+    if not self.settings.base_url:
+      logger.error("Base URL not configured.")
+      return
+
+    url = f"{self.settings.base_url}/worker/process-lesson"
+
+    payload = {
+      "lesson_id": lesson_id,
+      "job_id": job_id,
+      "params": params,
+      "user_id": user_id,
+    }
+
+    task = {
+      "http_request": {
+        "http_method": tasks_v2.HttpMethod.POST,
+        "url": url,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(payload).encode(),
+      }
+    }
+
+    if self.settings.cloud_run_invoker_service_account:
+      task["http_request"]["oidc_token"] = {"service_account_email": self.settings.cloud_run_invoker_service_account}
+
+    parent = self.settings.cloud_tasks_queue_path
+
+    try:
+      response = self.client.create_task(request={"parent": parent, "task": task})
+      logger.info(f"Enqueued lesson task {response.name} for lesson {lesson_id}")
+    except Exception as e:
+      logger.error(f"Failed to enqueue lesson task for lesson {lesson_id}: {e}", exc_info=True)
+      raise

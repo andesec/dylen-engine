@@ -52,3 +52,27 @@ class LocalHttpEnqueuer(TaskEnqueuer):
 
     except httpx.RequestError as e:
       logger.error(f"Failed to dispatch local task for job {job_id}: {e}")
+
+  async def enqueue_lesson(self, lesson_id: str, job_id: str, params: dict, user_id: str) -> None:
+    """Enqueue a lesson generation task locally."""
+    if not self.settings.base_url:
+      logger.warning("Base URL not configured, strictly required for LocalHttpEnqueuer.")
+      return
+
+    url = f"{self.settings.base_url.rstrip('/')}/worker/process-lesson"
+
+    payload = {
+      "lesson_id": lesson_id,
+      "job_id": job_id,
+      "params": params,
+      "user_id": user_id,
+    }
+
+    try:
+      async with httpx.AsyncClient() as client:
+        logger.info(f"Dispatching lesson task locally to {url}")
+        # Use short timeout to simulate async dispatch
+        await client.post(url, json=payload, timeout=5.0)
+
+    except httpx.RequestError as e:
+      logger.error(f"Failed to dispatch local lesson task for lesson {lesson_id}: {e}")

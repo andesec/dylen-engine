@@ -65,6 +65,7 @@ class Settings:
   research_router_model: str
   research_search_max_results: int
   task_secret: str | None
+  cloud_run_invoker_service_account: str | None
 
 
 def _parse_origins(raw: str | None) -> tuple[str, ...]:
@@ -202,6 +203,7 @@ def get_settings() -> Settings:
     research_router_model=os.getenv("DYLEN_RESEARCH_ROUTER_MODEL", "gemini-1.5-flash"),
     research_search_max_results=int(os.getenv("DYLEN_RESEARCH_SEARCH_MAX_RESULTS", "5")),
     task_secret=_optional_str(os.getenv("DYLEN_TASK_SECRET")),
+    cloud_run_invoker_service_account=_optional_str(os.getenv("DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT")),
   )
 
 

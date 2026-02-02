@@ -240,6 +240,12 @@ class JobCreateResponse(BaseModel):
   expected_sections: StrictInt = Field(ge=0, description="Total number of sections expected for the lesson job (0 for non-lesson jobs).")
 
 
+class LessonJobResponse(JobCreateResponse):
+  """Response payload for async lesson generation."""
+
+  lesson_id: StrictStr
+
+
 RetryAgent = Literal["planner", "section_builder", "repair", "stitcher"]
 
 
