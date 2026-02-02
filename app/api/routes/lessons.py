@@ -10,24 +10,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import consume_section_quota
 from app.api.deps_concurrency import verify_concurrency
-from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
+from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonJobResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
 from app.jobs.models import JobRecord
-from app.notifications.factory import build_notification_service
+from app.jobs.progress import build_call_plan
 from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.sql import User
 from app.schema.validate_lesson import validate_lesson
-from app.services.audit import log_llm_interaction
-from app.services.feature_flags import is_feature_enabled
 from app.services.jobs import create_job
-from app.services.model_routing import _get_orchestrator, _resolve_model_selection
-from app.services.request_validation import _resolve_learner_level, _resolve_primary_language, _validate_generate_request
+from app.services.request_validation import _validate_generate_request
 from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.tasks.factory import get_task_enqueuer
 from app.services.users import get_user_subscription_tier
 from app.storage.factory import _get_jobs_repo, _get_repo
-from app.storage.lessons_repo import LessonRecord
 from app.utils.ids import generate_job_id, generate_lesson_id
 
 router = APIRouter()
@@ -56,79 +53,7 @@ async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
   return ValidationResponse(ok=ok, errors=errors)
 
 
-async def _process_lesson_generation(request: GenerateLessonRequest, settings: Settings, current_user: User, db_session: AsyncSession, tier_id: int) -> GenerateLessonResponse:
-  """Execute core lesson generation logic."""
-  start = time.monotonic()
-  # Resolve per-agent model overrides and provider routing for this request.
-  selection = _resolve_model_selection(settings, models=request.models)
-  (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
-  orchestrator = _get_orchestrator(
-    settings, section_builder_provider=section_builder_provider, section_builder_model=section_builder_model, planner_provider=planner_provider, planner_model=planner_model, repair_provider=repairer_provider, repair_model=repairer_model
-  )
-  language = _resolve_primary_language(request)
-  learner_level = _resolve_learner_level(request)
-
-  if current_user.id:
-    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, status="started", session=db_session)
-
-  result = await orchestrator.generate_lesson(
-    topic=request.topic,
-    details=request.details,
-    blueprint=request.blueprint,
-    teaching_style=request.teaching_style,
-    learner_level=learner_level,
-    depth=request.depth,
-    schema_version=request.schema_version or settings.schema_version,
-    section_builder_model=section_builder_model,
-    structured_output=True,
-    language=language,
-    widgets=request.widgets,
-  )
-
-  if current_user.id:
-    total_tokens = 0
-    if result.usage:
-      for entry in result.usage:
-        total_tokens += int(entry.get("prompt_tokens", 0)) + int(entry.get("completion_tokens", 0))
-
-    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, tokens_used=total_tokens, status="completed", session=db_session)
-
-  lesson_id = generate_lesson_id()
-  latency_ms = int((time.monotonic() - start) * 1000)
-
-  record = LessonRecord(
-    lesson_id=lesson_id,
-    user_id=str(current_user.id),
-    topic=request.topic,
-    title=result.lesson_json["title"],
-    created_at=time.strftime(_DATE_FORMAT, time.gmtime()),
-    schema_version=request.schema_version or settings.schema_version,
-    prompt_version=settings.prompt_version,
-    provider_a=result.provider_a,
-    model_a=result.model_a,
-    provider_b=result.provider_b,
-    model_b=result.model_b,
-    lesson_json=json.dumps(result.lesson_json, ensure_ascii=True),
-    status="ok",
-    latency_ms=latency_ms,
-    idempotency_key=request.idempotency_key,
-  )
-
-  repo = _get_repo(settings)
-  await repo.create_lesson(record)
-  # Notify the user after a successful persistence write.
-  email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=current_user.org_id, subscription_tier_id=tier_id)
-  await build_notification_service(settings, email_enabled=email_enabled).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
-
-  return GenerateLessonResponse(
-    lesson_id=lesson_id,
-    lesson_json=result.lesson_json,
-    meta=LessonMeta(provider_a=result.provider_a, model_a=result.model_a, provider_b=result.provider_b, model_b=result.model_b, latency_ms=latency_ms),
-    logs=result.logs,  # Include logs from orchestrator
-  )
-
-
-@router.post("/generate", response_model=GenerateLessonResponse, responses={500: {"model": OrchestrationFailureResponse}})
+@router.post("/generate", response_model=LessonJobResponse, status_code=status.HTTP_202_ACCEPTED, responses={500: {"model": OrchestrationFailureResponse}})
 async def generate_lesson(  # noqa: B008
   request: GenerateLessonRequest,
   settings: Settings = Depends(get_settings),  # noqa: B008
@@ -136,68 +61,96 @@ async def generate_lesson(  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
   quota_check=Depends(consume_section_quota),  # noqa: B008
   concurrency_check=Depends(verify_concurrency("lesson")),  # noqa: B008
-) -> GenerateLessonResponse:
-  """Generate a lesson from a topic using the two-step pipeline."""
+) -> LessonJobResponse:
+  """Generate a lesson from a topic using the asynchronous pipeline."""
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
   runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id)
   _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
 
-  # Idempotency Check: Return existing lesson or job if key matches.
-  if request.idempotency_key:
-    jobs_repo = _get_jobs_repo(settings)
+  jobs_repo = _get_jobs_repo(settings)
 
-    # Note: Currently repo does not have find_lesson_by_idempotency_key, but we can check jobs.
-    # If a synchronous lesson generation was successful, it created a job record and a lesson record.
+  # Idempotency Check: Return existing job info if key matches.
+  if request.idempotency_key:
     existing_job = await jobs_repo.find_by_idempotency_key(request.idempotency_key)
     if existing_job and existing_job.user_id == str(current_user.id):
       logger.info("Found existing job %s for idempotency key %s", existing_job.job_id, request.idempotency_key)
 
+      lesson_id = existing_job.request.get("_lesson_id")
+
+      # If completed, check result
       if existing_job.status == "done" and existing_job.result_json:
-        # Reconstruct GenerateLessonResponse from stored result.
-        return GenerateLessonResponse.model_validate(existing_job.result_json)
+        # If we have the result, we can try to extract lesson_id if not in request meta
+        if not lesson_id:
+            try:
+                res = GenerateLessonResponse.model_validate(existing_job.result_json)
+                lesson_id = res.lesson_id
+            except Exception:
+                pass
 
+        if lesson_id:
+             return LessonJobResponse(job_id=existing_job.job_id, expected_sections=existing_job.expected_sections or 0, lesson_id=lesson_id)
+
+      # If still processing or queued, we return the job info if we have lesson_id
+      if lesson_id:
+          return LessonJobResponse(job_id=existing_job.job_id, expected_sections=existing_job.expected_sections or 0, lesson_id=lesson_id)
+
+      # If we can't find lesson_id, we might need to error or create new?
+      # Assuming idempotency key means "same result", so if we can't give same result, it's a problem.
+      # But for now, let's fall through if we really can't find it (which shouldn't happen for new jobs).
       if existing_job.status in ("queued", "processing", "in_progress"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A request with this idempotency key is already being processed.")
+           raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A request with this idempotency key is already being processed.")
 
-  # Tracking job for concurrency
-  jobs_repo = _get_jobs_repo(settings)
-
-  tracking_job_id = generate_job_id()
+  # Generate IDs
+  lesson_id = generate_lesson_id()
+  job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
-  # Set TTL to 1 hour to prevent zombie jobs blocking concurrency forever
+  # Set TTL to 1 hour
   job_ttl = int(time.time()) + 3600
 
-  tracking_job = JobRecord(
-    job_id=tracking_job_id,
+  # Expected sections
+  plan = build_call_plan(request.model_dump(mode="python", by_alias=True))
+  expected_sections = plan.depth
+
+  # Save Job
+  request_payload = request.model_dump(mode="python", by_alias=True)
+  request_payload["_lesson_id"] = lesson_id  # Store lesson_id for retrieval
+
+  job_record = JobRecord(
+    job_id=job_id,
     user_id=str(current_user.id),
-    request=request.model_dump(mode="python", by_alias=True),
-    status="processing",
+    request=request_payload,
+    status="queued",
     target_agent="lesson",  # Mark as lesson job
-    phase="processing",
+    phase="queued",
     created_at=timestamp,
     updated_at=timestamp,
-    expected_sections=0,  # Not strictly tracked for sync
+    expected_sections=expected_sections,
     completed_sections=0,
     completed_section_indexes=[],
     retry_count=0,
-    max_retries=0,
+    max_retries=settings.job_max_retries,
     logs=[],
     progress=0.0,
     ttl=job_ttl,
+    idempotency_key=request.idempotency_key,
   )
-  await jobs_repo.create_job(tracking_job)
+  await jobs_repo.create_job(job_record)
+
+  # Enqueue Task
+  enqueuer = get_task_enqueuer(settings)
+
+  # Params for worker
+  params = request.model_dump(mode="python", by_alias=True)
 
   try:
-    response_payload = await _process_lesson_generation(request, settings, current_user, db_session, tier_id)
-
-    # Mark tracking job as completed
-    await jobs_repo.update_job(tracking_job_id, status="done", phase="done", progress=100.0, completed_at=time.strftime(_DATE_FORMAT, time.gmtime()), result_json=response_payload.model_dump(mode="json"))
-
-    return response_payload
+    await enqueuer.enqueue_lesson(lesson_id=lesson_id, job_id=job_id, params=params, user_id=str(current_user.id))
   except Exception as e:
-    # Mark tracking job as error
-    await jobs_repo.update_job(tracking_job_id, status="error", phase="error", logs=[str(e)], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
-    raise
+    logger.error("Failed to enqueue lesson task: %s", e, exc_info=True)
+    # Mark job as error so it doesn't stay queued forever
+    await jobs_repo.update_job(job_id, status="error", phase="error", logs=[f"Enqueue failed: {e!s}"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to enqueue lesson generation task.") from e
+
+  return LessonJobResponse(job_id=job_id, expected_sections=expected_sections, lesson_id=lesson_id)
 
 
 @router.get("/{lesson_id}", response_model=LessonRecordResponse)
