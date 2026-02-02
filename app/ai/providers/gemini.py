@@ -39,10 +39,10 @@ class GeminiModel(AIModel):
     logger = logging.getLogger("app.ai.providers.gemini")
 
     # Allow deterministic local tests without spending credits.
-    dummy = AIModel.load_dummy_response("GATHERER")
+    dummy = AIModel.load_dummy_response("SECTION_BUILDER")
     if dummy is not None:
       response = SimpleModelResponse(content=dummy, usage=None)
-      logger.info("Gemini GATHERER dummy response:\n%s", response.content)
+      logger.info("Gemini SECTION_BUILDER dummy response:\n%s", response.content)
       return response
 
     # Use the async client to avoid blocking the asyncio event loop.
@@ -59,7 +59,7 @@ class GeminiModel(AIModel):
     logger = logging.getLogger("app.ai.providers.gemini")
 
     # Allow deterministic local tests without spending credits.
-    dummy = AIModel.load_dummy_response("STRUCTURER")
+    dummy = AIModel.load_dummy_response("SECTION_BUILDER")
     if dummy is not None:
       cleaned = AIModel.strip_json_fences(dummy)
       parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))

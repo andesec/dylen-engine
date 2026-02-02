@@ -1,5 +1,5 @@
 from dataclasses import replace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from app.config import get_settings
@@ -19,6 +19,9 @@ async def test_local_task_dispatch():
   with patch("app.services.tasks.local.httpx.AsyncClient") as mock_client_cls:
     mock_client = AsyncMock()
     mock_client_cls.return_value.__aenter__.return_value = mock_client
+    mock_response = Mock()
+    mock_response.raise_for_status = Mock()
+    mock_client.post.return_value = mock_response
 
     enqueuer = get_task_enqueuer(settings)  # Should be local-http default
 

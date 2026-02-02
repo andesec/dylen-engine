@@ -43,10 +43,10 @@ class OpenRouterModel(AIModel):
     logger = logging.getLogger("app.ai.providers.openrouter")
 
     # Allow deterministic local tests without spending credits.
-    dummy = AIModel.load_dummy_response("GATHERER")
+    dummy = AIModel.load_dummy_response("SECTION_BUILDER")
     if dummy is not None:
       response = SimpleModelResponse(content=dummy, usage=None)
-      logger.info("OpenRouter GATHERER dummy response:\n%s", response.content)
+      logger.info("OpenRouter SECTION_BUILDER dummy response:\n%s", response.content)
       return response
 
     response = await self._client.chat.completions.create(model=self.name, messages=[{"role": "user", "content": prompt}])
@@ -68,7 +68,7 @@ class OpenRouterModel(AIModel):
       raise RuntimeError(f"Structured output is not supported for model '{self.name}'.")
 
     # Allow deterministic local tests without spending credits.
-    dummy = AIModel.load_dummy_response("STRUCTURER")
+    dummy = AIModel.load_dummy_response("SECTION_BUILDER")
     if dummy is not None:
       cleaned = AIModel.strip_json_fences(dummy)
       parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))

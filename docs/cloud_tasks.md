@@ -35,6 +35,7 @@ For local development, the system defaults to `local-http`.
     ...
     INFO:     Job completed successfully.
     ```
+4.  Note: when `DYLEN_BASE_URL` points at `localhost`/`127.0.0.1`, local dispatch routes requests in-process (ASGI transport) and ignores proxy env vars for reliability.
 
 ## Cloud Deployment (GCP)
 
@@ -59,3 +60,4 @@ To enable Cloud Tasks:
 
 *   **Job stuck in `queued`**: Check if `DYLEN_JOBS_AUTO_PROCESS` is `True`. Check logs for "Failed to enqueue task".
 *   **Task fails repeatedly**: Cloud Tasks will retry automatically with exponential backoff. Check the handler logs for exceptions.
+*   **`Server disconnected without sending a response`**: Ensure `DYLEN_BASE_URL` is set and points to `http://localhost:<port>` for local development, and avoid proxying internal requests (the local enqueuer ignores proxy env vars by default).

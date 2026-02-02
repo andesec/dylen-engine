@@ -79,8 +79,7 @@ services:
       - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
       - GOOGLE_APPLICATION_CREDENTIALS=/home/nonroot/.config/gcloud/application_default_credentials.json
       - DYLEN_DUMMY_PLANNER_RESPONSE_PATH=./fixtures/dummy_planner_response.md
-      - DYLEN_DUMMY_GATHERER_RESPONSE_PATH=./fixtures/dummy_gatherer_response.md
-      - DYLEN_DUMMY_STRUCTURER_RESPONSE_PATH=./fixtures/dummy_structurer_response.md
+      - DYLEN_DUMMY_SECTION_BUILDER_RESPONSE_PATH=./fixtures/dummy_section_builder_response.md
       - DYLEN_DUMMY_REPAIRER_RESPONSE_PATH=./fixtures/dummy_repairer_response.md
     networks:
       - dylen-network

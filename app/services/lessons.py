@@ -21,15 +21,7 @@ logger = logging.getLogger(__name__)
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-async def process_lesson_generation(
-  request: GenerateLessonRequest,
-  lesson_id: str,
-  settings: Settings,
-  current_user: User,
-  db_session: AsyncSession,
-  tier_id: int,
-  idempotency_key: str | None = None,
-) -> GenerateLessonResponse:
+async def process_lesson_generation(request: GenerateLessonRequest, lesson_id: str, settings: Settings, current_user: User, db_session: AsyncSession, tier_id: int, idempotency_key: str | None = None) -> GenerateLessonResponse:
   """Execute core lesson generation logic."""
   start = time.monotonic()
   # Resolve per-agent model overrides and provider routing for this request.

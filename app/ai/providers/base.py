@@ -25,7 +25,9 @@ def _ensure_env_loaded() -> None:
 
 def _resolve_dummy_path(agent: str, raw_path: str | None) -> Path:
   """Resolve a dummy response path using env or default fixtures."""
-  base_dir = Path(__file__).resolve().parents[4]
+  # Resolve paths relative to the repo root (…/dylen-engine).
+  # NOTE: This module lives at `app/ai/providers/base.py`, so `parents[3]` is the repo root.
+  base_dir = Path(__file__).resolve().parents[3]
   if raw_path:
     path = Path(raw_path)
   else:
@@ -100,10 +102,10 @@ class AIModel(ABC):
     Load a deterministic dummy response from disk when testing the pipeline.
 
     Args:
-        agent: Environment variable suffix to select dummy data (e.g., "GATHERER", "STRUCTURER")
+        agent: Environment variable suffix to select dummy data (e.g., "SECTION_BUILDER", "PLANNER")
 
     Returns:
-        StructuredModelResponse with content as dict, or None if not enabled/found
+        Dummy response text, or None if not enabled
     """
     _ensure_env_loaded()
     flag = os.getenv(f"DYLEN_USE_DUMMY_{agent}_RESPONSE", "false").strip().lower()

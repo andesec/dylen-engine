@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 
 import httpx
 from app.config import Settings
@@ -15,6 +16,30 @@ class LocalHttpEnqueuer(TaskEnqueuer):
   def __init__(self, settings: Settings) -> None:
     self.settings = settings
 
+  def _should_use_asgi_transport(self, base_url: str) -> bool:
+    """Decide if we should route requests in-process via ASGITransport."""
+    # Avoid network/proxy edge-cases for local development by calling the app in-process when possible.
+    parsed = urlparse(base_url)
+    hostname = (parsed.hostname or "").lower()
+    return hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+  def _build_client(self, base_url: str) -> httpx.AsyncClient:
+    """Build an httpx client for local task dispatch."""
+    # Never trust environment proxy variables for internal task dispatch.
+    if self._should_use_asgi_transport(base_url):
+      from app.main import app
+
+      transport = httpx.ASGITransport(app=app)
+      return httpx.AsyncClient(transport=transport, base_url=base_url, trust_env=False)
+    return httpx.AsyncClient(trust_env=False)
+
+  def _task_headers(self) -> dict[str, str]:
+    """Build task authentication headers for internal endpoints."""
+    # Support optional shared-secret auth for local + CI parity with production.
+    if not self.settings.task_secret:
+      return {}
+    return {"authorization": f"Bearer {self.settings.task_secret}"}
+
   async def enqueue(self, job_id: str, payload: dict) -> None:
     """Enqueue a job by POSTing to the local endpoint."""
     if not self.settings.base_url:
@@ -23,35 +48,19 @@ class LocalHttpEnqueuer(TaskEnqueuer):
 
     url = f"{self.settings.base_url.rstrip('/')}/internal/tasks/process-job"
 
-    # Fire and forget-ish: we want to trigger it but not block excessively?
-    # Actually, `httpx.AsyncClient` usage here:
-    # If we await it, we block the `create_job` response.
-    # Cloud Tasks is async (returns quickly).
-    # We should probably use a short timeout or fire in background if we want true "background" behavior.
-    # But since `enqueue` is async, awaiting a quick HTTP call is probably fine.
-
     try:
-      async with httpx.AsyncClient() as client:
-        # We use a short timeout because we don't want to wait for the JOB to finish,
-        # just for the request to be accepted.
-        # However, the endpoint `process_job` currently runs the job *synchronously* in `process_job_async` logic?
-        # Wait, the `process_job_async` concept was "run in background".
-        # The new endpoint will need to be careful.
-        # If the endpoint awaits the whole job, then THIS call awaits the whole job.
-        # That's bad for `create_job` latency.
-        # The new endpoint should probably spawn a background task OR we assume `timeout` here lets it run?
-        # No, if we timeout here, the server might kill the handling?
-        # Actually, `httpx` timeout just closes the client connection.
-        # FastApi server *should* continue processing if built correctly (background tasks).
-        # So we will post and expect an immediate "202 Accepted" or similar,
-        # OR we rely on the endpoint to delegate to BackgroundTasks.
-        pass
-
+      async with self._build_client(self.settings.base_url) as client:
+        # The local task endpoint runs work synchronously, so allow a long deadline for parity with Cloud Tasks.
         logger.info(f"Dispatching task locally to {url}")
-        await client.post(url, json={"job_id": job_id}, timeout=5.0)
+        response = await client.post(url, json={"job_id": job_id}, headers=self._task_headers(), timeout=1800.0)
+        response.raise_for_status()
 
+    except httpx.HTTPStatusError as e:
+      logger.error(f"Local task dispatch returned {e.response.status_code} for job {job_id}: {e.response.text}")
+      raise
     except httpx.RequestError as e:
       logger.error(f"Failed to dispatch local task for job {job_id}: {e}")
+      raise
 
   async def enqueue_lesson(self, lesson_id: str, job_id: str, params: dict, user_id: str) -> None:
     """Enqueue a lesson generation task locally."""
@@ -61,18 +70,17 @@ class LocalHttpEnqueuer(TaskEnqueuer):
 
     url = f"{self.settings.base_url.rstrip('/')}/worker/process-lesson"
 
-    payload = {
-      "lesson_id": lesson_id,
-      "job_id": job_id,
-      "params": params,
-      "user_id": user_id,
-    }
+    payload = {"lesson_id": lesson_id, "job_id": job_id, "params": params, "user_id": user_id}
 
     try:
-      async with httpx.AsyncClient() as client:
+      async with self._build_client(self.settings.base_url) as client:
         logger.info(f"Dispatching lesson task locally to {url}")
-        # Use short timeout to simulate async dispatch
-        await client.post(url, json=payload, timeout=5.0)
+        response = await client.post(url, json=payload, headers=self._task_headers(), timeout=1800.0)
+        response.raise_for_status()
 
+    except httpx.HTTPStatusError as e:
+      logger.error(f"Local lesson task dispatch returned {e.response.status_code} for lesson {lesson_id}: {e.response.text}")
+      raise
     except httpx.RequestError as e:
       logger.error(f"Failed to dispatch local lesson task for lesson {lesson_id}: {e}")
+      raise

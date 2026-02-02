@@ -30,11 +30,7 @@ class LessonGenerationTask(BaseModel):
 
 
 @router.post("/process-lesson", status_code=status.HTTP_200_OK)
-async def process_lesson_endpoint(
-  task: LessonGenerationTask,
-  settings: Settings = Depends(get_settings),
-  db_session: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
+async def process_lesson_endpoint(task: LessonGenerationTask, settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db)) -> dict[str, str]:
   """Worker endpoint to process lesson generation."""
   logger.info("Received lesson generation task for job %s", task.job_id)
 
@@ -76,9 +72,7 @@ async def process_lesson_endpoint(
     tier_id, _ = await get_user_subscription_tier(db_session, user.id)
 
     # Process
-    result = await process_lesson_generation(
-      request=request, lesson_id=task.lesson_id, settings=settings, current_user=user, db_session=db_session, tier_id=tier_id, idempotency_key=job.idempotency_key
-    )
+    result = await process_lesson_generation(request=request, lesson_id=task.lesson_id, settings=settings, current_user=user, db_session=db_session, tier_id=tier_id, idempotency_key=job.idempotency_key)
 
     # Update job success
     # Refresh job to get latest logs if needed? No, we just append.
@@ -86,20 +80,12 @@ async def process_lesson_endpoint(
     # Or just append to what we had at start + "Worker started".
     # Since we are single threaded per job largely, it's fine.
     await jobs_repo.update_job(
-      task.job_id,
-      status="done",
-      phase="done",
-      progress=100.0,
-      completed_at=time.strftime(_DATE_FORMAT, time.gmtime()),
-      result_json=result.model_dump(mode="json"),
-      logs=current_logs + ["Worker started processing.", "Worker completed successfully."],
+      task.job_id, status="done", phase="done", progress=100.0, completed_at=time.strftime(_DATE_FORMAT, time.gmtime()), result_json=result.model_dump(mode="json"), logs=current_logs + ["Worker started processing.", "Worker completed successfully."]
     )
 
   except Exception as e:
     logger.error("Job %s failed: %s", task.job_id, e, exc_info=True)
-    await jobs_repo.update_job(
-      task.job_id, status="error", phase="error", logs=current_logs + ["Worker started processing.", f"Error: {e!s}"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime())
-    )
+    await jobs_repo.update_job(task.job_id, status="error", phase="error", logs=current_logs + ["Worker started processing.", f"Error: {e!s}"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
     return {"status": "error", "detail": str(e)}
 
   return {"status": "ok"}

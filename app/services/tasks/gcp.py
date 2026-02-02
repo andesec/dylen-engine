@@ -85,21 +85,9 @@ class CloudTasksEnqueuer(TaskEnqueuer):
 
     url = f"{self.settings.base_url}/worker/process-lesson"
 
-    payload = {
-      "lesson_id": lesson_id,
-      "job_id": job_id,
-      "params": params,
-      "user_id": user_id,
-    }
+    payload = {"lesson_id": lesson_id, "job_id": job_id, "params": params, "user_id": user_id}
 
-    task = {
-      "http_request": {
-        "http_method": tasks_v2.HttpMethod.POST,
-        "url": url,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps(payload).encode(),
-      }
-    }
+    task = {"http_request": {"http_method": tasks_v2.HttpMethod.POST, "url": url, "headers": {"Content-Type": "application/json"}, "body": json.dumps(payload).encode()}}
 
     if self.settings.cloud_run_invoker_service_account:
       task["http_request"]["oidc_token"] = {"service_account_email": self.settings.cloud_run_invoker_service_account}
