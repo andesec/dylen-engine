@@ -76,12 +76,10 @@ class CloudTasksEnqueuer(TaskEnqueuer):
   async def enqueue_lesson(self, lesson_id: str, job_id: str, params: dict, user_id: str) -> None:
     """Enqueue a lesson generation task to Cloud Tasks."""
     if not self.settings.cloud_tasks_queue_path:
-      logger.error("Cloud Tasks queue path not configured.")
-      return
+      raise ValueError("Cloud Tasks queue path not configured.")
 
     if not self.settings.base_url:
-      logger.error("Base URL not configured.")
-      return
+      raise ValueError("Base URL not configured.")
 
     url = f"{self.settings.base_url}/worker/process-lesson"
 
