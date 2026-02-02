@@ -129,8 +129,27 @@ class GenerateLessonRequest(BaseModel):
 
     depth = data.get("depth")
 
+    # Coerce legacy numeric depth values into supported labels so background jobs and older clients do not crash model validation.
+    if isinstance(depth, int):
+      if depth == 2:
+        data["depth"] = "highlights"
+      elif depth == 6:
+        data["depth"] = "detailed"
+      elif depth == 10:
+        data["depth"] = "training"
+      else:
+        raise ValueError("Depth must be Highlights, Detailed, Training, or one of 2, 6, 10.")
+
     if isinstance(depth, str):
-      data["depth"] = _normalize_option_id(depth)
+      normalized_depth = _normalize_option_id(depth)
+      # Accept numeric string depths used by legacy clients and job payloads.
+      if normalized_depth == "2":
+        normalized_depth = "highlights"
+      elif normalized_depth == "6":
+        normalized_depth = "detailed"
+      elif normalized_depth == "10":
+        normalized_depth = "training"
+      data["depth"] = normalized_depth
 
     widgets = data.get("widgets")
 

@@ -287,10 +287,15 @@ class JobProcessor:
       # Persist the completed lesson into the lessons repository.
       lesson_id = generate_lesson_id()
       latency_ms = int((time.monotonic() - start_time) * 1000)
+      # Ensure persistence never fails on missing title fields, even if upstream validation rules change.
+      title = merged_result_json.get("title") if isinstance(merged_result_json, dict) else None
+      if not isinstance(title, str) or not title.strip():
+        title = request_model.topic
+
       lesson_record = LessonRecord(
         lesson_id=lesson_id,
         topic=request_model.topic,
-        title=merged_result_json["title"],
+        title=title,
         created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         schema_version=request_model.schema_version or self._settings.schema_version,
         prompt_version=self._settings.prompt_version,

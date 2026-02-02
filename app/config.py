@@ -177,7 +177,7 @@ def get_settings() -> Settings:
     schema_version=os.getenv("DYLEN_SCHEMA_VERSION", "1.0"),
     jobs_auto_process=_parse_bool(os.getenv("DYLEN_JOBS_AUTO_PROCESS")),
     jobs_ttl_seconds=_parse_optional_int(os.getenv("DYLEN_JOBS_TTL_SECONDS")),
-    pg_dsn=os.getenv("DYLEN_PG_DSN"),
+    pg_dsn=os.getenv("DYLEN_PG_DSN") or os.getenv("DATABASE_URL"),
     pg_connect_timeout=int(os.getenv("DYLEN_PG_CONNECT_TIMEOUT", "5")),
     pg_lessons_table=os.getenv("DYLEN_PG_LESSONS_TABLE", "dylen_lessons"),
     pg_jobs_table=os.getenv("DYLEN_PG_JOBS_TABLE", "dylen_jobs"),

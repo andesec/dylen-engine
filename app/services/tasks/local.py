@@ -22,6 +22,10 @@ class LocalHttpEnqueuer(TaskEnqueuer):
       return
 
     url = f"{self.settings.base_url.rstrip('/')}/internal/tasks/process-job"
+    # Attach the shared secret when configured so internal task dispatch is authorized.
+    headers = {}
+    if self.settings.task_secret:
+      headers["authorization"] = f"Bearer {self.settings.task_secret}"
 
     # Fire and forget-ish: we want to trigger it but not block excessively?
     # Actually, `httpx.AsyncClient` usage here:
@@ -32,23 +36,9 @@ class LocalHttpEnqueuer(TaskEnqueuer):
 
     try:
       async with httpx.AsyncClient() as client:
-        # We use a short timeout because we don't want to wait for the JOB to finish,
-        # just for the request to be accepted.
-        # However, the endpoint `process_job` currently runs the job *synchronously* in `process_job_async` logic?
-        # Wait, the `process_job_async` concept was "run in background".
-        # The new endpoint will need to be careful.
-        # If the endpoint awaits the whole job, then THIS call awaits the whole job.
-        # That's bad for `create_job` latency.
-        # The new endpoint should probably spawn a background task OR we assume `timeout` here lets it run?
-        # No, if we timeout here, the server might kill the handling?
-        # Actually, `httpx` timeout just closes the client connection.
-        # FastApi server *should* continue processing if built correctly (background tasks).
-        # So we will post and expect an immediate "202 Accepted" or similar,
-        # OR we rely on the endpoint to delegate to BackgroundTasks.
-        pass
-
         logger.info(f"Dispatching task locally to {url}")
-        await client.post(url, json={"job_id": job_id}, timeout=5.0)
+        # Use a short timeout because we only need the task to be accepted, not fully processed.
+        await client.post(url, json={"job_id": job_id}, headers=headers, timeout=5.0)
 
     except httpx.RequestError as e:
       logger.error(f"Failed to dispatch local task for job {job_id}: {e}")

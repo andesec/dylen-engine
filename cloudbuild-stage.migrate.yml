@@ -1,3 +1,12 @@
+# cloudbuild-stage.migrate.yml
+# Single command pipeline:
+# 0) sanity checks + ensure AR repo + convert .env.example (dotenv) -> YAML (bash-only)
+# 1) build
+# 2) push
+# 3) create/update migrations job + execute
+# 4) deploy service
+# 5) print effective env for both job + service
+
 substitutions:
   _REGION: "us-central1"
   _AR_REPO: "dylen-stage"
@@ -10,21 +19,72 @@ substitutions:
   _RUN_SA: "sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com"
   _CLOUDSQL_INSTANCE: "dylen-stage-485900:us-central1:dylen-stage"
 
-  _ENV_FILE: ".env.example"
+  _ENV_DOTENV_FILE: ".env.example"
+  _ENV_YAML_FILE: "/workspace/env.stage.yaml"
+
   _DBURL_SECRET: "STAGE_DATABASE_URL"
 
 steps:
+  # Step 0: sanity checks + ensure AR repo + convert dotenv -> YAML (bash-only)
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
       - "-ceu"
       - |
         gcloud config set run/region "${_REGION}"
-        test -f "${_ENV_FILE}" || { echo "Missing ${_ENV_FILE}. Commit a non-secret env file for stage."; exit 2; }
+
+        test -f "${_ENV_DOTENV_FILE}" || { echo "Missing ${_ENV_DOTENV_FILE}"; exit 2; }
         gcloud secrets describe "${_DBURL_SECRET}" >/dev/null 2>&1 || { echo "Missing Secret Manager secret: ${_DBURL_SECRET}"; exit 3; }
+
         gcloud artifacts repositories describe "${_AR_REPO}" --location "${_REGION}" >/dev/null 2>&1 || \
           gcloud artifacts repositories create "${_AR_REPO}" --location "${_REGION}" --repository-format docker
 
+        # Convert dotenv (KEY=VALUE) to YAML (KEY: "VALUE")
+        # - skips comments/blank lines
+        # - supports optional 'export '
+        # - escapes backslashes and quotes
+        {
+          echo "# Auto-generated from ${_ENV_DOTENV_FILE} for Cloud Run --env-vars-file"
+          echo ""
+          while IFS= read -r line || [ -n "$line" ]; do
+            # trim leading/trailing whitespace
+            line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            [ -z "$line" ] && continue
+            case "$line" in \#*) continue ;; esac
+
+            # allow 'export KEY=VALUE'
+            if echo "$line" | grep -qE '^export[[:space:]]+'; then
+              line="$(echo "$line" | sed -E 's/^export[[:space:]]+//')"
+            fi
+
+            # must contain '='
+            echo "$line" | grep -q '=' || continue
+
+            key="${line%%=*}"
+            val="${line#*=}"
+
+            key="$(echo "$key" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            val="$(echo "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+            # Skip DATABASE_URL because it's set via --set-secrets, causing a conflict if also in --env-vars-file
+            # Also skip DYLEN_PG_DSN to ensure we don't accidentally use localhost config in production
+            if [ "$key" = "DATABASE_URL" ] || [ "$key" = "DYLEN_PG_DSN" ]; then continue; fi
+
+            # strip surrounding quotes if present
+            if echo "$val" | grep -qE '^".*"$'; then val="${val%\"}"; val="${val#\"}"; fi
+            if echo "$val" | grep -qE "^'.*'$"; then val="${val%\'}"; val="${val#\'}"; fi
+
+            # escape for YAML double-quoted string
+            val="$(printf '%s' "$val" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+
+            printf '%s: "%s"\n' "$key" "$val"
+          done < "${_ENV_DOTENV_FILE}"
+        } > "${_ENV_YAML_FILE}"
+
+        echo "Wrote ${_ENV_YAML_FILE}:"
+        head -n 50 "${_ENV_YAML_FILE}"
+
+  # Step 1: build
   - name: "gcr.io/cloud-builders/docker"
     args:
       [
@@ -34,6 +94,7 @@ steps:
         "."
       ]
 
+  # Step 2: push
   - name: "gcr.io/cloud-builders/docker"
     args:
       [
@@ -41,6 +102,7 @@ steps:
         "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
       ]
 
+  # Step 3: create/update migrations job + execute
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
@@ -53,23 +115,26 @@ steps:
             --region "${_REGION}" \
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
-            --env-vars-file "/workspace/env.stage.yaml" \
+            --env-vars-file "${_ENV_YAML_FILE}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
-            --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest" \
+            --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
             --command "python" \
-            --args "-m,alembic,-c,alembic.ini,upgrade,head"
+            --args="-m,alembic,-c,alembic.ini,upgrade,head"
         else
           gcloud run jobs update "${_MIGRATE_JOB}" \
             --region "${_REGION}" \
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
-            --env-vars-file "/workspace/env.stage.yaml" \
+            --env-vars-file "${_ENV_YAML_FILE}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
-            --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest"
+            --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
+            --command "python" \
+            --args="-m,alembic,-c,alembic.ini,upgrade,head"
         fi
 
         gcloud run jobs execute "${_MIGRATE_JOB}" --region "${_REGION}" --wait
 
+  # Step 4: deploy service
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
@@ -81,11 +146,23 @@ steps:
           --region "${_REGION}" \
           --image "$${IMAGE}" \
           --service-account "${_RUN_SA}" \
-          --env-vars-file "/workspace/env.stage.yaml" \
+          --env-vars-file "${_ENV_YAML_FILE}" \
           --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
           --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
           --port 8002 \
           --allow-unauthenticated
+
+  # Step 5: verify effective env
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        echo "=== SERVICE ENV (effective) ==="
+        gcloud run services describe "${_SERVICE}" --region "${_REGION}" --format="yaml(spec.template.spec.containers[0].env)"
+
+        echo "=== JOB ENV (effective) ==="
+        gcloud run jobs describe "${_MIGRATE_JOB}" --region "${_REGION}" --format="yaml(spec.template.template.containers[0].env)"
 
 images:
   - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
