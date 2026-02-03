@@ -50,7 +50,7 @@ test:
 	uv run pytest
 
 openapi:
-	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python -c "import json, os, sys; repo_root=os.path.abspath(os.path.join(os.getcwd(), '..')); sys.path.insert(0, os.getcwd()); from app.main import app; openapi=app.openapi(); f=open(os.path.join(repo_root, 'openapi.json'), 'w', encoding='utf-8'); json.dump(openapi, f, indent=2, sort_keys=True); f.write('\\n'); f.close()"
+	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python scripts/generate_openapi.py
 
 run: install
 	@$(MAKE) dev

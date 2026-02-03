@@ -35,6 +35,56 @@
         "title": "AgentModelOption",
         "type": "object"
       },
+      "BasicInfo": {
+        "properties": {
+          "age": {
+            "description": "User's age",
+            "title": "Age",
+            "type": "integer"
+          },
+          "city": {
+            "description": "User's city",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "User's country",
+            "title": "Country",
+            "type": "string"
+          },
+          "gender": {
+            "description": "User's gender",
+            "title": "Gender",
+            "type": "string"
+          },
+          "gender_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Other gender description if applicable",
+            "title": "Gender Other"
+          },
+          "occupation": {
+            "description": "User's occupation",
+            "title": "Occupation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "age",
+          "gender",
+          "city",
+          "country",
+          "occupation"
+        ],
+        "title": "BasicInfo",
+        "type": "object"
+      },
       "BatchResponse": {
         "description": "Bundle OCR extraction results to keep batch ordering intact.",
         "properties": {
@@ -319,6 +369,7 @@
           "details": {
             "anyOf": [
               {
+                "maxLength": 300,
                 "minLength": 1,
                 "type": "string"
               },
@@ -326,7 +377,7 @@
                 "type": "null"
               }
             ],
-            "description": "Optional user-supplied details (max 250 words).",
+            "description": "Optional user-supplied details (max 300 characters).",
             "examples": [
               "Focus on lists and loops"
             ],
@@ -341,7 +392,7 @@
                 "type": "null"
               }
             ],
-            "description": "Idempotency key to prevent duplicate lesson generation.",
+            "description": "Optional client-generated UUID to prevent duplicate processing of the same request.",
             "title": "Idempotency Key"
           },
           "learner_level": {
@@ -449,38 +500,6 @@
           "topic"
         ],
         "title": "GenerateLessonRequest",
-        "type": "object"
-      },
-      "GenerateLessonResponse": {
-        "description": "Response payload for lesson generation.",
-        "properties": {
-          "lesson_id": {
-            "title": "Lesson Id",
-            "type": "string"
-          },
-          "lesson_json": {
-            "additionalProperties": true,
-            "title": "Lesson Json",
-            "type": "object"
-          },
-          "logs": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Logs",
-            "type": "array"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/LessonMeta"
-          }
-        },
-        "required": [
-          "lesson_id",
-          "lesson_json",
-          "meta",
-          "logs"
-        ],
-        "title": "GenerateLessonResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -830,6 +849,17 @@
             "title": "Updated At",
             "type": "string"
           },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
           "validation": {
             "anyOf": [
               {
@@ -845,6 +875,7 @@
         },
         "required": [
           "job_id",
+          "user_id",
           "request",
           "status",
           "created_at",
@@ -1154,6 +1185,38 @@
         "title": "JobStatusResponse",
         "type": "object"
       },
+      "LegalConsent": {
+        "properties": {
+          "accepted_privacy": {
+            "description": "Whether privacy policy is accepted",
+            "title": "Accepted Privacy",
+            "type": "boolean"
+          },
+          "accepted_terms": {
+            "description": "Whether terms of service are accepted",
+            "title": "Accepted Terms",
+            "type": "boolean"
+          },
+          "privacy_version": {
+            "description": "Version of the privacy policy accepted",
+            "title": "Privacy Version",
+            "type": "string"
+          },
+          "terms_version": {
+            "description": "Version of the terms accepted",
+            "title": "Terms Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "accepted_terms",
+          "accepted_privacy",
+          "terms_version",
+          "privacy_version"
+        ],
+        "title": "LegalConsent",
+        "type": "object"
+      },
       "LessonCatalogResponse": {
         "description": "Response payload for lesson option metadata.",
         "properties": {
@@ -1223,6 +1286,61 @@
           "default_widgets"
         ],
         "title": "LessonCatalogResponse",
+        "type": "object"
+      },
+      "LessonGenerationTask": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "job_id",
+          "params",
+          "user_id"
+        ],
+        "title": "LessonGenerationTask",
+        "type": "object"
+      },
+      "LessonJobResponse": {
+        "description": "Response payload for async lesson generation.",
+        "properties": {
+          "expected_sections": {
+            "description": "Total number of sections expected for the lesson job (0 for non-lesson jobs).",
+            "minimum": 0.0,
+            "title": "Expected Sections",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "expected_sections",
+          "lesson_id"
+        ],
+        "title": "LessonJobResponse",
         "type": "object"
       },
       "LessonMeta": {
@@ -1338,10 +1456,22 @@
           "topic": {
             "title": "Topic",
             "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           }
         },
         "required": [
           "lesson_id",
+          "user_id",
           "topic",
           "title",
           "created_at",
@@ -1654,6 +1784,26 @@
         "title": "ModelsConfig",
         "type": "object"
       },
+      "OnboardingRequest": {
+        "properties": {
+          "basic": {
+            "$ref": "#/components/schemas/BasicInfo"
+          },
+          "legal": {
+            "$ref": "#/components/schemas/LegalConsent"
+          },
+          "personalization": {
+            "$ref": "#/components/schemas/Personalization"
+          }
+        },
+        "required": [
+          "basic",
+          "personalization",
+          "legal"
+        ],
+        "title": "OnboardingRequest",
+        "type": "object"
+      },
       "OptionDetail": {
         "description": "Metadata describing an option with tooltip guidance.",
         "properties": {
@@ -1862,6 +2012,41 @@
           "description"
         ],
         "title": "PermissionRecord",
+        "type": "object"
+      },
+      "Personalization": {
+        "properties": {
+          "intended_use": {
+            "description": "Intended use of the platform",
+            "title": "Intended Use",
+            "type": "string"
+          },
+          "intended_use_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Other intended use if applicable",
+            "title": "Intended Use Other"
+          },
+          "topics_of_interest": {
+            "description": "List of topics user is interested in",
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics Of Interest",
+            "type": "array"
+          }
+        },
+        "required": [
+          "topics_of_interest",
+          "intended_use"
+        ],
+        "title": "Personalization",
         "type": "object"
       },
       "ProviderMode": {
@@ -2541,7 +2726,8 @@
         "enum": [
           "PENDING",
           "APPROVED",
-          "DISABLED"
+          "DISABLED",
+          "REJECTED"
         ],
         "title": "UserStatus",
         "type": "string"
@@ -2659,6 +2845,18 @@
             "description": "The evaluation criteria from the lesson.",
             "title": "Criteria",
             "type": "object"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional client-generated UUID to prevent duplicate processing of the same request.",
+            "title": "Idempotency Key"
           },
           "text": {
             "description": "The user-written response to check (max 300 words).",
@@ -2877,7 +3075,18 @@
           "required": true
         },
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Config Value Admin Config Values Put",
+                  "type": "object"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -3066,7 +3275,18 @@
           "required": true
         },
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Flag Override Admin Feature Flags Override Put",
+                  "type": "object"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -3854,6 +4074,84 @@
         ]
       }
     },
+    "/api/me": {
+      "get": {
+        "description": "Get the current user's profile and onboarding status.",
+        "operationId": "get_my_profile_api_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get My Profile Api Me Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Profile",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/api/onboarding/complete": {
+      "post": {
+        "description": "Complete the user onboarding process.",
+        "operationId": "complete_onboarding_api_onboarding_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Complete Onboarding Api Onboarding Complete Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Complete Onboarding",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
     "/api/purgatory": {
       "get": {
         "description": "Get the current user's approval status while access is pending.",
@@ -4018,6 +4316,24 @@
       "post": {
         "description": "Handler for Cloud Tasks (and local simulation).\nExecutes the job synchronously so the task queue knows when it's done.",
         "operationId": "process_job_task_internal_tasks_process_job_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4136,6 +4452,102 @@
         "summary": "Extract Text From Images",
         "tags": [
           "resources"
+        ]
+      }
+    },
+    "/v1/coach/audio/{audio_id}/content": {
+      "get": {
+        "description": "Stream audio content.",
+        "operationId": "get_audio_content_v1_coach_audio__audio_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "audio_id",
+            "required": true,
+            "schema": {
+              "title": "Audio Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Audio Content",
+        "tags": [
+          "coach"
+        ]
+      }
+    },
+    "/v1/coach/job/{job_id}/audios": {
+      "get": {
+        "description": "Retrieve list of generated audios for a job.",
+        "operationId": "get_job_audios_v1_coach_job__job_id__audios_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Job Audios V1 Coach Job  Job Id  Audios Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Job Audios",
+        "tags": [
+          "coach"
         ]
       }
     },
@@ -4364,7 +4776,7 @@
     },
     "/v1/lessons/generate": {
       "post": {
-        "description": "Generate a lesson from a topic using the two-step pipeline.",
+        "description": "Generate a lesson from a topic using the asynchronous pipeline.",
         "operationId": "generate_lesson_v1_lessons_generate_post",
         "requestBody": {
           "content": {
@@ -4377,11 +4789,11 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenerateLessonResponse"
+                  "$ref": "#/components/schemas/LessonJobResponse"
                 }
               }
             },
@@ -4547,6 +4959,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Lesson",
         "tags": [
           "lessons"
@@ -4775,6 +5192,52 @@
         "summary": "Create Writing Check",
         "tags": [
           "writing"
+        ]
+      }
+    },
+    "/worker/process-lesson": {
+      "post": {
+        "description": "Worker endpoint to process lesson generation.",
+        "operationId": "process_lesson_endpoint_worker_process_lesson_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LessonGenerationTask"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Process Lesson Endpoint Worker Process Lesson Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Process Lesson Endpoint",
+        "tags": [
+          "worker"
         ]
       }
     }
