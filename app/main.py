@@ -13,7 +13,13 @@ from app.core.middleware import RequestLoggingMiddleware, SecurityHeadersMiddlew
 
 settings = get_settings()
 
-app = FastAPI(default_response_class=DecimalJSONResponse, lifespan=lifespan)
+app = FastAPI(
+    default_response_class=DecimalJSONResponse,
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "OPTIONS"], allow_headers=["content-type", "authorization"], expose_headers=["content-length"])
 
