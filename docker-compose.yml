@@ -81,7 +81,7 @@ services:
     volumes:
       - ./secrets/certs:/app/secrets/certs:ro
       - ./secrets/service-account.json:/app/service-account.json:ro
-    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt" ]
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt", "--no-server-header" ]
 
   cloudflared:
     image: cloudflare/cloudflared:latest

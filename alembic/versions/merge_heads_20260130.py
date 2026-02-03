@@ -14,6 +14,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+  # empty: allow
   pass
 
 

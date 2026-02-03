@@ -11,7 +11,7 @@ def main() -> None:
   logger.info("Starting application (run alembic upgrade head in deploy pipeline)...")
   # Use os.execvp to replace the current process with uvicorn.
   # This ensures signals (SIGTERM, etc.) are handled correctly by uvicorn.
-  args = ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+  args = ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--no-server-header"]
   os.execvp("uvicorn", ["uvicorn"] + args[1:])
 
 

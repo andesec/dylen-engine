@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import Request, Response
+from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger("app.core.middleware")
@@ -136,3 +137,31 @@ async def log_requests(request: Request, call_next: Callable[[Request], Awaitabl
   # Log response status and timing for observability.
   logger.info(f"Response: {response.status_code} (took {process_time:.2f}ms)")
   return response
+
+
+class SecurityHeadersMiddleware:
+  """Middleware to strip sensitive headers from responses."""
+
+  def __init__(self, app: ASGIApp) -> None:
+    """Store the downstream ASGI application."""
+    self.app = app
+
+  async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    """Intercept response headers to remove sensitive information."""
+    if scope["type"] != "http":
+      await self.app(scope, receive, send)
+      return
+
+    async def send_wrapper(message: dict[str, Any]) -> None:
+      if message["type"] == "http.response.start":
+        headers = MutableHeaders(scope=message)
+        # Strip X-Powered-By if present
+        if "x-powered-by" in headers:
+          del headers["x-powered-by"]
+        # Strip Server if present (though Uvicorn adds it later, this handles app-level additions)
+        if "server" in headers:
+          del headers["server"]
+
+      await send(message)
+
+    await self.app(scope, receive, send_wrapper)

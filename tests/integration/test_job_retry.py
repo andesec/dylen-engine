@@ -65,6 +65,7 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
     created_at="2024-01-01T00:00:00Z",
     updated_at="2024-01-01T00:00:00Z",
     logs=["Job failed earlier."],
+    user_id="test-user-id",
   )
   # Persist the job so the API handler can find it.
   await repo.create_job(record)

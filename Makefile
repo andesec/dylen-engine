@@ -23,7 +23,7 @@ dev: openapi
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	PORT=$${PORT:-$(PORT)}; \
 	echo "Starting FastAPI app on port $$PORT..."; \
-	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port $$PORT
+	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port $$PORT --no-server-header
 
 dev-stop:
 	@echo "Stopping Docker services..."
