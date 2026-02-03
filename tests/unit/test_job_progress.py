@@ -39,7 +39,7 @@ class InMemoryJobsRepo:
 
 @pytest.mark.anyio
 async def test_job_progress_tracker_persists_partial_results() -> None:
-  record = JobRecord(job_id="job-123", request={"topic": "Test"}, status="queued", created_at="2024-01-01T00:00:00Z", updated_at="2024-01-01T00:00:00Z", phase="queued", logs=[])
+  record = JobRecord(job_id="job-123", request={"topic": "Test"}, status="queued", created_at="2024-01-01T00:00:00Z", updated_at="2024-01-01T00:00:00Z", phase="queued", logs=[], user_id="test-user-id")
   repo = InMemoryJobsRepo(record)
   tracker = JobProgressTracker(job_id="job-123", jobs_repo=repo, total_steps=2, total_ai_calls=1, label_prefix="ai")
   # Update the tracker with a partial lesson payload and section metadata.

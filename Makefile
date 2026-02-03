@@ -20,8 +20,10 @@ dev: openapi
 	@docker-compose up -d postgres postgres-init
 	@echo "Waiting for Postgres to be ready..."
 	@sleep 5
-	@echo "Starting FastAPI app on port $(PORT)..."
-	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python -m uvicorn app.main:app --reload --host 0.0.0.0 --port $(PORT)
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	PORT=$${PORT:-$(PORT)}; \
+	echo "Starting FastAPI app on port $$PORT..."; \
+	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port $$PORT --no-server-header
 
 dev-stop:
 	@echo "Stopping Docker services..."
