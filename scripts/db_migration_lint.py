@@ -88,12 +88,31 @@ def _find_upgrade_ops(tree: ast.AST) -> UpgradeOps:
   return UpgradeOps(op_calls=visitor.op_calls, drop_ops=visitor.drop_ops, nullable_false_ops=visitor.nullable_false_ops, type_change_ops=visitor.type_change_ops, has_backfill=visitor.has_backfill)
 
 
+def _is_merge_revision(tree: ast.AST) -> bool:
+  """Detect Alembic merge revisions so intentionally-empty files don't fail lint."""
+  # Parse top-level down_revision assignments; merge revisions have multiple parents.
+  for node in tree.body:
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "down_revision":
+      value = node.value
+    elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "down_revision":
+      value = node.value
+    else:
+      continue
+
+    # Treat tuple/list down_revisions with 2+ string values as a merge revision.
+    if isinstance(value, (ast.Tuple, ast.List)) and len(value.elts) >= 2:
+      return all(isinstance(elt, ast.Constant) and isinstance(elt.value, str) for elt in value.elts)
+
+  return False
+
+
 def _lint_file(path: Path) -> list[str]:
   """Analyze a migration file and return any policy violations."""
   # Parse the migration file to inspect upgrade operations.
   text = path.read_text(encoding="utf-8")
   tree = ast.parse(text, filename=str(path))
   ops = _find_upgrade_ops(tree)
+  is_merge = _is_merge_revision(tree)
 
   # Detect lint suppression tags for destructive or empty migrations.
   destructive_approved = DESTRUCTIVE_TAG in text
@@ -105,7 +124,7 @@ def _lint_file(path: Path) -> list[str]:
   errors: list[str] = []
 
   # Enforce non-empty migrations unless explicitly approved.
-  if not ops.op_calls and not empty_allowed:
+  if not ops.op_calls and not empty_allowed and not is_merge:
     errors.append("Migration upgrade() is empty. Add operations or tag with '# empty: allow'.")
 
   # Block destructive operations unless explicitly approved.

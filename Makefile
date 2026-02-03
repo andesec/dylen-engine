@@ -187,12 +187,12 @@ gp:
 
 migrate:
 	@echo "Running database migrations..."
-	@uv run alembic upgrade head
+	@uv run python scripts/dotenv_run.py --dotenv-file .env -- uv run alembic upgrade head
 
 migration:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration m='message'"; exit 1; fi
 	@echo "Generating migration: $(m)..."
-	@uv run alembic revision --autogenerate -m "$(m)"
+	@uv run python scripts/dotenv_run.py --dotenv-file .env -- uv run alembic revision --autogenerate -m "$(m)"
 
 migration-auto:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration-auto m='message'"; exit 1; fi

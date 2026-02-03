@@ -20,49 +20,24 @@ class CloudTasksEnqueuer(TaskEnqueuer):
   async def enqueue(self, job_id: str, payload: dict) -> None:
     """Enqueue a job to Cloud Tasks."""
     if not self.settings.cloud_tasks_queue_path:
-      logger.error("Cloud Tasks queue path not configured.")
-      return
+      raise RuntimeError("Cloud Tasks queue path not configured.")
 
     if not self.settings.base_url:
-      logger.error("Base URL not configured.")
-      return
+      raise RuntimeError("Base URL not configured.")
+
+    # Enforce shared-secret auth for internal task endpoints (deny-by-default).
+    if not self.settings.task_secret:
+      raise RuntimeError("Task secret not configured.")
 
     url = f"{self.settings.base_url}/internal/tasks/process-job"
-    task = {
-      "http_request": {
-        "http_method": tasks_v2.HttpMethod.POST,
-        "url": url,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps({"job_id": job_id}).encode(),
-        "oidc_token": {"service_account_email": self.settings.email_from_address},  # Using available email setting as placeholder if specific SA email is missing
-      }
-    }
+    headers = {"Content-Type": "application/json"}
+    headers["authorization"] = f"Bearer {self.settings.task_secret}"
 
-    # If we had a specific service account email in settings, we'd use that.
-    # For now, we'll assume the runtime identity is sufficient or configured elsewhere?
-    # Actually, Cloud Tasks requires oidc_token.service_account_email to be set if using OIDC.
-    # Let's adjust to use a specific setting if needed, or rely on the fact that
-    # strict OIDC might need a dedicated config.
-    # For this pass, I will OMIT oidc_token if no specific SA email is configured for it,
-    # BUT Cloud Tasks usually requires it for Cloud Run auth.
-    # I'll add "oidc_token" only if we can resolve an email, or maybe we just don't set it
-    # and rely on standard IAM? (Does not work for Cloud Run usually).
-    # Let's check config again. checking `app/config.py`...
-    # We don't have a specific `cloud_run_invoker_service_account`.
-    # I will modify the implementation to use `oidc_token` ONLY if configured.
-    # Wait, the prompt says "The new /tasks/processing endpoint will be secured using OIDC tokens".
-    # I will assume the user has set up the queue to attach the token or passed it.
-    # Ideally, we should add `cloud_tasks_service_account` to config.
-    # For now, to keep it simple and safe, I will NOT add oidc_token here to avoid
-    # breaking if the email is wrong, unless request validation enforces it.
-    # actually, standard practice is the queue has an identity.
-    # If the queue is created with an attached service account, we don't need to specify it here?
-    # No, the task needs it.
-    # Let's stick to the simplest valid payload for now.
+    http_request: dict[str, object] = {"http_method": tasks_v2.HttpMethod.POST, "url": url, "headers": headers, "body": json.dumps({"job_id": job_id}).encode()}
+    if self.settings.cloud_run_invoker_service_account:
+      http_request["oidc_token"] = {"service_account_email": self.settings.cloud_run_invoker_service_account}
 
-    # Revised approach: construct task without explicit OIDC token for now,
-    # assuming the queue defaults or the receiver validates based on other means.
-    # Use standard library construction.
+    task = {"http_request": http_request}
 
     parent = self.settings.cloud_tasks_queue_path
 
@@ -76,18 +51,23 @@ class CloudTasksEnqueuer(TaskEnqueuer):
   async def enqueue_lesson(self, lesson_id: str, job_id: str, params: dict, user_id: str) -> None:
     """Enqueue a lesson generation task to Cloud Tasks."""
     if not self.settings.cloud_tasks_queue_path:
-      logger.error("Cloud Tasks queue path not configured.")
-      return
+      raise RuntimeError("Cloud Tasks queue path not configured.")
 
     if not self.settings.base_url:
-      logger.error("Base URL not configured.")
-      return
+      raise RuntimeError("Base URL not configured.")
+
+    # Enforce shared-secret auth for internal task endpoints (deny-by-default).
+    if not self.settings.task_secret:
+      raise RuntimeError("Task secret not configured.")
 
     url = f"{self.settings.base_url}/worker/process-lesson"
 
     payload = {"lesson_id": lesson_id, "job_id": job_id, "params": params, "user_id": user_id}
 
-    task = {"http_request": {"http_method": tasks_v2.HttpMethod.POST, "url": url, "headers": {"Content-Type": "application/json"}, "body": json.dumps(payload).encode()}}
+    headers = {"Content-Type": "application/json"}
+    headers["authorization"] = f"Bearer {self.settings.task_secret}"
+
+    task = {"http_request": {"http_method": tasks_v2.HttpMethod.POST, "url": url, "headers": headers, "body": json.dumps(payload).encode()}}
 
     if self.settings.cloud_run_invoker_service_account:
       task["http_request"]["oidc_token"] = {"service_account_email": self.settings.cloud_run_invoker_service_account}

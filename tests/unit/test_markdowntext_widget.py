@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from app.schema.service import SchemaService
+from app.schema.validate_lesson import validate_lesson
 
 
 def test_markdowntext_accepts_shorthand() -> None:
@@ -41,3 +42,19 @@ def test_markdowntext_newlines_are_standard_json_escaped() -> None:
   encoded = json.dumps(widget)
   assert "\\n" in encoded
   assert "Line 1\nLine 2" not in encoded
+
+
+def test_markdowntext_enforces_max_length() -> None:
+  """Reject MarkdownText widgets when md exceeds the configured hard limit."""
+  payload = {"title": "T", "blocks": [{"section": "S", "items": [{"markdown": ["01234567890"]}], "subsections": []}]}
+  ok, errors, _model = validate_lesson(payload, max_markdown_chars=10)
+  assert not ok
+  assert any("markdown exceeds max length" in error for error in errors)
+
+
+def test_markdowntext_allows_within_max_length() -> None:
+  """Accept MarkdownText widgets when md is within the configured hard limit."""
+  payload = {"title": "T", "blocks": [{"section": "S", "items": [{"markdown": ["0123456789"]}], "subsections": []}]}
+  ok, errors, _model = validate_lesson(payload, max_markdown_chars=10)
+  assert ok
+  assert errors == []

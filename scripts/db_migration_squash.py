@@ -195,7 +195,6 @@ def main() -> None:
 
   # Require env vars explicitly so Alembic doesn't target a default database implicitly.
   dsn = _require_env("DYLEN_PG_DSN")
-  _require_env("DYLEN_ALLOWED_ORIGINS")
   # Ensure the runtime driver is available before running Alembic.
   _require_import("asyncpg")
   repo_root = _repo_root()

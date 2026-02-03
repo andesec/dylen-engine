@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_UNSAFE_ENV_PREFIXES = ("DYLD_", "LD_")
+_UNSAFE_ENV_KEYS = {"BASH_ENV", "ENV", "PROMPT_COMMAND", "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONUSERBASE"}
 
 
 def _repo_root() -> Path:
@@ -93,11 +95,27 @@ def _load_dotenv(*, dotenv_path: Path, override: bool) -> None:
     os.environ[key] = value
 
 
+def _strip_unsafe_environ(*, allow_unsafe_env: bool) -> None:
+  """Strip high-risk env vars so a malicious dotenv can't influence subprocess execution."""
+  if allow_unsafe_env:
+    return
+
+  # Drop known dynamic loader and runtime-injection environment variables by default.
+  for key in tuple(os.environ):
+    if key in _UNSAFE_ENV_KEYS:
+      del os.environ[key]
+      continue
+
+    if key.startswith(_UNSAFE_ENV_PREFIXES):
+      del os.environ[key]
+
+
 def main() -> None:
   """Run a command after loading env vars from a dotenv file (without sourcing)."""
   parser = argparse.ArgumentParser(description="Run a command with env vars loaded from a dotenv file.")
   parser.add_argument("--dotenv-file", default=".env", help="Dotenv file path (default: .env).")
   parser.add_argument("--override", action="store_true", help="Override existing env vars with values from the dotenv file.")
+  parser.add_argument("--allow-unsafe-env", action="store_true", help="Allow high-risk env vars like PYTHONPATH/DYLD_* to flow into the subprocess (not recommended).")
   parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run (prefix with --).")
   args = parser.parse_args()
 
@@ -120,8 +138,8 @@ def main() -> None:
     hint = "Hint: dotenv lines must be KEY=VALUE (e.g. DYLEN_ALLOWED_ORIGINS=https://app.dylen.orb.local)."
     raise RuntimeError(f"{exc}\n{hint}") from exc
 
-  env = os.environ.copy()
-  subprocess.run(command, check=True, cwd=_repo_root(), env=env)
+  _strip_unsafe_environ(allow_unsafe_env=bool(args.allow_unsafe_env))
+  subprocess.run(command, check=True, cwd=_repo_root())
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ class GenerationRequest(BaseModel):
   topic: str
   prompt: str | None = None
   depth: str
-  section_count: int = Field(ge=2, le=10)
+  section_count: int = Field(ge=1, le=10)
   blueprint: str | None = None
   teaching_style: list[str] | None = None
   language: str | None = None

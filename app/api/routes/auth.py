@@ -9,7 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.database import get_db
 from app.core.firebase import build_rbac_claims, set_custom_claims, verify_id_token
 from app.schema.sql import UserStatus
-from app.services.rbac import get_role_by_id, get_role_by_name
+from app.services.rbac import get_role_by_id, get_role_by_name, list_permission_slugs_for_role
 from app.services.users import create_user, get_user_by_firebase_uid, resolve_auth_method
 
 router = APIRouter()
@@ -152,7 +152,8 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
 
   # Sync initial RBAC claims to Firebase for fast middleware checks.
   try:
-    claims = build_rbac_claims(role_id=str(default_role.id), role_name=default_role.name, role_level=default_role.level, org_id=None, status=user.status, tier="Free")
+    permissions = await list_permission_slugs_for_role(db, role_id=default_role.id)
+    claims = build_rbac_claims(role_id=str(default_role.id), role_name=default_role.name, role_level=default_role.level, org_id=None, status=user.status, tier="Free", permissions=permissions)
     await run_in_threadpool(set_custom_claims, firebase_uid, claims)
   except Exception as e:
     logger.error("Signup failed: Unable to set custom claims error_type=%s", type(e).__name__)

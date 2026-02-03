@@ -6,10 +6,14 @@ from typing import Any
 from app.api.models import CurrentSectionStatus, GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse, ValidationResponse, WritingCheckRequest
 from app.config import Settings
 from app.jobs.models import JobRecord
+from app.schema.quotas import QuotaPeriod
 from app.services.audit import log_llm_interaction
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
+from app.services.quota_buckets import QuotaExceededError, consume_quota, get_quota_snapshot
 from app.services.request_validation import _validate_generate_request
+from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.tasks.factory import get_task_enqueuer
+from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.factory import _get_jobs_repo
 from app.utils.ids import generate_job_id
 from fastapi import BackgroundTasks, HTTPException, status
@@ -142,14 +146,46 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
 
   repo = _get_jobs_repo(settings)
   # Precompute section count so the client can render placeholders immediately.
-  expected_sections = _expected_sections_from_request(request, settings)
-
+  expected_sections = _expected_sections_from_request(request, settings) if isinstance(request, GenerateLessonRequest) else 0
+  # Generate identifiers early so quota logs can reference the resulting job deterministically.
   job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
+  # Enforce lesson and section quotas for lesson jobs, failing fast before persisting the job.
+  if isinstance(request, GenerateLessonRequest) and user_id and target_agent == "lesson":
+    try:
+      parsed_user_id = uuid.UUID(str(user_id))
+    except ValueError as exc:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id.") from exc
+    user = await get_user_by_id(db_session, parsed_user_id)
+    if user is None:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    tier_id, _tier_name = await get_user_subscription_tier(db_session, user.id)
+    runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+    lessons_per_week = int(runtime_config.get("limits.lessons_per_week") or 0)
+    sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
+    if lessons_per_week <= 0:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
+    if sections_per_month <= 0:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
+    lesson_snapshot = await get_quota_snapshot(db_session, user_id=user.id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, limit=lessons_per_week)
+    if lesson_snapshot.remaining <= 0:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
+    section_snapshot = await get_quota_snapshot(db_session, user_id=user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=sections_per_month)
+    if section_snapshot.remaining <= 0:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
+    expected_sections = min(int(expected_sections), int(section_snapshot.remaining))
+    if expected_sections <= 0:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
+    try:
+      quota_metadata = {"job_id": job_id, "requested_sections": _expected_sections_from_request(request, settings), "capped_sections": expected_sections}
+      await consume_quota(db_session, user_id=user.id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, quantity=1, limit=lessons_per_week, metadata=quota_metadata)
+    except QuotaExceededError:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"}) from None
+
   request_payload = request.model_dump(mode="python", by_alias=True)
   # Persist minimal metadata for worker-side notifications without storing email addresses.
   if user_id:
-    request_payload["_meta"] = {"user_id": user_id}
+    request_payload["_meta"] = {"user_id": user_id, "quota_cap_sections": int(expected_sections)}
 
   record = JobRecord(
     job_id=job_id,
@@ -163,7 +199,8 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
     completed_sections=0,
     completed_section_indexes=[],
     retry_count=0,
-    max_retries=settings.job_max_retries,
+    # Enforce a strict retry cap for lesson jobs so quota accounting cannot drift.
+    max_retries=1 if isinstance(request, GenerateLessonRequest) else settings.job_max_retries,
     retry_sections=None,
     retry_agents=None,
     progress=0.0,
@@ -203,6 +240,9 @@ async def retry_job(job_id: str, payload: JobRetryRequest, settings: Settings, b
   # Enforce the retry limit to avoid unbounded reprocessing.
   retry_count = record.retry_count or 0
   max_retries = record.max_retries if record.max_retries is not None else settings.job_max_retries
+  # Clamp lesson jobs to a maximum of one retry to keep quota accounting strict.
+  if record.target_agent == "lesson":
+    max_retries = min(int(max_retries), 1)
 
   if retry_count >= max_retries:
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Retry limit reached for this job.")

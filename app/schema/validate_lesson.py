@@ -7,9 +7,10 @@ from typing import Any
 from pydantic import ValidationError
 
 from .lesson_models import LessonDocument
+from .markdown_limits import collect_overlong_markdown_errors
 
 
-def validate_lesson(payload: Any) -> tuple[bool, list[str], LessonDocument | None]:
+def validate_lesson(payload: Any, *, max_markdown_chars: int = 1500) -> tuple[bool, list[str], LessonDocument | None]:
   """
   Validate a lesson payload against the versioned schema and known widgets.
 
@@ -33,6 +34,11 @@ def validate_lesson(payload: Any) -> tuple[bool, list[str], LessonDocument | Non
     for err in exc.errors():
       loc = ".".join(str(x) for x in err["loc"])
       errors.append(f"{loc}: {err['msg']}")
+    return False, errors, None
+
+  # Enforce runtime-configurable markdown limits after schema validation so the core schema remains stable.
+  errors.extend(collect_overlong_markdown_errors(payload, max_markdown_chars=max_markdown_chars))
+  if errors:
     return False, errors, None
 
   # Pydantic validation is now sufficient as it validates structure, types, and values.

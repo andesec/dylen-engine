@@ -11,7 +11,7 @@ from app.schema.sql import User
 from app.services.feature_flags import resolve_effective_feature_flags
 from app.services.quotas import ResolvedQuota
 from app.services.rbac import get_role_by_id, list_permission_slugs_for_role
-from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.runtime_config import redact_super_admin_config, resolve_effective_runtime_config
 from app.services.users import get_user_subscription_tier
 
 router = APIRouter()
@@ -51,7 +51,8 @@ async def get_my_features(current_user: User = Depends(get_current_user), db: As
 
   # Resolve runtime config using env fallbacks plus DB overrides.
   settings = get_settings()
-  runtime_config = await resolve_effective_runtime_config(db, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id)
+  runtime_config = await resolve_effective_runtime_config(db, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
+  runtime_config = redact_super_admin_config(runtime_config)
 
   # Return role permission slugs filtered by permission feature flags when defined.
   role = await get_role_by_id(db, current_user.role_id)

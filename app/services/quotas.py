@@ -5,14 +5,39 @@ from __future__ import annotations
 import datetime
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from app.schema.quotas import SubscriptionTier, UserTierOverride, UserUsageLog, UserUsageMetrics
+from app.config import get_settings
+from app.schema.quotas import QuotaPeriod, SubscriptionTier, UserTierOverride, UserUsageMetrics
+from app.schema.sql import User
+from app.services.feature_flags import resolve_effective_feature_flags
+from app.services.quota_buckets import get_quota_snapshot
+from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import ensure_usage_row
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class QuotaEntry:
+  """A UI-friendly quota description including current availability.
+
+  How/Why:
+    - Clients need a stable, labeled representation of quotas to render UX copy.
+    - Availability is computed server-side so clients don't re-implement quota logic.
+    - Some quotas are configured before pipelines exist; those are marked as not tracked.
+  """
+
+  key: str
+  label: str
+  period: str | None
+  limit: int
+  used: int | None
+  remaining: int | None
+  available: bool
+  tracked: bool
 
 
 @dataclass(frozen=True)
@@ -36,6 +61,8 @@ class ResolvedQuota:
 
   coach_mode_enabled: bool
   coach_voice_tier: str | None
+  quota_entries: list[QuotaEntry] = field(default_factory=list)
+  availability: dict[str, bool] = field(default_factory=dict)
 
 
 async def get_active_override(session: AsyncSession, user_id: uuid.UUID) -> UserTierOverride | None:
@@ -81,6 +108,37 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
   limit_sections, remaining_sections = _calculate_limit_and_remaining("gen_sections_quota", usage.sections_generated_count)
   limit_research, remaining_research = _calculate_limit_and_remaining("research_quota", usage.research_usage_count)
 
+  settings = get_settings()
+  user = await session.get(User, user_id)
+  org_id = user.org_id if user is not None else None
+  flags = await resolve_effective_feature_flags(session, org_id=org_id, subscription_tier_id=int(usage.subscription_tier_id))
+  runtime_config = await resolve_effective_runtime_config(session, settings=settings, org_id=org_id, subscription_tier_id=int(usage.subscription_tier_id), user_id=None)
+
+  async def _bucket_entry(*, key: str, label: str, period: QuotaPeriod, limit_key: str, metric_key: str, feature_flag: str | None = None) -> QuotaEntry:
+    # Deny-by-default: missing config means limit 0 => unavailable.
+    limit = int(runtime_config.get(limit_key) or 0)
+    snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key=metric_key, period=period, limit=limit)
+    feature_enabled = True if feature_flag is None else bool(flags.get(feature_flag) is True)
+    available = bool(feature_enabled and snapshot.remaining > 0 and limit > 0)
+    return QuotaEntry(key=key, label=label, period=str(period.value), limit=limit, used=int(snapshot.used), remaining=int(snapshot.remaining), available=available, tracked=True)
+
+  def _untracked_entry(*, key: str, label: str, period: str | None, limit_key: str, feature_flag: str | None = None) -> QuotaEntry:
+    # Untracked quotas are configured for future pipelines; usage is not enforced yet.
+    limit = int(runtime_config.get(limit_key) or 0)
+    feature_enabled = True if feature_flag is None else bool(flags.get(feature_flag) is True)
+    available = bool(feature_enabled and limit > 0)
+    return QuotaEntry(key=key, label=label, period=str(period) if period is not None else None, limit=limit, used=None, remaining=None if limit <= 0 else limit, available=available, tracked=False)
+
+  quota_entries: list[QuotaEntry] = [
+    await _bucket_entry(key="lesson.generate", label="Lesson Limit", period=QuotaPeriod.WEEK, limit_key="limits.lessons_per_week", metric_key="lesson.generate"),
+    await _bucket_entry(key="section.generate", label="Section Limit", period=QuotaPeriod.MONTH, limit_key="limits.sections_per_month", metric_key="section.generate"),
+    await _bucket_entry(key="writing.check", label="Writing Check Limit", period=QuotaPeriod.MONTH, limit_key="limits.writing_checks_per_month", metric_key="writing.check", feature_flag="feature.writing"),
+    _untracked_entry(key="tutor.active.tokens", label="Tutor (Active) Token Cap", period="MONTH", limit_key="tutor.active_tokens_per_month", feature_flag="feature.tutor.active"),
+    _untracked_entry(key="career.mock_exam.tokens", label="Mock Exams Token Cap", period="MONTH", limit_key="career.mock_exams_token_cap", feature_flag="feature.mock_exams"),
+    _untracked_entry(key="career.mock_interview.minutes", label="Mock Interviews Minutes Cap", period="MONTH", limit_key="career.mock_interviews_minutes_cap", feature_flag="feature.mock_interviews"),
+  ]
+  availability = {entry.key: bool(entry.available) for entry in quota_entries}
+
   return ResolvedQuota(
     tier_name=tier.name,
     max_file_upload_kb=_pick("max_file_upload_kb"),
@@ -96,87 +154,6 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
     remaining_research=remaining_research,
     coach_mode_enabled=bool(_pick("coach_mode_enabled")),
     coach_voice_tier=_pick("coach_voice_tier"),
+    quota_entries=quota_entries,
+    availability=availability,
   )
-
-
-async def _assert_positive(remaining: int | None, metric: str) -> None:
-  """Raise if remaining quota is exhausted."""
-  if remaining is not None and remaining <= 0:
-    raise QuotaExceededError(f"{metric} quota exceeded")
-
-
-async def _remaining_for_action(session: AsyncSession, *, usage: UserUsageMetrics, action: str) -> int | None:
-  """Return remaining quota for a specific action using a single SQL projection."""
-  user_id = usage.user_id
-
-  # Fetch the subscription tier for the user
-  tier = await session.get(SubscriptionTier, usage.subscription_tier_id)
-  if not tier:
-    # Fallback or error if tier is missing? For robustness, raising error is safer
-    raise RuntimeError(f"Subscription tier {usage.subscription_tier_id} not found")
-
-  # Fetch active override if any
-  override = await get_active_override(session, user_id)
-
-  mapping = {
-    "FILE_UPLOAD": (tier.file_upload_quota, override.file_upload_quota if override else None, usage.files_uploaded_count),
-    "IMAGE_UPLOAD": (tier.image_upload_quota, override.image_upload_quota if override else None, usage.images_uploaded_count),
-    "SECTION_GEN": (tier.gen_sections_quota, override.gen_sections_quota if override else None, usage.sections_generated_count),
-    "RESEARCH": (tier.research_quota, override.research_quota if override else None, usage.research_usage_count),
-  }
-
-  if action not in mapping:
-    raise ValueError(f"Unsupported action {action}")
-
-  tier_val, override_val, usage_val = mapping[action]
-
-  limit = override_val if override_val is not None else tier_val
-
-  # If limit is None (unlimited), return None
-  if limit is None:
-    return None
-
-  return limit - usage_val
-
-
-class QuotaExceededError(RuntimeError):
-  """Raised when a quota would be exceeded."""
-
-
-async def consume_quota(session: AsyncSession, *, user_id: uuid.UUID, action: str, quantity: int = 1) -> ResolvedQuota:
-  """Atomically check and consume quota, logging the action."""
-  if quantity <= 0:
-    raise ValueError("Quantity must be positive.")
-
-  # Transactional block with pessimistic locking to prevent race conditions
-  async with session.begin():
-    # Acquire lock on the usage row
-    usage = await session.get(UserUsageMetrics, user_id, with_for_update=True)
-    if not usage:
-      raise RuntimeError(f"User usage row not found for user {user_id}")
-
-    remaining = await _remaining_for_action(session, usage=usage, action=action)
-
-    # Check quota
-    if remaining is not None and remaining < quantity:
-      raise QuotaExceededError(f"{action.lower()} quota exceeded (requested {quantity}, remaining {remaining})")
-
-    # Apply update
-    now = datetime.datetime.now(datetime.UTC)
-    usage.last_updated = now
-
-    if action == "FILE_UPLOAD":
-      usage.files_uploaded_count += quantity
-    elif action == "IMAGE_UPLOAD":
-      usage.images_uploaded_count += quantity
-    elif action == "SECTION_GEN":
-      usage.sections_generated_count += quantity
-    elif action == "RESEARCH":
-      usage.research_usage_count += quantity
-    else:
-      raise ValueError(f"Unsupported action {action}")
-
-    session.add(usage)
-    session.add(UserUsageLog(user_id=user_id, action_type=action, quantity=quantity, metadata_json=None))
-
-  return await resolve_quota(session, user_id)

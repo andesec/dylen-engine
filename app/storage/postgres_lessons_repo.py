@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class PostgresLessonsRepository(LessonsRepository):
   """Persist lessons to Postgres using SQLAlchemy."""
 
-  def __init__(self, table_name: str = "dylen_lessons") -> None:
+  def __init__(self, table_name: str = "lessons") -> None:
     # table_name is kept for signature compatibility but effectively defined by the Model
     self._session_factory = get_session_factory()
     if self._session_factory is None:
@@ -44,6 +44,7 @@ class PostgresLessonsRepository(LessonsRepository):
         latency_ms=record.latency_ms,
         idempotency_key=record.idempotency_key,
         tags=tags,
+        is_archived=bool(record.is_archived),
       )
       session.add(lesson)
       await session.commit()
@@ -55,6 +56,19 @@ class PostgresLessonsRepository(LessonsRepository):
       if not lesson:
         return None
       return self._model_to_record(lesson)
+
+  async def update_lesson_json(self, lesson_id: str, *, lesson_json: str, title: str | None = None) -> None:
+    """Update an existing lesson's JSON (and optionally title) in a single transaction."""
+    async with self._session_factory() as session:
+      lesson = await session.get(Lesson, lesson_id)
+      if not lesson:
+        raise RuntimeError("Lesson not found.")
+      # Persist repaired payloads so repeated reads don't repeatedly invoke repair.
+      lesson.lesson_json = lesson_json
+      if title is not None and str(title).strip():
+        lesson.title = str(title).strip()
+      session.add(lesson)
+      await session.commit()
 
   async def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None) -> tuple[list[LessonRecord], int]:
     """Return a paginated list of lessons with optional filters, and total count."""
@@ -99,6 +113,7 @@ class PostgresLessonsRepository(LessonsRepository):
       lesson_json=lesson.lesson_json,
       status=lesson.status,
       latency_ms=lesson.latency_ms,
+      is_archived=bool(getattr(lesson, "is_archived", False)),
       idempotency_key=lesson.idempotency_key,
       tags=tags,
     )

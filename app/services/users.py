@@ -63,6 +63,33 @@ async def get_user_subscription_tier(session: AsyncSession, user_id: uuid.UUID) 
   return int(free_tier.id), str(free_tier.name)
 
 
+async def set_user_subscription_tier(session: AsyncSession, *, user_id: uuid.UUID, tier_name: str) -> tuple[int, str]:
+  """Update a user's subscription tier id by tier name and return the resolved tier.
+
+  How/Why:
+    - Tier upgrades/downgrades must take effect immediately for feature flags and runtime config resolution.
+    - Usage rows are the source of truth for tier selection in this service.
+  """
+  normalized = (tier_name or "").strip()
+  if normalized == "":
+    raise ValueError("tier_name is required.")
+  tier_stmt = select(SubscriptionTier).where(SubscriptionTier.name == normalized)
+  tier_result = await session.execute(tier_stmt)
+  tier = tier_result.scalar_one_or_none()
+  if tier is None:
+    raise ValueError("Unknown subscription tier.")
+  usage = await session.get(UserUsageMetrics, user_id)
+  if usage is None:
+    # Ensure the usage row exists so downstream quota and flag checks never 500.
+    await ensure_usage_row(session, user_id, tier_id=int(tier.id))
+    return int(tier.id), str(tier.name)
+  # Persist tier changes so future requests evaluate the correct per-tier defaults.
+  usage.subscription_tier_id = int(tier.id)
+  session.add(usage)
+  await session.commit()
+  return int(tier.id), str(tier.name)
+
+
 def resolve_auth_method(provider: str | None) -> AuthMethod:
   """Resolve auth method from provider so RBAC status stays consistent with Firebase sign-in."""
   # Map Firebase provider identifiers into the enum used by RBAC.
@@ -92,7 +119,23 @@ async def create_user(
 ) -> User:
   """Create a new user row and commit it so downstream flows can rely on it."""
   # Persist the DB record before returning so callers can use the generated id.
-  user = User(firebase_uid=firebase_uid, email=email, full_name=full_name, profession=profession, city=city, country=country, age=age, photo_url=photo_url, provider=provider, role_id=role_id, org_id=org_id, status=status, auth_method=auth_method)
+  user_create_kwargs = {
+    "id": uuid.uuid4(),
+    "firebase_uid": firebase_uid,
+    "email": email,
+    "full_name": full_name,
+    "profession": profession,
+    "city": city,
+    "country": country,
+    "age": age,
+    "photo_url": photo_url,
+    "provider": provider,
+    "role_id": role_id,
+    "org_id": org_id,
+    "status": status,
+    "auth_method": auth_method,
+  }
+  user = User(**user_create_kwargs)
   session.add(user)
   await session.commit()
   await session.refresh(user)
@@ -154,7 +197,7 @@ async def complete_user_onboarding(session: AsyncSession, *, user: User, data: O
   user.gender_other = data.basic.gender_other
   user.city = data.basic.city
   user.country = data.basic.country
-  user.occupation = data.basic.occupation
+  user.occupation = data.personalization.occupation
 
   # JSONB field: assignment ensures change tracking
   user.topics_of_interest = data.personalization.topics_of_interest

@@ -126,7 +126,7 @@ def _drop_database(admin_url: str, db_name: str) -> None:
   asyncio.run(_drop())
 
 
-def _run_mode(*, dsn: str, allowed_origins: str, mode: str, downgrade: bool) -> None:
+def _run_mode(*, dsn: str, mode: str, downgrade: bool) -> None:
   """Run one smoke-test path against a fresh ephemeral database."""
   # Create a temporary database to isolate each smoke-test run.
   temp_url, admin_url, temp_name = _build_temp_database_url(dsn, label=mode.replace("_", "-"))
@@ -134,7 +134,6 @@ def _run_mode(*, dsn: str, allowed_origins: str, mode: str, downgrade: bool) -> 
   # Prepare environment variables for Alembic subprocess execution.
   env = os.environ.copy()
   env["DYLEN_PG_DSN"] = temp_url
-  env["DYLEN_ALLOWED_ORIGINS"] = allowed_origins
   try:
     # Validate that fresh migrations apply cleanly.
     if mode == "fresh":
@@ -170,22 +169,17 @@ def main() -> None:
 
   # Ensure required environment variables are set for settings validation.
   dsn = os.getenv("DYLEN_PG_DSN")
-  allowed_origins = os.getenv("DYLEN_ALLOWED_ORIGINS")
   if not dsn:
     print("ERROR: DYLEN_PG_DSN is required for migration smoke tests.")
-    sys.exit(1)
-
-  if not allowed_origins:
-    print("ERROR: DYLEN_ALLOWED_ORIGINS is required for migration smoke tests.")
     sys.exit(1)
 
   # Normalize the DSN to the async driver used by the application runtime.
   normalized_dsn = _normalize_async_dsn(dsn)
   if args.mode in {"fresh", "both"}:
-    _run_mode(dsn=normalized_dsn, allowed_origins=allowed_origins, mode="fresh", downgrade=args.downgrade)
+    _run_mode(dsn=normalized_dsn, mode="fresh", downgrade=args.downgrade)
 
   if args.mode in {"upgrade-from-previous", "both"}:
-    _run_mode(dsn=normalized_dsn, allowed_origins=allowed_origins, mode="upgrade-from-previous", downgrade=args.downgrade)
+    _run_mode(dsn=normalized_dsn, mode="upgrade-from-previous", downgrade=args.downgrade)
 
 
 if __name__ == "__main__":

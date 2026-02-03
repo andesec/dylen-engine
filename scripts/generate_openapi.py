@@ -8,17 +8,19 @@ sys.path.insert(0, os.getcwd())
 
 from app.main import app  # noqa: E402, I001
 
+
 def generate_openapi_spec():
-    """Generates and writes the openapi.json spec file to the repo root."""
-    repo_root = os.getcwd()
-    openapi_spec = app.openapi()
-    output_path = os.path.join(repo_root, 'openapi.json')
+  """Generates and writes the openapi.json spec file to the repo root."""
+  repo_root = os.getcwd()
+  openapi_spec = app.openapi()
+  output_path = os.path.join(repo_root, "openapi.json")
 
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(openapi_spec, f, indent=2, sort_keys=True)
-        f.write('\n')
+  with open(output_path, "w", encoding="utf-8") as f:
+    json.dump(openapi_spec, f, indent=2, sort_keys=True)
+    f.write("\n")
 
-    print(f"OpenAPI spec successfully written to {output_path}")
+  print(f"OpenAPI spec successfully written to {output_path}")
+
 
 if __name__ == "__main__":
-    generate_openapi_spec()
+  generate_openapi_spec()

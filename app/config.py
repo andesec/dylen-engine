@@ -23,6 +23,7 @@ class Settings:
   allowed_origins: tuple[str, ...]
   debug: bool
   max_topic_length: int
+  max_markdown_chars: int
   job_max_retries: int
   log_max_bytes: int
   log_backup_count: int
@@ -66,6 +67,17 @@ class Settings:
   research_search_max_results: int
   task_secret: str | None
   cloud_run_invoker_service_account: str | None
+
+
+@dataclass(frozen=True)
+class DatabaseSettings:
+  """Typed settings for database connectivity and table naming."""
+
+  debug: bool
+  pg_dsn: str | None
+  pg_connect_timeout: int
+  pg_lessons_table: str
+  pg_jobs_table: str
 
 
 def _parse_origins(raw: str | None) -> tuple[str, ...]:
@@ -118,6 +130,10 @@ def get_settings() -> Settings:
   if max_topic_length <= 0:
     raise ValueError("DYLEN_MAX_TOPIC_LENGTH must be a positive integer.")
 
+  max_markdown_chars = int(os.getenv("DYLEN_MAX_MARKDOWN_CHARS", "1500"))
+  if max_markdown_chars <= 0:
+    raise ValueError("DYLEN_MAX_MARKDOWN_CHARS must be a positive integer.")
+
   # Clamp retry attempts to avoid runaway costs on failed jobs.
   job_max_retries = int(os.getenv("DYLEN_JOB_MAX_RETRIES", "1"))
 
@@ -161,6 +177,7 @@ def get_settings() -> Settings:
     allowed_origins=_parse_origins(os.getenv("DYLEN_ALLOWED_ORIGINS")),
     debug=debug,
     max_topic_length=max_topic_length,
+    max_markdown_chars=max_markdown_chars,
     job_max_retries=job_max_retries,
     log_max_bytes=log_max_bytes,
     log_backup_count=log_backup_count,
@@ -180,8 +197,8 @@ def get_settings() -> Settings:
     jobs_ttl_seconds=_parse_optional_int(os.getenv("DYLEN_JOBS_TTL_SECONDS")),
     pg_dsn=os.getenv("DYLEN_PG_DSN"),
     pg_connect_timeout=int(os.getenv("DYLEN_PG_CONNECT_TIMEOUT", "5")),
-    pg_lessons_table=os.getenv("DYLEN_PG_LESSONS_TABLE", "dylen_lessons"),
-    pg_jobs_table=os.getenv("DYLEN_PG_JOBS_TABLE", "dylen_jobs"),
+    pg_lessons_table=os.getenv("DYLEN_PG_LESSONS_TABLE", "lessons"),
+    pg_jobs_table=os.getenv("DYLEN_PG_JOBS_TABLE", "jobs"),
     llm_audit_enabled=_parse_bool(os.getenv("DYLEN_LLM_AUDIT_ENABLED")),
     cache_lesson_catalog=_parse_bool(os.getenv("DYLEN_CACHE_LESSON_CATALOG")),
     gcp_project_id=os.getenv("GCP_PROJECT_ID"),
@@ -205,6 +222,18 @@ def get_settings() -> Settings:
     task_secret=_optional_str(os.getenv("DYLEN_TASK_SECRET")),
     cloud_run_invoker_service_account=_optional_str(os.getenv("DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT")),
   )
+
+
+@lru_cache(maxsize=1)
+def get_database_settings() -> DatabaseSettings:
+  """Load database settings without requiring web-runtime configuration like CORS."""
+  # Keep database configuration isolated so migrations and offline scripts don't require unrelated env vars.
+  debug = _parse_bool(os.getenv("DYLEN_DEBUG"))
+  pg_connect_timeout = int(os.getenv("DYLEN_PG_CONNECT_TIMEOUT", "5"))
+  if pg_connect_timeout <= 0:
+    raise ValueError("DYLEN_PG_CONNECT_TIMEOUT must be a positive integer.")
+
+  return DatabaseSettings(debug=debug, pg_dsn=os.getenv("DYLEN_PG_DSN"), pg_connect_timeout=pg_connect_timeout, pg_lessons_table=os.getenv("DYLEN_PG_LESSONS_TABLE", "lessons"), pg_jobs_table=os.getenv("DYLEN_PG_JOBS_TABLE", "jobs"))
 
 
 def _optional_str(raw: str | None) -> str | None:

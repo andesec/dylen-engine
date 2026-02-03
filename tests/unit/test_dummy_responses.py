@@ -24,3 +24,4 @@ def test_env_agent_key_snake_cases_agent_names() -> None:
 
   assert BaseAgent._env_agent_key("SectionBuilder") == "SECTION_BUILDER"
   assert BaseAgent._env_agent_key("Planner") == "PLANNER"
+  assert BaseAgent._env_agent_key("Outcomes") == "OUTCOMES"

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class PostgresJobsRepository(JobsRepository):
   """Persist jobs to Postgres using SQLAlchemy."""
 
-  def __init__(self, table_name: str = "dylen_jobs") -> None:
+  def __init__(self, table_name: str = "jobs") -> None:
     self._session_factory = get_session_factory()
     if self._session_factory is None:
       raise RuntimeError("Database not initialized")

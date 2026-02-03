@@ -38,14 +38,13 @@ is_merge_migration() {
     return 1
   fi
 
-  # Require an explicit lint tag so only intentionally-empty merges are exempt.
-  if [[ "$text" != *"# empty: allow"* ]]; then
-    return 1
-  fi
-
   # Match common merge revision signals without executing any code.
+  # Accept merge revisions even without '# empty: allow' so Alembic merge output works out-of-the-box.
+  # Prefer the down_revision tuple pattern to avoid exempting accidental empty migrations.
   if [[ "$text" != *"merge heads"* && "$text" != *"Revision ID: merge"* && "$text" != *"revision = \"merge"* ]]; then
-    return 1
+    if ! grep -Eq 'down_revision[[:space:]]*:[^=]*=[[:space:]]*\\(.*"[^"]+".*,"[^"]+".*\\)' <<<"$text"; then
+      return 1
+    fi
   fi
 
   # Merge revisions should not contain schema operations.

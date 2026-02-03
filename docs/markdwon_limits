@@ -1,0 +1,55 @@
+## Tier Limits (Free / Starter / Plus / Pro)
+
+This document defines the tier matrix for Dylen and how it is enforced.
+
+Feature,Free ($0),Starter ($5.99),Plus ($19.99),Pro ($149.99)
+Core Quotas,,,,
+Lesson Limit,3 / week,15 / week,30 / week,80 / week
+Section Limit,10 sections/mo,70 sections/mo,150 sections/mo,500 sections/mo
+Writing Check Limit,0 / mo,30 / mo,70 / mo,200 / mo
+History (Lessons),Last 3 Kept,Last 20 Kept,Last 50 Kept,Last 80 Kept
+File Uploads,None,Max 1MB,Max 2MB,Max 5MB
+Upload Retention,Deleted after processing,Deleted after processing,Deleted after processing,Deleted after processing
+Ownership & Rights,,,,
+AI-Gen Lessons,Dylen Owns,Dylen Owns,Dylen Owns,Dylen Owns
+Private Lessons (User Owns),No,No,Yes (In-App),Yes (In-App)
+Marketplace Rights,None,None,Can Sell (You set price),Can Sell (You set price)
+Commission,N/A,N/A,Dylen takes 30% cut,Dylen takes 30% cut
+Learning Tools,,,,
+Tutor (Passive),None,1 Lesson (Trial),High Cap (20 Lessons),Higher Cap (80 Lessons)
+Tutor (Active),None,None,None,Available (50k tokens/mo)
+Fenster Widgets,None,None,Standard (Flash),High (Reasoning)
+Themes,Essential Focus,Essential + Cliffside,All 5 Themes,All 5 Themes
+Career & Exams,,,,
+Mock Exams,None,1 (Low Token),4 (15k token cap),15 (50k token cap)
+Mock Interviews,None,None,1 (15 min cap),10 (30 min cap)
+
+---
+
+## Backend enforcement mapping
+
+### 1) Quotas (hard, deny-by-default)
+- `limits.lessons_per_week` → enforced at `POST /v1/lessons/generate` before job creation; increments `lesson.generate` (WEEK) on success.
+- `limits.sections_per_month` → enforced during generation; sections are capped to remaining allowance and increment `section.generate` (MONTH) on section completion.
+- `limits.writing_checks_per_month` → enforced at `POST /v1/writing/check` before job creation; increments `writing.check` (MONTH) on success.
+- If monthly sections remaining is less than requested depth, the job still runs and generates only the remaining number of sections.
+
+### 2) Feature flags (capability gates, deny-by-default)
+- OCR is gated by `feature.ocr` (enabled for Starter/Plus/Pro).
+- Marketplace selling is gated by `feature.marketplace.sell` (enabled for Plus/Pro).
+- Tutor, mock exams, and mock interviews are gated by their respective `feature.*` flags.
+
+### 3) Runtime config (tier-scoped defaults)
+Tier defaults are seeded into Postgres `runtime_config_values` (scope=`TIER`), and resolved at runtime using:
+- env fallback → GLOBAL → TIER → TENANT → USER
+
+### 4) Retention enforcement (scheduled)
+- Lessons beyond the tier’s `limits.history_lessons_kept` are archived (`is_archived=true`) by a scheduled maintenance job (recommended: daily at 1am UTC).
+- Archived lessons are unavailable to end users.
+
+---
+
+## Error behavior (fail fast)
+- Quota exceeded before use: request is rejected before work is enqueued.
+- Quota capping: the job proceeds but generates only the allowed number of sections; logs include a quota cap message.
+- Feature disabled: endpoints protected by `require_feature_flag(...)` return 403 with `FEATURE_DISABLED`.

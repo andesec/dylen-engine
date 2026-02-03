@@ -23,9 +23,12 @@ from app.services.users import get_user_subscription_tier
 
 router = APIRouter()
 
-ConfigScopeLiteral = Literal["GLOBAL", "TIER", "TENANT"]
+ConfigScopeLiteral = Literal["GLOBAL", "TIER", "TENANT", "USER"]
+ConfigValues = dict[str, Any]
+OptStr = str | None
 CONFIG_READ_DEP = Depends(require_permission("config:read"))
 FLAGS_READ_DEP = Depends(require_permission("flags:read"))
+DB_DEP = Depends(get_db)
 
 
 class RuntimeConfigDefinitionRecord(BaseModel):
@@ -42,6 +45,7 @@ class RuntimeConfigSetRequest(BaseModel):
   value: Any
   org_id: str | None = None
   tier_name: str | None = None
+  user_id: str | None = None
 
 
 class FeatureFlagRecord(BaseModel):
@@ -69,6 +73,14 @@ def _definition_to_record(definition: Any) -> RuntimeConfigDefinitionRecord:
   # Convert scope enums to strings so the client can render without schema coupling.
   scopes = [scope.value for scope in sorted(definition.allowed_scopes, key=lambda s: s.value)]
   return RuntimeConfigDefinitionRecord(key=definition.key, value_type=definition.value_type, description=definition.description, allowed_scopes=scopes, super_admin_only=definition.super_admin_only)
+
+
+async def _require_super_admin_role(db: AsyncSession, user: User) -> None:
+  """Enforce the Super Admin role name when accessing internal-only config values."""
+  # Keep internal repair toggles inaccessible to tenant/global admins by default.
+  role = await get_role_by_id(db, user.role_id)
+  if role is None or role.name != "Super Admin":
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
 
 async def _require_global_role(db: AsyncSession, user: User) -> None:
@@ -117,23 +129,30 @@ async def list_config_definitions(_current_user: User = CONFIG_READ_DEP) -> list
 
 
 @router.get("/config/values")
-async def get_config_values(scope: ConfigScopeLiteral = Query("GLOBAL"), org_id: str | None = Query(None), tier_name: str | None = Query(None), current_user: User = CONFIG_READ_DEP, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+async def get_config_values(scope: ConfigScopeLiteral = Query("GLOBAL"), org_id: OptStr = Query(None), tier_name: OptStr = Query(None), user_id: OptStr = Query(None), current_user: User = CONFIG_READ_DEP, db: AsyncSession = DB_DEP) -> ConfigValues:
   """List explicitly set values for the requested config scope."""
   if scope == "GLOBAL":
     await _require_global_role(db, current_user)
-    return await list_runtime_config_values(db, scope=RuntimeConfigScope.GLOBAL, org_id=None, subscription_tier_id=None)
+    return await list_runtime_config_values(db, scope=RuntimeConfigScope.GLOBAL, org_id=None, subscription_tier_id=None, user_id=None)
   if scope == "TIER":
     await _require_global_role(db, current_user)
     if not tier_name:
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tier_name is required for TIER scope")
     tier_id = await _resolve_tier_id(db, tier_name)
-    return await list_runtime_config_values(db, scope=RuntimeConfigScope.TIER, org_id=None, subscription_tier_id=tier_id)
+    return await list_runtime_config_values(db, scope=RuntimeConfigScope.TIER, org_id=None, subscription_tier_id=tier_id, user_id=None)
   if scope == "TENANT":
     if not org_id:
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_id is required for TENANT scope")
     parsed_org_id = uuid.UUID(org_id)
     await _require_tenant_scope(db, current_user, parsed_org_id)
-    return await list_runtime_config_values(db, scope=RuntimeConfigScope.TENANT, org_id=parsed_org_id, subscription_tier_id=None)
+    return await list_runtime_config_values(db, scope=RuntimeConfigScope.TENANT, org_id=parsed_org_id, subscription_tier_id=None, user_id=None)
+  if scope == "USER":
+    await _require_global_role(db, current_user)
+    await _require_super_admin_role(db, current_user)
+    if not user_id:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id is required for USER scope")
+    parsed_user_id = uuid.UUID(user_id)
+    return await list_runtime_config_values(db, scope=RuntimeConfigScope.USER, org_id=None, subscription_tier_id=None, user_id=parsed_user_id)
   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid scope")
 
 
@@ -152,7 +171,7 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
   if request.scope == "GLOBAL":
     await _require_global_role(db, current_user)
     _ = await require_permission("config:write_global")(current_user=current_user, db=db)  # type: ignore[misc]
-    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.GLOBAL, value=request.value, org_id=None, subscription_tier_id=None)
+    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.GLOBAL, value=request.value, org_id=None, subscription_tier_id=None, user_id=None)
     return {"status": "ok"}
 
   if request.scope == "TIER":
@@ -161,7 +180,7 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
     if not request.tier_name:
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tier_name is required for TIER scope")
     tier_id = await _resolve_tier_id(db, request.tier_name)
-    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TIER, value=request.value, org_id=None, subscription_tier_id=tier_id)
+    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TIER, value=request.value, org_id=None, subscription_tier_id=tier_id, user_id=None)
     return {"status": "ok"}
 
   if request.scope == "TENANT":
@@ -170,7 +189,16 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_id is required for TENANT scope")
     parsed_org_id = uuid.UUID(request.org_id)
     await _require_tenant_scope(db, current_user, parsed_org_id)
-    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TENANT, value=request.value, org_id=parsed_org_id, subscription_tier_id=None)
+    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TENANT, value=request.value, org_id=parsed_org_id, subscription_tier_id=None, user_id=None)
+    return {"status": "ok"}
+
+  if request.scope == "USER":
+    await _require_global_role(db, current_user)
+    _ = await require_permission("config:write_global")(current_user=current_user, db=db)  # type: ignore[misc]
+    if not request.user_id:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id is required for USER scope")
+    parsed_user_id = uuid.UUID(request.user_id)
+    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.USER, value=request.value, org_id=None, subscription_tier_id=None, user_id=parsed_user_id)
     return {"status": "ok"}
 
   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid scope")
@@ -187,7 +215,7 @@ async def get_effective_config(org_id: str | None = Query(None), current_user: U
     parsed = uuid.UUID(org_id)
     await _require_global_role(db, current_user)
     target_org_id = parsed
-  effective = await resolve_effective_runtime_config(db, settings=settings, org_id=target_org_id, subscription_tier_id=tier_id)
+  effective = await resolve_effective_runtime_config(db, settings=settings, org_id=target_org_id, subscription_tier_id=tier_id, user_id=None)
   return {"tier": tier_name, "org_id": str(target_org_id) if target_org_id else None, "config": effective}
 
 

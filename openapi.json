@@ -57,7 +57,7 @@
             "title": "Gender",
             "type": "string"
           },
-          "gender_other": {
+          "genderOther": {
             "anyOf": [
               {
                 "type": "string"
@@ -67,20 +67,14 @@
               }
             ],
             "description": "Other gender description if applicable",
-            "title": "Gender Other"
-          },
-          "occupation": {
-            "description": "User's occupation",
-            "title": "Occupation",
-            "type": "string"
+            "title": "Genderother"
           }
         },
         "required": [
           "age",
           "gender",
           "city",
-          "country",
-          "occupation"
+          "country"
         ],
         "title": "BasicInfo",
         "type": "object"
@@ -1187,32 +1181,32 @@
       },
       "LegalConsent": {
         "properties": {
-          "accepted_privacy": {
+          "acceptedPrivacy": {
             "description": "Whether privacy policy is accepted",
-            "title": "Accepted Privacy",
+            "title": "Acceptedprivacy",
             "type": "boolean"
           },
-          "accepted_terms": {
+          "acceptedTerms": {
             "description": "Whether terms of service are accepted",
-            "title": "Accepted Terms",
+            "title": "Acceptedterms",
             "type": "boolean"
           },
-          "privacy_version": {
+          "privacyVersion": {
             "description": "Version of the privacy policy accepted",
-            "title": "Privacy Version",
+            "title": "Privacyversion",
             "type": "string"
           },
-          "terms_version": {
+          "termsVersion": {
             "description": "Version of the terms accepted",
-            "title": "Terms Version",
+            "title": "Termsversion",
             "type": "string"
           }
         },
         "required": [
-          "accepted_terms",
-          "accepted_privacy",
-          "terms_version",
-          "privacy_version"
+          "acceptedTerms",
+          "acceptedPrivacy",
+          "termsVersion",
+          "privacyVersion"
         ],
         "title": "LegalConsent",
         "type": "object"
@@ -1220,32 +1214,12 @@
       "LessonCatalogResponse": {
         "description": "Response payload for lesson option metadata.",
         "properties": {
-          "agent_models": {
-            "items": {
-              "$ref": "#/components/schemas/AgentModelOption"
-            },
-            "title": "Agent Models",
-            "type": "array"
-          },
           "blueprints": {
             "items": {
               "$ref": "#/components/schemas/OptionDetail"
             },
             "title": "Blueprints",
             "type": "array"
-          },
-          "default_widgets": {
-            "additionalProperties": {
-              "additionalProperties": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "type": "object"
-            },
-            "title": "Default Widgets",
-            "type": "object"
           },
           "depths": {
             "items": {
@@ -1267,23 +1241,13 @@
             },
             "title": "Teaching Styles",
             "type": "array"
-          },
-          "widgets": {
-            "items": {
-              "$ref": "#/components/schemas/OptionDetail"
-            },
-            "title": "Widgets",
-            "type": "array"
           }
         },
         "required": [
           "blueprints",
           "teaching_styles",
           "learner_levels",
-          "depths",
-          "widgets",
-          "agent_models",
-          "default_widgets"
+          "depths"
         ],
         "title": "LessonCatalogResponse",
         "type": "object"
@@ -1377,6 +1341,122 @@
         "title": "LessonMeta",
         "type": "object"
       },
+      "LessonOutcomesMeta": {
+        "description": "Metadata about outcomes generation.",
+        "properties": {
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "latency_ms"
+        ],
+        "title": "LessonOutcomesMeta",
+        "type": "object"
+      },
+      "LessonOutcomesResponse": {
+        "additionalProperties": false,
+        "description": "Response payload for outcomes preflight checks.",
+        "properties": {
+          "agent_models": {
+            "items": {
+              "$ref": "#/components/schemas/AgentModelOption"
+            },
+            "title": "Agent Models",
+            "type": "array"
+          },
+          "blocked_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sexual",
+                  "political",
+                  "military"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "High-level category used when blocking a topic.",
+            "title": "Blocked Category"
+          },
+          "default_widgets": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            "title": "Default Widgets",
+            "type": "object"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "const": "TOPIC_NOT_ALLOWED",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Simple error code when the topic is blocked.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LessonOutcomesMeta"
+          },
+          "ok": {
+            "description": "True when the topic is allowed and outcomes were generated.",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "outcomes": {
+            "description": "A small list of straightforward learning outcomes.",
+            "items": {
+              "maxLength": 140,
+              "minLength": 3,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 0,
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "widgets": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "meta",
+          "widgets",
+          "agent_models",
+          "default_widgets"
+        ],
+        "title": "LessonOutcomesResponse",
+        "type": "object"
+      },
       "LessonRecord": {
         "properties": {
           "created_at": {
@@ -1393,6 +1473,11 @@
               }
             ],
             "title": "Idempotency Key"
+          },
+          "is_archived": {
+            "default": false,
+            "title": "Is Archived",
+            "type": "boolean"
           },
           "latency_ms": {
             "title": "Latency Ms",
@@ -1731,6 +1816,19 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "MaintenanceJobResponse": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "MaintenanceJobResponse",
+        "type": "object"
+      },
       "ModelsConfig": {
         "additionalProperties": false,
         "description": "Per-agent model selection overrides.",
@@ -2016,12 +2114,12 @@
       },
       "Personalization": {
         "properties": {
-          "intended_use": {
+          "intendedUse": {
             "description": "Intended use of the platform",
-            "title": "Intended Use",
+            "title": "Intendeduse",
             "type": "string"
           },
-          "intended_use_other": {
+          "intendedUseOther": {
             "anyOf": [
               {
                 "type": "string"
@@ -2031,33 +2129,98 @@
               }
             ],
             "description": "Other intended use if applicable",
-            "title": "Intended Use Other"
+            "title": "Intendeduseother"
           },
-          "topics_of_interest": {
+          "occupation": {
+            "description": "User's occupation",
+            "title": "Occupation",
+            "type": "string"
+          },
+          "topicsOfInterest": {
             "description": "List of topics user is interested in",
             "items": {
               "type": "string"
             },
-            "title": "Topics Of Interest",
+            "title": "Topicsofinterest",
             "type": "array"
           }
         },
         "required": [
-          "topics_of_interest",
-          "intended_use"
+          "occupation",
+          "topicsOfInterest",
+          "intendedUse"
         ],
         "title": "Personalization",
         "type": "object"
       },
-      "ProviderMode": {
-        "description": "Supported provider modes.",
-        "enum": [
-          "gemini",
-          "openrouter",
-          "vertexai"
+      "QuotaEntry": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "boolean"
+          },
+          "used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "period",
+          "limit",
+          "used",
+          "remaining",
+          "available",
+          "tracked"
         ],
-        "title": "ProviderMode",
-        "type": "string"
+        "title": "QuotaEntry",
+        "type": "object"
       },
       "ResearchDiscoveryRequest": {
         "additionalProperties": false,
@@ -2163,6 +2326,13 @@
       },
       "ResolvedQuota": {
         "properties": {
+          "availability": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Availability",
+            "type": "object"
+          },
           "coach_mode_enabled": {
             "title": "Coach Mode Enabled",
             "type": "boolean"
@@ -2210,6 +2380,13 @@
               }
             ],
             "title": "Max Sections Per Lesson"
+          },
+          "quota_entries": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaEntry"
+            },
+            "title": "Quota Entries",
+            "type": "array"
           },
           "remaining_file_uploads": {
             "anyOf": [
@@ -2488,7 +2665,8 @@
             "enum": [
               "GLOBAL",
               "TIER",
-              "TENANT"
+              "TENANT",
+              "USER"
             ],
             "title": "Scope",
             "type": "string"
@@ -2503,6 +2681,17 @@
               }
             ],
             "title": "Tier Name"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           },
           "value": {
             "title": "Value"
@@ -2766,6 +2955,19 @@
         "title": "UserStatusUpdateRequest",
         "type": "object"
       },
+      "UserTierUpdateRequest": {
+        "properties": {
+          "tier_name": {
+            "title": "Tier Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier_name"
+        ],
+        "title": "UserTierUpdateRequest",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -2988,7 +3190,8 @@
               "enum": [
                 "GLOBAL",
                 "TIER",
-                "TENANT"
+                "TENANT",
+                "USER"
               ],
               "title": "Scope",
               "type": "string"
@@ -3024,6 +3227,22 @@
                 }
               ],
               "title": "Tier Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
             }
           }
         ],
@@ -3616,6 +3835,33 @@
         ]
       }
     },
+    "/admin/maintenance/archive-lessons": {
+      "post": {
+        "description": "Trigger a maintenance job to archive old lessons based on tier retention limits.",
+        "operationId": "trigger_archive_lessons_admin_maintenance_archive_lessons_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trigger Archive Lessons",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/roles": {
       "post": {
         "description": "Create a new role for RBAC management.",
@@ -3983,6 +4229,64 @@
           }
         ],
         "summary": "Update User Account Status",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/tier": {
+      "patch": {
+        "description": "Update a user's subscription tier and refresh RBAC claims.",
+        "operationId": "update_user_account_tier_admin_users__user_id__tier_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserTierUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Account Tier",
         "tags": [
           "admin"
         ]
@@ -4381,37 +4685,6 @@
       "post": {
         "description": "Validate OCR uploads, delegate extraction, and log audit data.",
         "operationId": "extract_text_from_images_resource_image_extract_text_post",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "provider_mode",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/ProviderMode",
-              "default": "gemini"
-            }
-          },
-          {
-            "in": "query",
-            "name": "model_name",
-            "required": false,
-            "schema": {
-              "default": "gemini-2.0-flash-lite",
-              "title": "Model Name",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "max_file_size",
-            "required": false,
-            "schema": {
-              "default": 1048576,
-              "title": "Max File Size",
-              "type": "integer"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -4878,6 +5151,53 @@
         ]
       }
     },
+    "/v1/lessons/outcomes": {
+      "post": {
+        "description": "Return a topic safety decision and a small set of learning outcomes.",
+        "operationId": "generate_outcomes_endpoint_v1_lessons_outcomes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLessonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonOutcomesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Generate Outcomes Endpoint",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
     "/v1/lessons/validate": {
       "post": {
         "description": "Validate lesson payloads from stored lessons or job results against schema and widgets.",
@@ -5199,6 +5519,24 @@
       "post": {
         "description": "Worker endpoint to process lesson generation.",
         "operationId": "process_lesson_endpoint_worker_process_lesson_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
