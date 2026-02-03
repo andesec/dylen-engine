@@ -48,9 +48,9 @@ class MarkdownTextWidget(BaseModel):
   @classmethod
   def validate_markdown_pre(cls, v: Any) -> list[str]:
     # Enforce strict shorthand list payloads: [md, align?].
-    if not isinstance(v, list):
-      raise ValueError("markdown widget must be a list")
-    return [str(i) for i in v]
+    if not isinstance(v, list) or not all(isinstance(i, str) for i in v):
+      raise ValueError("markdown widget must be a list of strings")
+    return v
 
   @field_validator("markdown")
   @classmethod
