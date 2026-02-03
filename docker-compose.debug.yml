@@ -93,7 +93,7 @@ services:
       - ./secrets/service-account.json:/app/service-account.json:ro
       - ./fixtures:/app/fixtures:ro
       - ./secrets/certs:/app/secrets/certs:ro
-    command: [ "python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt" ]
+    command: [ "python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt", "--no-server-header" ]
 
   cloudflared:
     image: cloudflare/cloudflared:latest
