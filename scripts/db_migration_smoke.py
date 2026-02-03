@@ -33,7 +33,7 @@ def _build_temp_database_url(dsn: str, *, label: str) -> tuple[str, str, str]:
   temp_db_name = f"{base_name}_{label}_{suffix}"
   admin_url = base_url.set(database="postgres")
   temp_url = base_url.set(database=temp_db_name)
-  return str(temp_url), str(admin_url), temp_db_name
+  return temp_url.render_as_string(hide_password=False), admin_url.render_as_string(hide_password=False), temp_db_name
 
 
 def _load_alembic_config() -> Config:
