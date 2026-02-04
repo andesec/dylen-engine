@@ -27,12 +27,18 @@ from app.jobs.models import JobRecord
 from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
 from app.notifications.factory import build_notification_service
 from app.schema.fenster import FensterWidget, FensterWidgetType
+from app.schema.markdown_limits import collect_overlong_markdown_errors
+from app.schema.quotas import QuotaPeriod
 from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.service import SchemaService
 from app.schema.validate_lesson import validate_lesson
+from app.services.lesson_markdown_repair import repair_lesson_overlong_markdown
+from app.services.maintenance import archive_old_lessons
 from app.services.model_routing import _get_orchestrator, _resolve_model_selection
+from app.services.quota_buckets import consume_quota, get_quota_snapshot
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
-from app.services.users import get_user_by_id
+from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord
@@ -61,9 +67,45 @@ class JobProcessor:
     if job.target_agent == "coach":
       return await self._process_coach_job(job)
 
+    if job.target_agent == "maintenance":
+      return await self._process_maintenance_job(job)
+
     if "text" in job.request and "criteria" in job.request:
       return await self._process_writing_check(job)
     return await self._process_lesson_generation(job)
+
+  async def _process_maintenance_job(self, job: JobRecord) -> JobRecord | None:
+    """Execute a background maintenance job (retention, cleanup, etc.)."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="maintenance", initial_logs=["Maintenance job acknowledged."])
+    await tracker.set_phase(phase="maintenance", subphase="start")
+    action = job.request.get("action")
+    if not isinstance(action, str) or action.strip() == "":
+      await tracker.fail(phase="failed", message="Maintenance job missing action.")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
+    action = action.strip().lower()
+    if action != "archive_old_lessons":
+      await tracker.fail(phase="failed", message="Unsupported maintenance action.")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
+    session_factory = get_session_factory()
+    if session_factory is None:
+      await tracker.fail(phase="failed", message="Database is not initialized.")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
+    try:
+      async with session_factory() as session:
+        archived_count = await archive_old_lessons(session, settings=self._settings)
+      tracker.add_logs(f"Archived {archived_count} lesson(s).")
+      completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+      payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": {"action": action, "archived_count": archived_count}, "completed_at": completed_at}
+      updated = await self._jobs_repo.update_job(job.job_id, **payload)
+      return updated
+    except Exception as exc:  # noqa: BLE001
+      self._logger.error("Maintenance job failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Maintenance job failed: {exc}")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
 
   async def _process_fenster_build(self, job: JobRecord) -> JobRecord | None:
     """Execute Fenster Widget generation."""
@@ -183,7 +225,8 @@ class JobProcessor:
       return None
 
     total_steps = call_plan.total_steps(include_validation=True, include_repair=True)
-    expected_sections = call_plan.depth
+    # Prefer persisted expected section counts so quota-capped jobs remain deterministic.
+    expected_sections = int(job.expected_sections or call_plan.depth)
     initial_logs = base_logs + [
       f"Planned AI calls: {call_plan.required_calls}",
       f"Depth: {call_plan.depth}",
@@ -201,6 +244,10 @@ class JobProcessor:
     soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
     hard_timeout = _parse_timeout_env("JOB_HARD_TIMEOUT_SECONDS")
     soft_timeout_recorded = False
+    # Capture quota config for per-section consumption in the progress callback.
+    quota_user_id: uuid.UUID | None = None
+    quota_sections_per_month = 0
+    quota_consumed_indexes: set[int] = set()
 
     async def _check_timeouts() -> bool:
       nonlocal soft_timeout_recorded
@@ -231,9 +278,45 @@ class JobProcessor:
       base_result_json = job.result_json
       base_completed_sections = len(base_completed_indexes)
       retry_completed_indexes: list[int] = []
+      # Enforce quota cap for section generation, including mid-queue tier changes.
+      session_factory = get_session_factory()
+      if session_factory is not None and job.user_id:
+        try:
+          quota_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          quota_user_id = None
+        if quota_user_id is not None:
+          try:
+            async with session_factory() as session:
+              user = await get_user_by_id(session, quota_user_id)
+              if user is not None:
+                tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+                runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+                quota_sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
+                if quota_sections_per_month <= 0:
+                  raise ValueError("Section quota is not enabled for this tier.")
+                quota_snapshot = await get_quota_snapshot(session, user_id=user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=quota_sections_per_month)
+                if quota_snapshot.remaining <= 0:
+                  raise ValueError("Monthly section quota exhausted.")
+                # Respect any persisted cap plus the live remaining quota to avoid overruns.
+                expected_sections = min(int(expected_sections), int(quota_snapshot.remaining))
+          except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"Quota enforcement failed: {exc}") from exc
 
       if retry_section_indexes:
         tracker.add_logs(f"Retry sections: {', '.join(str(i) for i in retry_section_indexes)}")
+
+      # Cap generation to the first N sections when expected_sections is lower than the plan depth.
+      quota_section_filter = None
+      if expected_sections < call_plan.depth:
+        quota_section_filter = set(range(1, expected_sections + 1))
+        tracker.add_logs(f"Quota cap applied: generating only {expected_sections} section(s) this month.")
+
+      effective_section_filter = retry_section_numbers
+      if quota_section_filter is not None:
+        effective_section_filter = quota_section_filter if effective_section_filter is None else set(effective_section_filter).intersection(quota_section_filter)
+        if effective_section_filter is not None and len(effective_section_filter) == 0:
+          raise ValueError("No sections remain eligible for generation under the current quota cap.")
 
       orchestration_result = await self._run_orchestration(
         job.job_id,
@@ -241,13 +324,16 @@ class JobProcessor:
         expected_sections=expected_sections,
         tracker=tracker,
         timeout_checker=_check_timeouts,
-        retry_section_numbers=retry_section_numbers,
+        retry_section_numbers=effective_section_filter,
         is_retry=is_retry,
         base_result_json=base_result_json,
         base_completed_indexes=base_completed_indexes,
         retry_completed_indexes=retry_completed_indexes,
         base_completed_sections=base_completed_sections,
         enable_repair=enable_repair,
+        quota_user_id=quota_user_id,
+        quota_sections_per_month=quota_sections_per_month,
+        quota_consumed_indexes=quota_consumed_indexes,
       )
 
       # Abort quickly if a cancellation lands after orchestration completes.
@@ -264,6 +350,26 @@ class JobProcessor:
       merged_result_json = orchestration_result.lesson_json
       merged_indexes = list(range(expected_sections))
       request_model = GenerateLessonRequest.model_validate(_strip_internal_request_fields(job.request))
+      max_markdown_chars = int(self._settings.max_markdown_chars)
+      repair_overlong_markdown = False
+      # Resolve runtime config for the job owner so validation uses tenant/tier/user overrides.
+      session_factory = get_session_factory()
+      if session_factory is not None and job.user_id:
+        try:
+          parsed_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          parsed_user_id = None
+        if parsed_user_id is not None:
+          try:
+            async with session_factory() as session:
+              user = await get_user_by_id(session, parsed_user_id)
+              if user is not None:
+                tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+                runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=user.id)
+                max_markdown_chars = int(runtime_config.get("limits.max_markdown_chars") or self._settings.max_markdown_chars)
+                repair_overlong_markdown = bool(runtime_config.get("lessons.repair_overlong_markdown") is True)
+          except Exception as exc:  # noqa: BLE001
+            self._logger.error("Failed resolving runtime config for markdown limits: %s", exc, exc_info=True)
 
       if is_retry and retry_section_indexes is not None:
         merged_result_json, merged_indexes = _merge_retry_result(
@@ -273,7 +379,17 @@ class JobProcessor:
       if is_retry and retry_section_indexes is not None and len(merged_indexes) < expected_sections:
         raise ValueError("Retry did not complete all expected sections.")
 
-      lesson_model_validation = validate_lesson(merged_result_json)
+      # Guard against invalid operator configuration so validation/repair stays deterministic.
+      if max_markdown_chars <= 0:
+        raise ValueError("Invalid markdown length configuration.")
+      markdown_errors = collect_overlong_markdown_errors(merged_result_json, max_markdown_chars=max_markdown_chars)
+      if markdown_errors and repair_overlong_markdown:
+        try:
+          merged_result_json = await repair_lesson_overlong_markdown(merged_result_json, topic=request_model.topic, settings=self._settings, max_markdown_chars=max_markdown_chars, job_id=f"job_{job.job_id}_markdown_repair")
+        except Exception as exc:  # noqa: BLE001
+          raise ValueError(f"Markdown repair failed: {exc}") from exc
+
+      lesson_model_validation = validate_lesson(merged_result_json, max_markdown_chars=max_markdown_chars)
       ok, errors, lesson_model = lesson_model_validation
       validation = {"ok": ok, "errors": errors}
 
@@ -289,6 +405,7 @@ class JobProcessor:
       latency_ms = int((time.monotonic() - start_time) * 1000)
       lesson_record = LessonRecord(
         lesson_id=lesson_id,
+        user_id=str(job.user_id) if job.user_id else None,
         topic=request_model.topic,
         title=merged_result_json["title"],
         created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -402,6 +519,9 @@ class JobProcessor:
     retry_completed_indexes: list[int] | None = None,
     base_completed_sections: int = 0,
     enable_repair: bool = True,
+    quota_user_id: uuid.UUID | None = None,
+    quota_sections_per_month: int = 0,
+    quota_consumed_indexes: set[int] | None = None,
   ) -> OrchestrationResult:
     """Execute the orchestration pipeline with guarded parameters."""
 
@@ -471,6 +591,20 @@ class JobProcessor:
         if retry_completed_indexes is not None and section_progress.status == "completed":
           if section_progress.index not in retry_completed_indexes:
             retry_completed_indexes.append(section_progress.index)
+        # Consume monthly section quota on completion, once per section index per job attempt.
+        if quota_user_id is not None and quota_sections_per_month > 0 and quota_consumed_indexes is not None and section_progress.status == "completed":
+          # Avoid double counting across retries by honoring the base completed index list.
+          if base_completed_indexes is not None and section_progress.index in base_completed_indexes:
+            pass
+          elif section_progress.index in quota_consumed_indexes:
+            pass
+          else:
+            quota_consumed_indexes.add(section_progress.index)
+            session_factory = get_session_factory()
+            if session_factory is None:
+              raise ValueError("Database is not initialized for quota accounting.")
+            async with session_factory() as session:
+              await consume_quota(session, user_id=quota_user_id, metric_key="section.generate", period=QuotaPeriod.MONTH, quantity=1, limit=int(quota_sections_per_month), metadata={"job_id": job_id, "section_index": int(section_progress.index)})
 
       log_message = "; ".join(messages or [])
       merged_partial = partial_json

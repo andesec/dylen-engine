@@ -7,6 +7,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictFloat, St
 
 from app.jobs.guardrails import MAX_ITEM_BYTES
 from app.jobs.models import JobStatus
+from app.schema.outcomes import OutcomesAgentResponse
 from app.services.widgets import _normalize_option_id, _normalize_widget_ids
 
 MAX_REQUEST_BYTES = MAX_ITEM_BYTES // 2
@@ -165,6 +166,14 @@ class LessonMeta(BaseModel):
   latency_ms: StrictInt
 
 
+class LessonOutcomesMeta(BaseModel):
+  """Metadata about outcomes generation."""
+
+  provider: StrictStr
+  model: StrictStr
+  latency_ms: StrictInt
+
+
 class GenerateLessonResponse(BaseModel):
   """Response payload for lesson generation."""
 
@@ -218,6 +227,12 @@ class LessonCatalogResponse(BaseModel):
   teaching_styles: list[OptionDetail]
   learner_levels: list[OptionDetail]
   depths: list[OptionDetail]
+
+
+class LessonOutcomesResponse(OutcomesAgentResponse):
+  """Response payload for outcomes preflight checks."""
+
+  meta: LessonOutcomesMeta
   widgets: list[OptionDetail]
   agent_models: list[AgentModelOption]
   default_widgets: dict[str, dict[str, list[StrictStr]]]

@@ -55,7 +55,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       err_list = [] if ok else repaired_errors
       return RepairResult(section_number=section_number, fixed_json=dummy_json, changes=["dummy_fixture"], errors=err_list)
 
-    if errors:
+    if errors and not _contains_overlong_markdown_errors(errors):
       section_json = self._deterministic_repair(section_json, errors, topic, section_number)
       validator = self._schema_service.validate_section_payload
       ok, errors, _ = validator(section_json, topic=topic, section_index=section_number)
@@ -167,6 +167,20 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     changes = ["ai_repair"]
     err_list = [] if ok else repaired_errors
     return RepairResult(section_number=section_number, fixed_json=repaired_json, changes=changes, errors=err_list)
+
+
+def _contains_overlong_markdown_errors(errors: Errors) -> bool:
+  """Return True when validation errors indicate a hard markdown length violation.
+
+  Why:
+    - Deterministic repair truncates text aggressively (frontend parity), which is not appropriate when a larger
+      runtime-configurable limit is enforced server-side.
+    - Overlong markdown should be refactored via AI repair to fit the hard limit, not blindly truncated.
+  """
+  for error in errors:
+    if "markdown exceeds max length" in error:
+      return True
+  return False
 
   @staticmethod
   def _deterministic_repair(section_json: JsonDict, errors: Errors, topic: str, section_number: int) -> JsonDict:
@@ -490,7 +504,7 @@ def _coerce_items_list(value: Any) -> list[Any]:
   if isinstance(value, dict):
     return [value]
 
-  # Parse string payloads when they look like JSON, otherwise fallback to a paragraph widget.
+  # Parse string payloads when they look like JSON, otherwise fallback to MarkdownText.
   if isinstance(value, str):
     stripped = value.strip()
 
@@ -509,13 +523,13 @@ def _coerce_items_list(value: Any) -> list[Any]:
       if isinstance(parsed, dict):
         return [parsed]
 
-    return [{"p": stripped}]
+    return [{"markdown": [stripped]}]
 
-  # Fallback to a paragraph string for scalar values to preserve context.
+  # Fallback to MarkdownText for scalar values to preserve context.
   if value is None:
     return []
 
-  return [{"p": str(value)}]
+  return [{"markdown": [str(value)]}]
 
 
 def _detect_widget_type(widget: Any) -> str | None:
@@ -530,7 +544,7 @@ def _detect_widget_type(widget: Any) -> str | None:
         return str(other_keys[0])
       return str(widget["type"])
   if isinstance(widget, str):
-    return "p"
+    return "markdown"
   return None
 
 

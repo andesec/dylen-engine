@@ -22,17 +22,8 @@ config = context.config
 if config.config_file_name is not None:
   fileConfig(config.config_file_name)
 
-import app.schema.audit  # noqa: E402, F401
-import app.schema.email_delivery_logs  # noqa: E402, F401
-import app.schema.feature_flags  # noqa: E402, F401
-import app.schema.fenster  # noqa: E402, F401
-import app.schema.jobs  # noqa: E402, F401
-import app.schema.lessons  # noqa: E402, F401
-import app.schema.quotas  # noqa: E402, F401
-import app.schema.runtime_config  # noqa: E402, F401
-
-# Must import models so they are attached to Base.metadata
-import app.schema.sql  # noqa: E402, F401
+# Must import ORM models so they are attached to Base.metadata.
+import app.schema.db_models  # noqa: E402, F401
 from app.core.database import DATABASE_URL, Base  # noqa: E402
 from app.core.migrations import build_migration_context_options  # noqa: E402
 

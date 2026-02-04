@@ -29,48 +29,42 @@ def coerce_to_list_str(v: Any) -> list[str]:
 # --- Primitive Widgets ---
 
 
-class ParagraphWidget(BaseModel):
-  """Paragraph content widget."""
+class MarkdownTextWidget(BaseModel):
+  """
+  MarkdownText widget (JSON key: `markdown`).
 
-  p: str
+  Why:
+    - This is the single, non-interactive formatting/text widget.
+    - It replaces paragraph/callout/list-only widgets by carrying Markdown.
 
-  @field_validator("p", mode="before")
+  How:
+    - Stored as a positional shorthand array: [md, align?]
+    - `align` is optional and defaults to "left" at render time.
+  """
+
+  markdown: list[StrictStr]
+
+  @field_validator("markdown", mode="before")
   @classmethod
-  def validate_p(cls, v: Any) -> str:
-    return coerce_to_str(v)
+  def validate_markdown_pre(cls, v: Any) -> list[str]:
+    # Enforce strict shorthand list payloads: [md, align?].
+    if not isinstance(v, list) or not all(isinstance(i, str) for i in v):
+      raise ValueError("markdown widget must be a list of strings")
+    return v
 
-
-class WarnWidget(BaseModel):
-  """Warning callout."""
-
-  warn: str
-
-  @field_validator("warn", mode="before")
+  @field_validator("markdown")
   @classmethod
-  def validate_warn(cls, v: Any) -> str:
-    return coerce_to_str(v)
-
-
-class ErrorWidget(BaseModel):
-  """Error callout."""
-
-  err: str
-
-  @field_validator("err", mode="before")
-  @classmethod
-  def validate_err(cls, v: Any) -> str:
-    return coerce_to_str(v)
-
-
-class SuccessWidget(BaseModel):
-  """Success callout."""
-
-  success: str
-
-  @field_validator("success", mode="before")
-  @classmethod
-  def validate_success(cls, v: Any) -> str:
-    return coerce_to_str(v)
+  def validate_markdown(cls, v: list[str]) -> list[str]:
+    # Enforce the shorthand positions and keep validation strict.
+    if len(v) < 1:
+      raise ValueError("markdown widget must include md at position 0")
+    if len(v) > 2:
+      raise ValueError("markdown widget supports at most 2 elements: [md, align?]")
+    if not v[0] or not v[0].strip():
+      raise ValueError("markdown md must be a non-empty string")
+    if len(v) == 2 and v[1] not in ("left", "center"):
+      raise ValueError("markdown align must be either 'left' or 'center'")
+    return v
 
 
 class FlipWidget(BaseModel):
@@ -144,28 +138,6 @@ class FillBlankWidget(BaseModel):
     if "___" not in v[0]:
       raise ValueError("fillblank prompt must include ___ placeholder")
     return v
-
-
-class UnorderedListWidget(BaseModel):
-  """Unordered list widget."""
-
-  ul: list[str]
-
-  @field_validator("ul", mode="before")
-  @classmethod
-  def validate_ul(cls, v: Any) -> list[str]:
-    return coerce_to_list_str(v)
-
-
-class OrderedListWidget(BaseModel):
-  """Ordered list widget."""
-
-  ol: list[str]
-
-  @field_validator("ol", mode="before")
-  @classmethod
-  def validate_ol(cls, v: Any) -> list[str]:
-    return coerce_to_list_str(v)
 
 
 class TableWidget(BaseModel):
@@ -732,16 +704,10 @@ class MCQsWidget(BaseModel):
 # --- Union Type ---
 
 Widget = Union[  # noqa: UP007
-  StrictStr,  # Plain string is a paragraph
-  ParagraphWidget,
-  WarnWidget,
-  ErrorWidget,
-  SuccessWidget,
+  MarkdownTextWidget,
   FlipWidget,
   TranslationWidget,
   FillBlankWidget,
-  UnorderedListWidget,
-  OrderedListWidget,
   TableWidget,
   CompareWidget,
   SwipeCardsWidget,
@@ -770,9 +736,9 @@ def normalize_widget(widget: Any) -> dict[str, Any]:
   if widget is None:
     raise ValueError("Widget payload cannot be None.")
 
-  # Convert paragraph shorthand into the explicit widget object.
+  # Convert raw strings into the MarkdownText widget to keep repair deterministic.
   if isinstance(widget, str):
-    return {"p": widget}
+    return {"markdown": [widget]}
 
   # Convert Pydantic models into their shorthand dict form.
   if isinstance(widget, BaseModel):
@@ -790,7 +756,7 @@ def normalize_widget(widget: Any) -> dict[str, Any]:
     return widget
 
   # Reject unsupported widget payloads so callers can decide on fallbacks.
-  raise ValueError("Widget payload must be a string or mapping.")
+  raise ValueError("Widget payload must be a string, mapping, or Pydantic model.")
 
 
 # --- Structure Models ---

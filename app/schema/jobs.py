@@ -8,7 +8,7 @@ from app.core.database import Base
 
 
 class Job(Base):
-  __tablename__ = "dylen_jobs"
+  __tablename__ = "jobs"
 
   job_id: Mapped[str] = mapped_column(String, primary_key=True)
   user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)

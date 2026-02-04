@@ -11,12 +11,15 @@ def test_load_widget_registry() -> None:
   registry = load_widget_registry(widgets_path)
 
   # Verify known widgets are loaded
-  assert registry.is_known("p")
+  assert registry.is_known("markdown")
   assert registry.is_known("flip")
   assert registry.is_known("mcqs")
   assert registry.is_known("table")
   assert registry.is_known("interactiveTerminal")
   assert registry.is_known("terminalDemo")
+  assert not registry.is_known("p")
+  assert not registry.is_known("ul")
+  assert not registry.is_known("ol")
 
   # Verify unknown widgets return False
   assert not registry.is_known("unknown_widget")

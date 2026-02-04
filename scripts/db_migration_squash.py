@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import os
 import re
 import subprocess
@@ -23,9 +24,23 @@ def _require_env(name: str) -> str:
   """Read required environment variables to prevent accidental DB targeting."""
   value = os.getenv(name, "").strip()
   if not value:
-    raise RuntimeError(f"{name} is required (set it in your shell or .env).")
+    # Keep the failure actionable so developers don't silently generate migrations against the wrong target.
+    message = f"{name} is required (set it in your shell or add it to .env; see .env.example)."
+    if name == "DYLEN_ALLOWED_ORIGINS":
+      message = message + " Example: DYLEN_ALLOWED_ORIGINS=http://localhost:3000"
+
+    raise RuntimeError(message)
 
   return value
+
+
+def _require_import(name: str) -> None:
+  """Fail fast when required runtime dependencies are missing from the active interpreter."""
+  # Ensure the interpreter used for Alembic has the DB driver installed.
+  try:
+    importlib.import_module(name)
+  except ModuleNotFoundError as exc:
+    raise RuntimeError(f"Missing dependency {name!r} in {sys.executable}. Run: uv sync --all-extras") from exc
 
 
 def _run_git(command: list[str]) -> str:
@@ -180,7 +195,8 @@ def main() -> None:
 
   # Require env vars explicitly so Alembic doesn't target a default database implicitly.
   dsn = _require_env("DYLEN_PG_DSN")
-  _require_env("DYLEN_ALLOWED_ORIGINS")
+  # Ensure the runtime driver is available before running Alembic.
+  _require_import("asyncpg")
   repo_root = _repo_root()
   # Paths
   alembic_ini = repo_root / "alembic.ini"

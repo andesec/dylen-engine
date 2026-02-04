@@ -28,26 +28,110 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
     """Convert full-form widgets in each section payload into Dylen shorthand where safe.
 
     Per the widget guide, each `items` entry may be:
-    - a string paragraph,
     - an object with exactly one shorthand key, or
     - a full-form widget object with `type` (escape hatch).
 
-    This method converts common full-form widgets (e.g., `{type: "info", content: ...}`)
-    into shorthand equivalents (e.g., `{ "info": "..." }`) when no information would
-    be lost. If the full-form contains extra fields not representable in shorthand,
-    it is left as-is.
+    This method converts common full-form/legacy text widgets into MarkdownText
+    shorthand (`{"markdown":[...]}`) when no information would be lost.
+    If the full-form contains extra fields not representable in shorthand, it is left as-is.
     """
 
     def _as_str(x: Any) -> str:
       return x if isinstance(x, str) else str(x)
 
+    def _coerce_text(value: Any) -> str:
+      if isinstance(value, str):
+        return value.strip()
+      if isinstance(value, list):
+        return "\n".join(_as_str(v).strip() for v in value if _as_str(v).strip()).strip()
+      return _as_str(value).strip()
+
+    def _convert_legacy_text_item(item: dict[str, Any]) -> dict[str, Any] | None:
+      align = item.get("align")
+      align_value = align.strip() if isinstance(align, str) else None
+      if align_value not in (None, "left", "center"):
+        align_value = None
+
+      markdown_value = item.get("markdown")
+      if markdown_value is not None:
+        if isinstance(markdown_value, list) and markdown_value and all(isinstance(v, str) for v in markdown_value):
+          return item
+        coerced = _coerce_text(markdown_value)
+        if not coerced:
+          return None
+        payload: list[str] = [coerced]
+        if align_value:
+          payload.append(align_value)
+        return {"markdown": payload}
+
+      title = item.get("title")
+      title_value = title.strip() if isinstance(title, str) else ""
+
+      parts: list[str] = []
+
+      for key in ("p", "paragraph", "callouts"):
+        if key in item:
+          text = _coerce_text(item.get(key))
+          if not text:
+            continue
+          if title_value:
+            parts.append(f"### {title_value}\n{text}")
+            title_value = ""
+          else:
+            parts.append(text)
+
+      callout_labels = {"info": "Note", "warn": "Warning", "warning": "Warning", "err": "Error", "error": "Error", "success": "Success"}
+      for key in ("info", "warn", "warning", "err", "error", "success"):
+        if key in item:
+          text = _coerce_text(item.get(key))
+          if not text:
+            continue
+          prefix = f"{title_value}: " if title_value else ""
+          if title_value:
+            title_value = ""
+          label = callout_labels[key]
+          parts.append(f"**{label}:** {prefix}{text}")
+
+      for key in ("ul", "ol"):
+        if key in item:
+          vals = item.get(key)
+          if not isinstance(vals, list) or not vals:
+            continue
+          entries = [_as_str(v).strip() for v in vals if _as_str(v).strip()]
+          if not entries:
+            continue
+          if key == "ul":
+            parts.append("\n".join(f"- {entry}" for entry in entries))
+          else:
+            parts.append("\n".join(f"{idx + 1}. {entry}" for idx, entry in enumerate(entries)))
+
+      md = "\n\n".join(part for part in parts if part.strip()).strip()
+      if not md:
+        return None
+
+      payload: list[str] = [md]
+      if align_value:
+        payload.append(align_value)
+      return {"markdown": payload}
+
     def _convert_item(item: Any) -> Any:
-      # Already shorthand paragraph
+      # Convert raw strings into MarkdownText to keep output schema strict.
       if isinstance(item, str):
-        return item
+        content = item.strip()
+        if not content:
+          return None
+        return {"markdown": [content]}
 
       if not isinstance(item, dict):
         return item
+
+      if "type" not in item:
+        legacy_keys = {"markdown", "p", "paragraph", "callouts", "info", "warn", "warning", "err", "error", "success", "ul", "ol"}
+        if any(key in item for key in legacy_keys):
+          converted = _convert_legacy_text_item(item)
+          if converted is None:
+            return None
+          return converted
 
       # Already shorthand object (e.g., {"info": "..."}, {"table": [...]}, etc.)
       # If there is no `type` key, do nothing.
@@ -62,28 +146,28 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
       # Paragraph-ish full form
       if wtype in {"p", "paragraph", "text"}:
         content = item.get("content") or item.get("text")
-        return content if isinstance(content, str) else item
+        if isinstance(content, str) and content.strip():
+          return {"markdown": [content.strip()]}
+        return item
 
       # Callouts: info/tip/warn/err/success
       if wtype in {"info", "tip", "warn", "err", "success"}:
         content = item.get("content")
-        # Perfect 1:1 conversion
-        if isinstance(content, str) and set(item.keys()).issubset({"type", "content"}):
-          return {wtype: content}
-
-        # Title isn't supported in shorthand; fold into message when safe
-        if isinstance(content, str) and set(item.keys()).issubset({"type", "title", "content"}):
-          title = item.get("title")
-          if isinstance(title, str) and title.strip():
-            return {wtype: f"{title.strip()}: {content}"}
-
-        return item
+        if not isinstance(content, str) or not content.strip():
+          return item
+        title = item.get("title")
+        title_prefix = ""
+        if isinstance(title, str) and title.strip():
+          title_prefix = f"{title.strip()}: "
+        label = "Warning" if wtype == "warn" else "Error" if wtype == "err" else "Success" if wtype == "success" else "Note"
+        return {"markdown": [f"**{label}:** {title_prefix}{content.strip()}"]}
 
       # Lists
       if wtype in {"ul", "ol"}:
         vals = item.get("items") or item.get("content")
         if isinstance(vals, list) and all(isinstance(x, str) for x in vals):
-          return {wtype: vals}
+          lines = [f"- {x.strip()}" for x in vals] if wtype == "ul" else [f"{idx + 1}. {x.strip()}" for idx, x in enumerate(vals)]
+          return {"markdown": ["\n".join(lines)]}
         return item
 
       # Table (widgets_prompt.md): {"table": [[headers...], [row...], ...]}
@@ -315,7 +399,13 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
       out = deepcopy(block)
 
       if isinstance(out.get("items"), list):
-        out["items"] = [_convert_item(i) for i in out["items"]]
+        items: list[Any] = []
+        for entry in out["items"]:
+          converted = _convert_item(entry)
+          if converted is None:
+            continue
+          items.append(converted)
+        out["items"] = items
 
       if isinstance(out.get("subsections"), list):
         new_subs: list[Any] = []
@@ -326,7 +416,13 @@ class StitcherAgent(BaseAgent[StructuredSectionBatch, FinalLesson]):
             if "subsection" in sub_out and "section" not in sub_out:
               sub_out["section"] = sub_out.pop("subsection")
             if isinstance(sub_out.get("items"), list):
-              sub_out["items"] = [_convert_item(i) for i in sub_out["items"]]
+              items: list[Any] = []
+              for entry in sub_out["items"]:
+                converted = _convert_item(entry)
+                if converted is None:
+                  continue
+                items.append(converted)
+              sub_out["items"] = items
             new_subs.append(sub_out)
           else:
             new_subs.append(sub)

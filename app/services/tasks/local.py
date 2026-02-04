@@ -35,16 +35,15 @@ class LocalHttpEnqueuer(TaskEnqueuer):
 
   def _task_headers(self) -> dict[str, str]:
     """Build task authentication headers for internal endpoints."""
-    # Support optional shared-secret auth for local + CI parity with production.
+    # Enforce shared-secret auth for internal endpoints (deny-by-default).
     if not self.settings.task_secret:
-      return {}
+      raise RuntimeError("Task secret not configured.")
     return {"authorization": f"Bearer {self.settings.task_secret}"}
 
   async def enqueue(self, job_id: str, payload: dict) -> None:
     """Enqueue a job by POSTing to the local endpoint."""
     if not self.settings.base_url:
-      logger.warning("Base URL not configured, strictly required for LocalHttpEnqueuer.")
-      return
+      raise RuntimeError("Base URL not configured, strictly required for LocalHttpEnqueuer.")
 
     url = f"{self.settings.base_url.rstrip('/')}/internal/tasks/process-job"
 
@@ -65,8 +64,7 @@ class LocalHttpEnqueuer(TaskEnqueuer):
   async def enqueue_lesson(self, lesson_id: str, job_id: str, params: dict, user_id: str) -> None:
     """Enqueue a lesson generation task locally."""
     if not self.settings.base_url:
-      logger.warning("Base URL not configured, strictly required for LocalHttpEnqueuer.")
-      return
+      raise RuntimeError("Base URL not configured, strictly required for LocalHttpEnqueuer.")
 
     url = f"{self.settings.base_url.rstrip('/')}/worker/process-lesson"
 

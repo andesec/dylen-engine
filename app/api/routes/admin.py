@@ -1,8 +1,10 @@
+import time
 import uuid
 from typing import TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -14,14 +16,16 @@ from app.jobs.models import JobRecord, JobStatus
 from app.notifications.factory import build_notification_service
 from app.schema.sql import Role, RoleLevel, User, UserStatus
 from app.services.feature_flags import is_feature_enabled
+from app.services.jobs import trigger_job_processing
 from app.services.rbac import create_role as create_role_record
-from app.services.rbac import get_role_by_id, set_role_permissions
-from app.services.users import delete_user, get_user_by_id, get_user_subscription_tier, get_user_tier_name, list_users, update_user_role, update_user_status
+from app.services.rbac import get_role_by_id, list_permission_slugs_for_role, set_role_permissions
+from app.services.users import delete_user, get_user_by_id, get_user_subscription_tier, get_user_tier_name, list_users, set_user_subscription_tier, update_user_role, update_user_status
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.postgres_audit_repo import LlmAuditRecord, PostgresLlmAuditRepository
 from app.storage.postgres_jobs_repo import PostgresJobsRepository
 from app.storage.postgres_lessons_repo import PostgresLessonsRepository
+from app.utils.ids import generate_job_id
 
 router = APIRouter()
 
@@ -125,10 +129,20 @@ class UserRoleUpdateRequest(BaseModel):
   role_id: str
 
 
-async def _update_firebase_claims(db_session: AsyncSession, user: User, role: Role) -> None:
+class UserTierUpdateRequest(BaseModel):
+  tier_name: str
+
+
+class MaintenanceJobResponse(BaseModel):
+  job_id: str
+
+
+async def _update_firebase_claims(db_session: AsyncSession, user: User, role: Role, *, permissions: list[str] | None = None) -> None:
   """Helper to sync user RBAC claims to Firebase."""
   tier_name = await get_user_tier_name(db_session, user.id)
-  claims = build_rbac_claims(role_id=str(role.id), role_name=role.name, role_level=role.level, org_id=str(user.org_id) if user.org_id else None, status=user.status, tier=tier_name)
+  if permissions is None:
+    permissions = await list_permission_slugs_for_role(db_session, role_id=role.id)
+  claims = build_rbac_claims(role_id=str(role.id), role_name=role.name, role_level=role.level, org_id=str(user.org_id) if user.org_id else None, status=user.status, tier=tier_name, permissions=permissions)
   await run_in_threadpool(set_custom_claims, user.firebase_uid, claims)
 
 
@@ -164,6 +178,13 @@ async def update_role_permissions(role_id: str, request: RolePermissionsUpdateRe
   permissions = await set_role_permissions(db_session, role=role, permission_ids=permission_ids)
   if len(permissions) != len(permission_ids):
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more permissions were not found.")
+
+  # Sync Firebase claims for users with this role so permission hints update without extra API calls.
+  permission_slugs = [permission.slug for permission in permissions]
+  users_result = await db_session.execute(select(User).where(User.role_id == role.id))
+  users = list(users_result.scalars().all())
+  for user in users:
+    await _update_firebase_claims(db_session, user, role, permissions=permission_slugs)
 
   # Shape permissions for API response payloads.
   permission_records = [PermissionRecord(id=str(permission.id), slug=permission.slug, display_name=permission.display_name, description=permission.description) for permission in permissions]
@@ -264,6 +285,66 @@ async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest,
   await _update_firebase_claims(db_session, user, new_role)
 
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
+
+
+@router.patch("/users/{user_id}/tier", response_model=UserStatusResponse)
+async def update_user_account_tier(user_id: str, request: UserTierUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
+  """Update a user's subscription tier and refresh RBAC claims."""
+  # Validate user id inputs early to avoid leaking query behavior.
+  try:
+    parsed_user_id = uuid.UUID(user_id)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id.") from exc
+
+  # Load the user record so tier changes are explicit and auditable.
+  user = await get_user_by_id(db_session, parsed_user_id)
+  if user is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+  # Enforce tenant scoping for org admins.
+  _role = await check_tenant_permissions(db_session, current_user, target_org_id=user.org_id)
+
+  try:
+    _tier_id, _tier_name = await set_user_subscription_tier(db_session, user_id=user.id, tier_name=request.tier_name)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+  # Sync Firebase claims so the client tier gates update immediately.
+  role = await get_role_by_id(db_session, user.role_id)
+  if role is None:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User role missing.")
+  await _update_firebase_claims(db_session, user, role)
+
+  return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
+
+
+@router.post("/maintenance/archive-lessons", response_model=MaintenanceJobResponse)
+async def trigger_archive_lessons(background_tasks: BackgroundTasks, settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user), db_session: AsyncSession = Depends(get_db)) -> MaintenanceJobResponse:  # noqa: B008
+  """Trigger a maintenance job to archive old lessons based on tier retention limits."""
+  job_id = generate_job_id()
+  timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+  record = JobRecord(
+    job_id=job_id,
+    user_id=str(current_user.id),
+    request={"action": "archive_old_lessons", "_meta": {"user_id": str(current_user.id)}},
+    status="queued",
+    target_agent="maintenance",
+    phase="queued",
+    created_at=timestamp,
+    updated_at=timestamp,
+    expected_sections=0,
+    completed_sections=0,
+    completed_section_indexes=[],
+    retry_count=0,
+    max_retries=0,
+    logs=["Maintenance job queued by admin."],
+    progress=0.0,
+    ttl=int(time.time()) + 3600,
+  )
+  repo = get_jobs_repo()
+  await repo.create_job(record)
+  trigger_job_processing(background_tasks, job_id, settings)
+  return MaintenanceJobResponse(job_id=job_id)
 
 
 @router.patch("/users/{user_id}/approve", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user)])

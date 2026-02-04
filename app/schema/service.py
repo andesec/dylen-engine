@@ -56,7 +56,7 @@ class SchemaService:
     Return a section schema restricted to a specific list of widgets.
 
     Args:
-        allowed_widgets: List of allowed widget keys (e.g. ['p', 'mcqs']).
+        allowed_widgets: List of allowed widget keys (e.g. ['markdown', 'mcqs']).
     """
     # Start with the full schema
     schema = self.section_schema()
@@ -85,15 +85,9 @@ class SchemaService:
     original_options = widget_def["anyOf"]
     filtered_options = []
 
-    # Always include the string type if "p" (paragraph) is in allowed_widgets,
-    # because the "p" shorthand is a plain string.
-    include_paragraph = "p" in allowed_widgets
-
     for option in original_options:
-      # Check simple type (string = paragraph shorthand)
+      # Check simple scalar types (not used for widgets in this schema).
       if option.get("type") == "string":
-        if include_paragraph:
-          filtered_options.append(option)
         continue
 
       # Check referenced definitions (object widgets)
@@ -214,24 +208,19 @@ class SchemaService:
       ChecklistWidget,
       CodeEditorWidget,
       CompareWidget,
-      ErrorWidget,
       FillBlankWidget,
       FlipWidget,
       FreeTextWidget,
       InputLineWidget,
       InteractiveTerminalWidget,
+      MarkdownTextWidget,
       MCQsWidget,
-      OrderedListWidget,
-      ParagraphWidget,
       StepFlowWidget,
-      SuccessWidget,
       SwipeCardsWidget,
       TableWidget,
       TerminalDemoWidget,
       TranslationWidget,
       TreeViewWidget,
-      UnorderedListWidget,
-      WarnWidget,
     )
 
     TYPE_TO_MODEL = {  # noqa: N806
@@ -249,14 +238,9 @@ class SchemaService:
       "codeEditor": CodeEditorWidget,
       "treeview": TreeViewWidget,
       "mcqs": MCQsWidget,
-      "ul": UnorderedListWidget,
-      "ol": OrderedListWidget,
       "table": TableWidget,
       "compare": CompareWidget,
-      "p": ParagraphWidget,
-      "warn": WarnWidget,
-      "err": ErrorWidget,
-      "success": SuccessWidget,
+      "markdown": MarkdownTextWidget,
     }
 
     for widget_type in dict.fromkeys(widget_types):

@@ -1,8 +1,11 @@
 import logging
+import os
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from app.core.database import Base, get_db_engine
 from app.core.firebase import initialize_firebase
 from app.core.logging import _initialize_logging
 from fastapi import FastAPI
@@ -24,15 +27,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Initialize Firebase
     initialize_firebase()
-
-    # Import models to ensure they are registered with Base.metadata
-    import app.schema.coach  # noqa: F401
-
-    # Create database tables if database is configured
-    db_engine = get_db_engine()
-    if db_engine:
-      async with db_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # In development, optionally apply migrations automatically to avoid runtime errors from missing tables/seeds.
+    # Production deployments should keep migrations in a dedicated deploy step.
+    auto_apply = (os.getenv("DYLEN_AUTO_APPLY_MIGRATIONS", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if auto_apply and settings.environment != "production":
+      repo_root = Path(__file__).resolve().parents[2]
+      subprocess.run([sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"], check=True, cwd=repo_root)
 
   except Exception:
     logger.warning("Initial logging setup failed; will retry on lifespan.", exc_info=True)

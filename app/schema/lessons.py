@@ -7,7 +7,7 @@ from app.core.database import Base
 
 
 class Lesson(Base):
-  __tablename__ = "dylen_lessons"
+  __tablename__ = "lessons"
 
   lesson_id: Mapped[str] = mapped_column(String, primary_key=True)
   user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
@@ -25,3 +25,4 @@ class Lesson(Base):
   latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
   idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
   tags: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)

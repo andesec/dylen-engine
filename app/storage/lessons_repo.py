@@ -24,6 +24,7 @@ class LessonRecord:
   lesson_json: str
   status: str
   latency_ms: int
+  is_archived: bool = False
   idempotency_key: str | None = None
   tags: set[str] | None = None
 
@@ -36,6 +37,9 @@ class LessonsRepository(Protocol):
 
   async def get_lesson(self, lesson_id: str) -> LessonRecord | None:
     """Fetch a lesson record by lesson identifier."""
+
+  async def update_lesson_json(self, lesson_id: str, *, lesson_json: str, title: str | None = None) -> None:
+    """Update the stored lesson JSON payload (and optionally title) for an existing lesson."""
 
   async def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None) -> tuple[list[LessonRecord], int]:
     """Return a paginated list of lessons with optional filters, and total count."""

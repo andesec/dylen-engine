@@ -61,3 +61,20 @@ To enable Cloud Tasks:
 *   **Job stuck in `queued`**: Check if `DYLEN_JOBS_AUTO_PROCESS` is `True`. Check logs for "Failed to enqueue task".
 *   **Task fails repeatedly**: Cloud Tasks will retry automatically with exponential backoff. Check the handler logs for exceptions.
 *   **`Server disconnected without sending a response`**: Ensure `DYLEN_BASE_URL` is set and points to `http://localhost:<port>` for local development, and avoid proxying internal requests (the local enqueuer ignores proxy env vars by default).
+
+## Scheduled Maintenance (Cloud Scheduler)
+
+This service supports scheduled maintenance via Cloud Scheduler calling an admin trigger endpoint that enqueues a maintenance job into Cloud Tasks.
+
+### Archive old lessons (daily 1am UTC)
+
+1. Create a Cloud Scheduler job to call:
+   - `POST /admin/maintenance/archive-lessons`
+2. Authenticate the call using either:
+   - `DYLEN_TASK_SECRET` (recommended for dev/staging), or
+   - Cloud Scheduler OIDC → Cloud Run IAM (recommended for production)
+3. Schedule time:
+   - **1am UTC** daily.
+
+Why:
+* This keeps end-user lesson history bounded per tier by archiving older lessons in Postgres and denying access to archived lessons in user endpoints.

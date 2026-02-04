@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -54,6 +55,61 @@ def _replace_once(text: str, needle: str, replacement: str) -> str:
   return text.replace(needle, replacement, 1)
 
 
+def _indent_block(*, block: str, indent: str) -> str:
+  """Indent a `seed_block` to match the generated migration indentation."""
+  lines: list[str] = []
+  for line in block.splitlines(keepends=True):
+    if line.startswith("    "):
+      lines.append(indent + line[4:])
+      continue
+
+    lines.append(line)
+
+  return "".join(lines)
+
+
+def _inject_seed_block(*, text: str, seed_block: str) -> str:
+  """Insert the seed block into the upgrade() section only."""
+  upgrade_token = "def upgrade() -> None:"
+  downgrade_token = "def downgrade() -> None:"
+  upgrade_index = text.find(upgrade_token)
+  if upgrade_index == -1:
+    raise RuntimeError("Unable to locate upgrade() in the baseline migration.")
+
+  downgrade_index = text.find(downgrade_token, upgrade_index)
+  if downgrade_index == -1:
+    raise RuntimeError("Unable to locate downgrade() in the baseline migration.")
+
+  upgrade_section = text[upgrade_index:downgrade_index]
+  marker = "# ### end Alembic commands ###"
+  marker_matches = list(re.finditer(rf"(?m)^(?P<indent>[ \t]*){re.escape(marker)}\s*$", upgrade_section))
+  if len(marker_matches) != 1:
+    raise RuntimeError(f"Expected exactly one upgrade() end marker {marker!r}, found {len(marker_matches)}.")
+
+  match = marker_matches[0]
+  indent = match.group("indent")
+  indented_seed = _indent_block(block=seed_block, indent=indent)
+  injected_upgrade = upgrade_section[: match.start()] + indented_seed + upgrade_section[match.start() :]
+  return text[:upgrade_index] + injected_upgrade + text[downgrade_index:]
+
+
+def _ensure_future_annotations(text: str) -> str:
+  """Ensure `from __future__ import annotations` exists without breaking module docstrings."""
+  if "from __future__ import annotations" in text:
+    return text
+
+  if text.startswith('"""') or text.startswith("'''"):
+    quote = text[:3]
+    end = text.find(quote, 3)
+    if end == -1:
+      raise RuntimeError("Unable to locate closing module docstring delimiter.")
+
+    insert_at = end + 3
+    return text[:insert_at] + "\n\nfrom __future__ import annotations\n" + text[insert_at:]
+
+  return "from __future__ import annotations\n\n" + text
+
+
 def _patch_baseline_for_seed_data(*, path: Path) -> None:
   """Inject idempotent seed data into the freshly generated baseline migration."""
   text = path.read_text(encoding="utf-8")
@@ -61,8 +117,7 @@ def _patch_baseline_for_seed_data(*, path: Path) -> None:
     return
 
   # Ensure future annotations are enabled so we can use modern typing without syntax issues.
-  if "from __future__ import annotations" not in text:
-    text = "from __future__ import annotations\n\n" + text
+  text = _ensure_future_annotations(text)
 
   # Inject required imports for seed inserts.
   if "import uuid" not in text:
@@ -170,7 +225,7 @@ def _patch_baseline_for_seed_data(*, path: Path) -> None:
     "    )\n"
   )
 
-  text = _replace_once(text, "    # ### end Alembic commands ###\n", seed_block + "    # ### end Alembic commands ###\n")
+  text = _inject_seed_block(text=text, seed_block=seed_block)
   path.write_text(text, encoding="utf-8")
 
 

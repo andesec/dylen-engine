@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,8 +31,14 @@ class LessonGenerationTask(BaseModel):
 
 
 @router.post("/process-lesson", status_code=status.HTTP_200_OK)
-async def process_lesson_endpoint(task: LessonGenerationTask, settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def process_lesson_endpoint(task: LessonGenerationTask, settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db), authorization: str | None = Header(default=None)) -> dict[str, str]:
   """Worker endpoint to process lesson generation."""
+  # Secure internal worker endpoint with the shared task secret when configured.
+  if not settings.task_secret:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task authentication is not configured.")
+  expected = f"Bearer {settings.task_secret}"
+  if not secrets.compare_digest((authorization or ""), expected):
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid task secret.")
   logger.info("Received lesson generation task for job %s", task.job_id)
 
   jobs_repo = _get_jobs_repo(settings)
@@ -72,7 +79,9 @@ async def process_lesson_endpoint(task: LessonGenerationTask, settings: Settings
     tier_id, _ = await get_user_subscription_tier(db_session, user.id)
 
     # Process
-    result = await process_lesson_generation(request=request, lesson_id=task.lesson_id, settings=settings, current_user=user, db_session=db_session, tier_id=tier_id, idempotency_key=job.idempotency_key)
+    # Enforce quota-capped section generation based on the persisted job expected section count.
+    section_cap = int(job.expected_sections) if job.expected_sections is not None and int(job.expected_sections) > 0 else None
+    result = await process_lesson_generation(request=request, lesson_id=task.lesson_id, settings=settings, current_user=user, db_session=db_session, tier_id=tier_id, idempotency_key=job.idempotency_key, job_id=task.job_id, section_cap=section_cap)
 
     # Update job success
     # Refresh job to get latest logs if needed? No, we just append.
@@ -85,7 +94,8 @@ async def process_lesson_endpoint(task: LessonGenerationTask, settings: Settings
 
   except Exception as e:
     logger.error("Job %s failed: %s", task.job_id, e, exc_info=True)
-    await jobs_repo.update_job(task.job_id, status="error", phase="error", logs=current_logs + ["Worker started processing.", f"Error: {e!s}"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
-    return {"status": "error", "detail": str(e)}
+    # Avoid leaking exception details to job logs or HTTP responses; keep details in server logs only.
+    await jobs_repo.update_job(task.job_id, status="error", phase="error", logs=current_logs + ["Worker started processing.", "Error: JOB_FAILED"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
+    return {"status": "error"}
 
   return {"status": "ok"}

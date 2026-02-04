@@ -22,6 +22,7 @@ class RuntimeConfigScope(str, Enum):
   GLOBAL = "GLOBAL"
   TIER = "TIER"
   TENANT = "TENANT"
+  USER = "USER"
 
 
 class RuntimeConfigValue(Base):
@@ -32,6 +33,7 @@ class RuntimeConfigValue(Base):
     Index("ux_runtime_config_values_global", "key", unique=True, postgresql_where=sa.text("scope = 'GLOBAL'")),
     Index("ux_runtime_config_values_tenant", "key", "org_id", unique=True, postgresql_where=sa.text("scope = 'TENANT'")),
     Index("ux_runtime_config_values_tier", "key", "subscription_tier_id", unique=True, postgresql_where=sa.text("scope = 'TIER'")),
+    Index("ux_runtime_config_values_user", "key", "user_id", unique=True, postgresql_where=sa.text("scope = 'USER'")),
   )
 
   id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -39,5 +41,6 @@ class RuntimeConfigValue(Base):
   scope: Mapped[RuntimeConfigScope] = mapped_column(SAEnum(RuntimeConfigScope, name="runtime_config_scope"), nullable=False, index=True)
   org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
   subscription_tier_id: Mapped[int | None] = mapped_column(ForeignKey("subscription_tiers.id"), nullable=True, index=True)
+  user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
   value_json: Mapped[dict[str, Any] | list[Any] | str | int | float | bool | None] = mapped_column(JSONB, nullable=False)
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

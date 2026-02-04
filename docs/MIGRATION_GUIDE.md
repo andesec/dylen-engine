@@ -19,7 +19,7 @@ Every PR touching engine code runs migration checks:
    ```bash
    make migrate
    ```
-2. Modify models in `dylen-engine/app/schema/`.
+2. Modify SQLAlchemy models in `app/schema/` (imported for Alembic via `app/schema/db_models.py`).
 3. Generate a migration skeleton:
    ```bash
    make migration m="short_description"
@@ -33,11 +33,18 @@ Every PR touching engine code runs migration checks:
 
 > Note: Autogenerate output is only a starting point. Never ship unedited autogenerate migrations.
 
+### Optional “Just Make It Work” Dev Mode
+
+- Auto-apply migrations at service startup (development only):
+  - `DYLEN_AUTO_APPLY_MIGRATIONS=1`
+- Auto-generate or auto-squash migrations during `git commit` when schema changes are staged:
+  - `DYLEN_AUTO_MIGRATIONS=1`
+
 ## Lint Tags
 
 Migration lint recognizes explicit tags for exceptional cases:
 - `# destructive: approved` — required for `drop_table` / `drop_column` in `upgrade()`
-- `# empty: allow` — allow empty merge revisions
+- `# empty: allow` — allow empty migrations (merge revisions are permitted automatically)
 - `# backfill: ok` — acknowledge backfill for `nullable=False` changes
 - `# type-change: approved` — required for type changes in `upgrade()`
 
@@ -54,7 +61,6 @@ Drift detection supports an explicit allowlist:
 ## Manual Alembic Operations
 
 ```bash
-cd dylen-engine
 uv run alembic current
 uv run alembic history
 uv run alembic stamp <revision_id>

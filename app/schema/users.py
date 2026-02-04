@@ -1,13 +1,21 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _to_camel(string: str) -> str:
+  """Convert snake_case to camelCase so the API accepts frontend-style payloads."""
+  parts = string.split("_")
+  if not parts:
+    return string
+  return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
 
 
 class BasicInfo(BaseModel):
+  model_config = ConfigDict(populate_by_name=True, extra="ignore", alias_generator=_to_camel)
   age: int = Field(..., description="User's age")
   gender: str = Field(..., description="User's gender")
   gender_other: str | None = Field(None, description="Other gender description if applicable")
   city: str = Field(..., description="User's city")
   country: str = Field(..., description="User's country")
-  occupation: str = Field(..., description="User's occupation")
 
   @field_validator("age")
   @classmethod
@@ -18,6 +26,8 @@ class BasicInfo(BaseModel):
 
 
 class Personalization(BaseModel):
+  model_config = ConfigDict(populate_by_name=True, extra="ignore", alias_generator=_to_camel)
+  occupation: str = Field(..., description="User's occupation")
   topics_of_interest: list[str] = Field(..., description="List of topics user is interested in")
   intended_use: str = Field(..., description="Intended use of the platform")
   intended_use_other: str | None = Field(None, description="Other intended use if applicable")
@@ -31,6 +41,7 @@ class Personalization(BaseModel):
 
 
 class LegalConsent(BaseModel):
+  model_config = ConfigDict(populate_by_name=True, extra="ignore", alias_generator=_to_camel)
   accepted_terms: bool = Field(..., description="Whether terms of service are accepted")
   accepted_privacy: bool = Field(..., description="Whether privacy policy is accepted")
   terms_version: str = Field(..., description="Version of the terms accepted")
@@ -45,6 +56,7 @@ class LegalConsent(BaseModel):
 
 
 class OnboardingRequest(BaseModel):
+  model_config = ConfigDict(populate_by_name=True, extra="ignore", alias_generator=_to_camel)
   basic: BasicInfo
   personalization: Personalization
   legal: LegalConsent

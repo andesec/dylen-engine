@@ -18,6 +18,43 @@ git_add_migration_versions() {
   fi
 }
 
+is_merge_migration() {
+  # Ignore Alembic "merge heads" revisions in the one-migration rule.
+  # These revisions are empty by design and exist only to reconcile branches.
+  local path="$1"
+  if [[ "$path" != alembic/versions/*.py ]]; then
+    return 1
+  fi
+
+  # Prefer staged contents so the hook reflects what is being committed.
+  local text=""
+  if text="$(git show ":$path" 2>/dev/null)"; then
+    :
+  else
+    text="$(cat "$path" 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$text" ]]; then
+    return 1
+  fi
+
+  # Match common merge revision signals without executing any code.
+  # Accept merge revisions even without '# empty: allow' so Alembic merge output works out-of-the-box.
+  # Prefer the down_revision tuple pattern to avoid exempting accidental empty migrations.
+  if [[ "$text" != *"merge heads"* && "$text" != *"Revision ID: merge"* && "$text" != *"revision = \"merge"* ]]; then
+    if ! grep -Eq 'down_revision[[:space:]]*:[^=]*=[[:space:]]*\\(.*"[^"]+".*,"[^"]+".*\\)' <<<"$text"; then
+      return 1
+    fi
+  fi
+
+  # Merge revisions should not contain schema operations.
+  if [[ "$text" == *"op."* ]]; then
+    return 1
+  fi
+
+  return 0
+}
+
 staged_changes="$(git diff --cached --name-status)"
 if [[ -z "$staged_changes" ]]; then
   exit 0
@@ -75,6 +112,9 @@ while IFS=$'\t' read -r status path_a path_b; do
   fi
 
   if [[ "$path_a" == alembic/versions/*.py ]]; then
+    if is_merge_migration "$path_a"; then
+      continue
+    fi
     migration_count="$((migration_count + 1))"
   fi
 done <<< "$staged_changes"
