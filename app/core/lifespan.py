@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     auto_apply = (os.getenv("DYLEN_AUTO_APPLY_MIGRATIONS", "") or "").strip().lower() in {"1", "true", "yes", "on"}
     if auto_apply and settings.environment != "production":
       repo_root = Path(__file__).resolve().parents[2]
-      subprocess.run([sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"], check=True, cwd=repo_root)
+      subprocess.run([sys.executable, "scripts/migrate_with_lock.py"], check=True, cwd=repo_root)
 
   except Exception:
     logger.warning("Initial logging setup failed; will retry on lifespan.", exc_info=True)

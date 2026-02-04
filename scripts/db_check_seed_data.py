@@ -51,7 +51,7 @@ def main() -> None:
     print("ERROR: Required subscription_tiers rows are missing:")
     for name in missing:
       print(f"- {name}")
-    print("Remediation: run migrations (alembic upgrade head) to apply seed migrations.")
+    print("Remediation: run migrations (alembic upgrade head) and seed scripts (python scripts/run_seed_scripts.py).")
     sys.exit(1)
 
   print("OK: Seed-data check passed.")

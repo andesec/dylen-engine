@@ -69,6 +69,15 @@ class _UpgradeOpsVisitor(ast.NodeVisitor):
           if "UPDATE" in sql_text or "INSERT" in sql_text:
             self.has_backfill = True
 
+    # Capture guarded_* helper calls as migration operations.
+    if isinstance(node.func, ast.Name) and node.func.id.startswith("guarded_"):
+      op_name = node.func.id
+      self.op_calls.append(op_name)
+
+      # Flag destructive operations in upgrade paths.
+      if op_name in {"guarded_drop_table", "guarded_drop_column"}:
+        self.drop_ops.append(op_name)
+
     # Continue walking nested nodes to capture all op calls.
     self.generic_visit(node)
 

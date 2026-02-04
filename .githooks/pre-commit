@@ -119,20 +119,6 @@ while IFS=$'\t' read -r status path_a path_b; do
   fi
 done <<< "$staged_changes"
 
-if [[ "$migration_count" -gt 1 ]]; then
-  if [[ "${DYLEN_AUTO_MIGRATIONS:-}" == "1" ]]; then
-    message="auto_squash_$(date +%Y%m%d_%H%M%S)"
-    base_ref="${MIGRATION_BASE_REF:-main}"
-    make migration-squash "m=$message" "MIGRATION_BASE_REF=$base_ref"
-    git_add_migration_versions
-  else
-    echo "ERROR: Schema changes are staged with multiple migration files staged."
-    echo "Run: make migration-squash m=\"final_schema_changes\""
-    echo "Or set DYLEN_AUTO_MIGRATIONS=1 to auto-squash during commit."
-    exit 1
-  fi
-fi
-
 if [[ "$migration_count" -eq 0 ]]; then
   if [[ "${DYLEN_AUTO_MIGRATIONS:-}" == "1" ]]; then
     message="auto_migration_$(date +%Y%m%d_%H%M%S)"
@@ -148,6 +134,8 @@ fi
 
 python3 scripts/db_migration_lint.py
 python3 scripts/db_check_heads.py
+# Enforce linear history and Create Date ordering for migrations.
+python3 scripts/db_check_linear_history.py
 
 if [[ "${DYLEN_MIGRATION_HOOK_STRICT:-}" == "1" ]]; then
   make db-check-drift

@@ -4,11 +4,12 @@ This document concisely describes the migration process implemented in this repo
 
 ## Key Rules
 
-- **One migration per PR** when schema files change (`dylen-engine/app/schema/`).
+- **Linear history only**: no Alembic merge revisions; maintain a single chain.
+- **Order by Create Date** when multiple branches add migrations; edit `down_revision` to match the timestamp order.
 - **Single Alembic head** on `main` at all times.
 - **No auto-migrations at app startup**; migrations run in a dedicated deploy step.
 - **Autogenerate is a starting point only**; always review and edit migrations.
-- **Reference/static data must be seeded via migrations**, not request-path code (idempotent, insert-missing).
+- **Reference/static data must be seeded via seed scripts**, not request-path code (idempotent, insert-missing).
 - **Handle Enums Idempotently**: When manually creating Enums (e.g., via `DO $$` blocks), set `create_type=False` in the SQLAlchemy Enum definition to avoid `DuplicateObjectError`.
 
 ## Directory Layout
@@ -20,7 +21,7 @@ This document concisely describes the migration process implemented in this repo
 
 ## Create a Migration (Dev)
 
-Do this one thing after you change models in `dylen-engine/app/schema/`:
+Do this after you change models in `dylen-engine/app/schema/`:
 ```bash
 make migration-auto m="short_description"
 ```
@@ -36,7 +37,13 @@ What it does (local dev only):
 
 Then commit the generated migration file. If it contains unsafe ops, edit it before committing.
 
-## Optional: Auto-Squash / Auto-Generate On Commit (Local Git Hook)
+After generating a migration, add a matching seed script when static data is required:
+```bash
+scripts/seeds/<revision_id>.py
+```
+Seed scripts run after migrations via `make seed` or `make migrate-and-seed`.
+
+## Optional: Auto-Generate On Commit (Local Git Hook)
 
 If you want commits to “just work” when you stage schema changes:
 1) Install the repo hooks once:
@@ -44,28 +51,23 @@ If you want commits to “just work” when you stage schema changes:
 make hooks-install
 ```
 2) Optional env toggles:
-- `DYLEN_AUTO_MIGRATIONS=1` auto-generates or auto-squashes migrations during `git commit`
-- `MIGRATION_BASE_REF=release/1.2` changes the base branch used for squashing
+- `DYLEN_AUTO_MIGRATIONS=1` auto-generates migrations during `git commit`
+- `MIGRATION_BASE_REF=release/1.2` changes the base branch used for optional squashing
 - `SKIP_GIT_MIGRATION_HOOK=1` bypasses the hook
 - `DYLEN_MIGRATION_HOOK_STRICT=1` also runs drift detection (slower; requires DB connectivity)
 
-## Squash Multiple Local Migrations (Before Opening a PR)
+## Optional: Squash Multiple Local Migrations
 
-If you created multiple migrations locally while iterating on a branch, squash them into one migration before you open the PR:
+If you want a single migration before opening a PR, you can squash locally:
 ```bash
 make migration-squash m="final_schema_changes"
 ```
-This moves your extra local migration files into `dylen-engine/alembic/versions/.squash_backup/` and generates one new migration that represents the full diff from the PR base to your current models.
-By default it computes the PR base using `git merge-base` against `origin/main`. If your PR targets another branch, set `MIGRATION_BASE_REF`:
-```bash
-make migration-squash m="final_schema_changes" MIGRATION_BASE_REF="release/1.2"
-```
-Make sure you have a recent `git fetch` for that branch.
+This moves your extra migration files into `dylen-engine/alembic/versions/.squash_backup/` and generates one new migration that represents the full diff from the PR base to your current models.
 
 ### Lint Tags (when needed)
 
 - `# destructive: approved` — required for `drop_table` / `drop_column` in `upgrade()`
-- `# empty: allow` — allow empty merge revisions
+- `# empty: allow` — allow empty migrations (merge revisions are not allowed)
 - `# backfill: ok` — acknowledges backfill for `nullable=False` changes
 - `# type-change: approved` — required for type changes in `upgrade()`
 
@@ -73,7 +75,7 @@ Make sure you have a recent `git fetch` for that branch.
 
 - Using make:
   ```bash
-  make migrate
+  make migrate-and-seed
   ```
 - Or directly with Alembic:
   ```bash
@@ -97,12 +99,14 @@ Notes:
    ```bash
    cd dylen-engine
    DYLEN_PG_DSN=postgresql://... DYLEN_ALLOWED_ORIGINS=https://your-app.example uv run alembic upgrade head
+   DYLEN_PG_DSN=postgresql://... DYLEN_ALLOWED_ORIGINS=https://your-app.example uv run python scripts/run_seed_scripts.py
    ```
 2. Validate staging health checks.
 3. **Production deploy step**:
    ```bash
    cd dylen-engine
    DYLEN_PG_DSN=postgresql://... DYLEN_ALLOWED_ORIGINS=https://your-app.example uv run alembic upgrade head
+   DYLEN_PG_DSN=postgresql://... DYLEN_ALLOWED_ORIGINS=https://your-app.example uv run python scripts/run_seed_scripts.py
    ```
 
 > If you ever auto-run migrations at startup, enforce a single migration lock (e.g., Postgres advisory lock) to prevent concurrent runs.
@@ -110,32 +114,34 @@ Notes:
 ## Fixing Migration Failures
 
 ### Fixing a migration script
-- **Not merged / not applied anywhere shared:** edit the migration file, rerun `make migrate`, and update tags or backfills as needed.
+- **Not merged / not applied anywhere shared:** edit the migration file, rerun `make migrate-and-seed`, and update tags or backfills as needed.
 - **Already applied in staging/production:** do **not** edit the applied revision; create a new corrective migration:
   ```bash
   make migration m="fix_<issue>"
-  make migrate
+  make migrate-and-seed
   ```
 
 ## Adding New Seed / Static Data (Future Changes)
 
-When you need new required reference rows (tiers/roles/permissions/feature flags), add them via an **idempotent Alembic migration**:
+When you need new required reference rows (tiers/roles/permissions/feature flags), add them via an **idempotent seed script**:
 1) Generate a migration:
 ```bash
-make migration-auto m="seed_<thing>"
+make migration-auto m="add_<thing>"
 ```
-2) Edit the migration to be safe to re-run:
-- Prefer Postgres `INSERT .. ON CONFLICT DO NOTHING` (insert-missing) or `ON CONFLICT DO UPDATE` (managed seed data).
-- Avoid deletes on downgrade; keep `downgrade()` a no-op for seed migrations.
-3) If the application requires the data to exist to avoid 500s, extend `scripts/db_check_seed_data.py` and run:
+2) Add a seed script with the same revision id:
+```bash
+scripts/seeds/<revision_id>.py
+```
+3) Use idempotent inserts (`ON CONFLICT DO NOTHING` or `DO UPDATE`) and guard with table/column checks.
+4) If the application requires the data to exist to avoid 500s, extend `scripts/db_check_seed_data.py` and run:
 ```bash
 make db-check-seed-data
 ```
 
 ### Static data missing (e.g. subscription tiers)
-- Run migrations to apply seed-data migrations:
+- Run migrations and seed scripts:
   ```bash
-  make migrate
+  make migrate-and-seed
   ```
 - Verify required reference rows exist:
   ```bash
@@ -146,11 +152,11 @@ make db-check-seed-data
 - Generate and commit the missing migration:
   ```bash
   make migration m="fix_schema_drift"
-  make migrate
+  make migrate-and-seed
   ```
 
 ### Multiple heads detected
-- Rebase migrations or create a merge revision only when approved.
+- Rebase migrations and edit `down_revision` to restore a linear chain (merge revisions are not allowed).
 
 ### Lint failures
 - Add backfills for `nullable=False`, or apply `# backfill: ok` with a documented plan.
@@ -169,6 +175,10 @@ make db-check-seed-data
 - Single-head check:
   ```bash
   make db-heads
+  ```
+- Linear history check:
+  ```bash
+  make db-linear-history
   ```
 - Smoke test migrations (fresh + upgrade-from-previous):
   ```bash

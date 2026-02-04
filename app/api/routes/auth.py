@@ -9,7 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.database import get_db
 from app.core.firebase import build_rbac_claims, set_custom_claims, verify_id_token
 from app.schema.sql import UserStatus
-from app.services.rbac import get_role_by_id, get_role_by_name, list_permission_slugs_for_role
+from app.services.rbac import get_or_create_default_member_role, get_role_by_id, list_permission_slugs_for_role
 from app.services.users import create_user, get_user_by_firebase_uid, resolve_auth_method
 
 router = APIRouter()
@@ -124,9 +124,8 @@ async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already registered")
 
   # Resolve default role for new users to ensure RBAC consistency.
-  default_role = await get_role_by_name(db, "Org Member")
-  if default_role is None:
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Default role missing")
+  # Ensure the default role exists so signup does not 500 on fresh or reset databases.
+  default_role = await get_or_create_default_member_role(db)
 
   # Create user
   try:

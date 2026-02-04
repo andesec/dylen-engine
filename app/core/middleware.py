@@ -1,6 +1,6 @@
-import json
 import logging
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -14,7 +14,9 @@ logger = logging.getLogger("app.core.middleware")
 def _redact_sensitive_keys(data: Any) -> Any:
   """Redact sensitive keys from a dictionary or list recursively."""
   if isinstance(data, dict):
-    return {k: ("***" if k.lower() in ("password", "token", "key", "authorization", "cookie", "secret") else _redact_sensitive_keys(v)) for k, v in data.items()}
+    # Keep this list conservative; the function is used by logging and tests.
+    sensitive_keys = {"password", "token", "key", "authorization", "cookie", "secret", "email", "full_name", "fullname", "name", "phone", "mobile", "address"}
+    return {k: ("***" if k.lower() in sensitive_keys else _redact_sensitive_keys(v)) for k, v in data.items()}
   if isinstance(data, list):
     return [_redact_sensitive_keys(item) for item in data]
   return data
@@ -46,56 +48,28 @@ class RequestLoggingMiddleware:
     self.app = app
 
   async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-    """Record request/response metadata and replay bodies to avoid side effects."""
+    """Record request/response metadata without logging request bodies."""
     # Skip non-HTTP scopes to avoid interfering with websocket or lifespan events.
     if scope["type"] != "http":
       await self.app(scope, receive, send)
       return
+
+    # Generate a request id and store it for downstream handlers and exception logging.
+    request_id = str(uuid.uuid4())
+    scope.setdefault("state", {})["request_id"] = request_id
 
     # Start timing early so latency includes downstream handlers.
     start_time = time.time()
     # Log the incoming request metadata for traceability.
     method = scope.get("method", "UNKNOWN")
     url = _build_request_url(scope)
-    logger.info(f"Incoming request: {method} {url}")
-
-    # Capture body messages so downstream handlers can replay them safely.
-    body = b""
-    messages: list[dict[str, Any]] = []
-    more_body = True
-    try:
-      # Drain the incoming receive channel to capture the request body.
-      while more_body:
-        message = await receive()
-        messages.append(message)
-        body += message.get("body", b"")
-        more_body = message.get("more_body", False)
-
-      # Log payloads only for JSON requests to avoid noisy or binary logs.
-      headers = _normalize_headers(scope)
-      content_type = headers.get("content-type", "")
-      if content_type.startswith("application/json") and body:
-        try:
-          payload = json.loads(body)
-          safe_payload = _redact_sensitive_keys(payload)
-          logger.debug(f"Request Body: {json.dumps(safe_payload)}")
-        except json.JSONDecodeError:
-          # Fallback if valid JSON but not parseable (or strict parsing fails)
-          logger.debug(f"Request Body (raw): {body.decode('utf-8')}")
-
-    except Exception as exc:
-      # Log body parsing errors so observability does not hide logging issues.
-      logger.warning(f"Failed to log request body: {exc}")
-
-    # Replay stored messages so downstream consumers can read the body.
-    message_queue = list(messages)
-
-    async def receive_replay() -> dict[str, Any]:
-      # Feed stored request body chunks back to the downstream application.
-      if message_queue:
-        return message_queue.pop(0)
-
-      return {"type": "http.request", "body": b"", "more_body": False}
+    logger.info("Incoming request request_id=%s %s %s", request_id, method, url)
+    # Log safe request metadata hints without ever touching the body.
+    headers = _normalize_headers(scope)
+    content_type = headers.get("content-type")
+    content_length = headers.get("content-length")
+    if content_type or content_length:
+      logger.debug("Request metadata request_id=%s content-type=%s content-length=%s", request_id, content_type, content_length)
 
     # Capture response status for response timing logs.
     status_code: int | None = None
@@ -105,16 +79,20 @@ class RequestLoggingMiddleware:
       nonlocal status_code
       if message.get("type") == "http.response.start":
         status_code = message.get("status")
+        # Attach a request id to responses to correlate clients with server logs.
+        response_headers = MutableHeaders(scope=message)
+        if "x-request-id" not in response_headers:
+          response_headers["x-request-id"] = request_id
 
       await send(message)
 
     # Execute downstream handlers to keep middleware focused on observation.
-    await self.app(scope, receive_replay, send_wrapper)
+    await self.app(scope, receive, send_wrapper)
 
     # Emit response timing metrics for operational visibility.
     process_time = (time.time() - start_time) * 1000
     response_status = status_code or 0
-    logger.info(f"Response: {response_status} (took {process_time:.2f}ms)")
+    logger.info("Response request_id=%s status=%s (took %.2fms)", request_id, response_status, process_time)
 
 
 async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:

@@ -49,7 +49,7 @@ def _migration_changes(files: list[str]) -> list[str]:
 
 
 def main() -> None:
-  """Enforce the one-migration-per-PR rule when schema files change."""
+  """Enforce at-least-one-migration when schema files change."""
   # Resolve the base ref so diffs match the PR target.
   base_ref = _resolve_base_ref()
   # Collect changed files from the base ref to HEAD.
@@ -59,13 +59,13 @@ def main() -> None:
   migration_files = _migration_changes(files)
 
   # Only enforce the rule when schema files changed in the PR.
-  if schema_changed and len(migration_files) != 1:
-    print("ERROR: Schema changes detected without exactly one migration file.")
+  if schema_changed and len(migration_files) < 1:
+    print("ERROR: Schema changes detected without any migration files.")
     print(f"Found migration files: {migration_files if migration_files else 'none'}")
-    print("Remediation: add exactly one migration file or split schema changes into multiple PRs.")
+    print("Remediation: add at least one migration file for the schema changes.")
     sys.exit(1)
 
-  print("OK: One-migration-per-PR check passed.")
+  print("OK: Migration presence check passed.")
 
 
 if __name__ == "__main__":

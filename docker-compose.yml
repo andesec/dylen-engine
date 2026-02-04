@@ -55,7 +55,7 @@ services:
     networks:
       - dylen-network
     working_dir: /app
-    command: [ "python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head" ]
+    command: [ "python", "scripts/migrate_with_lock.py" ]
     restart: "no"
 
   app:

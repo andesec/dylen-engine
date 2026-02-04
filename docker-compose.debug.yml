@@ -45,7 +45,7 @@ services:
       target: debug
     container_name: dylen-migrator
     entrypoint: []
-    command: [ "python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head" ]
+    command: [ "python", "scripts/migrate_with_lock.py" ]
     working_dir: /app
     depends_on:
       postgres:

@@ -57,7 +57,7 @@ steps:
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest" \
             --command "python" \
-            --args "-m,alembic,-c,alembic.ini,upgrade,head"
+            --args "scripts/migrate_with_lock.py"
         else
           gcloud run jobs update "${_MIGRATE_JOB}" \
             --region "${_REGION}" \

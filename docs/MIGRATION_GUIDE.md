@@ -6,9 +6,10 @@ This repository follows the production migration process defined in `docs/produc
 
 ### Pull Requests (`pr-migration-check.yml`)
 Every PR touching engine code runs migration checks:
-- One-migration-per-PR enforcement when schema files change (`scripts/db_check_pr_migration_count.py`)
+- At-least-one-migration enforcement when schema files change (`scripts/db_check_pr_migration_count.py`)
 - Migration lint & policy checks (`scripts/db_migration_lint.py`)
 - Single Alembic head check (`scripts/db_check_heads.py`)
+- Linear history + Create Date ordering (`scripts/db_check_linear_history.py`)
 - Fresh DB migration smoke test (`scripts/db_migration_smoke.py --mode fresh`)
 - Upgrade-from-previous revision smoke test (`scripts/db_migration_smoke.py --mode upgrade-from-previous`)
 - Drift detection (`scripts/db_check_drift.py`)
@@ -17,7 +18,7 @@ Every PR touching engine code runs migration checks:
 
 1. Ensure local DB is at head:
    ```bash
-   make migrate
+   make migrate-and-seed
    ```
 2. Modify SQLAlchemy models in `app/schema/` (imported for Alembic via `app/schema/db_models.py`).
 3. Generate a migration skeleton:
@@ -25,11 +26,12 @@ Every PR touching engine code runs migration checks:
    make migration m="short_description"
    ```
 4. **Manually edit** the migration for safety and ordering.
-5. Apply migrations:
+5. If static data is required, add a seed script in `scripts/seeds/<revision_id>.py`.
+6. Apply migrations:
    ```bash
-   make migrate
+   make migrate-and-seed
    ```
-6. Commit the migration file.
+7. Commit the migration file.
 
 > Note: Autogenerate output is only a starting point. Never ship unedited autogenerate migrations.
 
@@ -37,14 +39,14 @@ Every PR touching engine code runs migration checks:
 
 - Auto-apply migrations at service startup (development only):
   - `DYLEN_AUTO_APPLY_MIGRATIONS=1`
-- Auto-generate or auto-squash migrations during `git commit` when schema changes are staged:
+- Auto-generate migrations during `git commit` when schema changes are staged:
   - `DYLEN_AUTO_MIGRATIONS=1`
 
 ## Lint Tags
 
 Migration lint recognizes explicit tags for exceptional cases:
 - `# destructive: approved` — required for `drop_table` / `drop_column` in `upgrade()`
-- `# empty: allow` — allow empty migrations (merge revisions are permitted automatically)
+- `# empty: allow` — allow empty migrations (merge revisions are not permitted)
 - `# backfill: ok` — acknowledge backfill for `nullable=False` changes
 - `# type-change: approved` — required for type changes in `upgrade()`
 
@@ -56,6 +58,7 @@ Drift detection supports an explicit allowlist:
 - Migrations run in a **dedicated deploy step** (not at service startup).
 - Staging must succeed before production.
 - Use `alembic upgrade head` and maintain a single Alembic head on `main`.
+- Ensure migrations remain a single linear chain ordered by Create Date.
 - Follow expand/contract for breaking changes and ensure backups are taken before destructive steps.
 
 ## Manual Alembic Operations

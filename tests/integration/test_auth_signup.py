@@ -58,6 +58,26 @@ async def test_login_user_not_found(async_client: AsyncClient, mock_verify_id_to
 
 
 @pytest.mark.anyio
+async def test_login_internal_error_does_not_leak_details(async_client: AsyncClient, db_session, mock_verify_id_token):
+  mock_verify_id_token.return_value = {"uid": "existing_user_123", "email": "existing@example.com", "name": "Existing User"}
+
+  user = User(id=uuid.uuid4(), firebase_uid="existing_user_123", email="existing@example.com", status=UserStatus.PENDING, role_id=uuid.uuid4())
+
+  # Login resolves the user first and then attempts to resolve the role by id.
+  result_mock = MagicMock()
+  result_mock.scalar_one_or_none.side_effect = [user, None]
+  db_session.execute.return_value = result_mock
+
+  response = await async_client.post("/api/auth/login", json={"idToken": "valid_token"})
+
+  assert response.status_code == 500
+  payload = response.json()
+  assert payload["detail"] == "Internal Server Error"
+  assert "requestId" in payload
+  assert response.headers.get("x-request-id") == payload["requestId"]
+
+
+@pytest.mark.anyio
 async def test_signup_flow(async_client: AsyncClient, db_session, mock_verify_id_token, mock_firebase_admin_auth):
   mock_verify_id_token.return_value = {"uid": "signup_user_123", "email": "signup@example.com", "name": "Signup User"}
 

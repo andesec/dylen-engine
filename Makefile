@@ -183,11 +183,20 @@ gp:
 
 
 # Database migrations
-.PHONY: migrate migration migration-auto migration-squash db-heads db-migration-lint db-migration-smoke db-check-drift db-check-seed-data db-check-pr-migration-count db-nuke
+.PHONY: migrate migrate-and-seed seed migration migration-auto migration-squash db-heads db-linear-history db-migration-lint db-migration-smoke db-check-drift db-check-seed-data db-check-pr-migration-count db-nuke
 
 migrate:
 	@echo "Running database migrations..."
 	@uv run python scripts/dotenv_run.py --dotenv-file .env -- uv run alembic upgrade head
+
+migrate-and-seed:
+	@echo "Running database migrations and seed scripts..."
+	@$(MAKE) migrate
+	@$(MAKE) seed
+
+seed:
+	@echo "Running seed scripts..."
+	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python scripts/run_seed_scripts.py
 
 migration:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration m='message'"; exit 1; fi
@@ -216,6 +225,9 @@ db-nuke:
 
 db-heads:
 	@uv run python scripts/db_check_heads.py
+
+db-linear-history:
+	@uv run python scripts/db_check_linear_history.py
 
 db-migration-lint:
 	@uv run python scripts/db_migration_lint.py

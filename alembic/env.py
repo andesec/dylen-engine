@@ -125,7 +125,12 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
   """Run migrations online using asyncio to match runtime execution."""
-  # Run migrations using an async engine to match runtime configuration.
+  # Prefer an externally-provided connection when the caller wants to hold locks or control the session.
+  connection = config.attributes.get("connection")
+  if isinstance(connection, Connection):
+    do_run_migrations(connection)
+    return
+  # Fall back to the default async engine so CLI usage keeps matching runtime configuration.
   asyncio.run(run_async_migrations())
 
 

@@ -6,7 +6,7 @@ from app.core.database import get_db
 from app.core.firebase import verify_id_token
 from app.schema.sql import RoleLevel, User, UserStatus
 from app.services.feature_flags import get_feature_flag_by_key, is_feature_enabled
-from app.services.rbac import get_role_by_id, get_role_by_name, role_has_permission
+from app.services.rbac import get_or_create_default_member_role, get_role_by_id, role_has_permission
 from app.services.users import create_user, get_user_by_firebase_uid, get_user_subscription_tier, get_user_tier_name, resolve_auth_method, update_user_provider
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -22,9 +22,8 @@ async def _provision_user_from_claims(db: AsyncSession, *, firebase_uid: str, de
   token_email = decoded_claims.get("email")
   if not token_email:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token missing email")
-  default_role = await get_role_by_name(db, "Org Member")
-  if default_role is None:
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Default role missing")
+  # Ensure the default role exists so fresh DBs do not break onboarding flows.
+  default_role = await get_or_create_default_member_role(db)
   full_name = decoded_claims.get("name")
   photo_url = decoded_claims.get("picture")
   # Normalize optional token claims and derived fields before persisting.

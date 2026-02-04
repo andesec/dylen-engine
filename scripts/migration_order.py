@@ -1,0 +1,108 @@
+"""Helpers to load Alembic migrations in a deterministic Create Date order."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
+_CREATE_DATE_RE = re.compile(r"^Create Date:\s*(?P<value>.+)$", re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class MigrationInfo:
+  """Parsed migration metadata needed for ordering checks."""
+
+  revision: str
+  down_revision: str | None
+  create_date: datetime
+  path: Path
+
+
+def _repo_root() -> Path:
+  """Resolve the repository root so path resolution is deterministic."""
+  # Anchor on this script's location to find the repo root.
+  return Path(__file__).resolve().parents[1]
+
+
+def load_script_directory() -> ScriptDirectory:
+  """Load the Alembic script directory using repo-local config."""
+  # Build the Alembic config path from the repository root.
+  repo_root = _repo_root()
+  config_path = repo_root / "alembic.ini"
+  script_path = repo_root / "alembic"
+  config = Config(str(config_path))
+  # Override script_location so CI/local runs behave the same.
+  config.set_main_option("script_location", str(script_path))
+  return ScriptDirectory.from_config(config)
+
+
+def _parse_create_date(*, text: str, path: Path) -> datetime:
+  """Parse the Create Date header value into a timezone-aware datetime."""
+  # Match the Create Date header line from Alembic's template.
+  match = _CREATE_DATE_RE.search(text)
+  if not match:
+    raise RuntimeError(f"Missing Create Date header in migration: {path}")
+
+  # Parse the timestamp using Python's ISO parser.
+  raw_value = match.group("value").strip()
+  try:
+    parsed = datetime.fromisoformat(raw_value)
+  except ValueError as exc:
+    raise RuntimeError(f"Invalid Create Date value {raw_value!r} in {path}") from exc
+
+  # Normalize to UTC when no timezone info is present.
+  if parsed.tzinfo is None:
+    return parsed.replace(tzinfo=UTC)
+
+  # Convert aware timestamps to UTC for consistent ordering.
+  return parsed.astimezone(UTC)
+
+
+def _load_migration_info(revision: object) -> MigrationInfo:
+  """Load MigrationInfo for a single Alembic revision."""
+  # Read the revision's metadata from the Alembic revision object.
+  revision_id = str(revision.revision)
+  down_revision = revision.down_revision
+  down_value = None
+  if isinstance(down_revision, str):
+    down_value = down_revision
+
+  # Read the migration file content to parse Create Date.
+  path = Path(revision.path)
+  text = path.read_text(encoding="utf-8")
+  create_date = _parse_create_date(text=text, path=path)
+  return MigrationInfo(revision=revision_id, down_revision=down_value, create_date=create_date, path=path)
+
+
+def load_migration_chain() -> list[MigrationInfo]:
+  """Return the linear migration chain ordered from base to head."""
+  # Load the Alembic script directory for revision inspection.
+  script = load_script_directory()
+  heads = script.get_heads()
+  if len(heads) != 1:
+    raise RuntimeError(f"Expected exactly one Alembic head, found: {heads}")
+
+  # Walk backwards from head to base to build a linear chain.
+  chain: list[MigrationInfo] = []
+  current = script.get_revision(heads[0])
+  while current is not None:
+    # Load the current revision metadata.
+    chain.append(_load_migration_info(current))
+    down_revision = current.down_revision
+    if down_revision is None:
+      break
+
+    # Reject merge revisions so the chain stays linear.
+    if isinstance(down_revision, (tuple, list)):
+      raise RuntimeError(f"Merge revisions are not allowed: {current.revision}")
+
+    # Move to the parent revision in the chain.
+    current = script.get_revision(down_revision)
+
+  # Reverse so the chain runs from base to head.
+  return list(reversed(chain))
