@@ -10,6 +10,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app.notifications.contracts import EmailNotification, EmailSender, PushNotification, PushSender
 from app.notifications.email_log_repo import EmailDeliveryLogEntry, EmailDeliveryLogRepository
+from app.notifications.in_app_repo import InAppNotificationEntry, InAppNotificationRepository
+from app.notifications.in_app_templates import render_in_app_template
 from app.notifications.template_renderer import render_email_template
 
 logger = logging.getLogger(__name__)
@@ -26,10 +28,11 @@ class NotificationPreferences:
 class NotificationService:
   """Dispatches notifications over email and push channels."""
 
-  def __init__(self, *, email_sender: EmailSender, email_log_repo: EmailDeliveryLogRepository, push_sender: PushSender, email_enabled: bool, push_enabled: bool) -> None:
+  def __init__(self, *, email_sender: EmailSender, email_log_repo: EmailDeliveryLogRepository, push_sender: PushSender, in_app_repo: InAppNotificationRepository, email_enabled: bool, push_enabled: bool) -> None:
     self._email_sender = email_sender
     self._email_log_repo = email_log_repo
     self._push_sender = push_sender
+    self._in_app_repo = in_app_repo
     self._email_enabled = email_enabled
     self._push_enabled = push_enabled
 
@@ -97,3 +100,10 @@ class NotificationService:
     # Avoid including any admin or internal state; only confirm approval.
     greeting = f"Hi {full_name}," if full_name else "Hi,"
     await self.send_email_template(user_id=user_id, to_address=user_email, to_name=full_name, template_id="account_approved_v1", placeholders={"greeting": greeting})
+
+  async def notify_in_app(self, *, user_id: uuid.UUID, template_id: str, data: dict) -> None:
+    """Persist an in-app notification for polling clients."""
+    # Render the template into a title/body payload.
+    title, body = render_in_app_template(template_id=template_id, data=data)
+    entry = InAppNotificationEntry(user_id=user_id, template_id=template_id, title=title, body=body, data=data)
+    await self._in_app_repo.insert(entry)

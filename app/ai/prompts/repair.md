@@ -8,9 +8,6 @@ Rules:
 - Each widget must use shorthand keys with array/object fields (example: {"markdown":["..."]} or {"fillblank":[...]}).
 - Output ONLY valid JSON, no explanations, no code fences!
 
-Widget Schemas (only referenced types):
-WIDGET_SCHEMAS
-
 Failed Items:
 FAILED_ITEMS_JSON
 

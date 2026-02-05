@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import copy
 import json
-import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from app.ai.agents.base import BaseAgent
-from app.ai.agents.prompts import format_schema_block, render_repair_prompt
+from app.ai.agents.prompts import render_repair_prompt
 from app.ai.deterministic_repair import attempt_deterministic_repair
 from app.ai.errors import is_output_error
 from app.ai.json_parser import parse_json_with_fallback
@@ -38,7 +37,6 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
   async def run(self, input_data: RepairInput, ctx: JobContext) -> RepairResult:
     """Repair a structured section when validation fails."""
-    logger = logging.getLogger(__name__)
     request = ctx.request
     section = input_data.section
     structured = input_data.structured
@@ -96,69 +94,33 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     for target in repair_targets:
       cleaned_prompt_errors.extend(target.errors)
 
-    prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors, widget_schemas)
+    prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors)
     schema = _build_repair_schema(widget_schemas)
 
-    if self._model.supports_structured_output:
-      schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
-      purpose = f"repair_section_{section.section_number}_of_{request.depth}"
-      call_index = f"{section.section_number}/{request.depth}"
+    schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
+    purpose = f"repair_section_{section.section_number}_of_{request.depth}"
+    call_index = f"{section.section_number}/{request.depth}"
 
-      # Stamp the provider call with agent context for audit logging.
-      with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
-        try:
-          response = await self._model.generate_structured(prompt_text, schema)
-        except Exception as exc:  # noqa: BLE001
-          if not is_output_error(exc):
-            raise
-          # Retry the same request with the parser error appended.
-          retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
-          retry_purpose = f"repair_section_retry_{section.section_number}_of_{request.depth}"
-          retry_call_index = f"retry/{section.section_number}/{request.depth}"
-
-          with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
-            response = await self._model.generate_structured(retry_prompt, schema)
-
-          self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
-
-      self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
-      repaired_payload = response.content
-
-    else:
-      prompt_parts = [prompt_text, format_schema_block(schema, label="JSON SCHEMA (Repair Output)"), "Output ONLY valid JSON."]
-      prompt_with_schema = "\n\n".join(prompt_parts)
-      purpose = f"repair_section_{section.section_number}_of_{request.depth}"
-      call_index = f"{section.section_number}/{request.depth}"
-
-      # Stamp the provider call with agent context for audit logging.
-      with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
-        raw = await self._model.generate(prompt_with_schema)
-
-      self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=raw.usage)
-
-      # Parse the model output with a lenient fallback to reduce retry churn.
-
+    # Stamp the provider call with agent context for audit logging.
+    with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
       try:
-        cleaned = self._model.strip_json_fences(raw.content)
-        repaired_payload = cast(dict[str, Any], parse_json_with_fallback(cleaned))
-      except json.JSONDecodeError as exc:
-        logger.error("Repairer failed to parse JSON: %s", exc)
+        response = await self._model.generate_structured(prompt_text, schema)
+      except Exception as exc:  # noqa: BLE001
+        if not is_output_error(exc):
+          raise
         # Retry the same request with the parser error appended.
-        retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_with_schema, error=exc)
+        retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
         retry_purpose = f"repair_section_retry_{section.section_number}_of_{request.depth}"
         retry_call_index = f"retry/{section.section_number}/{request.depth}"
 
         with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
-          retry_raw = await self._model.generate(retry_prompt)
+          response = await self._model.generate_structured(retry_prompt, schema)
 
-        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)
+        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
 
-        try:
-          cleaned_retry = self._model.strip_json_fences(retry_raw.content)
-          repaired_payload = cast(dict[str, Any], parse_json_with_fallback(cleaned_retry))
-        except json.JSONDecodeError as retry_exc:
-          logger.error("Repairer retry failed to parse JSON: %s", retry_exc)
-          raise RuntimeError(f"Failed to parse repaired section JSON after retry: {retry_exc}") from retry_exc
+    # Record usage after the primary structured call completes.
+    self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
+    repaired_payload = response.content
 
     # Apply only the repaired widget payloads back into their original positions.
     repaired_json = _apply_repairs(section_json, repaired_payload, repair_targets)

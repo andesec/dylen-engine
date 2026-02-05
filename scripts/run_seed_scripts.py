@@ -180,6 +180,7 @@ async def _run_seed_scripts(*, dsn: str) -> None:
       for script in scripts:
         # Skip already-applied seed revisions.
         if await _has_seed_applied(connection, revision=script.revision):
+          print(f"Skipping seed script (already applied): {script.revision} ({script.path.name})")
           continue
 
         # Load and execute the seed script's async entrypoint.
@@ -193,6 +194,7 @@ async def _run_seed_scripts(*, dsn: str) -> None:
           raise RuntimeError(f"Seed script seed() must be async: {script.path}")
 
         # Execute the seed script against the shared connection.
+        print(f"Running seed script: {script.revision} ({script.path.name})")
         await seed_func(connection)
         # Record completion in seed_versions.
         await _mark_seed_applied(connection, revision=script.revision)

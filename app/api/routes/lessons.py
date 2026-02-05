@@ -10,20 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.pipeline.contracts import GenerationRequest
 from app.api.deps_concurrency import verify_concurrency
-from app.api.models import (
-  MAX_REQUEST_BYTES,
-  GenerateLessonRequest,
-  GenerateLessonResponse,
-  JobCreateResponse,
-  LessonCatalogResponse,
-  LessonJobResponse,
-  LessonMeta,
-  LessonOutcomesMeta,
-  LessonOutcomesResponse,
-  LessonRecordResponse,
-  OrchestrationFailureResponse,
-  ValidationResponse,
-)
+from app.api.models import MAX_REQUEST_BYTES, GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonJobResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
@@ -32,6 +19,7 @@ from app.jobs.models import JobRecord
 from app.jobs.progress import build_call_plan
 from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.markdown_limits import collect_overlong_markdown_errors
+from app.schema.outcomes import OutcomesAgentResponse
 from app.schema.quotas import QuotaPeriod
 from app.schema.sql import User
 from app.schema.validate_lesson import validate_lesson
@@ -79,16 +67,15 @@ async def validate_endpoint(payload: dict[str, Any], settings: Settings = Depend
   return ValidationResponse(ok=ok, errors=errors)
 
 
-@router.post("/outcomes", response_model=LessonOutcomesResponse)
+@router.post("/outcomes", response_model=OutcomesAgentResponse)
 async def generate_outcomes_endpoint(  # noqa: B008
   request: GenerateLessonRequest,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
   concurrency_check=Depends(verify_concurrency("lesson")),  # noqa: B008
-) -> LessonOutcomesResponse:
+) -> OutcomesAgentResponse:
   """Return a topic safety decision and a small set of learning outcomes."""
-  start = time.time()
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
   runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
   # Deny-by-default: if lesson generation is disabled for this user, outcomes preflight is also disabled.
@@ -111,9 +98,9 @@ async def generate_outcomes_endpoint(  # noqa: B008
   except QuotaExceededError:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.outcomes_check"}) from None
 
-  # Route outcomes through the planner provider/model by default; operators can override per-tenant.
-  provider = str(runtime_config.get("providers.outcomes") or settings.planner_provider)
-  model_name = runtime_config.get("models.outcomes") or settings.planner_model
+  # Route outcomes through the dedicated outcomes provider/model by default; operators can override per-tenant.
+  provider = str(runtime_config.get("ai.outcomes.provider") or settings.outcomes_provider)
+  model_name = runtime_config.get("ai.outcomes.model") or settings.outcomes_model
   max_outcomes = int(runtime_config.get("limits.max_outcomes") or 5)
   # Clamp invalid operator configuration to a safe range.
   if max_outcomes <= 0:
@@ -125,7 +112,7 @@ async def generate_outcomes_endpoint(  # noqa: B008
     topic=request.topic, prompt=request.details, depth=request.depth, section_count=2, blueprint=request.blueprint, teaching_style=request.teaching_style, language=request.primary_language, learner_level=request.learner_level, widgets=request.widgets
   )
   try:
-    payload, model_used = await generate_lesson_outcomes(generation_request, settings=settings, provider=provider, model=str(model_name) if model_name else None, job_id=job_id, max_outcomes=max_outcomes)
+    payload, _model_used = await generate_lesson_outcomes(generation_request, settings=settings, provider=provider, model=str(model_name) if model_name else None, job_id=job_id, max_outcomes=max_outcomes)
   except Exception as exc:  # noqa: BLE001
     # Compensate quota reservation when the model call fails.
     try:
@@ -134,10 +121,7 @@ async def generate_outcomes_endpoint(  # noqa: B008
       pass
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate outcomes.") from exc
 
-  latency_ms = int((time.time() - start) * 1000)
-  meta = LessonOutcomesMeta(provider=provider, model=model_used, latency_ms=latency_ms)
-  response = LessonOutcomesResponse(**payload.model_dump(mode="python"), meta=meta)
-  return response
+  return payload
 
 
 @router.post("/generate", response_model=LessonJobResponse, status_code=status.HTTP_202_ACCEPTED, responses={500: {"model": OrchestrationFailureResponse}})
@@ -227,12 +211,7 @@ async def generate_lesson(  # noqa: B008
   job_logs: list[str] = []
   if expected_sections < requested_sections:
     job_logs.append(f"Quota cap applied: generating only {expected_sections} section(s) this month (requested {requested_sections}).")
-  # Consume weekly lesson quota once we know the job can be created.
-  try:
-    quota_metadata = {"lesson_id": lesson_id, "requested_sections": requested_sections, "capped_sections": expected_sections}
-    await consume_quota(db_session, user_id=current_user.id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, quantity=1, limit=lessons_per_week, metadata=quota_metadata)
-  except QuotaExceededError:
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"}) from None
+  # Defer lesson quota reservation to the planner agent so reservations are scoped to agent execution.
 
   job_record = JobRecord(
     job_id=job_id,
@@ -266,11 +245,6 @@ async def generate_lesson(  # noqa: B008
     await enqueuer.enqueue_lesson(lesson_id=lesson_id, job_id=job_id, params=params, user_id=str(current_user.id))
   except Exception as e:
     logger.error("Failed to enqueue lesson task: %s", e, exc_info=True)
-    # Compensate quota reservation when the request fails before any work is queued.
-    try:
-      await refund_quota(db_session, user_id=current_user.id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, quantity=1, limit=lessons_per_week, metadata={"lesson_id": lesson_id, "job_id": job_id, "reason": "enqueue_failed"})
-    except Exception as refund_exc:  # noqa: BLE001
-      logger.error("Failed to refund lesson quota for %s: %s", current_user.id, refund_exc, exc_info=True)
     # Mark job as error so it doesn't stay queued forever (avoid leaking internal error details to clients).
     await jobs_repo.update_job(job_id, status="error", phase="error", logs=["Enqueue failed: TASK_ENQUEUE_FAILED"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to enqueue lesson generation task.") from e

@@ -41,6 +41,23 @@ class QuotaEntry:
 
 
 @dataclass(frozen=True)
+class QuotaSummaryEntry:
+  """Slim quota entry with only resource, total, and available counts."""
+
+  resource: str
+  total: int | None
+  available: int | None
+
+
+@dataclass(frozen=True)
+class QuotaSummaryResponse:
+  """Minimal quota response with optional detailed payload."""
+
+  quotas: list[QuotaSummaryEntry] = field(default_factory=list)
+  details: ResolvedQuota | None = None
+
+
+@dataclass(frozen=True)
 class ResolvedQuota:
   """Resolved quota, total limits, and remaining counts for a user."""
 
@@ -63,6 +80,38 @@ class ResolvedQuota:
   coach_voice_tier: str | None
   quota_entries: list[QuotaEntry] = field(default_factory=list)
   availability: dict[str, bool] = field(default_factory=dict)
+
+
+def build_quota_summary(quota: ResolvedQuota) -> list[QuotaSummaryEntry]:
+  """Create the minimal quota summary list for API responses."""
+  # Seed summaries with basic tier quotas that are not tracked in buckets.
+  summaries: list[QuotaSummaryEntry] = []
+  # Filter base tier quotas so disabled or missing limits never appear in the response.
+  base_candidates = [
+    ("file_uploads", quota.total_file_uploads, quota.remaining_file_uploads),
+    ("image_uploads", quota.total_image_uploads, quota.remaining_image_uploads),
+    ("sections", quota.total_sections, quota.remaining_sections),
+    ("research", quota.total_research, quota.remaining_research),
+  ]
+  # Keep only tier-enabled base quotas.
+  for resource, total, available in base_candidates:
+    # Drop resources that are not configured for the tier or are disabled.
+    if total is None:
+      continue
+    if total <= 0:
+      continue
+    summaries.append(QuotaSummaryEntry(resource=resource, total=total, available=available))
+
+  # Append bucket-based quotas so per-period limits are available to clients.
+  for entry in quota.quota_entries:
+    # Keep only tier-enabled bucket quotas, even when remaining is exhausted.
+    if entry.limit <= 0:
+      continue
+    if not entry.available and entry.remaining != 0:
+      continue
+    summaries.append(QuotaSummaryEntry(resource=entry.key, total=entry.limit, available=entry.remaining))
+
+  return summaries
 
 
 async def get_active_override(session: AsyncSession, user_id: uuid.UUID) -> UserTierOverride | None:
@@ -114,29 +163,39 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
   flags = await resolve_effective_feature_flags(session, org_id=org_id, subscription_tier_id=int(usage.subscription_tier_id))
   runtime_config = await resolve_effective_runtime_config(session, settings=settings, org_id=org_id, subscription_tier_id=int(usage.subscription_tier_id), user_id=None)
 
-  async def _bucket_entry(*, key: str, label: str, period: QuotaPeriod, limit_key: str, metric_key: str, feature_flag: str | None = None) -> QuotaEntry:
+  async def _bucket_entry(*, key: str, label: str, period: QuotaPeriod, limit_key: str, metric_key: str, feature_flag: str | None = None) -> QuotaEntry | None:
     # Deny-by-default: missing config means limit 0 => unavailable.
     limit = int(runtime_config.get(limit_key) or 0)
     snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key=metric_key, period=period, limit=limit)
     feature_enabled = True if feature_flag is None else bool(flags.get(feature_flag) is True)
+    if not feature_enabled:
+      return None
     available = bool(feature_enabled and snapshot.remaining > 0 and limit > 0)
     return QuotaEntry(key=key, label=label, period=str(period.value), limit=limit, used=int(snapshot.used), remaining=int(snapshot.remaining), available=available, tracked=True)
 
-  def _untracked_entry(*, key: str, label: str, period: str | None, limit_key: str, feature_flag: str | None = None) -> QuotaEntry:
+  def _untracked_entry(*, key: str, label: str, period: str | None, limit_key: str, feature_flag: str | None = None) -> QuotaEntry | None:
     # Untracked quotas are configured for future pipelines; usage is not enforced yet.
     limit = int(runtime_config.get(limit_key) or 0)
     feature_enabled = True if feature_flag is None else bool(flags.get(feature_flag) is True)
+    if not feature_enabled:
+      return None
     available = bool(feature_enabled and limit > 0)
     return QuotaEntry(key=key, label=label, period=str(period) if period is not None else None, limit=limit, used=None, remaining=None if limit <= 0 else limit, available=available, tracked=False)
 
-  quota_entries: list[QuotaEntry] = [
+  quota_candidates: list[QuotaEntry | None] = [
     await _bucket_entry(key="lesson.generate", label="Lesson Limit", period=QuotaPeriod.WEEK, limit_key="limits.lessons_per_week", metric_key="lesson.generate"),
     await _bucket_entry(key="section.generate", label="Section Limit", period=QuotaPeriod.MONTH, limit_key="limits.sections_per_month", metric_key="section.generate"),
+    await _bucket_entry(key="coach.generate", label="Coach Limit", period=QuotaPeriod.MONTH, limit_key="limits.coach_sections_per_month", metric_key="coach.generate"),
+    await _bucket_entry(key="fenster.widget.generate", label="Fenster Widget Limit", period=QuotaPeriod.MONTH, limit_key="limits.fenster_widgets_per_month", metric_key="fenster.widget.generate"),
+    await _bucket_entry(key="ocr.extract", label="OCR Extract Limit", period=QuotaPeriod.MONTH, limit_key="limits.ocr_files_per_month", metric_key="ocr.extract", feature_flag="feature.ocr"),
     await _bucket_entry(key="writing.check", label="Writing Check Limit", period=QuotaPeriod.MONTH, limit_key="limits.writing_checks_per_month", metric_key="writing.check", feature_flag="feature.writing"),
+    await _bucket_entry(key="youtube.capture.minutes", label="YouTube Capture Minutes", period=QuotaPeriod.MONTH, limit_key="limits.youtube_capture_minutes_per_month", metric_key="youtube.capture.minutes", feature_flag="feature.youtube_capture"),
+    await _bucket_entry(key="image.generate", label="Image Generation Limit", period=QuotaPeriod.MONTH, limit_key="limits.image_generations_per_month", metric_key="image.generate", feature_flag="feature.image_generation"),
     _untracked_entry(key="tutor.active.tokens", label="Tutor (Active) Token Cap", period="MONTH", limit_key="tutor.active_tokens_per_month", feature_flag="feature.tutor.active"),
     _untracked_entry(key="career.mock_exam.tokens", label="Mock Exams Token Cap", period="MONTH", limit_key="career.mock_exams_token_cap", feature_flag="feature.mock_exams"),
     _untracked_entry(key="career.mock_interview.minutes", label="Mock Interviews Minutes Cap", period="MONTH", limit_key="career.mock_interviews_minutes_cap", feature_flag="feature.mock_interviews"),
   ]
+  quota_entries = [entry for entry in quota_candidates if entry is not None]
   availability = {entry.key: bool(entry.available) for entry in quota_entries}
 
   return ResolvedQuota(

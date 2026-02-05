@@ -27,14 +27,27 @@ class Settings:
   job_max_retries: int
   log_max_bytes: int
   log_backup_count: int
+  log_http_4xx: bool
+  log_http_bodies: bool
+  log_http_body_bytes: int
   section_builder_provider: str
   section_builder_model: str | None
   planner_provider: str
   planner_model: str | None
+  outcomes_provider: str
+  outcomes_model: str | None
   repair_provider: str
   repair_model: str | None
   fenster_provider: str
   fenster_model: str | None
+  writing_provider: str
+  writing_model: str | None
+  tutor_provider: str
+  tutor_model: str | None
+  visualizer_provider: str
+  visualizer_model: str | None
+  youtube_provider: str
+  youtube_model: str | None
   fenster_technical_constraints: dict[str, Any] = field(hash=False)
   research_model: str | None
   prompt_version: str
@@ -148,6 +161,14 @@ def get_settings() -> Settings:
   if log_backup_count < 0:
     raise ValueError("DYLEN_LOG_BACKUP_COUNT must be zero or a positive integer.")
 
+  # Allow opt-in logging of 4xx HTTPExceptions for diagnostics.
+  log_http_4xx = _parse_bool(os.getenv("DYLEN_LOG_HTTP_4XX"))
+  # Allow opt-in logging of HTTP request/response bodies with a size cap.
+  log_http_bodies = _parse_bool(os.getenv("DYLEN_LOG_HTTP_BODIES"))
+  log_http_body_bytes = int(os.getenv("DYLEN_LOG_HTTP_BODY_BYTES", "2048"))
+  if log_http_body_bytes <= 0:
+    raise ValueError("DYLEN_LOG_HTTP_BODY_BYTES must be a positive integer.")
+
   email_notifications_enabled = _parse_bool(os.getenv("DYLEN_EMAIL_NOTIFICATIONS_ENABLED"))
   email_from_address = _optional_str(os.getenv("DYLEN_EMAIL_FROM_ADDRESS"))
   email_from_name = _optional_str(os.getenv("DYLEN_EMAIL_FROM_NAME"))
@@ -181,14 +202,27 @@ def get_settings() -> Settings:
     job_max_retries=job_max_retries,
     log_max_bytes=log_max_bytes,
     log_backup_count=log_backup_count,
+    log_http_4xx=log_http_4xx,
+    log_http_bodies=log_http_bodies,
+    log_http_body_bytes=log_http_body_bytes,
     section_builder_provider=os.getenv("DYLEN_SECTION_BUILDER_PROVIDER", "gemini"),
     section_builder_model=os.getenv("DYLEN_SECTION_BUILDER_MODEL", "gemini-2.5-pro"),
-    planner_provider=os.getenv("DYLEN_PLANNER_PROVIDER", "openrouter"),
-    planner_model=os.getenv("DYLEN_PLANNER_MODEL", "openai/gpt-oss-120b:free"),
+    planner_provider=os.getenv("DYLEN_PLANNER_PROVIDER", "gemini"),
+    planner_model=os.getenv("DYLEN_PLANNER_MODEL", "gemini-2.5-pro"),
+    outcomes_provider=os.getenv("DYLEN_OUTCOMES_PROVIDER", "gemini"),
+    outcomes_model=os.getenv("DYLEN_OUTCOMES_MODEL", "gemini-2.5-flash"),
     repair_provider=os.getenv("DYLEN_REPAIR_PROVIDER", "gemini"),
-    repair_model=os.getenv("DYLEN_REPAIR_MODEL", "google/gemma-3-27b-it:free"),
+    repair_model=os.getenv("DYLEN_REPAIR_MODEL", "gemini-2.5-flash"),
     fenster_provider=os.getenv("DYLEN_FENSTER_PROVIDER", "gemini"),
-    fenster_model=os.getenv("DYLEN_FENSTER_MODEL", "gemini-2.0-flash-exp"),
+    fenster_model=os.getenv("DYLEN_FENSTER_MODEL", "gemini-2.5-flash"),
+    writing_provider=os.getenv("DYLEN_WRITING_PROVIDER", "gemini"),
+    writing_model=os.getenv("DYLEN_WRITING_MODEL", "gemini-2.5-flash"),
+    tutor_provider=os.getenv("DYLEN_TUTOR_PROVIDER", "gemini"),
+    tutor_model=os.getenv("DYLEN_TUTOR_MODEL", "gemini-2.5-flash"),
+    visualizer_provider=os.getenv("DYLEN_VISUALIZER_PROVIDER", "gemini"),
+    visualizer_model=os.getenv("DYLEN_VISUALIZER_MODEL", "nano-banana-pro"),
+    youtube_provider=os.getenv("DYLEN_YOUTUBE_PROVIDER", "gemini"),
+    youtube_model=os.getenv("DYLEN_YOUTUBE_MODEL", "gemini-2.0-flash"),
     fenster_technical_constraints=_parse_json_dict(os.getenv("DYLEN_FENSTER_TECHNICAL_CONSTRAINTS"), {"max_tokens": 4000, "allowed_libs": ["alpine", "tailwind"]}),
     research_model=os.getenv("DYLEN_RESEARCH_MODEL", "gemini-1.5-pro"),
     prompt_version=os.getenv("DYLEN_PROMPT_VERSION", "v1"),

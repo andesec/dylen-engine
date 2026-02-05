@@ -18,7 +18,7 @@ def _normalize_async_dsn(dsn: str) -> str:
 
 async def _check_subscription_tiers(*, dsn: str) -> list[str]:
   """Validate required subscription tiers exist so quota logic never 500s."""
-  required = ["Free", "Plus", "Pro"]
+  required = ["Free", "Starter", "Plus", "Pro"]
   engine = create_async_engine(dsn)
   try:
     async with engine.connect() as connection:

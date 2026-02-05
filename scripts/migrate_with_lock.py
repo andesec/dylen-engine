@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
+import sys
 import zlib
 from pathlib import Path
 
@@ -137,6 +139,10 @@ async def _run_migrations() -> None:
       await _guard_schema_history_state(connection)
       logger.info("Running alembic upgrade head")
       await connection.run_sync(_run_upgrade_sync, alembic_ini_path)
+      # Run seed scripts once per migration revision to keep data in sync without reapplying.
+      logger.info("Running seed scripts after migrations")
+      repo_root = Path(__file__).resolve().parents[1]
+      subprocess.run([sys.executable, "scripts/run_seed_scripts.py"], check=True, cwd=repo_root)
     finally:
       # Always release the lock even when migrations fail so subsequent attempts can proceed.
       logger.info("Releasing migration lock key=%s", key)

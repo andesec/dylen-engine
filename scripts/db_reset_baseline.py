@@ -227,7 +227,8 @@ def _seed_script_content(*, revision: str) -> str:
     "        VALUES\n"
     "          (:name1, :mfu1, :depth1, :sections1, :fuq1, :iuq1, :gsq1, :rq1, :coach1, :voice1),\n"
     "          (:name2, :mfu2, :depth2, :sections2, :fuq2, :iuq2, :gsq2, :rq2, :coach2, :voice2),\n"
-    "          (:name3, :mfu3, :depth3, :sections3, :fuq3, :iuq3, :gsq3, :rq3, :coach3, :voice3)\n"
+    "          (:name3, :mfu3, :depth3, :sections3, :fuq3, :iuq3, :gsq3, :rq3, :coach3, :voice3),\n"
+    "          (:name4, :mfu4, :depth4, :sections4, :fuq4, :iuq4, :gsq4, :rq4, :coach4, :voice4)\n"
     "        ON CONFLICT (name) DO UPDATE\n"
     "        SET max_file_upload_kb = EXCLUDED.max_file_upload_kb,\n"
     "            highest_lesson_depth = EXCLUDED.highest_lesson_depth,\n"
@@ -242,35 +243,45 @@ def _seed_script_content(*, revision: str) -> str:
     "      ),\n"
     "      {\n"
     '        "name1": "Free",\n'
-    '        "mfu1": 512,\n'
+    '        "mfu1": 0,\n'
     '        "depth1": "highlights",\n'
     '        "sections1": 2,\n'
     '        "fuq1": 0,\n'
     '        "iuq1": 0,\n'
-    '        "gsq1": 20,\n'
+    '        "gsq1": 10,\n'
     '        "rq1": None,\n'
     '        "coach1": False,\n'
     '        "voice1": "none",\n'
-    '        "name2": "Plus",\n'
+    '        "name2": "Starter",\n'
     '        "mfu2": 1024,\n'
     '        "depth2": "detailed",\n'
     '        "sections2": 6,\n'
-    '        "fuq2": 5,\n'
-    '        "iuq2": 5,\n'
-    '        "gsq2": 100,\n'
+    '        "fuq2": 10,\n'
+    '        "iuq2": 10,\n'
+    '        "gsq2": 70,\n'
     '        "rq2": None,\n'
-    '        "coach2": True,\n'
-    '        "voice2": "device",\n'
-    '        "name3": "Pro",\n'
+    '        "coach2": False,\n'
+    '        "voice2": "none",\n'
+    '        "name3": "Plus",\n'
     '        "mfu3": 2048,\n'
-    '        "depth3": "training",\n'
-    '        "sections3": 10,\n'
-    '        "fuq3": 10,\n'
-    '        "iuq3": 10,\n'
-    '        "gsq3": 250,\n'
+    '        "depth3": "detailed",\n'
+    '        "sections3": 6,\n'
+    '        "fuq3": 40,\n'
+    '        "iuq3": 40,\n'
+    '        "gsq3": 150,\n'
     '        "rq3": None,\n'
     '        "coach3": True,\n'
-    '        "voice3": "premium",\n'
+    '        "voice3": "device",\n'
+    '        "name4": "Pro",\n'
+    '        "mfu4": 5120,\n'
+    '        "depth4": "training",\n'
+    '        "sections4": 10,\n'
+    '        "fuq4": 100,\n'
+    '        "iuq4": 100,\n'
+    '        "gsq4": 500,\n'
+    '        "rq4": None,\n'
+    '        "coach4": True,\n'
+    '        "voice4": "premium",\n'
     "      },\n"
     "    )\n"
   )

@@ -34,37 +34,21 @@ class WritingCheckOrchestrator:
 
     prompt = self._render_prompt(text, criteria)
 
-    # We use structured output if available, else raw JSON parse
+    # We always use structured output for JSON agents.
     schema = {"type": "object", "properties": {"ok": {"type": "boolean"}, "issues": {"type": "array", "items": {"type": "string"}}, "feedback": {"type": "string"}}, "required": ["ok", "issues", "feedback"]}
 
     # Wrap provider calls to capture audit context while preserving fallback flow.
-
     try:
-      if model.supports_structured_output:
-        # Stamp the provider call with a writing-check context for audit logging.
+      # Stamp the provider call with a writing-check context for audit logging.
+      with llm_call_context(agent="WritingCheck", lesson_topic=None, job_id=None, purpose="writing_check", call_index="1/1"):
+        res = await model.generate_structured(prompt, schema)
 
-        with llm_call_context(agent="WritingCheck", lesson_topic=None, job_id=None, purpose="writing_check", call_index="1/1"):
-          res = await model.generate_structured(prompt, schema)
+      usage = []
 
-        usage = []
+      if res.usage:
+        usage.append({"model": model.name, "purpose": "check", **res.usage})
 
-        if res.usage:
-          usage.append({"model": model.name, "purpose": "check", **res.usage})
-
-        content = res.content
-
-      else:
-        # Stamp the provider call with a writing-check context for audit logging.
-
-        with llm_call_context(agent="WritingCheck", lesson_topic=None, job_id=None, purpose="writing_check", call_index="1/1"):
-          raw = await model.generate(prompt + "\n\nOutput ONLY valid JSON.")
-
-        usage = []
-
-        if raw.usage:
-          usage.append({"model": model.name, "purpose": "check", **raw.usage})
-
-        content = json.loads(raw.content)
+      content = res.content
 
       total_cost = self._calculate_total_cost(usage)
 

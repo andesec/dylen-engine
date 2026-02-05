@@ -7,12 +7,15 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schema.outcomes import OutcomeText
+
 
 class GenerationRequest(BaseModel):
   """Inputs for a lesson generation request."""
 
   topic: str
   prompt: str | None = None
+  outcomes: list[OutcomeText] | None = Field(default=None, min_length=1, max_length=8)
   depth: str
   section_count: int = Field(ge=1, le=10)
   blueprint: str | None = None

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from app.ai.errors import is_provider_error
 from app.ai.providers.audit import instrument_model
 from app.ai.providers.base import AIModel, ModelResponse, Provider, StructuredModelResponse
-from app.schema.lesson_catalog import _GATHERER_MODELS, _PLANNER_MODELS, _REPAIRER_MODELS, _STRUCTURER_MODELS
+from app.schema.lesson_catalog import _GATHERER_MODELS, _OUTCOMES_MODELS, _PLANNER_MODELS, _REPAIRER_MODELS, _STRUCTURER_MODELS
 
 if TYPE_CHECKING:
   pass
@@ -101,7 +101,7 @@ def _rotate_models(models: list[str], start: str | None) -> list[str]:
   return models[start_index:] + models[:start_index]
 
 
-_AGENT_MODEL_ORDER: dict[str, list[str]] = {"gatherer": _GATHERER_MODELS, "gatherer_structurer": _GATHERER_MODELS, "planner": _PLANNER_MODELS, "structurer": _STRUCTURER_MODELS, "repairer": _REPAIRER_MODELS}
+_AGENT_MODEL_ORDER: dict[str, list[str]] = {"gatherer": _GATHERER_MODELS, "gatherer_structurer": _GATHERER_MODELS, "planner": _PLANNER_MODELS, "structurer": _STRUCTURER_MODELS, "repairer": _REPAIRER_MODELS, "outcomes": _OUTCOMES_MODELS}
 
 
 class FallbackModel(AIModel):

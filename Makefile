@@ -227,7 +227,7 @@ db-heads:
 	@uv run python scripts/db_check_heads.py
 
 db-linear-history:
-	@uv run python scripts/db_check_linear_history.py
+	@uv run python scripts/db_check_linear_history.py --fix
 
 db-migration-lint:
 	@uv run python scripts/db_migration_lint.py

@@ -10,6 +10,7 @@ from app.schema.ocr import BatchResponse
 from app.schema.sql import User
 from app.services.audit import log_llm_interaction
 from app.services.ocr_service import OcrService
+from app.services.quota_buckets import QuotaExceededError
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_subscription_tier
 
@@ -29,7 +30,9 @@ async def get_ocr_service(settings: Settings = Depends(get_settings), db_session
   max_bytes = int(runtime_config.get("limits.max_file_upload_bytes") or 0)
   if max_bytes <= 0:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "UPLOADS_DISABLED"})
-  return OcrService(max_file_size=max_bytes)
+  # Resolve monthly OCR quota limits for per-request reservations.
+  ocr_limit = int(runtime_config.get("limits.ocr_files_per_month") or 0)
+  return OcrService(max_file_size=max_bytes, user_id=current_user.id, settings=settings, quota_limit=ocr_limit)
 
 
 @router.post("/image/extract-text", response_model=BatchResponse, dependencies=[Depends(require_feature_flag("feature.ocr"))])
@@ -49,6 +52,10 @@ async def extract_text_from_images(files: list[UploadFile] = FILES_FIELD, messag
   try:
     # Delegate extraction so orchestration stays outside the transport layer.
     results = await service.extract_text(files=files, message=message)
+  except QuotaExceededError:
+    # Report quota errors explicitly for UI handling.
+    audit_status = "error"
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "ocr.extract"}) from None
   except Exception:
     # Mark audit status as error before re-raising.
     audit_status = "error"

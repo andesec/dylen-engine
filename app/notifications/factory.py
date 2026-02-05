@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.config import Settings
 from app.notifications.email_log_repo import EmailDeliveryLogRepository, NullEmailDeliveryLogRepository
 from app.notifications.email_sender import MailerSendConfig, MailerSendEmailSender, NullEmailSender
+from app.notifications.in_app_repo import InAppNotificationRepository, NullInAppNotificationRepository
 from app.notifications.push_sender import NullPushSender
 from app.notifications.service import NotificationService
 
@@ -29,6 +30,12 @@ def build_notification_service(settings: Settings, *, email_enabled: bool | None
   else:
     email_log_repo = NullEmailDeliveryLogRepository()
 
+  # Persist in-app notifications only when Postgres is configured.
+  if settings.pg_dsn:
+    in_app_repo: InAppNotificationRepository = InAppNotificationRepository()
+  else:
+    in_app_repo = NullInAppNotificationRepository()
+
   # Push is currently a no-op until a provider integration is configured.
   push_sender = NullPushSender()
-  return NotificationService(email_sender=email_sender, email_log_repo=email_log_repo, push_sender=push_sender, email_enabled=effective_email_enabled, push_enabled=False)
+  return NotificationService(email_sender=email_sender, email_log_repo=email_log_repo, push_sender=push_sender, in_app_repo=in_app_repo, email_enabled=effective_email_enabled, push_enabled=False)

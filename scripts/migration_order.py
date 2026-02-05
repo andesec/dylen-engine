@@ -63,6 +63,29 @@ def _parse_create_date(*, text: str, path: Path) -> datetime:
   return parsed.astimezone(UTC)
 
 
+def _format_create_date(*, value: datetime) -> str:
+  """Format a Create Date value to match Alembic's header style."""
+  # Normalize to UTC so ordering logic stays deterministic across timezones.
+  normalized = value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
+  # Strip timezone info because Alembic's default header omits offsets.
+  return normalized.replace(tzinfo=None).isoformat(sep=" ", timespec="microseconds")
+
+
+def rewrite_create_date(*, path: Path, create_date: datetime) -> None:
+  """Rewrite a migration file's Create Date header to the supplied timestamp."""
+  # Read the migration file so we can update the header in-place.
+  text = path.read_text(encoding="utf-8")
+  # Format the new Create Date to match Alembic's default template output.
+  formatted = _format_create_date(value=create_date)
+  # Require the header to exist so updates remain explicit.
+  if not _CREATE_DATE_RE.search(text):
+    raise RuntimeError(f"Missing Create Date header in migration: {path}")
+  # Replace the first Create Date header line with the new value.
+  updated = _CREATE_DATE_RE.sub(f"Create Date: {formatted}", text, count=1)
+  # Persist the rewritten migration file.
+  path.write_text(updated, encoding="utf-8")
+
+
 def _load_migration_info(revision: object) -> MigrationInfo:
   """Load MigrationInfo for a single Alembic revision."""
   # Read the revision's metadata from the Alembic revision object.

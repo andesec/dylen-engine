@@ -20,7 +20,8 @@ async def generate_lesson_outcomes(request: GenerationRequest, *, settings: Sett
     - Provider/model are resolved outside this function to keep routing policy in one place.
   """
   schema = SchemaService()
-  model_instance = get_model_for_mode(provider, model, agent="planner")
+  # Use the outcomes agent model ordering to keep this agent independent.
+  model_instance = get_model_for_mode(provider, model, agent="outcomes")
   agent = OutcomesAgent(model=model_instance, prov=provider, schema=schema)
 
   input_data = OutcomesAgentInput(

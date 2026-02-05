@@ -168,7 +168,7 @@ def main() -> None:
     # Lint and linear-history checks before applying so unsafe patterns fail fast in dev.
     _run([sys.executable, "scripts/db_migration_lint.py"])
     _run([sys.executable, "scripts/db_check_heads.py"])
-    _run([sys.executable, "scripts/db_check_linear_history.py"])
+    _run([sys.executable, "scripts/db_check_linear_history.py", "--fix"])
 
     # Apply the new revision and verify metadata drift stays clean.
     _run([sys.executable, "-m", "alembic", "-c", str(alembic_ini), "upgrade", "head"])

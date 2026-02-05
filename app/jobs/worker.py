@@ -34,10 +34,11 @@ from app.schema.service import SchemaService
 from app.schema.validate_lesson import validate_lesson
 from app.services.lesson_markdown_repair import repair_lesson_overlong_markdown
 from app.services.maintenance import archive_old_lessons
-from app.services.model_routing import _get_orchestrator, _resolve_model_selection
-from app.services.quota_buckets import consume_quota, get_quota_snapshot
+from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
+from app.services.quota_buckets import get_quota_snapshot
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.tasks.factory import get_task_enqueuer
 from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
@@ -130,7 +131,11 @@ class JobProcessor:
       payload = job.request.get("payload", {})
       # Use a dummy request for context
       dummy_req = GenerationRequest(topic="widget_build", depth="highlights", section_count=2)
-      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name, request=dummy_req)
+      # Forward settings and user metadata for agent-scoped quota reservations.
+      job_metadata = {"settings": self._settings}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name, request=dummy_req, metadata=job_metadata)
 
       html_content = await agent.run(payload, job_ctx)
 
@@ -189,7 +194,11 @@ class JobProcessor:
       payload = job.request.get("payload", {})
       # Context
       dummy_req = GenerationRequest(topic=payload.get("topic", "unknown"), depth="highlights", section_count=1)
-      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=dummy_req)
+      # Forward settings and user metadata for agent-scoped quota reservations.
+      job_metadata = {"settings": self._settings}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=dummy_req, metadata=job_metadata)
 
       audio_ids = await agent.run(payload, job_ctx)
 
@@ -245,9 +254,9 @@ class JobProcessor:
     hard_timeout = _parse_timeout_env("JOB_HARD_TIMEOUT_SECONDS")
     soft_timeout_recorded = False
     # Capture quota config for per-section consumption in the progress callback.
+    # Keep quota enforcement metadata separate from agent-side reservations.
     quota_user_id: uuid.UUID | None = None
     quota_sections_per_month = 0
-    quota_consumed_indexes: set[int] = set()
 
     async def _check_timeouts() -> bool:
       nonlocal soft_timeout_recorded
@@ -280,6 +289,8 @@ class JobProcessor:
       retry_completed_indexes: list[int] = []
       # Enforce quota cap for section generation, including mid-queue tier changes.
       session_factory = get_session_factory()
+      # Store runtime config for model defaults once user tier is known.
+      runtime_config: dict[str, Any] | None = None
       if session_factory is not None and job.user_id:
         try:
           quota_user_id = uuid.UUID(str(job.user_id))
@@ -331,9 +342,9 @@ class JobProcessor:
         retry_completed_indexes=retry_completed_indexes,
         base_completed_sections=base_completed_sections,
         enable_repair=enable_repair,
+        runtime_config=runtime_config,
         quota_user_id=quota_user_id,
         quota_sections_per_month=quota_sections_per_month,
-        quota_consumed_indexes=quota_consumed_indexes,
       )
 
       # Abort quickly if a cancellation lands after orchestration completes.
@@ -456,6 +467,7 @@ class JobProcessor:
       await tracker.fail(phase="failed", message=error_log)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
+      await _notify_job_failed(settings=self._settings, job=job)
       return None
 
     except Exception as exc:  # noqa: BLE001
@@ -464,6 +476,7 @@ class JobProcessor:
       await tracker.fail(phase="failed", message=error_log)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
+      await _notify_job_failed(settings=self._settings, job=job)
       return None
 
   async def _process_writing_check(self, job: JobRecord) -> JobRecord | None:
@@ -472,10 +485,27 @@ class JobProcessor:
     await tracker.set_phase(phase="evaluating", subphase="ai_check")
 
     try:
-      # Validate and hydrate the request so optional model overrides are honored.
-      request_model = WritingCheckRequest.model_validate(job.request)
-      checker_model = request_model.checker_model or self._settings.section_builder_model
-      orchestrator = WritingCheckOrchestrator(provider=self._settings.section_builder_provider, model=checker_model)
+      # Validate and hydrate the request so inputs remain strict.
+      cleaned_request = _strip_internal_request_fields(job.request)
+      request_model = WritingCheckRequest.model_validate(cleaned_request)
+      # Resolve writing defaults from runtime config when possible.
+      runtime_config: dict[str, Any] = {}
+      session_factory = get_session_factory()
+      if session_factory is not None and job.user_id:
+        try:
+          parsed_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          parsed_user_id = None
+        if parsed_user_id is not None:
+          async with session_factory() as session:
+            user = await get_user_by_id(session, parsed_user_id)
+            if user is not None:
+              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+
+      provider = str(runtime_config.get("ai.writing.provider") or self._settings.writing_provider)
+      model_name = str(runtime_config.get("ai.writing.model") or self._settings.writing_model or "")
+      orchestrator = WritingCheckOrchestrator(provider=provider, model=model_name or None)
       result = await orchestrator.check_response(text=request_model.text, criteria=request_model.criteria)
 
       tracker.extend_logs(result.logs)
@@ -519,9 +549,9 @@ class JobProcessor:
     retry_completed_indexes: list[int] | None = None,
     base_completed_sections: int = 0,
     enable_repair: bool = True,
+    runtime_config: dict[str, Any] | None = None,
     quota_user_id: uuid.UUID | None = None,
     quota_sections_per_month: int = 0,
-    quota_consumed_indexes: set[int] | None = None,
   ) -> OrchestrationResult:
     """Execute the orchestration pipeline with guarded parameters."""
 
@@ -539,8 +569,8 @@ class JobProcessor:
     if len(topic) > self._settings.max_topic_length:
       raise ValueError(f"Topic exceeds max length of {self._settings.max_topic_length}.")
 
-    # Resolve per-agent model overrides so queued jobs honor request settings.
-    selection = _resolve_model_selection(self._settings, models=request_model.models)
+    # Resolve per-agent defaults so queued jobs honor runtime configuration.
+    selection = resolve_agent_defaults(self._settings, runtime_config or {})
     (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
     language = _resolve_primary_language(request_model)
     learner_level = _resolve_learner_level(request_model)
@@ -591,20 +621,7 @@ class JobProcessor:
         if retry_completed_indexes is not None and section_progress.status == "completed":
           if section_progress.index not in retry_completed_indexes:
             retry_completed_indexes.append(section_progress.index)
-        # Consume monthly section quota on completion, once per section index per job attempt.
-        if quota_user_id is not None and quota_sections_per_month > 0 and quota_consumed_indexes is not None and section_progress.status == "completed":
-          # Avoid double counting across retries by honoring the base completed index list.
-          if base_completed_indexes is not None and section_progress.index in base_completed_indexes:
-            pass
-          elif section_progress.index in quota_consumed_indexes:
-            pass
-          else:
-            quota_consumed_indexes.add(section_progress.index)
-            session_factory = get_session_factory()
-            if session_factory is None:
-              raise ValueError("Database is not initialized for quota accounting.")
-            async with session_factory() as session:
-              await consume_quota(session, user_id=quota_user_id, metric_key="section.generate", period=QuotaPeriod.MONTH, quantity=1, limit=int(quota_sections_per_month), metadata={"job_id": job_id, "section_index": int(section_progress.index)})
+        # Section quota reservations are handled inside agents to keep accounting local.
 
       log_message = "; ".join(messages or [])
       merged_partial = partial_json
@@ -621,15 +638,47 @@ class JobProcessor:
         await tracker.set_phase(phase=phase, subphase=subphase, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
 
     async def _job_creator(target_agent: str, payload: dict[str, Any]) -> None:
+      # Fetch parent metadata so child jobs inherit the user id.
+      parent_record = await self._jobs_repo.get_job(job_id)
+      parent_user_id = parent_record.user_id if parent_record is not None else None
+      parent_artifacts = dict(parent_record.artifacts or {}) if parent_record is not None else None
+      child_jobs = list(parent_artifacts.get("child_jobs") or []) if parent_artifacts is not None else []
       new_job_id = str(uuid.uuid4())
       timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
       request = {"payload": payload, "_meta": {"parent_job_id": job_id}}
-      record = JobRecord(job_id=new_job_id, request=request, status="queued", target_agent=target_agent, created_at=timestamp, updated_at=timestamp, phase="queued", logs=[])
+      record = JobRecord(job_id=new_job_id, user_id=parent_user_id, request=request, status="queued", target_agent=target_agent, created_at=timestamp, updated_at=timestamp, phase="queued", logs=[])
       await self._jobs_repo.create_job(record)
+      # Track child jobs in the parent artifacts so the UI can retry them.
+      if parent_artifacts is not None:
+        child_jobs.append({"job_id": new_job_id, "target_agent": target_agent, "status": "queued"})
+        parent_artifacts["child_jobs"] = child_jobs
+        await self._jobs_repo.update_job(job_id, artifacts=parent_artifacts)
+      # Enqueue the child job immediately so it executes without manual intervention.
+      enqueuer = get_task_enqueuer(self._settings)
+      try:
+        await enqueuer.enqueue(new_job_id, {})
+      except Exception:  # noqa: BLE001
+        await self._jobs_repo.update_job(new_job_id, status="error", phase="error", logs=["Enqueue failed: CHILD_TASK_ENQUEUE_FAILED"])
+        if parent_artifacts is not None:
+          updated_child_jobs = []
+          for child in child_jobs:
+            if child.get("job_id") == new_job_id:
+              updated_child_jobs.append({"job_id": new_job_id, "target_agent": target_agent, "status": "error"})
+            else:
+              updated_child_jobs.append(child)
+          parent_artifacts["child_jobs"] = updated_child_jobs
+          await self._jobs_repo.update_job(job_id, artifacts=parent_artifacts)
+        await _notify_child_job_failed(settings=self._settings, parent_job=parent_record, child_job_id=new_job_id)
 
+    # Forward settings and user metadata so agents can reserve quota locally.
+    job_metadata = {"settings": self._settings}
+    if quota_user_id is not None:
+      job_metadata["user_id"] = str(quota_user_id)
     result = await orchestrator.generate_lesson(
+      job_id=job_id,
       topic=topic,
       details=request_model.details,
+      outcomes=request_model.outcomes,
       blueprint=request_model.blueprint,
       teaching_style=request_model.teaching_style,
       learner_level=learner_level,
@@ -643,6 +692,7 @@ class JobProcessor:
       section_filter=retry_section_numbers,
       enable_repair=enable_repair,
       job_creator=_job_creator,
+      job_metadata=job_metadata,
     )
 
     merged_logs = list(_merge_logs(logs, result.logs))
@@ -667,7 +717,13 @@ class JobProcessor:
 def _strip_internal_request_fields(request: dict[str, Any]) -> dict[str, Any]:
   """Drop internal-only metadata keys from stored job payloads before validation."""
   # Stored job requests may include internal metadata (e.g. _meta) that must not violate strict request models.
-  return {key: value for key, value in request.items() if not key.startswith("_")}
+  cleaned = {key: value for key, value in request.items() if not key.startswith("_")}
+
+  # Drop deprecated model override fields so legacy jobs can still validate.
+  cleaned.pop("models", None)
+  cleaned.pop("checker_model", None)
+
+  return cleaned
 
 
 def _extract_user_id(job_request: dict[str, Any]) -> uuid.UUID | None:
@@ -705,6 +761,50 @@ async def _notify_job_lesson_generated(*, settings: Settings, job_request: dict[
       await build_notification_service(settings).notify_lesson_generated(user_id=user.id, user_email=user.email, lesson_id=lesson_id, topic=topic)
   except Exception as exc:  # noqa: BLE001
     logging.getLogger(__name__).error("Failed sending job completion notification: %s", exc, exc_info=True)
+
+
+async def _notify_job_failed(*, settings: Settings, job: JobRecord) -> None:
+  """Best-effort in-app notification when a lesson job fails."""
+  # Skip notifications when the job has no user association.
+  if not job.user_id:
+    return
+
+  # Normalize the user id for downstream notification writes.
+  try:
+    user_id = uuid.UUID(str(job.user_id))
+  except ValueError:
+    return
+
+  # Use the in-app notification channel for retries.
+  service = build_notification_service(settings)
+  try:
+    await service.notify_in_app(user_id=user_id, template_id="lesson_job_failed_retry_v1", data={"job_id": job.job_id, "retry_target": job.job_id})
+  except Exception as exc:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed sending job failure notification: %s", exc, exc_info=True)
+
+
+async def _notify_child_job_failed(*, settings: Settings, parent_job: JobRecord | None, child_job_id: str) -> None:
+  """Best-effort in-app notification when a child job fails to enqueue."""
+  # Exit early when there is no parent job to resolve the user.
+  if parent_job is None:
+    return
+
+  # Require a user id so the notification can be scoped correctly.
+  if not parent_job.user_id:
+    return
+
+  # Normalize the user id to guard against malformed values.
+  try:
+    user_id = uuid.UUID(str(parent_job.user_id))
+  except ValueError:
+    return
+
+  # Dispatch an in-app notification with retry metadata.
+  service = build_notification_service(settings)
+  try:
+    await service.notify_in_app(user_id=user_id, template_id="child_job_failed_retry_v1", data={"job_id": child_job_id, "parent_job_id": parent_job.job_id, "retry_target": child_job_id})
+  except Exception as exc:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed sending child job failure notification: %s", exc, exc_info=True)
 
 
 def _merge_logs(*log_sets: Iterable[str]) -> Iterable[str]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -93,4 +93,22 @@ class UserQuotaBucket(Base):
   period: Mapped[QuotaPeriod] = mapped_column(ENUM(QuotaPeriod, name="quota_period", create_type=False), nullable=False)
   period_start: Mapped[Date] = mapped_column(Date, nullable=False)
   used: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+  reserved: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
   updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class UserQuotaReservation(Base):
+  """Track reserved quota usage awaiting commit or release."""
+
+  __tablename__ = "user_quota_reservations"
+  __table_args__ = (UniqueConstraint("user_id", "metric_key", "period", "period_start", "job_id", "section_index", name="ux_quota_reservation_key"),)
+
+  id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+  user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True, nullable=False)
+  metric_key: Mapped[str] = mapped_column(String, nullable=False, index=True)
+  period: Mapped[QuotaPeriod] = mapped_column(ENUM(QuotaPeriod, name="quota_period", create_type=False), nullable=False)
+  period_start: Mapped[Date] = mapped_column(Date, nullable=False)
+  quantity: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1, server_default="1")
+  job_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+  section_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -22,7 +22,7 @@ OptStr = str | None
 Msgs = list[str] | None
 ProgressCallback = Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], Awaitable[None]] | None
 JobCreator = Callable[[str, dict[str, Any]], Awaitable[None]] | None
-DEFAULT_MODEL = "xiaomi/mimo-v2-flash:free"
+DEFAULT_MODEL = "gemini-2.5-pro"
 
 
 @dataclass(frozen=True)
@@ -110,8 +110,10 @@ class DylenOrchestrator:
   async def generate_lesson(
     self,
     *,
+    job_id: str | None = None,
     topic: str,
     details: str | None = None,
+    outcomes: list[str] | None = None,
     blueprint: str | None = None,
     teaching_style: list[str] | None = None,
     learner_level: str | None = None,
@@ -125,6 +127,7 @@ class DylenOrchestrator:
     progress_callback: ProgressCallback = None,
     section_filter: set[int] | None = None,
     job_creator: JobCreator = None,
+    job_metadata: dict[str, Any] | None = None,
   ) -> OrchestrationResult:
     """Run the pipeline and return lesson JSON."""
     logger = logging.getLogger(__name__)
@@ -134,11 +137,29 @@ class DylenOrchestrator:
         await progress_callback(phase_name, subphase, messages, advance, partial_json, section_progress)
 
     # Setup context and request
-    request = GenerationRequest(topic=topic, prompt=details, depth=depth, section_count=_depth_profile(depth), blueprint=blueprint, teaching_style=teaching_style, learner_level=learner_level, language=language, widgets=widgets, constraints=None)
+    request_payload = {
+      "topic": topic,
+      "prompt": details,
+      "outcomes": outcomes,
+      "depth": depth,
+      "section_count": _depth_profile(depth),
+      "blueprint": blueprint,
+      "teaching_style": teaching_style,
+      "learner_level": learner_level,
+      "language": language,
+      "widgets": widgets,
+      "constraints": None,
+    }
+    request = GenerationRequest(**request_payload)
 
     schema_ver = schema_version or self._schema_version
+    # Merge caller-provided metadata so agents can access user context.
     meta = {"schema_version": schema_ver, "structured_output": structured_output}
-    job_ctx = JobContext(job_id="unknown", created_at=datetime.utcnow(), provider="multi", model="multi", request=request, metadata=meta)
+    if job_metadata:
+      meta.update(job_metadata)
+    # Fall back to a sentinel job id when none is provided.
+    resolved_job_id = job_id or "unknown"
+    job_ctx = JobContext(job_id=resolved_job_id, created_at=datetime.utcnow(), provider="multi", model="multi", request=request, metadata=meta)
 
     ctx = _OrchestrationContext(job_context=job_ctx, progress_reporter=_report_progress, topic=topic)
 

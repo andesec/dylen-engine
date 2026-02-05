@@ -7,9 +7,6 @@ INPUTS
 Section Plan:
 PLANNER_SECTION_JSON
 
-Widget Schema:
-WIDGET_SCHEMA_JSON
-
 * Teaching style: STYLE
 * Learner level: LEARNER_LEVEL
 * Depth: DEPTH

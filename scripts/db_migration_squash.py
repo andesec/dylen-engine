@@ -284,7 +284,7 @@ def main() -> None:
     _ensure_seed_script(revision=revision_id, repo_root=repo_root)
     _run([sys.executable, "scripts/db_migration_lint.py"], env=env)
     _run([sys.executable, "scripts/db_check_heads.py"], env=env)
-    _run([sys.executable, "scripts/db_check_linear_history.py"], env=env)
+    _run([sys.executable, "scripts/db_check_linear_history.py", "--fix"], env=env)
 
   finally:
     _drop_database(admin_url, temp_name)

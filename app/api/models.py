@@ -3,11 +3,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, model_validator
 
 from app.jobs.guardrails import MAX_ITEM_BYTES
 from app.jobs.models import JobStatus
-from app.schema.outcomes import OutcomesAgentResponse
+from app.schema.outcomes import OutcomeText
 from app.services.widgets import _normalize_option_id, _normalize_widget_ids
 
 MAX_REQUEST_BYTES = MAX_ITEM_BYTES // 2
@@ -54,27 +54,12 @@ class RepairerModel(str, Enum):
   GEMINI_25_FLASH = "gemini-2.5-flash"
 
 
-class ModelsConfig(BaseModel):
-  """Per-agent model selection overrides."""
-
-  section_builder_model: StrictStr | None = Field(
-    default=None,
-    validation_alias=AliasChoices("section_builder_model", "gatherer_model", "knowledge_model", "structurer_model"),
-    serialization_alias="section_builder_model",
-    description="Model used for the section builder agent (provider inferred when possible).",
-    examples=["xiaomi/mimo-v2-flash:free"],
-  )
-  planner_model: StrictStr | None = Field(default=None, description="Model used for the planner agent (provider inferred when possible).", examples=["openai/gpt-oss-120b:free"])
-  repairer_model: StrictStr | None = Field(default=None, description="Model used for repair validation and fixes (provider inferred when possible).", examples=["google/gemma-3-27b-it:free"])
-
-  model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
 class GenerateLessonRequest(BaseModel):
   """Request payload for lesson generation."""
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
   details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
+  outcomes: list[OutcomeText] | None = Field(default=None, min_length=1, max_length=8, description="Optional outcomes to guide the planner (3-8 items recommended).")
   blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] | None = Field(
     default=None, description="Optional blueprint or learning outcome guidance for lesson planning."
   )
@@ -84,9 +69,6 @@ class GenerateLessonRequest(BaseModel):
   primary_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
   widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=8, description="Optional list of allowed widgets (overrides defaults).")
   schema_version: StrictStr | None = Field(default=None, description="Optional schema version to pin the lesson output to.")
-  models: ModelsConfig | None = Field(
-    default=None, description="Optional per-agent model selection overrides.", examples=[{"section_builder_model": "xiaomi/mimo-v2-flash:free", "planner_model": "openai/gpt-oss-120b:free", "repairer_model": "google/gemma-3-27b-it:free"}]
-  )
   idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
   model_config = ConfigDict(extra="forbid")
 
@@ -212,14 +194,6 @@ class OptionDetail(BaseModel):
   tooltip: StrictStr
 
 
-class AgentModelOption(BaseModel):
-  """Valid model choices for a pipeline agent."""
-
-  agent: StrictStr
-  default: StrictStr | None
-  options: list[StrictStr]
-
-
 class LessonCatalogResponse(BaseModel):
   """Response payload for lesson option metadata."""
 
@@ -227,14 +201,7 @@ class LessonCatalogResponse(BaseModel):
   teaching_styles: list[OptionDetail]
   learner_levels: list[OptionDetail]
   depths: list[OptionDetail]
-
-
-class LessonOutcomesResponse(OutcomesAgentResponse):
-  """Response payload for outcomes preflight checks."""
-
-  meta: LessonOutcomesMeta
   widgets: list[OptionDetail]
-  agent_models: list[AgentModelOption]
   default_widgets: dict[str, dict[str, list[StrictStr]]]
 
 
@@ -243,7 +210,6 @@ class WritingCheckRequest(BaseModel):
 
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
   criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
-  checker_model: StrictStr | None = Field(default=None, description="Optional model override for writing evaluation (provider inferred when possible).", examples=["openai/gpt-oss-120b:free"])
   idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
   model_config = ConfigDict(extra="forbid")
 
@@ -292,6 +258,18 @@ class CurrentSectionStatus(BaseModel):
   model_config = ConfigDict(extra="forbid")
 
 
+class ChildJobStatus(BaseModel):
+  """Status payload for a child job."""
+
+  job_id: StrictStr
+  status: JobStatus
+  target_agent: StrictStr | None = None
+  phase: StrictStr | None = None
+  created_at: StrictStr | None = None
+  retry_available: bool = Field(default=False)
+  model_config = ConfigDict(extra="forbid")
+
+
 class JobStatusResponse(BaseModel):
   """Status payload for an asynchronous job."""
 
@@ -312,6 +290,8 @@ class JobStatusResponse(BaseModel):
   progress: StrictFloat | None = Field(default=None, ge=0.0, le=100.0, description="Progress percent (0-100) when available.")
   logs: list[StrictStr] = Field(default_factory=list)
   result: dict[str, Any] | None = None
+  artifacts: dict[str, Any] | None = None
+  child_jobs: list[ChildJobStatus] | None = None
   validation: ValidationResponse | None = None
   cost: dict[str, Any] | None = None
   created_at: StrictStr

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.orchestrator import OrchestrationError
 from app.api.routes import admin, auth, coach, configuration, fenster, jobs, lessons, notifications, onboarding, purgatory, research, resources, tasks, users, worker, writing
 from app.config import get_settings
-from app.core.exceptions import global_exception_handler, http_exception_handler, orchestration_exception_handler
+from app.core.exceptions import global_exception_handler, http_exception_handler, orchestration_exception_handler, request_validation_exception_handler
 from app.core.json import DecimalJSONResponse
 from app.core.lifespan import lifespan
 from app.core.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware
@@ -22,6 +23,7 @@ app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow
 app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(OrchestrationError, orchestration_exception_handler)
+app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
 
 # Add middleware
 app.add_middleware(RequestLoggingMiddleware)

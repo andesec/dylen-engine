@@ -79,9 +79,8 @@ class OpenRouterModel(AIModel):
     # OpenRouter/OpenAI structured output requires a schema in response_format
     # for strict enforcement, or at least 'json_schema' type.
 
-    # Serialize schema for prompt injection (reinforcement)
-    schema_str = json.dumps(schema, indent=2)
-    system_msg = f"You are a helpful assistant that outputs valid JSON.\nYou MUST strictly output JSON adhering to this schema:\n```json\n{schema_str}\n```\nOutput valid JSON only, no markdown formatting."
+    # Keep system guidance generic to avoid schema injection into prompts.
+    system_msg = "You are a helpful assistant that outputs valid JSON. Output valid JSON only, no markdown formatting."
 
     response = await self._client.chat.completions.create(
       model=self.name,

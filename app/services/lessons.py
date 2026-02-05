@@ -12,8 +12,8 @@ from app.schema.quotas import QuotaPeriod
 from app.schema.sql import User
 from app.services.audit import log_llm_interaction
 from app.services.feature_flags import is_feature_enabled
-from app.services.model_routing import _get_orchestrator, _resolve_model_selection
-from app.services.quota_buckets import QuotaExceededError, consume_quota, get_quota_snapshot
+from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
+from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.storage.factory import _get_repo
@@ -32,8 +32,9 @@ async def process_lesson_generation(
 ) -> GenerateLessonResponse:
   """Execute core lesson generation logic."""
   start = time.monotonic()
-  # Resolve per-agent model overrides and provider routing for this request.
-  selection = _resolve_model_selection(settings, models=request.models)
+  # Resolve per-agent defaults from runtime config and settings.
+  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
+  selection = resolve_agent_defaults(settings, runtime_config)
   (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
   orchestrator = _get_orchestrator(
     settings, section_builder_provider=section_builder_provider, section_builder_model=section_builder_model, planner_provider=planner_provider, planner_model=planner_model, repair_provider=repairer_provider, repair_model=repairer_model
@@ -45,7 +46,6 @@ async def process_lesson_generation(
     await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, status="started", session=db_session)
 
   # Enforce monthly section quotas at generation time so queued jobs cannot exceed updated tier limits.
-  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
   sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
   if sections_per_month <= 0:
     raise QuotaExceededError("section.generate quota disabled")
@@ -62,24 +62,17 @@ async def process_lesson_generation(
   section_filter = None
   if effective_sections < requested_sections:
     section_filter = set(range(1, int(effective_sections) + 1))
-  # Track consumption to avoid double counting within a single orchestration run.
-  consumed_indexes: set[int] = set()
 
+  # Avoid duplicate section quota accounting because agents handle reservations.
   async def _progress_callback(phase: str, subphase: str | None, messages: list[str] | None = None, advance: bool = True, partial_json: dict | None = None, section_progress=None) -> None:  # noqa: ANN001
-    # Consume quota on section completion so usage reflects actual generated output.
-    if section_progress is None:
-      return
-    if getattr(section_progress, "status", None) != "completed":
-      return
-    idx = int(getattr(section_progress, "index", -1))
-    if idx < 0:
-      return
-    if idx in consumed_indexes:
-      return
-    consumed_indexes.add(idx)
-    await consume_quota(db_session, user_id=current_user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, quantity=1, limit=sections_per_month, metadata={"job_id": job_id, "lesson_id": lesson_id, "section_index": idx})
+    # No-op callback kept for orchestration compatibility.
+    return
 
+  # Provide user context so agents can reserve quota locally.
+  job_metadata = {"user_id": str(current_user.id), "settings": settings}
+  # Provide a stable job id for quota reservations when available.
   result = await orchestrator.generate_lesson(
+    job_id=job_id or lesson_id,
     topic=request.topic,
     details=request.details,
     blueprint=request.blueprint,
@@ -93,6 +86,7 @@ async def process_lesson_generation(
     widgets=request.widgets,
     progress_callback=_progress_callback,
     section_filter=section_filter,
+    job_metadata=job_metadata,
   )
 
   if current_user.id:

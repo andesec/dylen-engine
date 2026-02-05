@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 import uuid
 
+from app.config import get_settings
 from app.schema.feature_flags import FeatureFlag, OrganizationFeatureFlag, SubscriptionTierFeatureFlag
+from app.services.runtime_config import resolve_effective_runtime_config
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,7 +89,26 @@ async def resolve_effective_feature_flags(session: AsyncSession, *, org_id: uuid
     for key, enabled in org_result.fetchall():
       effective[str(key)] = bool(enabled)
 
+  # Apply global disables last so super-admin toggles always win.
+  settings = get_settings()
+  global_config = await resolve_effective_runtime_config(session, settings=settings, org_id=None, subscription_tier_id=None, user_id=None)
+  disabled_keys = global_config.get("features.disabled_global") or []
+  for disabled_key in disabled_keys:
+    normalized = validate_flag_key(str(disabled_key))
+    effective[normalized] = False
+
   return effective
+
+
+async def resolve_global_disabled_features(session: AsyncSession) -> set[str]:
+  """Return globally disabled feature keys for response redaction."""
+  settings = get_settings()
+  global_config = await resolve_effective_runtime_config(session, settings=settings, org_id=None, subscription_tier_id=None, user_id=None)
+  disabled_keys = global_config.get("features.disabled_global") or []
+  normalized: set[str] = set()
+  for disabled_key in disabled_keys:
+    normalized.add(validate_flag_key(str(disabled_key)))
+  return normalized
 
 
 async def is_feature_enabled(session: AsyncSession, *, key: str, org_id: uuid.UUID | None, subscription_tier_id: int | None) -> bool:

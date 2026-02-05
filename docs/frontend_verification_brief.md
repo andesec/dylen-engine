@@ -26,7 +26,7 @@ Dylen (Engine) acts as a **Backend for Frontend (BFF)** for the Dylen (Frontend)
 ### A. Initialization
 Call this on app load to populate UI options.
 1.  **Get Catalog**: `GET /v1/lessons/catalog`
-    *   *Returns*: Available blueprints, teaching styles, and widget definitions.
+    *   *Returns*: Available blueprints, teaching styles, widget definitions, and per-blueprint widget defaults (`default_widgets`).
 
 ### B. Lesson Generation (Async Job)
 1.  **Start Job**: 

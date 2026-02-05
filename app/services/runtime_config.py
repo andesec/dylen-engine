@@ -40,9 +40,14 @@ _RUNTIME_CONFIG_DEFINITIONS: dict[str, RuntimeConfigDefinition] = {
   "limits.max_markdown_chars": RuntimeConfigDefinition(key="limits.max_markdown_chars", value_type="int", description="Maximum markdown length for MarkdownText widgets.", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "limits.lessons_per_week": RuntimeConfigDefinition(key="limits.lessons_per_week", value_type="int", description="Maximum lessons that may be generated per week.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.sections_per_month": RuntimeConfigDefinition(key="limits.sections_per_month", value_type="int", description="Maximum lesson sections that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "limits.coach_sections_per_month": RuntimeConfigDefinition(key="limits.coach_sections_per_month", value_type="int", description="Maximum coach sections that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "limits.fenster_widgets_per_month": RuntimeConfigDefinition(key="limits.fenster_widgets_per_month", value_type="int", description="Maximum Fenster widgets that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "limits.ocr_files_per_month": RuntimeConfigDefinition(key="limits.ocr_files_per_month", value_type="int", description="Maximum OCR files that may be processed per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.writing_checks_per_month": RuntimeConfigDefinition(key="limits.writing_checks_per_month", value_type="int", description="Maximum writing checks that may be requested per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.history_lessons_kept": RuntimeConfigDefinition(key="limits.history_lessons_kept", value_type="int", description="Maximum recent lessons that remain available to the user.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.max_file_upload_bytes": RuntimeConfigDefinition(key="limits.max_file_upload_bytes", value_type="int", description="Maximum file upload size in bytes (0 disables uploads).", allowed_scopes=_SCOPES_TIER_TENANT),
+  "limits.youtube_capture_minutes_per_month": RuntimeConfigDefinition(key="limits.youtube_capture_minutes_per_month", value_type="int", description="Total YouTube capture minutes allowed per month.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "limits.image_generations_per_month": RuntimeConfigDefinition(key="limits.image_generations_per_month", value_type="int", description="Total image generations allowed per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "rights.user_owns_private_lessons": RuntimeConfigDefinition(key="rights.user_owns_private_lessons", value_type="bool", description="Whether the user owns private lessons they generate/upload within the app.", allowed_scopes=_SCOPES_TIER_TENANT),
   "marketplace.commission_percent": RuntimeConfigDefinition(key="marketplace.commission_percent", value_type="int", description="Commission percent for marketplace sales.", allowed_scopes=_SCOPES_TIER_TENANT),
   "career.mock_exams_token_cap": RuntimeConfigDefinition(key="career.mock_exams_token_cap", value_type="int", description="Token cap for mock exams.", allowed_scopes=_SCOPES_TIER_TENANT),
@@ -54,6 +59,7 @@ _RUNTIME_CONFIG_DEFINITIONS: dict[str, RuntimeConfigDefinition] = {
   "tutor.passive_lessons_cap": RuntimeConfigDefinition(key="tutor.passive_lessons_cap", value_type="int", description="Passive tutor lessons cap.", allowed_scopes=_SCOPES_TIER_TENANT),
   "tutor.active_enabled": RuntimeConfigDefinition(key="tutor.active_enabled", value_type="bool", description="Enable active tutor.", allowed_scopes=_SCOPES_TIER_TENANT),
   "tutor.active_tokens_per_month": RuntimeConfigDefinition(key="tutor.active_tokens_per_month", value_type="int", description="Active tutor token cap per month.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "features.disabled_global": RuntimeConfigDefinition(key="features.disabled_global", value_type="json", description="Feature flags disabled application-wide.", allowed_scopes=_SCOPES_GLOBAL, super_admin_only=True),
   "fenster.widgets_tier": RuntimeConfigDefinition(key="fenster.widgets_tier", value_type="str", description="Fenster widget tier (none|flash|reasoning).", allowed_scopes=_SCOPES_TIER_TENANT),
   "themes.allowed": RuntimeConfigDefinition(key="themes.allowed", value_type="json", description="Allowed theme IDs for the user.", allowed_scopes=_SCOPES_TIER_TENANT),
   "jobs.auto_process": RuntimeConfigDefinition(key="jobs.auto_process", value_type="bool", description="Automatically process jobs when created.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
@@ -67,11 +73,21 @@ _RUNTIME_CONFIG_DEFINITIONS: dict[str, RuntimeConfigDefinition] = {
   "ai.section_builder.model": RuntimeConfigDefinition(key="ai.section_builder.model", value_type="str", description="Default model for section builder.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.planner.provider": RuntimeConfigDefinition(key="ai.planner.provider", value_type="str", description="Default provider for planner.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.planner.model": RuntimeConfigDefinition(key="ai.planner.model", value_type="str", description="Default model for planner.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.outcomes.provider": RuntimeConfigDefinition(key="ai.outcomes.provider", value_type="str", description="Default provider for outcomes agent.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.outcomes.model": RuntimeConfigDefinition(key="ai.outcomes.model", value_type="str", description="Default model for outcomes agent.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.repair.provider": RuntimeConfigDefinition(key="ai.repair.provider", value_type="str", description="Default provider for repair.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
   "ai.repair.model": RuntimeConfigDefinition(key="ai.repair.model", value_type="str", description="Default model for repair.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
   "ai.fenster.provider": RuntimeConfigDefinition(key="ai.fenster.provider", value_type="str", description="Default provider for Fenster builder.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.fenster.model": RuntimeConfigDefinition(key="ai.fenster.model", value_type="str", description="Default model for Fenster builder.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.fenster.technical_constraints": RuntimeConfigDefinition(key="ai.fenster.technical_constraints", value_type="json", description="Fenster technical constraints JSON for widget generation.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.writing.provider": RuntimeConfigDefinition(key="ai.writing.provider", value_type="str", description="Default provider for writing checks.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.writing.model": RuntimeConfigDefinition(key="ai.writing.model", value_type="str", description="Default model for writing checks.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.tutor.provider": RuntimeConfigDefinition(key="ai.tutor.provider", value_type="str", description="Default provider for tutor.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.tutor.model": RuntimeConfigDefinition(key="ai.tutor.model", value_type="str", description="Default model for tutor.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.visualizer.provider": RuntimeConfigDefinition(key="ai.visualizer.provider", value_type="str", description="Default provider for visualizer.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.visualizer.model": RuntimeConfigDefinition(key="ai.visualizer.model", value_type="str", description="Default model for visualizer.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.youtube.provider": RuntimeConfigDefinition(key="ai.youtube.provider", value_type="str", description="Default provider for YouTube capture.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.youtube.model": RuntimeConfigDefinition(key="ai.youtube.model", value_type="str", description="Default model for YouTube capture.", allowed_scopes=_SCOPES_TIER_TENANT),
   "email.from_address": RuntimeConfigDefinition(key="email.from_address", value_type="str", description="Email 'from' address for outbound notifications.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
   "email.from_name": RuntimeConfigDefinition(key="email.from_name", value_type="str", description="Email 'from' name for outbound notifications.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
   "email.provider": RuntimeConfigDefinition(key="email.provider", value_type="str", description="Email provider identifier.", allowed_scopes=_SCOPES_GLOBAL),
@@ -126,6 +142,11 @@ def _validate_value(definition: RuntimeConfigDefinition, value: Any) -> Any:
       return normalized.lower()
     return normalized
   if definition.value_type == "json":
+    if definition.key == "features.disabled_global":
+      # Enforce list-of-strings for global feature disable list.
+      if not isinstance(value, list) or any((not isinstance(item, str) or item.strip() == "") for item in value):
+        raise ValueError("features.disabled_global must be a list of non-empty strings.")
+      return [item.strip().lower() for item in value]
     if definition.key == "themes.allowed":
       # Validate theme allowlists so clients cannot be tricked into rendering unknown themes.
       if not isinstance(value, list) or any((not isinstance(item, str) or item.strip() == "") for item in value):
@@ -150,11 +171,21 @@ def _env_fallback(settings: Settings, key: str) -> Any:
     return 0
   if key == "limits.sections_per_month":
     return 0
+  if key == "limits.coach_sections_per_month":
+    return 0
+  if key == "limits.fenster_widgets_per_month":
+    return 0
+  if key == "limits.ocr_files_per_month":
+    return 0
   if key == "limits.writing_checks_per_month":
     return 0
   if key == "limits.history_lessons_kept":
     return 0
   if key == "limits.max_file_upload_bytes":
+    return 0
+  if key == "limits.youtube_capture_minutes_per_month":
+    return 0
+  if key == "limits.image_generations_per_month":
     return 0
   if key == "rights.user_owns_private_lessons":
     return False
@@ -178,6 +209,8 @@ def _env_fallback(settings: Settings, key: str) -> Any:
     return False
   if key == "tutor.active_tokens_per_month":
     return 0
+  if key == "features.disabled_global":
+    return []
   if key == "themes.allowed":
     return []
   if key == "fenster.widgets_tier":
@@ -204,6 +237,12 @@ def _env_fallback(settings: Settings, key: str) -> Any:
     return str(settings.planner_provider)
   if key == "ai.planner.model":
     return str(settings.planner_model or "")
+  if key == "ai.outcomes.provider":
+    # Default to the configured outcomes provider when runtime config is unset.
+    return str(settings.outcomes_provider)
+  if key == "ai.outcomes.model":
+    # Default to the configured outcomes model when runtime config is unset.
+    return str(settings.outcomes_model or "")
   if key == "ai.repair.provider":
     return str(settings.repair_provider)
   if key == "ai.repair.model":
@@ -214,6 +253,22 @@ def _env_fallback(settings: Settings, key: str) -> Any:
     return str(settings.fenster_model or "")
   if key == "ai.fenster.technical_constraints":
     return dict(settings.fenster_technical_constraints)
+  if key == "ai.writing.provider":
+    return str(settings.writing_provider)
+  if key == "ai.writing.model":
+    return str(settings.writing_model or "")
+  if key == "ai.tutor.provider":
+    return str(settings.tutor_provider)
+  if key == "ai.tutor.model":
+    return str(settings.tutor_model or "")
+  if key == "ai.visualizer.provider":
+    return str(settings.visualizer_provider)
+  if key == "ai.visualizer.model":
+    return str(settings.visualizer_model or "")
+  if key == "ai.youtube.provider":
+    return str(settings.youtube_provider)
+  if key == "ai.youtube.model":
+    return str(settings.youtube_model or "")
   if key == "email.from_address":
     return str(settings.email_from_address or "")
   if key == "email.from_name":

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, cast
 
@@ -11,7 +10,6 @@ from pydantic import ValidationError
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.prompts import _load_prompt
 from app.ai.errors import is_output_error
-from app.ai.json_parser import parse_json_with_fallback
 from app.ai.pipeline.contracts import JobContext
 from app.schema.outcomes import OutcomesAgentInput, OutcomesAgentResponse
 from app.telemetry.context import llm_call_context
@@ -63,37 +61,20 @@ class OutcomesAgent(BaseAgent[OutcomesAgentInput, OutcomesAgentResponse]):
     prompt_text = _render_prompt(input_data)
     schema = OutcomesAgentResponse.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
 
-    if self._model.supports_structured_output:
-      schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
-      with llm_call_context(agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="outcomes_check", call_index="1/1"):
-        try:
-          response = await self._model.generate_structured(prompt_text, schema)
-        except Exception as exc:  # noqa: BLE001
-          if not is_output_error(exc):
-            raise
-          retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
-          with llm_call_context(agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="outcomes_check_retry", call_index="retry/1"):
-            response = await self._model.generate_structured(retry_prompt, schema)
-          self._record_usage(agent=self.name, purpose="outcomes_check_retry", call_index="retry/1", usage=response.usage)
-
-      self._record_usage(agent=self.name, purpose="outcomes_check", call_index="1/1", usage=response.usage)
-      result_json = cast(dict[str, Any], response.content)
-
-    else:
-      with llm_call_context(agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="outcomes_check", call_index="1/1"):
-        raw = await self._model.generate(prompt_text)
-      self._record_usage(agent=self.name, purpose="outcomes_check", call_index="1/1", usage=raw.usage)
-
+    schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
+    with llm_call_context(agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="outcomes_check", call_index="1/1"):
       try:
-        cleaned = self._model.strip_json_fences(raw.content)
-        result_json = cast(dict[str, Any], parse_json_with_fallback(cleaned))
-      except json.JSONDecodeError as exc:
+        response = await self._model.generate_structured(prompt_text, schema)
+      except Exception as exc:  # noqa: BLE001
+        if not is_output_error(exc):
+          raise
         retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
         with llm_call_context(agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="outcomes_check_retry", call_index="retry/1"):
-          retry_raw = await self._model.generate(retry_prompt)
-        self._record_usage(agent=self.name, purpose="outcomes_check_retry", call_index="retry/1", usage=retry_raw.usage)
-        cleaned_retry = self._model.strip_json_fences(retry_raw.content)
-        result_json = cast(dict[str, Any], parse_json_with_fallback(cleaned_retry))
+          response = await self._model.generate_structured(retry_prompt, schema)
+        self._record_usage(agent=self.name, purpose="outcomes_check_retry", call_index="retry/1", usage=response.usage)
+
+    self._record_usage(agent=self.name, purpose="outcomes_check", call_index="1/1", usage=response.usage)
+    result_json = cast(dict[str, Any], response.content)
 
     try:
       payload = OutcomesAgentResponse.model_validate(result_json)

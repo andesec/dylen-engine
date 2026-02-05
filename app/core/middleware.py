@@ -1,9 +1,11 @@
+import json
 import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from app.config import get_settings
 from fastapi import Request, Response
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -40,6 +42,75 @@ def _build_request_url(scope: Scope) -> str:
   return path
 
 
+def _is_textual_content_type(content_type: str | None) -> bool:
+  """Decide whether a body is safe to log as text."""
+  if not content_type:
+    return False
+
+  # Allow JSON and text types while excluding binary payloads.
+  normalized = content_type.lower()
+  if "application/json" in normalized:
+    return True
+
+  if normalized.endswith("+json"):
+    return True
+
+  if normalized.startswith("text/"):
+    return True
+
+  if "application/x-www-form-urlencoded" in normalized:
+    return True
+
+  return False
+
+
+def _truncate_body(body: bytes, max_bytes: int) -> tuple[bytes, bool]:
+  """Clamp body bytes for logging to avoid oversized log entries."""
+  # Cap the body size to the configured limit.
+  if len(body) <= max_bytes:
+    return body, False
+
+  return body[:max_bytes], True
+
+
+def _decode_body_text(body: bytes) -> str:
+  """Decode bytes into text for logging with safe fallbacks."""
+  # Prefer UTF-8 for JSON/text payloads and fall back safely.
+  try:
+    return body.decode("utf-8")
+  except UnicodeDecodeError:
+    return body.decode("latin-1", errors="replace")
+
+
+def _format_body_for_log(body: bytes, content_type: str | None, max_bytes: int) -> str:
+  """Format a request/response body for logging with redaction."""
+  # Represent empty payloads explicitly to avoid ambiguous logs.
+  if not body:
+    return "<empty>"
+
+  # Skip binary payloads to avoid dumping raw bytes into logs.
+  if not _is_textual_content_type(content_type):
+    return f"<non-text body {len(body)} bytes>"
+
+  # Avoid parsing truncated JSON to prevent misleading logs.
+  trimmed, truncated = _truncate_body(body, max_bytes)
+  if truncated:
+    text = _decode_body_text(trimmed)
+    return f"{text}...(truncated)"
+
+  text = _decode_body_text(trimmed)
+  if content_type and ("application/json" in content_type.lower() or content_type.lower().endswith("+json")):
+    try:
+      parsed = json.loads(text)
+    except json.JSONDecodeError:
+      return text
+
+    redacted = _redact_sensitive_keys(parsed)
+    return json.dumps(redacted, ensure_ascii=True)
+
+  return text
+
+
 class RequestLoggingMiddleware:
   """Log request/response details while preserving body streams for downstream handlers."""
 
@@ -53,6 +124,11 @@ class RequestLoggingMiddleware:
     if scope["type"] != "http":
       await self.app(scope, receive, send)
       return
+
+    # Resolve logging settings once; the cache keeps this cheap per request.
+    settings = get_settings()
+    log_http_bodies = settings.log_http_bodies
+    log_http_body_bytes = settings.log_http_body_bytes
 
     # Generate a request id and store it for downstream handlers and exception logging.
     request_id = str(uuid.uuid4())
@@ -71,28 +147,89 @@ class RequestLoggingMiddleware:
     if content_type or content_length:
       logger.debug("Request metadata request_id=%s content-type=%s content-length=%s", request_id, content_type, content_length)
 
+    # Buffer request bodies only when explicitly enabled.
+    request_body = b""
+    receive_wrapper = receive
+    if log_http_bodies:
+      # Drain the incoming body so we can log it and replay for downstream handlers.
+      body_chunks: list[bytes] = []
+      more_body = True
+      while more_body:
+        message = await receive()
+        if message.get("type") != "http.request":
+          break
+
+        chunk = message.get("body", b"")
+        if chunk:
+          body_chunks.append(chunk)
+
+        more_body = message.get("more_body", False)
+
+      request_body = b"".join(body_chunks)
+      # Replay the drained body so request handlers receive the payload as usual.
+      body_sent = False
+
+      async def receive_wrapper() -> dict[str, Any]:
+        nonlocal body_sent
+        if body_sent:
+          return {"type": "http.request", "body": b"", "more_body": False}
+
+        body_sent = True
+        return {"type": "http.request", "body": request_body, "more_body": False}
+
+      if request_body or content_type:
+        formatted_request_body = _format_body_for_log(request_body, content_type, log_http_body_bytes)
+        logger.info("Request body request_id=%s body=%s", request_id, formatted_request_body)
+
     # Capture response status for response timing logs.
     status_code: int | None = None
+    response_body_chunks: list[bytes] = []
+    response_body_size = 0
+    response_body_truncated = False
+    response_content_type: str | None = None
 
     async def send_wrapper(message: dict[str, Any]) -> None:
       # Track the response status from the response start message.
-      nonlocal status_code
+      nonlocal status_code, response_body_size, response_body_truncated, response_content_type
       if message.get("type") == "http.response.start":
         status_code = message.get("status")
         # Attach a request id to responses to correlate clients with server logs.
         response_headers = MutableHeaders(scope=message)
         if "x-request-id" not in response_headers:
           response_headers["x-request-id"] = request_id
+        response_content_type = response_headers.get("content-type")
+
+      # Collect response bodies only when explicitly enabled.
+      if log_http_bodies and message.get("type") == "http.response.body":
+        body_chunk = message.get("body", b"")
+        if body_chunk and not response_body_truncated:
+          remaining = log_http_body_bytes - response_body_size
+          if remaining > 0:
+            response_body_chunks.append(body_chunk[:remaining])
+            response_body_size += len(body_chunk[:remaining])
+
+          if len(body_chunk) > remaining:
+            response_body_truncated = True
+
+        elif body_chunk:
+          response_body_truncated = True
 
       await send(message)
 
     # Execute downstream handlers to keep middleware focused on observation.
-    await self.app(scope, receive, send_wrapper)
+    await self.app(scope, receive_wrapper, send_wrapper)
 
     # Emit response timing metrics for operational visibility.
     process_time = (time.time() - start_time) * 1000
     response_status = status_code or 0
     logger.info("Response request_id=%s status=%s (took %.2fms)", request_id, response_status, process_time)
+    if log_http_bodies and (response_body_chunks or response_content_type):
+      response_body = b"".join(response_body_chunks)
+      formatted_response_body = _format_body_for_log(response_body, response_content_type, log_http_body_bytes)
+      if response_body_truncated:
+        formatted_response_body = f"{formatted_response_body}...(truncated)"
+
+      logger.info("Response body request_id=%s status=%s body=%s", request_id, response_status, formatted_response_body)
 
 
 async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:

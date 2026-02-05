@@ -1,40 +1,6 @@
 {
   "components": {
     "schemas": {
-      "AgentModelOption": {
-        "description": "Valid model choices for a pipeline agent.",
-        "properties": {
-          "agent": {
-            "title": "Agent",
-            "type": "string"
-          },
-          "default": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Default"
-          },
-          "options": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Options",
-            "type": "array"
-          }
-        },
-        "required": [
-          "agent",
-          "default",
-          "options"
-        ],
-        "title": "AgentModelOption",
-        "type": "object"
-      },
       "BasicInfo": {
         "properties": {
           "age": {
@@ -194,6 +160,71 @@
           "status"
         ],
         "title": "CurrentSectionStatus",
+        "type": "object"
+      },
+      "ChildJobStatus": {
+        "additionalProperties": false,
+        "description": "Status payload for a child job.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "retry_available": {
+            "default": false,
+            "title": "Retry Available",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "error",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Agent"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "ChildJobStatus",
         "type": "object"
       },
       "ExtractionResult": {
@@ -402,23 +433,24 @@
             "description": "Optional learner level hint used for prompt guidance.",
             "title": "Learner Level"
           },
-          "models": {
+          "outcomes": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ModelsConfig"
+                "items": {
+                  "maxLength": 140,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Optional per-agent model selection overrides.",
-            "examples": [
-              {
-                "planner_model": "openai/gpt-oss-120b:free",
-                "repairer_model": "google/gemma-3-27b-it:free",
-                "section_builder_model": "xiaomi/mimo-v2-flash:free"
-              }
-            ]
+            "description": "Optional outcomes to guide the planner (3-8 items recommended).",
+            "title": "Outcomes"
           },
           "primary_language": {
             "default": "English",
@@ -1077,6 +1109,32 @@
             ],
             "title": "Result"
           },
+          "artifacts": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifacts"
+          },
+          "child_jobs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ChildJobStatus"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child Jobs"
+          },
           "retry_agents": {
             "anyOf": [
               {
@@ -1221,6 +1279,19 @@
             "title": "Blueprints",
             "type": "array"
           },
+          "default_widgets": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            "title": "Default Widgets",
+            "type": "object"
+          },
           "depths": {
             "items": {
               "$ref": "#/components/schemas/OptionDetail"
@@ -1241,13 +1312,22 @@
             },
             "title": "Teaching Styles",
             "type": "array"
+          },
+          "widgets": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Widgets",
+            "type": "array"
           }
         },
         "required": [
           "blueprints",
           "teaching_styles",
           "learner_levels",
-          "depths"
+          "depths",
+          "widgets",
+          "default_widgets"
         ],
         "title": "LessonCatalogResponse",
         "type": "object"
@@ -1339,122 +1419,6 @@
           "latency_ms"
         ],
         "title": "LessonMeta",
-        "type": "object"
-      },
-      "LessonOutcomesMeta": {
-        "description": "Metadata about outcomes generation.",
-        "properties": {
-          "latency_ms": {
-            "title": "Latency Ms",
-            "type": "integer"
-          },
-          "model": {
-            "title": "Model",
-            "type": "string"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          }
-        },
-        "required": [
-          "provider",
-          "model",
-          "latency_ms"
-        ],
-        "title": "LessonOutcomesMeta",
-        "type": "object"
-      },
-      "LessonOutcomesResponse": {
-        "additionalProperties": false,
-        "description": "Response payload for outcomes preflight checks.",
-        "properties": {
-          "agent_models": {
-            "items": {
-              "$ref": "#/components/schemas/AgentModelOption"
-            },
-            "title": "Agent Models",
-            "type": "array"
-          },
-          "blocked_category": {
-            "anyOf": [
-              {
-                "enum": [
-                  "sexual",
-                  "political",
-                  "military"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "High-level category used when blocking a topic.",
-            "title": "Blocked Category"
-          },
-          "default_widgets": {
-            "additionalProperties": {
-              "additionalProperties": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "type": "object"
-            },
-            "title": "Default Widgets",
-            "type": "object"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "const": "TOPIC_NOT_ALLOWED",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Simple error code when the topic is blocked.",
-            "title": "Error"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/LessonOutcomesMeta"
-          },
-          "ok": {
-            "description": "True when the topic is allowed and outcomes were generated.",
-            "title": "Ok",
-            "type": "boolean"
-          },
-          "outcomes": {
-            "description": "A small list of straightforward learning outcomes.",
-            "items": {
-              "maxLength": 140,
-              "minLength": 3,
-              "type": "string"
-            },
-            "maxItems": 8,
-            "minItems": 0,
-            "title": "Outcomes",
-            "type": "array"
-          },
-          "widgets": {
-            "items": {
-              "$ref": "#/components/schemas/OptionDetail"
-            },
-            "title": "Widgets",
-            "type": "array"
-          }
-        },
-        "required": [
-          "ok",
-          "meta",
-          "widgets",
-          "agent_models",
-          "default_widgets"
-        ],
-        "title": "LessonOutcomesResponse",
         "type": "object"
       },
       "LessonRecord": {
@@ -1829,59 +1793,6 @@
         "title": "MaintenanceJobResponse",
         "type": "object"
       },
-      "ModelsConfig": {
-        "additionalProperties": false,
-        "description": "Per-agent model selection overrides.",
-        "properties": {
-          "planner_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Model used for the planner agent (provider inferred when possible).",
-            "examples": [
-              "openai/gpt-oss-120b:free"
-            ],
-            "title": "Planner Model"
-          },
-          "repairer_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Model used for repair validation and fixes (provider inferred when possible).",
-            "examples": [
-              "google/gemma-3-27b-it:free"
-            ],
-            "title": "Repairer Model"
-          },
-          "section_builder_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Model used for the section builder agent (provider inferred when possible).",
-            "examples": [
-              "xiaomi/mimo-v2-flash:free"
-            ],
-            "title": "Section Builder Model"
-          }
-        },
-        "title": "ModelsConfig",
-        "type": "object"
-      },
       "OnboardingRequest": {
         "properties": {
           "basic": {
@@ -1951,6 +1862,64 @@
           "logs"
         ],
         "title": "OrchestrationFailureResponse",
+        "type": "object"
+      },
+      "OutcomesAgentResponse": {
+        "additionalProperties": false,
+        "description": "Structured response from the outcomes agent.\n\nHow/Why:\n  - We need a stable, machine-validated response that can be returned directly from an API endpoint.\n  - The response intentionally supports a deny-path when a topic is disallowed.",
+        "properties": {
+          "blocked_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sexual",
+                  "political",
+                  "military"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "High-level category used when blocking a topic.",
+            "title": "Blocked Category"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "const": "TOPIC_NOT_ALLOWED",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Simple error code when the topic is blocked.",
+            "title": "Error"
+          },
+          "ok": {
+            "description": "True when the topic is allowed and outcomes were generated.",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "outcomes": {
+            "description": "A small list of straightforward learning outcomes.",
+            "items": {
+              "maxLength": 140,
+              "minLength": 3,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 0,
+            "title": "Outcomes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "OutcomesAgentResponse",
         "type": "object"
       },
       "PaginatedResponse_JobRecord_": {
@@ -2220,6 +2189,66 @@
           "tracked"
         ],
         "title": "QuotaEntry",
+        "type": "object"
+      },
+      "QuotaSummaryEntry": {
+        "properties": {
+          "available": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "resource": {
+            "title": "Resource",
+            "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "resource",
+          "total",
+          "available"
+        ],
+        "title": "QuotaSummaryEntry",
+        "type": "object"
+      },
+      "QuotaSummaryResponse": {
+        "properties": {
+          "details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedQuota"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quotas": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaSummaryEntry"
+            },
+            "title": "Quotas",
+            "type": "array"
+          }
+        },
+        "title": "QuotaSummaryResponse",
         "type": "object"
       },
       "ResearchDiscoveryRequest": {
@@ -3027,21 +3056,6 @@
         "additionalProperties": false,
         "description": "Request payload for response evaluation.",
         "properties": {
-          "checker_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional model override for writing evaluation (provider inferred when possible).",
-            "examples": [
-              "openai/gpt-oss-120b:free"
-            ],
-            "title": "Checker Model"
-          },
           "criteria": {
             "additionalProperties": true,
             "description": "The evaluation criteria from the lesson.",
@@ -4547,16 +4561,38 @@
       "get": {
         "description": "Get the current user's quota and subscription tier.",
         "operationId": "get_my_quota_api_user_me_quota_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "details",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Details",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResolvedQuota"
+                  "$ref": "#/components/schemas/QuotaSummaryResponse"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -5170,7 +5206,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LessonOutcomesResponse"
+                  "$ref": "#/components/schemas/OutcomesAgentResponse"
                 }
               }
             },

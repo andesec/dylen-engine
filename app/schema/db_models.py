@@ -11,6 +11,7 @@ import app.schema.feature_flags  # noqa: F401
 import app.schema.fenster  # noqa: F401
 import app.schema.jobs  # noqa: F401
 import app.schema.lessons  # noqa: F401
+import app.schema.notifications  # noqa: F401
 import app.schema.quotas  # noqa: F401
 import app.schema.runtime_config  # noqa: F401
 import app.schema.sql  # noqa: F401
