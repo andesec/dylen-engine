@@ -1,0 +1,5 @@
+
+# User Rules
+
+- Prioritize code verification and identifying edge cases over writing comprehensive test suites.
+- Focus on fixing failures and implementing requests directly.

@@ -88,6 +88,8 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       schema_version = str((ctx.metadata or {}).get("schema_version", ""))
       structured_output = bool((ctx.metadata or {}).get("structured_output", True))
       prompt_text = render_section_builder_prompt(request, input_data, schema_version)
+
+      # Determine allowed widgets
       if request.widgets:
         allowed_widgets = request.widgets
       elif request.blueprint:
@@ -97,39 +99,87 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       else:
         allowed_widgets = None
 
+      # Determine the response model based on allowed widgets
       if allowed_widgets:
-        schema = self._schema_service.subset_section_schema(allowed_widgets)
+        from app.schema.selective_schema import create_selective_section
+
+        response_model = create_selective_section(allowed_widgets)
       else:
-        schema = self._schema_service.section_schema()
+        from app.schema.widget_models import Section
+
+        response_model = Section
+
       purpose = f"build_section_{input_data.section_number}_of_{request.depth}"
       call_index = f"{input_data.section_number}/{request.depth}"
 
       # Apply context to correlate provider calls with the agent and lesson topic.
       with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
         if structured_output:
-          schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
+          # Use Mirascope 2.x for structured output generation
+          import os
 
-          # Preflight validation: Reject/repair schema before calling provider.
-          # Ensure subsections.items is fully defined.
-          if "definitions" in schema or "$defs" in schema:
-            defs = schema.get("definitions") or schema.get("$defs", {})
-            subsection_block = defs.get("SubsectionBlock")
-            if subsection_block:
-              props = subsection_block.get("properties", {})
-              items = props.get("items", {})
-              # Ensure items is not just a bare definition if it's supposed to be an array of objects
-              if items.get("type") == "array" and "items" not in items:
-                # This shouldn't happen with Pydantic, but enforcing safety for LLM stability.
-                items["items"] = {"type": "object"}
+          from mirascope import llm
+          from starlette.concurrency import run_in_threadpool
+
+          # Mirascope expects GOOGLE_API_KEY, so set it from GEMINI_API_KEY
+          os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+
+          # Mirascope 2.x doesn't have native async support for decorated functions
+          # We need to run the synchronous call in a thread pool to avoid blocking
+          @llm.call(model=f"google/{self._model.name}", response_model=response_model)
+          def generate_section_content(prompt: str):
+            return prompt
 
           try:
-            response = await self._model.generate_structured(prompt_text, schema)
-          except Exception:
+            # Manual audit logging for Mirascope (it bypasses the provider infrastructure)
+            import time
+
+            from app.telemetry.llm_audit import finalize_llm_call, serialize_request, serialize_response, start_llm_call, utc_now
+
+            started_at = utc_now()
+            start_time = time.perf_counter()
+
+            # Log the start of the LLM call
+            request_payload = serialize_request(prompt_text, None)  # Schema is handled by Mirascope
+            call_id = await start_llm_call(provider="gemini", model=self._model.name, request_type="structured_output", request_payload=request_payload, started_at=started_at)
+
+            # Run Mirascope call in thread pool to avoid blocking async event loop
+            response = await run_in_threadpool(generate_section_content, prompt_text)
+
+            # Mirascope wraps the result in a Response object
+            # The actual msgspec Struct could be in .message, .content, or the response itself
+            if hasattr(response, "message") and not isinstance(response.message, str):
+              result = response.message
+            elif hasattr(response, "content") and not isinstance(response.content, (str, list)):
+              result = response.content
+            else:
+              # If it's not wrapped, the response IS the struct
+              result = response
+
+            # Extract usage information from the underlying _response attribute
+            usage = None
+            if hasattr(response, "_response"):
+              response_obj = response._response
+              if hasattr(response_obj, "usage_metadata"):
+                um = response_obj.usage_metadata
+                usage = {"prompt_tokens": getattr(um, "prompt_token_count", 0), "completion_tokens": getattr(um, "candidates_token_count", 0), "total_tokens": getattr(um, "total_token_count", 0)}
+
+            self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=usage)
+
+            # Convert msgspec Struct to dict for validation
+            import msgspec
+
+            section_json = msgspec.to_builtins(result)
+
+            # Log the completion of the LLM call
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            response_payload = serialize_response(section_json)
+            await finalize_llm_call(call_id=call_id, response_payload=response_payload, usage=usage, duration_ms=duration_ms, error=None)
+          except Exception as e:
+            # Log the error with context before re-raising
+            logger.error(f"Mirascope structured output generation failed: {e}", exc_info=True)
             # User requested strictly one call per operation; bubbling up errors immediately.
             raise
-
-          self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
-          section_json = response.content
         else:
           raise RuntimeError("Structured output is required for section builder generation.")
 

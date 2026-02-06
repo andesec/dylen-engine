@@ -388,7 +388,7 @@ Where to use:
 ```
 
 Schema (array positions):
-1. `code` (string|object): Code to display. Objects are JSON-stringified.
+1. `code` (string): Code to display.
 2. `language` (string): Language for syntax highlighting (e.g., `javascript`, `python`).
 3. `readOnly` (boolean, optional): If true, the editor is read-only. Default: false (editable).
 4. `highlightedLines` (array, optional): List of 1-based line numbers to highlight.

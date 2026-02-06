@@ -1,14 +1,18 @@
-"""Schema loading, sanitization, and validation helpers."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+import msgspec
 
-from app.schema.lesson_models import LessonDocument, SectionBlock
+from app.schema.widget_models import LessonDocument, Section
+
+DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets_prompt.md")
+SchemaDict = dict[str, Any]
+SectionPayload = dict[str, Any]
+SectionValidationResult = tuple[bool, list[str], SectionPayload | None]
+VisitedRefs = set[str] | None
 
 DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets_prompt.md")
 SchemaDict = dict[str, Any]
@@ -43,13 +47,11 @@ class SchemaService:
 
   def lesson_schema(self) -> dict[str, Any]:
     """Return the lesson JSON schema."""
-    json_schema: dict[str, Any] = LessonDocument.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
-    return json_schema
+    return msgspec.json.schema(LessonDocument)
 
   def section_schema(self) -> dict[str, Any]:
     """Return the section JSON schema."""
-    json_schema: dict[str, Any] = SectionBlock.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
-    return json_schema
+    return msgspec.json.schema(Section)
 
   def subset_section_schema(self, allowed_widgets: list[str]) -> dict[str, Any]:
     """
@@ -60,100 +62,62 @@ class SchemaService:
     """
     # Start with the full schema
     schema = self.section_schema()
-
-    # 1. Inspect definitions to identify the main Widget union.
-    # We navigate from SectionBlock -> items -> items to find the widget definition.
     defs = schema.get("$defs", {})
-    widget_def = None
 
-    # Path: SectionBlock -> items (list) -> items (schema for array elements)
-    props = schema.get("properties", {})
-    items_prop = props.get("items", {})
-    inner_items = items_prop.get("items", {})
-
-    if "$ref" in inner_items:
-      ref_name = inner_items["$ref"].split("/")[-1]
-      widget_def = defs.get(ref_name)
-    elif "anyOf" in inner_items:
-      widget_def = inner_items
-
-    if not widget_def or "anyOf" not in widget_def:
-      # Fallback if structure isn't as expected: return full schema
+    # The WidgetItem definition contains the optional fields for each widget type
+    widget_item_def = defs.get("WidgetItem")
+    if not widget_item_def:
+      # Fallback if structure unexpectedly changes
       return schema
 
-    # 2. Filter the anyOf list
-    original_options = widget_def["anyOf"]
-    filtered_options = []
+    properties = widget_item_def.get("properties", {})
 
-    for option in original_options:
-      # Check simple scalar types (not used for widgets in this schema).
-      if option.get("type") == "string":
-        continue
+    # Filter properties to only include allowed widgets
+    # Note: 'markdown' is often intrinsic, but we respect allowed_widgets strictly if provided.
+    filtered_props = {}
+    for key, value in properties.items():
+      if key in allowed_widgets:
+        filtered_props[key] = value
 
-      # Check referenced definitions (object widgets)
-      ref = option.get("$ref")
-      if not ref:
-        # Unknown shape, decided to exclude or keep?
-        # Safest to exclude if we are restricting, but let's keep if unsure?
-        # No, strict restriction is better.
-        continue
+    if filtered_props:
+      widget_item_def["properties"] = filtered_props
+      # Also update required list if necessary (though WidgetItem fields are optional in struct,
+      # __post_init__ enforces one set. Schema usually doesn't enforce __post_init__ logic directly
+      # but validation will fail later if empty).
 
-      # Ref format: #/$defs/ChecklistWidget
-      def_name = ref.split("/")[-1]
-      model_def = defs.get(def_name)
-
-      if not model_def:
-        continue
-
-      # Identify widget type by its properties.
-      # Most widgets have a single key like "checklist", "mcqs", "p" (explicit).
-      properties = model_def.get("properties", {})
-
-      # Check if any of the property keys match our allowed list
-      match = False
-      for prop_key in properties.keys():
-        if prop_key in allowed_widgets:
-          match = True
-          break
-
-      if match:
-        filtered_options.append(option)
-
-    # 3. Update the schema with filtered options
-    if filtered_options:
-      widget_def["anyOf"] = filtered_options
-
-      # 4. Prune unused definitions to prevent context leakage
-      reachable = set()
-      # Initialize stack with the filtered options to find initial refs
-      stack = list(filtered_options)
-      # Also add all root properties to ensure definitions like 'SubsectionBlock' and the main 'Widget' union are reachable
-      stack.extend(props.values())
-
-      while stack:
-        item = stack.pop()
-        if isinstance(item, dict):
-          for k, v in item.items():
-            if k == "$ref" and isinstance(v, str):
-              # Extract definition name from reference (e.g. "#/$defs/MyWidget")
-              ref_name = v.split("/")[-1]
-              if ref_name not in reachable and ref_name in defs:
-                reachable.add(ref_name)
-                # Add the definition itself to stack to find nested refs
-                stack.append(defs[ref_name])
-            elif isinstance(v, (dict, list)):
-              stack.append(v)
-        elif isinstance(item, list):
-          stack.extend(item)
-
-      # Apply pruning
-      if "$defs" in schema:
-        schema["$defs"] = {k: v for k, v in defs.items() if k in reachable}
-    else:
-      # If nothing matches, we shouldn't return an unusable schema.
-      pass
+    # Prune unused definitions definition
+    self._prune_definitions(schema)
 
     return schema
+
+  def _prune_definitions(self, schema: dict[str, Any]) -> None:
+    """Prune unreachable definitions from the schema."""
+    defs = schema.get("$defs", {})
+    if not defs:
+      return
+
+    visited = set()
+    stack = [schema]
+
+    while stack:
+      item = stack.pop()
+      if isinstance(item, dict):
+        for k, v in item.items():
+          # Check for $ref
+          if k == "$ref" and isinstance(v, str):
+            ref_name = v.split("/")[-1]
+            if ref_name not in visited and ref_name in defs:
+              visited.add(ref_name)
+              stack.append(defs[ref_name])
+
+          # Recurse into dict values
+          elif isinstance(v, (dict, list)):
+            stack.append(v)
+
+      elif isinstance(item, list):
+        stack.extend(item)
+
+    schema["$defs"] = {k: v for k, v in defs.items() if k in visited}
 
   def sanitize_schema(self, schema: dict[str, Any], provider_name: str) -> dict[str, Any]:
     """Sanitize schema for provider-specific structured output requirements."""
@@ -165,23 +129,13 @@ class SchemaService:
 
   def validate_lesson_payload(self, payload: Any) -> ValidationResult:
     """Validate a lesson payload and return structured issues."""
-    parse_method = getattr(LessonDocument, "model_validate", None) or getattr(LessonDocument, "parse_obj", None)
-    if parse_method is None:
-      raise RuntimeError("LessonDocument does not expose a validation entrypoint.")
-
-    issues: list[ValidationIssue] = []
     try:
-      lesson_model = parse_method(payload)
-    except ValidationError as exc:
-      for err in exc.errors():
-        issues.append(_issue_from_pydantic_error(err))
+      # Use msgspec.convert to validate and convert flexible input (dicts) to struct
+      lesson_model = msgspec.convert(payload, type=LessonDocument)
+      return ValidationResult(ok=True, issues=[], model=lesson_model)
+    except msgspec.ValidationError as exc:
+      issues = [_issue_from_msgspec_error(exc)]
       return ValidationResult(ok=False, issues=issues, model=None)
-
-    # Note: Previously we checked against widgets_loader, but now Pydantic validation is sufficient
-    # as the models strictly define the allowed structures.
-
-    model = lesson_model if not issues else None
-    return ValidationResult(ok=not issues, issues=issues, model=model)
 
   def validate_section_payload(self, section_json: SectionPayload, *, topic: str, section_index: int) -> SectionValidationResult:
     """Validate a single section by wrapping it as a lesson payload."""
@@ -195,17 +149,10 @@ class SchemaService:
   def widget_schemas_for_types(self, widget_types: list[str]) -> dict[str, Any]:
     """
     Return widget JSON schemas keyed by widget type label.
-    Deprecated: With shorthand, types are keys in the JSON, not separate discriminators.
-    However, we can return the schema for the specific Pydantic model corresponding to the key.
     """
     schemas: dict[str, Any] = {}
 
-    # Map shorthand keys to Pydantic models in lesson_models.py
-    # We need to import them dynamically or have a mapping.
-    # Since this function might be used by prompts, we need to decide if we still support it.
-    # If the prompts need the schema for "tr", we return TranslationWidget.model_json_schema()
-
-    from app.schema.lesson_models import (
+    from app.schema.widget_models import (
       AsciiDiagramWidget,
       ChecklistWidget,
       CodeEditorWidget,
@@ -248,7 +195,9 @@ class SchemaService:
     for widget_type in dict.fromkeys(widget_types):
       model = TYPE_TO_MODEL.get(widget_type)
       if model:
-        schemas[widget_type] = model.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
+        # msgspec doesn't have a direct model_json_schema per struct if not top-level
+        # But we can generate schema for the type.
+        schemas[widget_type] = msgspec.json.schema(model)
 
     return schemas
 
@@ -257,7 +206,15 @@ class SchemaService:
     return {"title": f"{topic} - Section {section_index}", "blocks": [section_json]}
 
 
+def _issue_from_msgspec_error(err: msgspec.ValidationError) -> ValidationIssue:
+  """Convert msgspec error to structured issue."""
+  # msgspec errors are strings, path info is unfortunately embedded or missing in simple convert
+  # We just return the message for now.
+  return ValidationIssue(path="payload", message=str(err), code="validation_error")
+
+
 def _issue_from_pydantic_error(err: dict[str, Any]) -> ValidationIssue:
+  """Deprecated: Convert pydantic error to structured issue."""
   path = ".".join(str(part) for part in err.get("loc", []))
   message = str(err.get("msg", "Invalid payload."))
   return ValidationIssue(path=path or "payload", message=message, code=err.get("type"))
@@ -283,7 +240,9 @@ def _sanitize_schema_for_gemini(schema: Any, root_schema: SchemaDict | None = No
     return {"type": "object", "properties": {}}
 
   if isinstance(schema, (int, float, bool)):
-    return schema
+    # Gemini SDK crashes on boolean schemas (e.g. False for forbidden items)
+    # We convert to empty object (allow-all) to prevent crash.
+    return {"type": "object", "properties": {}}
 
   if isinstance(schema, list):
     out: list[Any] = []

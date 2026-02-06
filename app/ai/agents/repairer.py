@@ -54,7 +54,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       return RepairResult(section_number=section_number, fixed_json=dummy_json, changes=["dummy_fixture"], errors=err_list)
 
     if errors and not _contains_overlong_markdown_errors(errors):
-      section_json = self._deterministic_repair(section_json, errors, topic, section_number)
+      section_json = _deterministic_repair(section_json, errors, topic, section_number)
       validator = self._schema_service.validate_section_payload
       ok, errors, _ = validator(section_json, topic=topic, section_index=section_number)
 
@@ -144,19 +144,19 @@ def _contains_overlong_markdown_errors(errors: Errors) -> bool:
       return True
   return False
 
-  @staticmethod
-  def _deterministic_repair(section_json: JsonDict, errors: Errors, topic: str, section_number: int) -> JsonDict:
-    payload = {"title": f"{topic} - Section {section_number}", "blocks": [section_json]}
-    repaired = attempt_deterministic_repair(payload, errors)
-    blocks = repaired.get("blocks")
 
-    if isinstance(blocks, list) and blocks:
-      first_block = blocks[0]
+def _deterministic_repair(section_json: JsonDict, errors: Errors, topic: str, section_number: int) -> JsonDict:
+  payload = {"title": f"{topic} - Section {section_number}", "blocks": [section_json]}
+  repaired = attempt_deterministic_repair(payload, errors)
+  blocks = repaired.get("blocks")
 
-      if isinstance(first_block, dict):
-        return first_block
+  if isinstance(blocks, list) and blocks:
+    first_block = blocks[0]
 
-    return section_json
+    if isinstance(first_block, dict):
+      return first_block
+
+  return section_json
 
 
 def _collect_repair_targets(section_json: JsonDict, errors: Errors) -> list[RepairTarget]:

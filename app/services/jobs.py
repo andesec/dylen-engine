@@ -216,6 +216,75 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
     # Defer lesson quota reservation to the planner agent so reservations are scoped to agent execution.
 
+  elif target_agent == "coach":
+    if user_id:
+      try:
+        parsed_user_id = uuid.UUID(str(user_id))
+        user = await get_user_by_id(db_session, parsed_user_id)
+        if user:
+          tier_id, _ = await get_user_subscription_tier(db_session, user.id)
+          runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+          limit = int(runtime_config.get("limits.coach_sections_per_month") or 0)
+          if limit <= 0:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "coach.generate"})
+          snapshot = await get_quota_snapshot(db_session, user_id=user.id, metric_key="coach.generate", period=QuotaPeriod.MONTH, limit=limit)
+          if snapshot.remaining <= 0:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "coach.generate"})
+      except ValueError:
+        pass
+
+  elif target_agent == "fenster_builder":
+    if user_id:
+      try:
+        parsed_user_id = uuid.UUID(str(user_id))
+        user = await get_user_by_id(db_session, parsed_user_id)
+        if user:
+          tier_id, _ = await get_user_subscription_tier(db_session, user.id)
+          runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+          limit = int(runtime_config.get("limits.fenster_widgets_per_month") or 0)
+          if limit <= 0:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "fenster.widget.generate"})
+          snapshot = await get_quota_snapshot(db_session, user_id=user.id, metric_key="fenster.widget.generate", period=QuotaPeriod.MONTH, limit=limit)
+          if snapshot.remaining <= 0:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "fenster.widget.generate"})
+      except ValueError:
+        pass
+
+  elif target_agent == "writing":
+    if user_id:
+      try:
+        parsed_user_id = uuid.UUID(str(user_id))
+        user = await get_user_by_id(db_session, parsed_user_id)
+        if user:
+          tier_id, _ = await get_user_subscription_tier(db_session, user.id)
+          runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+          limit = int(runtime_config.get("limits.writing_checks_per_month") or 0)
+          if limit <= 0:
+            # Writing check route also checks this, but we double-check here for safety
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "writing.check"})
+          snapshot = await get_quota_snapshot(db_session, user_id=user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, limit=limit)
+          if snapshot.remaining <= 0:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "writing.check"})
+      except ValueError:
+        pass
+
+  elif target_agent == "ocr":
+    if user_id:
+      try:
+        parsed_user_id = uuid.UUID(str(user_id))
+        user = await get_user_by_id(db_session, parsed_user_id)
+        if user:
+          tier_id, _ = await get_user_subscription_tier(db_session, user.id)
+          runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+          limit = int(runtime_config.get("limits.ocr_files_per_month") or 0)
+          if limit <= 0:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "ocr.extract"})
+          snapshot = await get_quota_snapshot(db_session, user_id=user.id, metric_key="ocr.extract", period=QuotaPeriod.MONTH, limit=limit)
+          if snapshot.remaining <= 0:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "ocr.extract"})
+      except ValueError:
+        pass
+
   # Resolve model defaults for logging after tier-based config is known.
   runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=None, subscription_tier_id=None, user_id=None)
 

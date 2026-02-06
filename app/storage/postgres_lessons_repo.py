@@ -7,8 +7,8 @@ import logging
 from sqlalchemy import func, select
 
 from app.core.database import get_session_factory
-from app.schema.lessons import Lesson
-from app.storage.lessons_repo import LessonRecord, LessonsRepository
+from app.schema.lessons import Lesson, Section
+from app.storage.lessons_repo import LessonRecord, LessonsRepository, SectionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class PostgresLessonsRepository(LessonsRepository):
         model_a=record.model_a,
         provider_b=record.provider_b,
         model_b=record.model_b,
-        lesson_json=record.lesson_json,
+        # lesson_json removed
         status=record.status,
         latency_ms=record.latency_ms,
         idempotency_key=record.idempotency_key,
@@ -47,6 +47,14 @@ class PostgresLessonsRepository(LessonsRepository):
         is_archived=bool(record.is_archived),
       )
       session.add(lesson)
+      await session.commit()
+
+  async def create_sections(self, records: list[SectionRecord]) -> None:
+    """Persist section records."""
+    async with self._session_factory() as session:
+      for r in records:
+        section = Section(section_id=r.section_id, lesson_id=r.lesson_id, title=r.title, order_index=r.order_index, status=r.status, content=r.content)
+        session.add(section)
       await session.commit()
 
   async def get_lesson(self, lesson_id: str) -> LessonRecord | None:
@@ -57,15 +65,21 @@ class PostgresLessonsRepository(LessonsRepository):
         return None
       return self._model_to_record(lesson)
 
-  async def update_lesson_json(self, lesson_id: str, *, lesson_json: str, title: str | None = None) -> None:
-    """Update an existing lesson's JSON (and optionally title) in a single transaction."""
+  async def list_sections(self, lesson_id: str) -> list[SectionRecord]:
+    """List all sections for a lesson."""
+    async with self._session_factory() as session:
+      stmt = select(Section).where(Section.lesson_id == lesson_id).order_by(Section.order_index)
+      result = await session.execute(stmt)
+      sections = result.scalars().all()
+      return [SectionRecord(section_id=s.section_id, lesson_id=s.lesson_id, title=s.title, order_index=s.order_index, status=s.status, content=s.content) for s in sections]
+
+  async def update_lesson_title(self, lesson_id: str, title: str) -> None:
+    """Update an existing lesson's title."""
     async with self._session_factory() as session:
       lesson = await session.get(Lesson, lesson_id)
       if not lesson:
         raise RuntimeError("Lesson not found.")
-      # Persist repaired payloads so repeated reads don't repeatedly invoke repair.
-      lesson.lesson_json = lesson_json
-      if title is not None and str(title).strip():
+      if str(title).strip():
         lesson.title = str(title).strip()
       session.add(lesson)
       await session.commit()
@@ -110,7 +124,6 @@ class PostgresLessonsRepository(LessonsRepository):
       model_a=lesson.model_a,
       provider_b=lesson.provider_b,
       model_b=lesson.model_b,
-      lesson_json=lesson.lesson_json,
       status=lesson.status,
       latency_ms=lesson.latency_ms,
       is_archived=bool(getattr(lesson, "is_archived", False)),

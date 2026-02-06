@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
@@ -29,7 +28,6 @@ from app.notifications.factory import build_notification_service
 from app.schema.fenster import FensterWidget, FensterWidgetType
 from app.schema.markdown_limits import collect_overlong_markdown_errors
 from app.schema.quotas import QuotaPeriod
-from app.schema.serialize_lesson import lesson_to_shorthand
 from app.schema.service import SchemaService
 from app.schema.validate_lesson import validate_lesson
 from app.services.lesson_markdown_repair import repair_lesson_overlong_markdown
@@ -42,7 +40,7 @@ from app.services.tasks.factory import get_task_enqueuer
 from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
-from app.storage.lessons_repo import LessonRecord
+from app.storage.lessons_repo import LessonRecord, SectionRecord
 from app.utils.compression import compress_html
 from app.utils.ids import generate_lesson_id
 from app.writing.orchestrator import WritingCheckOrchestrator
@@ -416,13 +414,22 @@ class JobProcessor:
       if not ok or lesson_model is None:
         raise ValueError(f"Validation failed with {len(errors)} error(s).")
 
-      shorthand = lesson_to_shorthand(lesson_model)
       await tracker.complete_validation(message="Validate phase complete.", status="done", expected_sections=expected_sections)
       cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
       await tracker.set_cost(cost_summary)
       # Persist the completed lesson into the lessons repository.
       lesson_id = generate_lesson_id()
       latency_ms = int((time.monotonic() - start_time) * 1000)
+
+      # Prepare section records
+      section_records: list[SectionRecord] = []
+      blocks = merged_result_json.get("blocks", [])
+      for idx, block in enumerate(blocks):
+        # Infer title from block content
+        title = block.get("section", f"Section {idx + 1}")
+        sec_record = SectionRecord(section_id=str(uuid.uuid4()), lesson_id=lesson_id, title=title, order_index=idx, status="generated", content=block)
+        section_records.append(sec_record)
+
       lesson_record = LessonRecord(
         lesson_id=lesson_id,
         user_id=str(job.user_id) if job.user_id else None,
@@ -435,25 +442,37 @@ class JobProcessor:
         model_a=orchestration_result.model_a,
         provider_b=orchestration_result.provider_b,
         model_b=orchestration_result.model_b,
-        lesson_json=json.dumps(merged_result_json, ensure_ascii=True),
         status="ok",
         latency_ms=latency_ms,
         idempotency_key=request_model.idempotency_key,
       )
       lessons_repo = _get_repo(self._settings)
       await lessons_repo.create_lesson(lesson_record)
+      await lessons_repo.create_sections(section_records)
+
       # Notify the job owner after the lesson is durably persisted.
       await _notify_job_lesson_generated(settings=self._settings, job_request=job.request, lesson_id=lesson_id, topic=request_model.topic)
       log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
       log_updates.append("Job completed successfully.")
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+      # Build summary payload
+      summary = {
+        "lesson_id": lesson_id,
+        "title": merged_result_json["title"],
+        "total_sections": len(section_records),
+        "generated_count": len(section_records),
+        "pending_count": 0,
+        "sections": [{"section_id": s.section_id, "title": s.title} for s in section_records],
+      }
+
       payload = {
         "status": "done",
         "phase": "validate",
         "subphase": "complete",
         "progress": 100.0,
         "logs": log_updates,
-        "result_json": shorthand,
+        "result_json": summary,
         "artifacts": orchestration_result.artifacts,
         "validation": validation,
         "cost": cost_summary,

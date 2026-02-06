@@ -30,24 +30,49 @@ Recommendations:
 
 ## Block Types
 
+
 ### `section` (Primary Content Card)
 
 ```json
 {
   "section": "Section title",
-  "items": [ /* widgets */ ],
-  "subsections": [ /* optional nested sections */ ]
+  "markdown": { "markdown": ["Introductory text"] },
+  "subsections": [ /* 1-8 subsection blocks */ ]
 }
 ```
 
 Constraints:
 - `section` must be a non-empty string.
-- `items` must be an array (can be empty, but avoid empty sections).
-- `subsections`, must be an array of section blocks with the same structure.
-- All widgets must be placed inside the `items` array, not alongside `section` or `subsections`.
+- `markdown` must be a markdown widget (object).
+- `subsections` must be a non-empty array (1-8 items).
+- `subsection` blocks:
+  ```json
+  {
+    "subsection": "Subsection title",
+    "items": [ /* 1-5 widgets */ ]
+  }
+  ```
 
 Recommendation:
-- Prefer multiple shorter sections and subsections over one long section.
+- Use the markdown field for the section introduction/context.
+- Break down content into logical subsections.
+
+---
+
+### `fenster` (Interactive Widget Container)
+
+```json
+{ "fenster": ["widget_uuid", "inline_blob", "base64_content"] }
+```
+OR
+```json
+{ "fenster": ["widget_uuid", "cdn_url", "https://cdn.example.com/widget.html"] }
+```
+
+Constraints:
+- Position 0: `fenster_id` (UUID string).
+- Position 1: `type` ("inline_blob" or "cdn_url").
+- Position 2: Content (base64 string) or URL.
 
 ---
 

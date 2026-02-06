@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any
@@ -18,13 +17,11 @@ from app.jobs.guardrails import estimate_bytes
 from app.jobs.models import JobRecord
 from app.jobs.progress import build_call_plan
 from app.schema.lesson_catalog import build_lesson_catalog
-from app.schema.markdown_limits import collect_overlong_markdown_errors
 from app.schema.outcomes import OutcomesAgentResponse
 from app.schema.quotas import QuotaPeriod
 from app.schema.sql import User
 from app.schema.validate_lesson import validate_lesson
 from app.services.jobs import create_job
-from app.services.lesson_markdown_repair import repair_lesson_overlong_markdown
 from app.services.outcomes import generate_lesson_outcomes
 from app.services.quota_buckets import QuotaExceededError, consume_quota, get_quota_snapshot, refund_quota
 from app.services.request_validation import _validate_generate_request
@@ -272,36 +269,19 @@ async def get_lesson(  # noqa: B008
   if record.user_id != str(current_user.id):
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
-  lesson_json = json.loads(record.lesson_json)
-  tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
-  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
-  max_markdown_chars = int(runtime_config.get("limits.max_markdown_chars") or settings.max_markdown_chars)
-  repair_enabled = bool(runtime_config.get("lessons.repair_overlong_markdown") is True)
-  # Fail fast on invalid config so we don't silently accept unsafe limits.
-  if max_markdown_chars <= 0:
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid markdown length configuration.")
-  errors = collect_overlong_markdown_errors(lesson_json, max_markdown_chars=max_markdown_chars)
-  if errors:
-    if not repair_enabled:
-      raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Lesson contains markdown exceeding the configured limit ({max_markdown_chars} chars).")
-    try:
-      repaired = await repair_lesson_overlong_markdown(lesson_json, topic=record.topic, settings=settings, max_markdown_chars=max_markdown_chars, job_id=f"repair_lesson_{lesson_id}")
-    except Exception as exc:  # noqa: BLE001
-      logger.error("Lesson markdown repair failed for %s: %s", lesson_id, exc, exc_info=True)
-      raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to repair overlong lesson markdown.") from exc
-    repaired_errors = collect_overlong_markdown_errors(repaired, max_markdown_chars=max_markdown_chars)
-    if repaired_errors:
-      raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Lesson markdown repair did not converge.")
-    await repo.update_lesson_json(lesson_id, lesson_json=json.dumps(repaired, ensure_ascii=True), title=str(repaired.get("title") or record.title))
-    lesson_json = repaired
+  sections = await repo.list_sections(lesson_id)
+  from app.api.models import SectionSummary
+
+  section_summaries = [SectionSummary(section_id=s.section_id, title=s.title, status=s.status) for s in sections]
+
   return LessonRecordResponse(
     lesson_id=record.lesson_id,
     topic=record.topic,
-    title=str(lesson_json.get("title") or record.title),
+    title=record.title,
     created_at=record.created_at,
     schema_version=record.schema_version,
     prompt_version=record.prompt_version,
-    lesson_json=lesson_json,
+    sections=section_summaries,
     meta=LessonMeta(provider_a=record.provider_a, model_a=record.model_a, provider_b=record.provider_b, model_b=record.model_b, latency_ms=record.latency_ms),
   )
 

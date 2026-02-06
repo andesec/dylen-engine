@@ -197,8 +197,13 @@ async def _with_backoff(func, *args, **kwargs):
     try:
       return await func(*args, **kwargs)
     except Exception as e:
+      error_msg = str(e)
+      # Fail fast on hard quota limits
+      if "Resource Exhausted" in error_msg or "Quota Exceeded" in error_msg:
+        raise
+
       # Check for 429
-      if "429" in str(e) or "Too Many Requests" in str(e):
+      if "429" in error_msg or "Too Many Requests" in error_msg:
         if i == retries - 1:
           raise
         delay = base_delay * (2**i) + random.uniform(0, 1)

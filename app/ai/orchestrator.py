@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,7 +17,12 @@ from app.ai.router import get_model_for_mode
 from app.ai.utils.artifacts import build_failure_snapshot, build_partial_lesson
 from app.ai.utils.cost import calculate_total_cost
 from app.ai.utils.progress import SectionProgressUpdate, create_section_progress
+from app.core.database import get_session_factory
+from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
+from app.services.quota_buckets import get_quota_snapshot
+from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.users import get_user_by_id, get_user_subscription_tier
 
 OptStr = str | None
 Msgs = list[str] | None
@@ -253,9 +259,45 @@ class DylenOrchestrator:
       await self._create_widget_jobs(ctx.lesson_plan, ctx.job_context, job_creator, logger)
 
   async def _create_widget_jobs(self, plan: LessonPlan, job_context: JobContext, job_creator: Callable[[str, dict[str, Any]], Awaitable[None]], logger: logging.Logger) -> None:
+    session_factory = get_session_factory()
+    user_id_str = (job_context.metadata or {}).get("user_id")
+    settings = (job_context.metadata or {}).get("settings")
+    user_id = uuid.UUID(str(user_id_str)) if user_id_str else None
+
+    # Resolve runtime config if possible
+    runtime_config = {}
+    if session_factory and user_id and settings:
+      try:
+        async with session_factory() as session:
+          user = await get_user_by_id(session, user_id)
+          if user:
+            tier_id, _ = await get_user_subscription_tier(session, user.id)
+            runtime_config = await resolve_effective_runtime_config(session, settings=settings, org_id=user.org_id, subscription_tier_id=tier_id)
+      except Exception as exc:
+        logger.warning("Failed to resolve runtime config for widget jobs: %s", exc)
+
     for section in plan.sections:
       for subsection in section.subsections:
         for widget_context in subsection.planned_widgets:
+          # Only create build jobs for explicit Fenster widgets
+          if widget_context.lower() != "fenster":
+            continue
+
+          # Quota check
+          if session_factory and user_id:
+            try:
+              limit = int(runtime_config.get("limits.fenster_widgets_per_month") or 0)
+              if limit > 0:
+                async with session_factory() as session:
+                  snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key="fenster.widget.generate", period=QuotaPeriod.MONTH, limit=limit)
+                  if snapshot.remaining <= 0:
+                    logger.warning("Fenster widget quota exhausted for user %s. Skipping build.", user_id)
+                    continue
+            except Exception as exc:
+              logger.error("Failed to check fenster quota: %s", exc)
+              # Fail open? Or skip? Let's skip to be safe/consistent with worker logic.
+              continue
+
           payload = {
             "lesson_id": "pending",
             "concept_context": f"Widget for: {widget_context}. Context: {subsection.title} in {section.title}. Topic: {job_context.request.topic}",

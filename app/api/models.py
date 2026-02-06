@@ -173,6 +173,14 @@ class OrchestrationFailureResponse(BaseModel):
   logs: list[StrictStr]
 
 
+class SectionSummary(BaseModel):
+  """Summary of a lesson section."""
+
+  section_id: StrictStr
+  title: StrictStr
+  status: StrictStr
+
+
 class LessonRecordResponse(BaseModel):
   """Response payload for lesson retrieval."""
 
@@ -182,7 +190,7 @@ class LessonRecordResponse(BaseModel):
   created_at: StrictStr
   schema_version: StrictStr
   prompt_version: StrictStr
-  lesson_json: dict[str, Any]
+  sections: list[SectionSummary]
   meta: LessonMeta
 
 

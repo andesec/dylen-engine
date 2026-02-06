@@ -23,25 +23,25 @@ Note:
 ### `markdown` (MarkdownText)
 
 ```json
-{ "markdown": ["**Hello**\n\n- one\n- two"] }
-{ "markdown": ["## Note\nThis is centered.", "center"] }
-{ "markdown": ["Left aligned by default.", "left"] }
+{ "markdown": {"markdown": "**Hello**\n\n- one\n- two"} }
+{ "markdown": {"markdown": "## Note\nThis is centered.", "align": "center"} }
+{ "markdown": {"markdown": "Left aligned by default.", "align": "left"} }
 ```
 
 Rules:
-- Position 0 is the markdown string (`md`).
-- Position 1 is optional alignment: `"left"` or `"center"`.
+- `markdown` field is the content string.
+- `align` field is optional: `"left"` or `"center"`.
 
 ---
 
 ### `flip` (Flipcard: prompt -> reveal)
 
 ```json
-{ "flip": ["Front text (prompt)", "Back text (reveal)", "Optional front hint", "Optional back hint"] }
+{ "flip": {"front": "Front text (prompt)", "back": "Back text (reveal)", "front_hint": "Optional front hint", "back_hint": "Optional back hint"} }
 ```
 
 Constraints:
-- The first two entries (front/back) must be strings.
+- `front` and `back` are required strings.
 - Keep the front text to 120 characters or fewer and the back text to 160 characters or fewer so the card stays legible.
 
 ---
@@ -49,11 +49,11 @@ Constraints:
 ### `tr` (Translation Pair)
 
 ```json
-{ "tr": ["EN: Primary text", "DE: Translation text"] }
+{ "tr": {"source": "EN: Primary text", "target": "DE: Translation text"} }
 ```
 
 Constraints:
-- Must be two strings.
+- Must have `source` and `target` fields.
 - Each string must start with a 2-3 letter language code followed by `:` or `-`.
 
 ---
@@ -61,25 +61,25 @@ Constraints:
 ### `fillblank` (Fill-in-the-Blank)
 
 ```json
-{ "fillblank": ["Prompt with ___", "Correct answer", "Hint", "Why it's correct"] }
+{ "fillblank": {"prompt": "Prompt with ___", "answer": "Correct answer", "hint": "Hint", "explanation": "Why it's correct"} }
 ```
 
-Constraints (array order is required):
-1. Prompt with `___` placeholder.
-2. Correct answer string (case-insensitive matching).
-3. Hint string (brief, helpful and precise).
-4. Explanation string (short and concrete).
+Constraints:
+1. `prompt`: text with `___` placeholder.
+2. `answer`: Correct answer string (case-insensitive matching).
+3. `hint`: Hint string (brief, helpful and precise).
+4. `explanation`: Explanation string (short and concrete).
 
 ---
 
 ### `table` (Tabular Data)
 
 ```json
-{ "table": [["Header A", "Header B"], ["Row 1A", "Row 1B"], ["Row 2A", "Row 2B"]] }
+{ "table": {"rows": [["Header A", "Header B"], ["Row 1A", "Row 1B"], ["Row 2A", "Row 2B"]]} }
 ```
 
 Constraints:
-- Value must be a non-empty array of rows.
+- `rows` value must be a non-empty array of rows.
 - First row is treated as the header.
 - Cells must be strings. avoid lengthy text in the cell.
 
@@ -88,11 +88,11 @@ Constraints:
 ### `compare` (Two-Column Comparison)
 
 ```json
-{ "compare": [["Left", "Right"], ["A", "B"], ["C", "D"]] }
+{ "compare": {"rows": [["Left", "Right"], ["A", "B"], ["C", "D"]]} }
 ```
 
 Constraints:
-- Value must be a non-empty array.
+- `rows` value must be a non-empty array.
 - First row is treated as headers.
 
 ---
@@ -101,24 +101,24 @@ Constraints:
 
 ```json
 {
-  "swipecards": [
-    "Quick Drill: XSS Basics",
-    ["No", "Yes"],
-    [
-      ["Store JWT in localStorage", 0, "localStorage is readable by JS; XSS can steal tokens."],
-      ["Use HttpOnly cookies for sessions", 1, "HttpOnly cookies block JS access and reduce XSS impact."]
+  "swipecards": {
+    "title": "Quick Drill: XSS Basics",
+    "buckets": ["No", "Yes"],
+    "cards": [
+      { "text": "Store JWT in localStorage", "correct_bucket_index": 0, "feedback": "localStorage is readable by JS; XSS can steal tokens." },
+      { "text": "Use HttpOnly cookies for sessions", "correct_bucket_index": 1, "feedback": "HttpOnly cookies block JS access and reduce XSS impact." }
     ]
-  ]
+  }
 }
 ```
 
 Constraints:
-- Array index contract:
-  - `0`: title/instruction text (string)
-  - `1`: bucket labels `[leftLabel, rightLabel]`
-  - `2`: cards array
-- Each card is `[text, correctBucketIndex, feedback]`.
-- Feedback is mandatory and shown after every swipe.
+- `title` (string): instruction text.
+- `buckets` (array of 2 strings): `[leftLabel, rightLabel]`.
+- `cards` (list of objects):
+  - `text` (string)
+  - `correct_bucket_index` (0 or 1)
+  - `feedback` (mandatory string shown after swipe)
 - Keep card text to 120 characters or fewer so the card stays legible.
 - Keep feedback to 150 characters or fewer so it reads cleanly in the overlay.
 
@@ -130,14 +130,14 @@ Recommendation:
 ### `freeText` (Free Text Editor - Multiline)
 
 ```json
-{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary"] }
+{ "freeText": {"prompt": "What do you mean by Clarity?.", "seed_locked": "In my view,", "lang": "en", "wordlist_csv": "clarity,structure,example,reason,summary"} }
 ```
 
-Schema (array positions):
+Schema:
 1. `prompt` (string): title shown above the editor.
-2. `seedLocked` (string, optional): non-removable prefix.
+2. `seed_locked` (string, optional): non-removable prefix.
 3. `lang` (string, optional): language key. Default: `en`.
-4. `wordlistCsv` (string, optional): comma-separated terms as one string.
+4. `wordlist_csv` (string, optional): comma-separated terms as one string.
 
 Notes:
 - Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
@@ -155,13 +155,13 @@ Where to use:
 ### `inputLine` (Single Line Input)
 
 ```json
-{ "inputLine": ["Prompt text", "en", "term1,term2,term3"] }
+{ "inputLine": {"prompt": "Prompt text", "lang": "en", "wordlist_csv": "term1,term2,term3"} }
 ```
 
-Schema (array positions):
+Schema:
 1. `prompt` (string): label/prompt for the input.
 2. `lang` (string, optional): language code. Default: `en`.
-3. `wordlistCsv` (string, optional): comma-separated terms for checking.
+3. `wordlist_csv` (string, optional): comma-separated terms for checking.
 
 Notes:
 - Single-line input only.
@@ -174,18 +174,18 @@ Notes:
 
 ```json
 {
-  "stepFlow": [
-    "Follow the flow:",
-    [
+  "stepFlow": {
+    "title": "Follow the flow:",
+    "flow": [
       "Start here.",
       [["Option A", ["Do A1"]], ["Option B", ["Do B1"]]],
       "Finish."
     ]
-  ]
+  }
 }
 ```
 
-Schema (array positions):
+Schema:
 1. `title` (string): title shown above the flow.
 2. `flow` (array): steps and/or branch nodes.
 
@@ -203,10 +203,10 @@ Where to use:
 ### `asciiDiagram` (ASCII Diagram Panel)
 
 ```json
-{ "asciiDiagram": ["Diagram:", "+--+\\n|A |\\n+--+\\n"] }
+{ "asciiDiagram": {"title": "Diagram:", "diagram": "+--+\\n|A |\\n+--+\\n"} }
 ```
 
-Schema (array positions):
+Schema:
 1. `title` (string): title shown above the diagram.
 2. `diagram` (string): raw ASCII text (whitespace preserved).
 
@@ -218,10 +218,10 @@ Where to use:
 ### `checklist` (Nested Checklist)
 
 ```json
-{ "checklist": ["Use this checklist:", [["Clarity", ["Short sentences", "Avoid vague words"]]]] }
+{ "checklist": {"title": "Use this checklist:", "tree": [["Clarity", ["Short sentences", "Avoid vague words"]]]} }
 ```
 
-Schema (array positions):
+Schema:
 1. `title` (string): title shown above the checklist.
 2. `tree` (array): nested items and groups.
 
@@ -299,14 +299,14 @@ Where to use:
 ### `codeEditor` (Modern Code Editor)
 
 ```json
-{ "codeEditor": ["console.log('hello');", "javascript", false, [1, 3]] }
+{ "codeEditor": {"code": "console.log('hello');", "language": "javascript", "read_only": false, "highlighted_lines": [1, 3]} }
 ```
 
-Schema (array positions):
+Schema:
 1. `code` (string|object): Code to display. Objects are JSON-stringified.
 2. `language` (string): Language for syntax highlighting (e.g., `javascript`, `python`).
-3. `readOnly` (boolean, optional): If true, the editor is read-only. Default: false (editable).
-4. `highlightedLines` (array, optional): List of 1-based line numbers to highlight.
+3. `read_only` (boolean, optional): If true, the editor is read-only. Default: false (editable).
+4. `highlighted_lines` (array, optional): List of 1-based line numbers to highlight.
 
 Notes:
 - Use inside `items` like any other widget.
@@ -321,14 +321,14 @@ Where to use:
 ### `treeview` (Lesson Structure Viewer)
 
 ```json
-{ "treeview": [{ "title": "Lesson", "blocks": [] }, "Lesson Structure", "json-input", "json-editor-view"] }
+{ "treeview": {"lesson": [{ "title": "Lesson", "blocks": [] }], "title": "Lesson Structure", "textarea_id": "json-input", "editor_id": "json-editor-view"} }
 ```
 
-Schema (array positions):
+Schema:
 1. `lesson` (object|string): lesson data with `blocks`, or JSON string.
 2. `title` (string, optional): header shown above the tree.
-3. `textareaId` (string, optional): editor textarea id for scroll-to-path.
-4. `editorId` (string, optional): editor container id for scroll-to-path.
+3. `textarea_id` (string, optional): editor textarea id for scroll-to-path.
+4. `editor_id` (string, optional): editor container id for scroll-to-path.
 
 Notes:
 - When `lesson` is missing or empty, the tree shows the empty state.
