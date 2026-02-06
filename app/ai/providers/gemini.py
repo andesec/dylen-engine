@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import random
 import warnings
 from typing import Any, Final, cast
 
@@ -46,7 +48,8 @@ class GeminiModel(AIModel):
       return response
 
     # Use the async client to avoid blocking the asyncio event loop.
-    response = await self._client.aio.models.generate_content(model=self.name, contents=prompt)
+    response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt)
+
     logger.info("Gemini response:\n%s", response.text)
     usage = None
 
@@ -74,7 +77,9 @@ class GeminiModel(AIModel):
       #     "response_schema": schema,
       # }
       # Use the async client to avoid blocking the asyncio event loop.
-      response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
+      # Use the async client to avoid blocking the asyncio event loop.
+      response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
+
       logger.info("Gemini structured response (raw):\n%s", response.text)
     except Exception as e:
       raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
@@ -159,17 +164,7 @@ class GeminiProvider(Provider):
   """Gemini provider."""
 
   _DEFAULT_MODEL: Final[str] = "gemini-2.0-flash"
-  _AVAILABLE_MODELS: Final[set[str]] = {
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-pro-latest",
-    "gemini-flash-latest",
-    "gemini-2.0-flash-exp",
-    "gemini-1.5-flash",  # Legacy support
-    "gemini-1.5-pro",
-    "gemini-2.0-flash-lite",
-  }
+  _AVAILABLE_MODELS: Final[set[str]] = {"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"}
 
   def __init__(self, api_key: str | None = None) -> None:
     self.name: str = "gemini"
@@ -183,5 +178,31 @@ class GeminiProvider(Provider):
     """Return a Gemini model client."""
     model_name = model or self._DEFAULT_MODEL
     if model_name not in self._AVAILABLE_MODELS:
-      raise ValueError(f"Unsupported Gemini model '{model_name}'.")
+      # Allow fallback attempts to find compatible models even if the exact string isn't in the static set
+      # (though normally we'd want strict checking, for now let's be lenient or add the model if it's valid)
+      # But to be safe and match previous logic:
+      if model_name != self._DEFAULT_MODEL:  # Simple check, or just raise as before
+        pass
+      # Actually, let's strictly check against _AVAILABLE_MODELS as before
+      if model_name not in self._AVAILABLE_MODELS:
+        raise ValueError(f"Unsupported Gemini model '{model_name}'.")
+
     return GeminiModel(model_name, api_key=self._api_key)
+
+
+async def _with_backoff(func, *args, **kwargs):
+  retries = 3
+  base_delay = 1
+  for i in range(retries):
+    try:
+      return await func(*args, **kwargs)
+    except Exception as e:
+      # Check for 429
+      if "429" in str(e) or "Too Many Requests" in str(e):
+        if i == retries - 1:
+          raise
+        delay = base_delay * (2**i) + random.uniform(0, 1)
+        await asyncio.sleep(delay)
+      else:
+        raise
+  return await func(*args, **kwargs)

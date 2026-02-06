@@ -16,6 +16,12 @@ revision = "0d8b6c2b9a2a"
 down_revision = "f2c7c4b3a1e0"
 branch_labels = None
 depends_on = None
+REPAIR_SAFE = True
+REPAIR_TARGETS = {
+  "tables": ["notifications"],
+  "columns": ["notifications.id", "notifications.user_id", "notifications.template_id", "notifications.title", "notifications.body", "notifications.data_json", "notifications.read", "notifications.created_at"],
+  "indexes": ["ix_notifications_user_id", "ix_notifications_template_id"],
+}
 
 
 def upgrade() -> None:
@@ -29,7 +35,7 @@ def upgrade() -> None:
     sa.Column("body", sa.Text(), nullable=False),
     sa.Column("data_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.Column("read", sa.Boolean(), server_default=sa.text("false"), nullable=False),
-    sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
     sa.PrimaryKeyConstraint("id"),
   )

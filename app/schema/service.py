@@ -127,6 +127,8 @@ class SchemaService:
       reachable = set()
       # Initialize stack with the filtered options to find initial refs
       stack = list(filtered_options)
+      # Also add all root properties to ensure definitions like 'SubsectionBlock' and the main 'Widget' union are reachable
+      stack.extend(props.values())
 
       while stack:
         item = stack.pop()

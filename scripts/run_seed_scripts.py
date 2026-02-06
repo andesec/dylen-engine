@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import inspect
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.migration_order import load_migration_chain
+
+logger = logging.getLogger("scripts.run_seed_scripts")
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,9 @@ def _collect_seed_scripts() -> list[SeedScript]:
   for info in chain:
     path = seeds_dir / f"{info.revision}.py"
     if not path.exists():
+      # Skip merge revisions so missing seed scripts do not block deploys.
+      if info.is_merge:
+        continue
       missing.append(info.revision)
       continue
 
@@ -173,6 +179,8 @@ async def _run_seed_scripts(*, dsn: str) -> None:
   engine = create_async_engine(dsn, future=True)
   try:
     async with engine.begin() as connection:
+      # Enforce the public schema for seed operations.
+      await connection.execute(text("SET LOCAL search_path TO public"))
       # Ensure seed_versions exists before any queries reference it.
       await _ensure_seed_versions_table(connection)
       # Collect the ordered seed scripts to execute.
@@ -180,7 +188,9 @@ async def _run_seed_scripts(*, dsn: str) -> None:
       for script in scripts:
         # Skip already-applied seed revisions.
         if await _has_seed_applied(connection, revision=script.revision):
-          print(f"Skipping seed script (already applied): {script.revision} ({script.path.name})")
+          message = f"Skipping seed script (already applied): {script.revision} ({script.path.name})"
+          print(message)
+          logger.info(message)
           continue
 
         # Load and execute the seed script's async entrypoint.
@@ -194,7 +204,9 @@ async def _run_seed_scripts(*, dsn: str) -> None:
           raise RuntimeError(f"Seed script seed() must be async: {script.path}")
 
         # Execute the seed script against the shared connection.
-        print(f"Running seed script: {script.revision} ({script.path.name})")
+        message = f"Running seed script: {script.revision} ({script.path.name})"
+        print(message)
+        logger.info(message)
         await seed_func(connection)
         # Record completion in seed_versions.
         await _mark_seed_applied(connection, revision=script.revision)
@@ -205,6 +217,8 @@ async def _run_seed_scripts(*, dsn: str) -> None:
 
 def main() -> None:
   """Entrypoint for running seed scripts from the command line."""
+  # Configure base logging for CLI usage.
+  logging.basicConfig(level=logging.INFO)
   # Read the database DSN from the environment to avoid accidental targeting.
   raw_dsn = (os.getenv("DYLEN_PG_DSN") or "").strip()
   if not raw_dsn:

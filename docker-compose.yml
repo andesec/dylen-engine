@@ -39,29 +39,11 @@ services:
     entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
     restart: "no"
 
-  engine-migrate:
-    build:
-      context: .
-      target: production
-    depends_on:
-      postgres:
-        condition: service_healthy
-      postgres-init:
-        condition: service_completed_successfully
-    env_file:
-      - .env
-    environment:
-      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
-    networks:
-      - dylen-network
-    working_dir: /app
-    command: [ "python", "scripts/migrate_with_lock.py" ]
-    restart: "no"
-
   app:
     build:
       context: .
       target: production
+    image: dylen-engine:latest
     ports:
       - "8002:8002"
     depends_on:
@@ -69,12 +51,12 @@ services:
         condition: service_healthy
       postgres-init:
         condition: service_completed_successfully
-      engine-migrate:
-        condition: service_completed_successfully
     env_file:
       - .env
     environment:
       - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+      - DYLEN_AUTO_APPLY_MIGRATIONS=1
+      - DYLEN_MIGRATOR_MODE=migrate
       - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
     networks:
       - dylen-network

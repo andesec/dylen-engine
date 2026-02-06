@@ -50,32 +50,19 @@ def get_model_for_mode(mode: str | ProviderMode, model: str | None = None, *, ag
 
 
 def _build_model_sequence(provider: Provider, model: str | None, agent: str | None) -> list[str]:
-  """Build a fallback list of models to try for a provider."""
-  # Prefer the requested model, then the agent order, then provider defaults for fallback coverage.
-  available = list(getattr(provider, "_AVAILABLE_MODELS", []))
-  default_model = getattr(provider, "_DEFAULT_MODEL", None)
-  sequence: list[str] = []
-  agent_models = _ordered_agent_models(agent, available)
+  """Build a list containing *only* the target model to disable automatic fallbacks."""
+  # User request: "there should be only one call for planner and one for section"
+  # We strictly respect the requested model or the provider default.
 
-  if model:
-    sequence.append(model)
+  target_model = model or getattr(provider, "_DEFAULT_MODEL", None)
 
-  if agent_models:
-    # Rotate the agent list so retries walk the next model in order.
-    ordered = _rotate_models(agent_models, model) if model else agent_models
+  if target_model:
+    return [target_model]
 
-    for name in ordered:
-      if name not in sequence:
-        sequence.append(name)
-
-  if default_model and default_model not in sequence:
-    sequence.append(default_model)
-
-  for name in sorted(available):
-    if name not in sequence:
-      sequence.append(name)
-
-  return sequence
+  # If no model specified and no default, well, we can't do much.
+  # But this shouldn't happen given the provider contract.
+  # Fallback to empty list which rightfully causes an error downstream.
+  return []
 
 
 def _ordered_agent_models(agent: str | None, available: list[str]) -> list[str]:

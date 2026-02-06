@@ -4,7 +4,7 @@
     {
       "type": "shell",
       "label": "docker-compose: debug",
-      "command": "docker compose -f docker-compose.debug.yml up -d --build && ./scripts/wait_for_debugger.sh",
+      "command": "docker compose -f docker-compose.debug.yml up -d --build --force-recreate && ./scripts/wait_for_debugger.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -16,7 +16,7 @@
     {
       "type": "shell",
       "label": "docker-compose: debug (rebuild)",
-      "command": "docker compose -f docker-compose.debug.yml up -d --build && ./scripts/wait_for_debugger.sh",
+      "command": "docker compose -f docker-compose.debug.yml up -d --build --force-recreate && ./scripts/wait_for_debugger.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },

@@ -34,6 +34,10 @@ async def process_job_task(payload: TaskPayload, settings: Annotated[Settings, D
 
   logger.info("Received task for job %s", payload.job_id)
 
-  await process_job_sync(payload.job_id, settings)
+  result = await process_job_sync(payload.job_id, settings)
+
+  if result is None or result.status == "error":
+    # Even if HTTP 200 (to satisfy Cloud Tasks), return truthful status in body
+    return {"status": "error"}
 
   return {"status": "ok"}

@@ -26,11 +26,16 @@ steps:
           gcloud artifacts repositories create "${_AR_REPO}" --location "${_REGION}" --repository-format docker
 
   - name: "gcr.io/cloud-builders/docker"
+    env:
+      - "DOCKER_BUILDKIT=1"
     args:
       [
         "build",
         "--target", "production",
+        "--cache-from", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:buildcache",
+        "--build-arg", "BUILDKIT_INLINE_CACHE=1",
         "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}",
+        "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:buildcache",
         "."
       ]
 
@@ -54,6 +59,7 @@ steps:
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
             --env-vars-file "/workspace/env.stage.yaml" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest" \
             --command "python" \
@@ -64,6 +70,7 @@ steps:
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
             --env-vars-file "/workspace/env.stage.yaml" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest"
         fi
@@ -82,6 +89,7 @@ steps:
           --image "$${IMAGE}" \
           --service-account "${_RUN_SA}" \
           --env-vars-file "/workspace/env.stage.yaml" \
+          --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0" \
           --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
           --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
           --port 8002 \

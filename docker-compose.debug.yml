@@ -39,14 +39,11 @@ services:
     entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
     restart: "no"
 
-  migrator:
+  app:
     build:
       context: .
       target: debug
-    container_name: dylen-migrator
-    entrypoint: []
-    command: [ "python", "scripts/migrate_with_lock.py" ]
-    working_dir: /app
+    image: dylen-engine:debug
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,27 +53,8 @@ services:
       - .env
     environment:
       - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
-#      - DYLEN_ALLOWED_ORIGINS=http://localhost:3000
-      - DYLEN_ALLOWED_ORIGINS=https://dev.dylen.app
-    networks:
-      - dylen-network
-    volumes:
-      - ./alembic:/app/alembic
-      - ./alembic.ini:/app/alembic.ini
-      - ./app:/app/app
-    restart: "no"
-
-  app:
-    build:
-      context: .
-      target: debug
-    depends_on:
-      migrator:
-        condition: service_completed_successfully
-    env_file:
-      - .env
-    environment:
-      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+      - DYLEN_AUTO_APPLY_MIGRATIONS=1
+      - DYLEN_MIGRATOR_MODE=migrate
       - GOOGLE_APPLICATION_CREDENTIALS=/home/nonroot/.config/gcloud/application_default_credentials.json
       - DYLEN_DUMMY_PLANNER_RESPONSE_PATH=./fixtures/dummy_planner_response.md
       - DYLEN_DUMMY_SECTION_BUILDER_RESPONSE_PATH=./fixtures/dummy_section_builder_response.md
@@ -88,6 +66,9 @@ services:
       - "5678:5678" # debug port
     volumes:
       - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./scripts:/app/scripts
       - ./logs:/app/logs
       - ~/.config/gcloud/application_default_credentials.json:/home/nonroot/.config/gcloud/application_default_credentials.json:ro
       - ./secrets/service-account.json:/app/service-account.json:ro

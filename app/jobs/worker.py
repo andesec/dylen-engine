@@ -35,7 +35,7 @@ from app.schema.validate_lesson import validate_lesson
 from app.services.lesson_markdown_repair import repair_lesson_overlong_markdown
 from app.services.maintenance import archive_old_lessons
 from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
-from app.services.quota_buckets import get_quota_snapshot
+from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.tasks.factory import get_task_enqueuer
@@ -165,6 +165,15 @@ class JobProcessor:
       return updated
 
     except Exception as exc:
+      # Gracefully handle quota disabled or exceeded by marking success-but-skipped or just done.
+      # Since we don't have a partial-success status, "done" with logs is better than "error" for quota toggles.
+      if "quota disabled" in str(exc) or isinstance(exc, QuotaExceededError):
+        self._logger.info("Fenster quota disabled, skipping job %s", job.job_id)
+        completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Quota disabled. Skipping widget build."], "result_json": {}, "completed_at": completed_at}
+        updated = await self._jobs_repo.update_job(job.job_id, **payload)
+        return updated
+
       self._logger.error("Fenster build failed", exc_info=True)
       await tracker.fail(phase="failed", message=f"Fenster build failed: {exc}")
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}

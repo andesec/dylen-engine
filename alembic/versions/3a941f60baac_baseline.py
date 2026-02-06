@@ -18,6 +18,8 @@ revision: str = "3a941f60baac"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+REPAIR_SAFE = True
+REPAIR_TARGETS = {"tables": ["*"], "columns": ["*"], "indexes": ["*"], "constraints": ["*"], "enums": ["fensterwidgettype", "role_level", "lesson_depth", "quota_period"]}
 
 
 def upgrade() -> None:

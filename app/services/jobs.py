@@ -389,7 +389,7 @@ async def get_job_status(job_id: str, settings: Settings, user_id: str | None = 
   return _job_status_from_record(record, settings, child_jobs=child_jobs)
 
 
-async def process_job_sync(job_id: str, settings: Settings) -> None:
+async def process_job_sync(job_id: str, settings: Settings) -> JobRecord | None:
   """Run a queued job immediately (synchronously)."""
   from app.jobs.worker import JobProcessor
 
@@ -400,7 +400,7 @@ async def process_job_sync(job_id: str, settings: Settings) -> None:
     return
 
   processor = JobProcessor(jobs_repo=repo, orchestrator=_get_orchestrator(settings), settings=settings)
-  await processor.process_job(record)
+  return await processor.process_job(record)
 
 
 def trigger_job_processing(background_tasks: BackgroundTasks, job_id: str, settings: Settings) -> None:

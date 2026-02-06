@@ -6,7 +6,7 @@ from os.path import abspath, dirname
 from time import perf_counter
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -86,6 +86,8 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
   """Run migrations on the provided connection while logging revisions."""
+  # Enforce the public schema for migration transactions.
+  connection.execute(text("SET LOCAL search_path TO public"))
   # Apply shared strict comparison options for online migrations.
   options = _build_context_options()
   context.configure(connection=connection, **options)

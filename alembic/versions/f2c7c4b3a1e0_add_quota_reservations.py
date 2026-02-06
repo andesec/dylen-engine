@@ -17,6 +17,24 @@ revision = "f2c7c4b3a1e0"
 down_revision = "3a941f60baac"
 branch_labels = None
 depends_on = None
+REPAIR_SAFE = True
+REPAIR_TARGETS = {
+  "tables": ["user_quota_reservations"],
+  "columns": [
+    "user_quota_buckets.reserved",
+    "user_quota_reservations.id",
+    "user_quota_reservations.user_id",
+    "user_quota_reservations.metric_key",
+    "user_quota_reservations.period",
+    "user_quota_reservations.period_start",
+    "user_quota_reservations.quantity",
+    "user_quota_reservations.job_id",
+    "user_quota_reservations.section_index",
+    "user_quota_reservations.created_at",
+  ],
+  "indexes": ["ix_user_quota_reservations_user_id", "ix_user_quota_reservations_metric_key", "ix_user_quota_reservations_job_id"],
+  "constraints": ["ux_quota_reservation_key"],
+}
 
 
 def upgrade() -> None:

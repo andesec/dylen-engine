@@ -119,6 +119,7 @@ async def generate_outcomes_endpoint(  # noqa: B008
       await refund_quota(db_session, user_id=current_user.id, metric_key="lesson.outcomes_check", period=QuotaPeriod.WEEK, quantity=1, limit=outcomes_checks_per_week, metadata={"job_id": job_id, "reason": "outcomes_failed"})
     except Exception:  # noqa: BLE001
       pass
+    logger.error("Outcomes generation failed: %s", exc, exc_info=True)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate outcomes.") from exc
 
   return payload

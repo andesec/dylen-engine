@@ -19,6 +19,8 @@ class MigrationInfo:
 
   revision: str
   down_revision: str | None
+  down_revisions: tuple[str, ...]
+  is_merge: bool
   create_date: datetime
   path: Path
 
@@ -92,40 +94,29 @@ def _load_migration_info(revision: object) -> MigrationInfo:
   revision_id = str(revision.revision)
   down_revision = revision.down_revision
   down_value = None
+  down_values: tuple[str, ...] = ()
+  is_merge = False
   if isinstance(down_revision, str):
     down_value = down_revision
+    down_values = (down_revision,)
+  elif isinstance(down_revision, (tuple, list)):
+    down_values = tuple(str(value) for value in down_revision)
+    is_merge = True
 
   # Read the migration file content to parse Create Date.
   path = Path(revision.path)
   text = path.read_text(encoding="utf-8")
   create_date = _parse_create_date(text=text, path=path)
-  return MigrationInfo(revision=revision_id, down_revision=down_value, create_date=create_date, path=path)
+  return MigrationInfo(revision=revision_id, down_revision=down_value, down_revisions=down_values, is_merge=is_merge, create_date=create_date, path=path)
 
 
 def load_migration_chain() -> list[MigrationInfo]:
-  """Return the linear migration chain ordered from base to head."""
+  """Return migrations ordered from base to heads (merge-aware)."""
   # Load the Alembic script directory for revision inspection.
   script = load_script_directory()
-  heads = script.get_heads()
-  if len(heads) != 1:
-    raise RuntimeError(f"Expected exactly one Alembic head, found: {heads}")
-
-  # Walk backwards from head to base to build a linear chain.
-  chain: list[MigrationInfo] = []
-  current = script.get_revision(heads[0])
-  while current is not None:
-    # Load the current revision metadata.
-    chain.append(_load_migration_info(current))
-    down_revision = current.down_revision
-    if down_revision is None:
-      break
-
-    # Reject merge revisions so the chain stays linear.
-    if isinstance(down_revision, (tuple, list)):
-      raise RuntimeError(f"Merge revisions are not allowed: {current.revision}")
-
-    # Move to the parent revision in the chain.
-    current = script.get_revision(down_revision)
-
-  # Reverse so the chain runs from base to head.
-  return list(reversed(chain))
+  # Walk revisions from heads to base to handle multiple heads.
+  revisions = list(script.walk_revisions(base="base", head="heads"))
+  # Reverse so the chain runs from base to heads.
+  ordered = list(reversed(revisions))
+  # Convert to MigrationInfo entries in deterministic order.
+  return [_load_migration_info(revision) for revision in ordered]

@@ -7,7 +7,6 @@ import uuid
 
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.prompts import render_section_builder_prompt
-from app.ai.errors import is_output_error
 from app.ai.pipeline.contracts import JobContext, PlanSection, StructuredSection
 from app.core.database import get_session_factory
 from app.schema.quotas import QuotaPeriod
@@ -109,20 +108,25 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
         if structured_output:
           schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
+
+          # Preflight validation: Reject/repair schema before calling provider.
+          # Ensure subsections.items is fully defined.
+          if "definitions" in schema or "$defs" in schema:
+            defs = schema.get("definitions") or schema.get("$defs", {})
+            subsection_block = defs.get("SubsectionBlock")
+            if subsection_block:
+              props = subsection_block.get("properties", {})
+              items = props.get("items", {})
+              # Ensure items is not just a bare definition if it's supposed to be an array of objects
+              if items.get("type") == "array" and "items" not in items:
+                # This shouldn't happen with Pydantic, but enforcing safety for LLM stability.
+                items["items"] = {"type": "object"}
+
           try:
             response = await self._model.generate_structured(prompt_text, schema)
-          except Exception as exc:  # noqa: BLE001
-            if not is_output_error(exc):
-              raise
-            # Retry the same request with the parser error appended.
-            retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
-            retry_purpose = f"build_section_retry_{input_data.section_number}_of_{request.depth}"
-            retry_call_index = f"retry/{input_data.section_number}/{request.depth}"
-
-            with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
-              response = await self._model.generate_structured(retry_prompt, schema)
-
-            self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
+          except Exception:
+            # User requested strictly one call per operation; bubbling up errors immediately.
+            raise
 
           self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
           section_json = response.content
