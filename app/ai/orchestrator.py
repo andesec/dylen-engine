@@ -568,12 +568,13 @@ def _handle_out_of_range(ctx: _OrchestrationContext, logger: logging.Logger, sub
   raise OrchestrationError(error_message, logs=list(ctx.logs))
 
 
-def _depth_profile(depth: str) -> int:
+def _depth_profile(depth: str | None) -> int:
   """Map numeric depth to Dylen labels and section counts for prompt rendering."""
   mapping = {"highlights": 2, "detailed": 6, "training": 10}
-  if depth.lower() in mapping:
+  if depth and depth.lower() in mapping:
     return mapping[depth.lower()]
-  raise ValueError("Depth must be one of the following: Highlights, Detailed or Training.")
+  # Fallback to highlights if invalid or missing
+  return mapping["highlights"]
 
 
 def _log_request_failure(*, logger: logging.Logger, logs: list[str] | None, agent: str, provider: str, model: str, prompt: str | None, response: str | None, error: Exception) -> None:
