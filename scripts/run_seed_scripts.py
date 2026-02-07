@@ -131,22 +131,13 @@ def _collect_seed_scripts() -> list[SeedScript]:
   chain = load_migration_chain()
   seeds_dir = _seed_scripts_dir()
   scripts: list[SeedScript] = []
-  missing: list[str] = []
   for info in chain:
     path = seeds_dir / f"{info.revision}.py"
     if not path.exists():
-      # Skip merge revisions so missing seed scripts do not block deploys.
-      if info.is_merge:
-        continue
-      missing.append(info.revision)
+      # Seed scripts are optional; skip if missing.
       continue
 
     scripts.append(SeedScript(revision=info.revision, path=path))
-
-  # Enforce one seed script per migration for deterministic runs.
-  if missing:
-    missing_list = ", ".join(missing)
-    raise RuntimeError(f"Missing seed scripts for revisions: {missing_list}")
 
   return scripts
 

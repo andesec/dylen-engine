@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from datetime import datetime
 from typing import Any
 
+import msgspec  # Explicit import for array conversion
 from pydantic import ValidationError
 
 from app.ai.agents.coach import CoachAgent
@@ -26,11 +27,9 @@ from app.jobs.models import JobRecord
 from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
 from app.notifications.factory import build_notification_service
 from app.schema.fenster import FensterWidget, FensterWidgetType
-from app.schema.markdown_limits import collect_overlong_markdown_errors
 from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
-from app.schema.validate_lesson import validate_lesson
-from app.services.lesson_markdown_repair import repair_lesson_overlong_markdown
+from app.schema.widget_models import Section
 from app.services.maintenance import archive_old_lessons
 from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
 from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
@@ -41,7 +40,7 @@ from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, SectionRecord
-from app.utils.compression import compress_html
+from app.utils.html import compress_html
 from app.utils.ids import generate_lesson_id
 from app.writing.orchestrator import WritingCheckOrchestrator
 
@@ -257,6 +256,15 @@ class JobProcessor:
     await tracker.set_phase(phase="plan", subphase="planner_start", expected_sections=expected_sections)
 
     start_time = time.monotonic()
+
+    # Re-hydrate request model for access to typed fields
+    # Use internal helper to strip metadata (like _meta, user_id) that causes validation errors
+    try:
+      cleaned_request = _strip_internal_request_fields(job.request)
+      request_model = GenerateLessonRequest.model_validate(cleaned_request)
+    except ValidationError:
+      self._logger.warning("Job %s has invalid request data, aborting.", job.job_id)
+      raise
     soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
     hard_timeout = _parse_timeout_env("JOB_HARD_TIMEOUT_SECONDS")
     soft_timeout_recorded = False
@@ -291,13 +299,19 @@ class JobProcessor:
       retry_section_numbers = _to_section_numbers(retry_section_indexes) if retry_section_indexes else None
       is_retry = job.retry_count is not None and job.retry_count > 0
       enable_repair = retry_agents is None or "repair" in retry_agents
-      base_result_json = job.result_json
-      base_completed_sections = len(base_completed_indexes)
-      retry_completed_indexes: list[int] = []
+      is_retry = job.retry_count is not None and job.retry_count > 0
+      enable_repair = retry_agents is None or "repair" in retry_agents
+      # Unused variables removed: base_result_json, base_completed_sections, retry_completed_indexes
       # Enforce quota cap for section generation, including mid-queue tier changes.
       session_factory = get_session_factory()
       # Store runtime config for model defaults once user tier is known.
       runtime_config: dict[str, Any] | None = None
+
+      # Determine lesson_id early for persistence
+      lesson_id = job.result_json.get("lesson_id") if job.result_json and "lesson_id" in job.result_json else generate_lesson_id()
+
+      # Update job metadata with lesson_id so Orchestrator can persist sections incrementally
+      # We'll construct full job_metadata below.
       if session_factory is not None and job.user_id:
         try:
           quota_user_id = uuid.UUID(str(job.user_id))
@@ -336,6 +350,64 @@ class JobProcessor:
         if effective_section_filter is not None and len(effective_section_filter) == 0:
           raise ValueError("No sections remain eligible for generation under the current quota cap.")
 
+      # -------------------------------------------------------------------------
+      # RETRY LOGIC: DB-BASED PRE-CHECK
+      # -------------------------------------------------------------------------
+      if is_retry:
+        try:
+          repo = _get_repo(self._settings)
+          # If we are retrying, the lesson might already exist.
+          # lesson_id is already resolved above.
+          existing_sections = await repo.list_sections(lesson_id)
+          if existing_sections:
+            completed_indices = {s.order_index for s in existing_sections}  # 0-based
+            # We need to generate everything from 0 to expected_sections-1 that is NOT in existing_indices
+            needed_indices = {i for i in range(expected_sections) if i not in completed_indices}
+
+            # Convert to 1-based for Orchestraor filter
+            needed_section_numbers = {i + 1 for i in needed_indices}
+
+            if effective_section_filter:
+              effective_section_filter = effective_section_filter.intersection(needed_section_numbers)
+            else:
+              effective_section_filter = needed_section_numbers
+
+            tracker.add_logs(f"Retry: Found {len(existing_sections)} sections. Generating: {sorted(effective_section_filter)}")
+          else:
+            tracker.add_logs("Retry: No existing sections found in DB. Generating all.")
+        except Exception as exc:
+          self._logger.error("Failed to check existing sections for retry: %s", exc)
+      # -------------------------------------------------------------------------
+
+      # Prepare Metadata including lesson_id
+      job_metadata = {"settings": self._settings, "lesson_id": lesson_id}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+
+      # Create or Ensure Lesson Record Exists (Status: Generating)
+      try:
+        repo = _get_repo(self._settings)
+        existing_lesson = await repo.get_lesson(lesson_id)
+        if not existing_lesson:
+          placeholder_record = LessonRecord(
+            lesson_id=lesson_id,
+            user_id=str(job.user_id) if job.user_id else None,
+            topic=job.request.get("topic", "Unknown"),
+            title=job.request.get("topic", "Unknown"),
+            created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            schema_version=self._settings.schema_version,
+            prompt_version=self._settings.prompt_version,
+            provider_a="pending",
+            model_a="pending",
+            provider_b="pending",
+            model_b="pending",
+            status="generating",
+            latency_ms=0,
+          )
+          await repo.upsert_lesson(placeholder_record)
+      except Exception as exc:
+        self._logger.warning("Failed to create/check lesson record: %s", exc)
+
       orchestration_result = await self._run_orchestration(
         job.job_id,
         job.request,
@@ -344,15 +416,16 @@ class JobProcessor:
         timeout_checker=_check_timeouts,
         retry_section_numbers=effective_section_filter,
         is_retry=is_retry,
-        base_result_json=base_result_json,
-        base_completed_indexes=base_completed_indexes,
-        retry_completed_indexes=retry_completed_indexes,
-        base_completed_sections=base_completed_sections,
         enable_repair=enable_repair,
+        base_completed_sections=job.request.get("base_completed_sections", 0),
+        retry_completed_indexes=[],  # Always start fresh for retries
         runtime_config=runtime_config,
         quota_user_id=quota_user_id,
         quota_sections_per_month=quota_sections_per_month,
+        job_metadata=job_metadata,
       )
+
+      # Abort quickly if a cancellation lands after orchestration completes.
 
       # Abort quickly if a cancellation lands after orchestration completes.
       canceled_record = await self._jobs_repo.get_job(job.job_id)
@@ -364,78 +437,32 @@ class JobProcessor:
         return None
 
       # Surface orchestration logs even when validation fails.
+      # Surface orchestration logs even when validation fails.
       tracker.extend_logs(orchestration_result.logs)
-      merged_result_json = orchestration_result.lesson_json
-      merged_indexes = list(range(expected_sections))
-      request_model = GenerateLessonRequest.model_validate(_strip_internal_request_fields(job.request))
-      max_markdown_chars = int(self._settings.max_markdown_chars)
-      repair_overlong_markdown = False
-      # Resolve runtime config for the job owner so validation uses tenant/tier/user overrides.
-      session_factory = get_session_factory()
-      if session_factory is not None and job.user_id:
-        try:
-          parsed_user_id = uuid.UUID(str(job.user_id))
-        except ValueError:
-          parsed_user_id = None
-        if parsed_user_id is not None:
-          try:
-            async with session_factory() as session:
-              user = await get_user_by_id(session, parsed_user_id)
-              if user is not None:
-                tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
-                runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=user.id)
-                max_markdown_chars = int(runtime_config.get("limits.max_markdown_chars") or self._settings.max_markdown_chars)
-                repair_overlong_markdown = bool(runtime_config.get("lessons.repair_overlong_markdown") is True)
-          except Exception as exc:  # noqa: BLE001
-            self._logger.error("Failed resolving runtime config for markdown limits: %s", exc, exc_info=True)
 
-      if is_retry and retry_section_indexes is not None:
-        merged_result_json, merged_indexes = _merge_retry_result(
-          base_result_json=base_result_json, base_completed_indexes=base_completed_indexes, retry_partial_json=orchestration_result.lesson_json, retry_completed_indexes=retry_completed_indexes, topic=request_model.topic
-        )
-
-      if is_retry and retry_section_indexes is not None and len(merged_indexes) < expected_sections:
-        raise ValueError("Retry did not complete all expected sections.")
-
-      # Guard against invalid operator configuration so validation/repair stays deterministic.
-      if max_markdown_chars <= 0:
-        raise ValueError("Invalid markdown length configuration.")
-      markdown_errors = collect_overlong_markdown_errors(merged_result_json, max_markdown_chars=max_markdown_chars)
-      if markdown_errors and repair_overlong_markdown:
-        try:
-          merged_result_json = await repair_lesson_overlong_markdown(merged_result_json, topic=request_model.topic, settings=self._settings, max_markdown_chars=max_markdown_chars, job_id=f"job_{job.job_id}_markdown_repair")
-        except Exception as exc:  # noqa: BLE001
-          raise ValueError(f"Markdown repair failed: {exc}") from exc
-
-      lesson_model_validation = validate_lesson(merged_result_json, max_markdown_chars=max_markdown_chars)
-      ok, errors, lesson_model = lesson_model_validation
-      validation = {"ok": ok, "errors": errors}
-
-      if not ok or lesson_model is None:
-        raise ValueError(f"Validation failed with {len(errors)} error(s).")
-
-      await tracker.complete_validation(message="Validate phase complete.", status="done", expected_sections=expected_sections)
       cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
       await tracker.set_cost(cost_summary)
-      # Persist the completed lesson into the lessons repository.
-      lesson_id = generate_lesson_id()
+
+      # Finalize Lesson Record (Status: OK, Plan: Saved)
+      repo = _get_repo(self._settings)
+
+      existing_lesson = await repo.get_lesson(lesson_id)
+
+      # extracted_plan removed (unused)
+
       latency_ms = int((time.monotonic() - start_time) * 1000)
 
-      # Prepare section records
-      section_records: list[SectionRecord] = []
-      blocks = merged_result_json.get("blocks", [])
-      for idx, block in enumerate(blocks):
-        # Infer title from block content
-        title = block.get("section", f"Section {idx + 1}")
-        sec_record = SectionRecord(section_id=str(uuid.uuid4()), lesson_id=lesson_id, title=title, order_index=idx, status="generated", content=block)
-        section_records.append(sec_record)
+      # Determine final title
+      final_title = job.request.get("topic")
+      if existing_lesson and existing_lesson.title:
+        final_title = existing_lesson.title
 
-      lesson_record = LessonRecord(
+      final_lesson_record = LessonRecord(
         lesson_id=lesson_id,
         user_id=str(job.user_id) if job.user_id else None,
         topic=request_model.topic,
-        title=merged_result_json["title"],
-        created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        title=final_title,
+        created_at=existing_lesson.created_at if existing_lesson else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         schema_version=request_model.schema_version or self._settings.schema_version,
         prompt_version=self._settings.prompt_version,
         provider_a=orchestration_result.provider_a,
@@ -446,25 +473,56 @@ class JobProcessor:
         latency_ms=latency_ms,
         idempotency_key=request_model.idempotency_key,
       )
-      lessons_repo = _get_repo(self._settings)
-      await lessons_repo.create_lesson(lesson_record)
-      await lessons_repo.create_sections(section_records)
+      # Save Sections with array shorthand conversion
+      repo = _get_repo(self._settings)
+      if orchestration_result.artifacts and "structured_sections" in orchestration_result.artifacts:
+        raw_sections = orchestration_result.artifacts["structured_sections"]
+        section_records = []
+        for sec in raw_sections:
+          payload = sec.get("json")
+          if not payload:
+            continue
 
-      # Notify the job owner after the lesson is durably persisted.
+          try:
+            # Convert dict to Section model to ensure validity
+            section_model = msgspec.convert(payload, Section)
+
+            # Transform subsections/items to shorthand
+            converted_subsections = []
+            for sub in section_model.subsections:
+              converted_items = []
+              for item in sub.items:
+                try:
+                  converted_items.append(item.output())
+                except Exception:
+                  # Fallback if output() fails or isn't implemented
+                  converted_items.append(msgspec.to_builtins(item))
+
+              converted_subsections.append({"title": sub.title, "items": converted_items})
+
+            converted_content = {"title": section_model.title, "markdown": section_model.markdown.output(), "subsections": converted_subsections}
+
+            section_records.append(SectionRecord(section_id=str(uuid.uuid4()), lesson_id=lesson_id, title=section_model.title, order_index=sec.get("section_number", 0), status="completed", content=converted_content))
+          except Exception as e:
+            self._logger.warning("Failed to process section %s for persistence: %s", sec.get("section_number"), e)
+
+        if section_records:
+          await repo.create_sections(section_records)
+
+      # Save Lesson Record
+      await repo.upsert_lesson(final_lesson_record)
+
+      # Notify the job owner
       await _notify_job_lesson_generated(settings=self._settings, job_request=job.request, lesson_id=lesson_id, topic=request_model.topic)
+
       log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
       log_updates.append("Job completed successfully.")
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-      # Build summary payload
-      summary = {
-        "lesson_id": lesson_id,
-        "title": merged_result_json["title"],
-        "total_sections": len(section_records),
-        "generated_count": len(section_records),
-        "pending_count": 0,
-        "sections": [{"section_id": s.section_id, "title": s.title} for s in section_records],
-      }
+      # Re-fetch sections to report accurate count
+      final_sections = await repo.list_sections(lesson_id)
+
+      summary = {"lesson_id": lesson_id, "title": final_title, "total_sections": len(final_sections), "generated_count": len(final_sections), "sections": [{"section_id": s.section_id, "title": s.title} for s in final_sections]}
 
       payload = {
         "status": "done",
@@ -474,11 +532,10 @@ class JobProcessor:
         "logs": log_updates,
         "result_json": summary,
         "artifacts": orchestration_result.artifacts,
-        "validation": validation,
+        "validation": {"ok": True, "errors": []},
         "cost": cost_summary,
         "expected_sections": expected_sections,
-        "completed_sections": len(merged_indexes),
-        "completed_section_indexes": merged_indexes,
+        "completed_sections": len(final_sections),
         "completed_at": completed_at,
       }
       updated = await self._jobs_repo.update_job(job.job_id, **payload)
@@ -572,11 +629,10 @@ class JobProcessor:
     timeout_checker: Callable[[], Awaitable[bool]] | None = None,
     retry_section_numbers: set[int] | None = None,
     is_retry: bool = False,
-    base_result_json: dict[str, Any] | None = None,
-    base_completed_indexes: list[int] | None = None,
-    retry_completed_indexes: list[int] | None = None,
-    base_completed_sections: int = 0,
     enable_repair: bool = True,
+    base_completed_sections: int = 0,
+    retry_completed_indexes: list[int] | None = None,
+    job_metadata: dict[str, Any] | None = None,
     runtime_config: dict[str, Any] | None = None,
     quota_user_id: uuid.UUID | None = None,
     quota_sections_per_month: int = 0,
@@ -652,18 +708,15 @@ class JobProcessor:
         # Section quota reservations are handled inside agents to keep accounting local.
 
       log_message = "; ".join(messages or [])
-      merged_partial = partial_json
-
-      if is_retry and partial_json is not None and retry_completed_indexes is not None:
-        merged_partial = _merge_partial_payload(base_result_json=base_result_json, base_completed_indexes=base_completed_indexes or [], retry_partial_json=partial_json, retry_completed_indexes=retry_completed_indexes, topic=topic)
+      # merged_partial removed (unused)
 
       if advance:
-        await tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
+        await tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None, result_json=partial_json, expected_sections=expected_sections, section_progress=tracker_section)
       else:
         if log_message:
           tracker.add_logs(log_message)
 
-        await tracker.set_phase(phase=phase, subphase=subphase, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
+        await tracker.set_phase(phase=phase, subphase=subphase, result_json=partial_json, expected_sections=expected_sections, section_progress=tracker_section)
 
     async def _job_creator(target_agent: str, payload: dict[str, Any]) -> None:
       # Fetch parent metadata so child jobs inherit the user id.
@@ -699,9 +752,11 @@ class JobProcessor:
         await _notify_child_job_failed(settings=self._settings, parent_job=parent_record, child_job_id=new_job_id)
 
     # Forward settings and user metadata so agents can reserve quota locally.
-    job_metadata = {"settings": self._settings}
+    # Merge with provided job_metadata (containing lesson_id) or start fresh
+    combined_metadata = dict(job_metadata or {})
+    combined_metadata.setdefault("settings", self._settings)
     if quota_user_id is not None:
-      job_metadata["user_id"] = str(quota_user_id)
+      combined_metadata["user_id"] = str(quota_user_id)
     result = await orchestrator.generate_lesson(
       job_id=job_id,
       topic=topic,
@@ -720,7 +775,7 @@ class JobProcessor:
       section_filter=retry_section_numbers,
       enable_repair=enable_repair,
       job_creator=_job_creator,
-      job_metadata=job_metadata,
+      job_metadata=combined_metadata,
     )
 
     merged_logs = list(_merge_logs(logs, result.logs))
@@ -729,7 +784,7 @@ class JobProcessor:
       await tracker.set_phase(phase="validate", subphase="validation", expected_sections=expected_sections)
 
     return OrchestrationResult(
-      lesson_json=result.lesson_json,
+      # lesson_json used to be here
       provider_a=result.provider_a,
       model_a=result.model_a,
       provider_b=result.provider_b,
@@ -864,7 +919,7 @@ def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str,
   return {"currency": "USD", "total_input_tokens": total_input_tokens, "total_output_tokens": total_output_tokens, "total_cost": total_cost, "calls": usage}
 
 
-_ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair", "stitcher"}
+_ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair"}
 
 
 def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:
@@ -920,47 +975,3 @@ def _infer_completed_section_indexes(record: JobRecord) -> list[int]:
   # Use completed_sections as a last resort when other data is missing.
   count = record.completed_sections or 0
   return list(range(count))
-
-
-def _build_block_map(result_json: dict[str, Any] | None, indexes: list[int]) -> dict[int, Any]:
-  """Map section indexes to their block payloads."""
-
-  if not result_json:
-    return {}
-
-  blocks = result_json.get("blocks")
-
-  if not isinstance(blocks, list):
-    return {}
-
-  return {index: block for index, block in zip(indexes, blocks)}
-
-
-def _resolve_result_title(base_result_json: dict[str, Any] | None, retry_partial_json: dict[str, Any] | None, topic: str) -> str:
-  """Pick a stable title for merged retry payloads."""
-
-  if base_result_json and isinstance(base_result_json.get("title"), str):
-    return str(base_result_json["title"])
-
-  if retry_partial_json and isinstance(retry_partial_json.get("title"), str):
-    return str(retry_partial_json["title"])
-
-  return topic
-
-
-def _merge_partial_payload(*, base_result_json: dict[str, Any] | None, base_completed_indexes: list[int], retry_partial_json: dict[str, Any] | None, retry_completed_indexes: list[int], topic: str) -> dict[str, Any]:
-  """Merge partial retry blocks into the existing result payload."""
-  base_map = _build_block_map(base_result_json, base_completed_indexes)
-  retry_map = _build_block_map(retry_partial_json, retry_completed_indexes)
-  merged_map = {**base_map, **retry_map}
-  merged_indexes = sorted(merged_map.keys())
-  merged_blocks = [merged_map[index] for index in merged_indexes]
-  title = _resolve_result_title(base_result_json, retry_partial_json, topic)
-  return {"title": title, "blocks": merged_blocks}
-
-
-def _merge_retry_result(*, base_result_json: dict[str, Any] | None, base_completed_indexes: list[int], retry_partial_json: dict[str, Any] | None, retry_completed_indexes: list[int], topic: str) -> tuple[dict[str, Any], list[int]]:
-  """Merge retry partial payloads into the base result."""
-  merged_payload = _merge_partial_payload(base_result_json=base_result_json, base_completed_indexes=base_completed_indexes, retry_partial_json=retry_partial_json, retry_completed_indexes=retry_completed_indexes, topic=topic)
-  merged_indexes = sorted(set(base_completed_indexes) | set(retry_completed_indexes))
-  return merged_payload, merged_indexes

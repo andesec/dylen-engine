@@ -1,0 +1,13 @@
+services:
+  app:
+    environment:
+      - PYDEVD_DISABLE_FILE_VALIDATION=1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Install pydevd-pycharm and connect back to the IDE
+    # We use --python .venv to ensure we install into the virtual environment
+    command: >
+      /bin/sh -c "
+      uv pip install --python .venv pydevd-pycharm &&
+      python -Xfrozen_modules=off -m pydevd_pycharm --client host.docker.internal --port 5679 --module uvicorn app.main:app --host 0.0.0.0 --port 8002 --ssl-keyfile /app/secrets/certs/origin.key --ssl-certfile /app/secrets/certs/origin.crt --no-server-header
+      "

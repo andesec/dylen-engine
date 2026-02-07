@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import uuid
 
+import msgspec
+
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.prompts import render_section_builder_prompt
 from app.ai.pipeline.contracts import JobContext, PlanSection, StructuredSection
@@ -73,6 +75,7 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       if dummy_json is not None:
         section_index = input_data.section_number
         topic = request.topic
+        # For dummy data, we still use the full validator to ensure fixtures are correct
         validator = self._schema_service.validate_section_payload
         ok, errors, _ = validator(dummy_json, topic=topic, section_index=section_index)
         validation_errors = [] if ok else errors
@@ -115,70 +118,45 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       # Apply context to correlate provider calls with the agent and lesson topic.
       with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
         if structured_output:
-          # Use Mirascope 2.x for structured output generation
-          import os
-
-          from mirascope import llm
-          from starlette.concurrency import run_in_threadpool
-
-          # Mirascope expects GOOGLE_API_KEY, so set it from GEMINI_API_KEY
-          os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
-
-          # Mirascope 2.x doesn't have native async support for decorated functions
-          # We need to run the synchronous call in a thread pool to avoid blocking
-          @llm.call(model=f"google/{self._model.name}", response_model=response_model)
-          def generate_section_content(prompt: str):
-            return prompt
+          # 1. Generate and Sanitize Schema explicitly
+          try:
+            raw_schema = msgspec.json.schema(response_model)
+            final_schema = self._schema_service.sanitize_schema(raw_schema, provider_name="gemini")
+          except Exception as e:
+            logger.error(f"Failed to generate schema for {response_model}: {e}")
+            raise
 
           try:
-            # Manual audit logging for Mirascope (it bypasses the provider infrastructure)
-            import time
+            # 2. Call the Provider directly (No Mirascope)
+            # self._model is likely an AuditModel wrapper, which handles logging automatically.
+            response = await self._model.generate_structured(prompt_text, final_schema)
 
-            from app.telemetry.llm_audit import finalize_llm_call, serialize_request, serialize_response, start_llm_call, utc_now
-
-            started_at = utc_now()
-            start_time = time.perf_counter()
-
-            # Log the start of the LLM call
-            request_payload = serialize_request(prompt_text, None)  # Schema is handled by Mirascope
-            call_id = await start_llm_call(provider="gemini", model=self._model.name, request_type="structured_output", request_payload=request_payload, started_at=started_at)
-
-            # Run Mirascope call in thread pool to avoid blocking async event loop
-            response = await run_in_threadpool(generate_section_content, prompt_text)
-
-            # Mirascope wraps the result in a Response object
-            # The actual msgspec Struct could be in .message, .content, or the response itself
-            if hasattr(response, "message") and not isinstance(response.message, str):
-              result = response.message
-            elif hasattr(response, "content") and not isinstance(response.content, (str, list)):
-              result = response.content
-            else:
-              # If it's not wrapped, the response IS the struct
-              result = response
-
-            # Extract usage information from the underlying _response attribute
-            usage = None
-            if hasattr(response, "_response"):
-              response_obj = response._response
-              if hasattr(response_obj, "usage_metadata"):
-                um = response_obj.usage_metadata
-                usage = {"prompt_tokens": getattr(um, "prompt_token_count", 0), "completion_tokens": getattr(um, "candidates_token_count", 0), "total_tokens": getattr(um, "total_token_count", 0)}
+            # 3. Parse the result
+            result_dict = response.content
+            usage = response.usage
 
             self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=usage)
 
-            # Convert msgspec Struct to dict for validation
-            import msgspec
+            # Convert dict to msgspec Struct to ensure it matches our internal model
+            # This acts as the primary validation
+            section_struct = msgspec.convert(result_dict, type=response_model)
+            section_json = msgspec.to_builtins(section_struct)
 
-            section_json = msgspec.to_builtins(result)
+            # Validation successful
+            validation_errors = []
 
-            # Log the completion of the LLM call
-            duration_ms = int((time.perf_counter() - start_time) * 1000)
-            response_payload = serialize_response(section_json)
-            await finalize_llm_call(call_id=call_id, response_payload=response_payload, usage=usage, duration_ms=duration_ms, error=None)
+          except msgspec.ValidationError as e:
+            # Capture validation errors from msgspec
+            logger.warning(f"Section validation failed: {e}")
+            # We return the raw (potentially invalid) payload but mark it with errors
+            # so the orchestrator can decide to repair it.
+            # If result_dict is available, use it; otherwise empty dict
+            section_json = locals().get("result_dict", {})
+            validation_errors = [str(e)]
+
           except Exception as e:
-            # Log the error with context before re-raising
-            logger.error(f"Mirascope structured output generation failed: {e}", exc_info=True)
-            # User requested strictly one call per operation; bubbling up errors immediately.
+            # Log failure
+            logger.error(f"Structured output generation failed: {e}", exc_info=True)
             raise
         else:
           raise RuntimeError("Structured output is required for section builder generation.")
@@ -186,17 +164,14 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       section_index = input_data.section_number
       topic = request.topic
 
-      # Validate the structured section against the schema.
-      validator = self._schema_service.validate_section_payload
-      ok, errors, _ = validator(section_json, topic=topic, section_index=section_index)
-      validation_errors = [] if ok else errors
-      # Commit quota reservation once section generation succeeds.
+      # Commit quota reservation once section generation succeeds (or we return a result).
       async with session_factory() as session:
         # Build quota metadata for audit logging.
         commit_metadata = {"job_id": str(ctx.job_id), "section_index": int(input_data.section_number)}
         await commit_quota_reservation(
           session, user_id=reservation_user_id, metric_key="section.generate", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(ctx.job_id), section_index=int(input_data.section_number), metadata=commit_metadata
         )
+
       return StructuredSection(section_number=section_index, payload=section_json, validation_errors=validation_errors)
     except Exception:  # noqa: BLE001
       # Release quota reservation when section builder fails.

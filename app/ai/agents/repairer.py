@@ -7,13 +7,14 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import msgspec
+
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.prompts import render_repair_prompt
-from app.ai.deterministic_repair import attempt_deterministic_repair
 from app.ai.errors import is_output_error
 from app.ai.json_parser import parse_json_with_fallback
 from app.ai.pipeline.contracts import JobContext, RepairInput, RepairResult
-from app.schema.lesson_models import normalize_widget
+from app.schema.selective_schema import create_selective_widget_item
 from app.telemetry.context import llm_call_context
 
 JsonDict = dict[str, Any]
@@ -53,15 +54,6 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       err_list = [] if ok else repaired_errors
       return RepairResult(section_number=section_number, fixed_json=dummy_json, changes=["dummy_fixture"], errors=err_list)
 
-    if errors and not _contains_overlong_markdown_errors(errors):
-      section_json = _deterministic_repair(section_json, errors, topic, section_number)
-      validator = self._schema_service.validate_section_payload
-      ok, errors, _ = validator(section_json, topic=topic, section_index=section_number)
-
-      if ok:
-        changes = ["deterministic_repair"]
-        return RepairResult(section_number=section_number, fixed_json=section_json, changes=changes, errors=[])
-
     if errors:
       # Apply manual subsection fixes (titles/items) before invoking AI repair.
       section_json, manual_changes = _apply_subsection_fallbacks(section_json, errors)
@@ -84,7 +76,21 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       return RepairResult(section_number=section_number, fixed_json=section_json, changes=[], errors=errors)
 
     widget_types = [target.widget_type for target in repair_targets if target.widget_type]
-    widget_schemas = self._schema_service.widget_schemas_for_types(widget_types)
+    unique_widget_types = list(set(widget_types))
+
+    if unique_widget_types:
+      widget_item_cls = create_selective_widget_item(unique_widget_types)
+
+      # Define response model dynamically
+      repair_item_cls = type("RepairItem", (msgspec.Struct,), {"__annotations__": {"path": str, "widget": widget_item_cls}})
+
+      repair_response_cls = type("RepairResponse", (msgspec.Struct,), {"__annotations__": {"repairs": list[repair_item_cls]}})
+    else:
+      # Fallback to full schema
+      from app.schema.widget_models import RepairResponse
+
+      repair_response_cls = RepairResponse
+
     # Provide minimal context for targeted repairs instead of the full section payload.
     prompt_targets = _serialize_repair_targets(repair_targets)
 
@@ -95,9 +101,11 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       cleaned_prompt_errors.extend(target.errors)
 
     prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors)
-    schema = _build_repair_schema(widget_schemas)
 
-    schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
+    raw_schema = msgspec.json.schema(repair_response_cls)
+    # Sanitize for Gemini (strips $defs, flattens refs, etc.)
+    schema = self._schema_service.sanitize_schema(raw_schema, provider_name="gemini")
+
     purpose = f"repair_section_{section.section_number}_of_{request.depth}"
     call_index = f"{section.section_number}/{request.depth}"
 
@@ -120,7 +128,11 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
     # Record usage after the primary structured call completes.
     self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
-    repaired_payload = response.content
+
+    result_dict = response.content
+    # Convert dict to msgspec Struct to ensure it matches our internal model
+    repair_response = msgspec.convert(result_dict, type=repair_response_cls)
+    repaired_payload = msgspec.to_builtins(repair_response)
 
     # Apply only the repaired widget payloads back into their original positions.
     repaired_json = _apply_repairs(section_json, repaired_payload, repair_targets)
@@ -129,34 +141,6 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     changes = ["ai_repair"]
     err_list = [] if ok else repaired_errors
     return RepairResult(section_number=section_number, fixed_json=repaired_json, changes=changes, errors=err_list)
-
-
-def _contains_overlong_markdown_errors(errors: Errors) -> bool:
-  """Return True when validation errors indicate a hard markdown length violation.
-
-  Why:
-    - Deterministic repair truncates text aggressively (frontend parity), which is not appropriate when a larger
-      runtime-configurable limit is enforced server-side.
-    - Overlong markdown should be refactored via AI repair to fit the hard limit, not blindly truncated.
-  """
-  for error in errors:
-    if "markdown exceeds max length" in error:
-      return True
-  return False
-
-
-def _deterministic_repair(section_json: JsonDict, errors: Errors, topic: str, section_number: int) -> JsonDict:
-  payload = {"title": f"{topic} - Section {section_number}", "blocks": [section_json]}
-  repaired = attempt_deterministic_repair(payload, errors)
-  blocks = repaired.get("blocks")
-
-  if isinstance(blocks, list) and blocks:
-    first_block = blocks[0]
-
-    if isinstance(first_block, dict):
-      return first_block
-
-  return section_json
 
 
 def _collect_repair_targets(section_json: JsonDict, errors: Errors) -> list[RepairTarget]:
@@ -269,9 +253,9 @@ def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple
     misplaced_subsections = []
 
     for item in section_items:
-      # If an item looks like a SubsectionBlock (has 'subsection' or 'section' title + 'items' list),
+      # If an item looks like a SubsectionBlock (has 'title' or 'subsection' or 'section' + 'items' list),
       # it's likely misplaced.
-      is_subsection_block = isinstance(item, dict) and (("subsection" in item or "section" in item) and isinstance(item.get("items"), list))
+      is_subsection_block = isinstance(item, dict) and (("title" in item or "subsection" in item or "section" in item) and isinstance(item.get("items"), list))
 
       if is_subsection_block:
         misplaced_subsections.append(item)
@@ -309,12 +293,32 @@ def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple
       continue
 
     # Ensure subsection titles exist for schema validation.
-    if len(tokens) >= 3 and tokens[2] == "subsection":
-      title = subsection.get("subsection")
+    if len(tokens) >= 3 and tokens[2] == "title":
+      title = subsection.get("title")
+
+      # Migration: If title is missing but 'subsection' exists, rename it.
+      if (not isinstance(title, str) or not title.strip()) and "subsection" in subsection:
+        val = subsection.pop("subsection")
+        if isinstance(val, str) and val.strip():
+          subsection["title"] = val
+          changes.append(f"migrated_subsection_title_{subsection_index}")
+          continue
 
       if not isinstance(title, str) or not title.strip():
-        subsection["subsection"] = f"Subsection {subsection_index + 1}"
+        subsection["title"] = f"Subsection {subsection_index + 1}"
         changes.append(f"subsection_title_{subsection_index}")
+
+    # Handle deprecated 'subsection' field if flagged as extra
+    if len(tokens) >= 3 and tokens[2] == "subsection":
+      if "subsection" in subsection:
+        if "title" not in subsection:
+          val = subsection.pop("subsection")
+          if isinstance(val, str) and val.strip():
+            subsection["title"] = val
+            changes.append(f"migrated_subsection_title_{subsection_index}")
+        else:
+          subsection.pop("subsection")
+          changes.append(f"removed_deprecated_subsection_{subsection_index}")
 
     # Normalize subsection items into a list so downstream validation stays stable.
     if "items" not in subsection or not isinstance(subsection.get("items"), list):
@@ -485,13 +489,13 @@ def _coerce_items_list(value: Any) -> list[Any]:
       if isinstance(parsed, dict):
         return [parsed]
 
-    return [{"markdown": [stripped]}]
+    return [{"markdown": {"markdown": stripped}}]
 
   # Fallback to MarkdownText for scalar values to preserve context.
   if value is None:
     return []
 
-  return [{"markdown": [str(value)]}]
+  return [{"markdown": {"markdown": str(value)}}]
 
 
 def _detect_widget_type(widget: Any) -> str | None:
@@ -514,46 +518,13 @@ def _safe_normalize_widget(widget: Any) -> JsonDict | None:
   """Normalize a widget payload to full form, preserving raw data on failure."""
 
   # Normalize shorthand into explicit widget objects for schema validation.
+  if isinstance(widget, dict):
+    return widget
 
-  try:
-    normalized = normalize_widget(widget)
-  except ValueError:
-    if isinstance(widget, dict):
-      return widget
+  if isinstance(widget, str):
+    return {"markdown": {"markdown": widget}}
 
-    return None
-
-  return normalized
-
-
-def _build_repair_schema(widget_schemas: dict[str, Any]) -> dict[str, Any]:
-  """Build a structured-output schema for targeted widget repairs."""
-  defs: dict[str, Any] = {}
-  any_of: list[dict[str, Any]] = []
-
-  # Merge widget schemas into a compact union with shared $defs.
-
-  for schema in widget_schemas.values():
-    schema_defs = schema.get("$defs")
-
-    if isinstance(schema_defs, dict):
-      for key, value in schema_defs.items():
-        defs.setdefault(key, value)
-
-    schema_copy = dict(schema)
-    schema_copy.pop("$defs", None)
-    any_of.append(schema_copy)
-
-  if not any_of:
-    any_of.append({"type": "object"})
-
-  repair_item_schema = {"type": "object", "properties": {"path": {"type": "string"}, "widget": {"anyOf": any_of}}, "required": ["path", "widget"], "additionalProperties": False}
-  output_schema = {"type": "object", "properties": {"repairs": {"type": "array", "items": repair_item_schema}}, "required": ["repairs"], "additionalProperties": False}
-
-  if defs:
-    output_schema["$defs"] = defs
-
-  return output_schema
+  return None
 
 
 def _apply_repairs(section_json: JsonDict, repair_payload: Any, targets: list[RepairTarget]) -> JsonDict:

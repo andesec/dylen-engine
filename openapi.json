@@ -114,54 +114,6 @@
         "title": "CandidateSource",
         "type": "object"
       },
-      "CurrentSectionStatus": {
-        "additionalProperties": false,
-        "description": "Section status metadata for streaming job progress.",
-        "properties": {
-          "index": {
-            "description": "0-based index of the active section.",
-            "minimum": 0.0,
-            "title": "Index",
-            "type": "integer"
-          },
-          "retry_count": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Retry attempts for the active section when applicable.",
-            "title": "Retry Count"
-          },
-          "status": {
-            "description": "Section generation status.",
-            "title": "Status",
-            "type": "string"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Title of the active section when known.",
-            "title": "Title"
-          }
-        },
-        "required": [
-          "index",
-          "status"
-        ],
-        "title": "CurrentSectionStatus",
-        "type": "object"
-      },
       "ChildJobStatus": {
         "additionalProperties": false,
         "description": "Status payload for a child job.",
@@ -225,6 +177,54 @@
           "status"
         ],
         "title": "ChildJobStatus",
+        "type": "object"
+      },
+      "CurrentSectionStatus": {
+        "additionalProperties": false,
+        "description": "Section status metadata for streaming job progress.",
+        "properties": {
+          "index": {
+            "description": "0-based index of the active section.",
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "retry_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retry attempts for the active section when applicable.",
+            "title": "Retry Count"
+          },
+          "status": {
+            "description": "Section generation status.",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Title of the active section when known.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "index",
+          "status"
+        ],
+        "title": "CurrentSectionStatus",
         "type": "object"
       },
       "ExtractionResult": {
@@ -921,8 +921,7 @@
                   "enum": [
                     "planner",
                     "section_builder",
-                    "repair",
-                    "stitcher"
+                    "repair"
                   ],
                   "type": "string"
                 },
@@ -957,6 +956,32 @@
       "JobStatusResponse": {
         "description": "Status payload for an asynchronous job.",
         "properties": {
+          "artifacts": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifacts"
+          },
+          "child_jobs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ChildJobStatus"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child Jobs"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -1108,32 +1133,6 @@
               }
             ],
             "title": "Result"
-          },
-          "artifacts": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Artifacts"
-          },
-          "child_jobs": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/ChildJobStatus"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Child Jobs"
           },
           "retry_agents": {
             "anyOf": [
@@ -1451,9 +1450,17 @@
             "title": "Lesson Id",
             "type": "string"
           },
-          "lesson_json": {
-            "title": "Lesson Json",
-            "type": "string"
+          "lesson_plan": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Plan"
           },
           "model_a": {
             "title": "Model A",
@@ -1530,7 +1537,6 @@
           "model_a",
           "provider_b",
           "model_b",
-          "lesson_json",
           "status",
           "latency_ms"
         ],
@@ -1548,11 +1554,6 @@
             "title": "Lesson Id",
             "type": "string"
           },
-          "lesson_json": {
-            "additionalProperties": true,
-            "title": "Lesson Json",
-            "type": "object"
-          },
           "meta": {
             "$ref": "#/components/schemas/LessonMeta"
           },
@@ -1563,6 +1564,13 @@
           "schema_version": {
             "title": "Schema Version",
             "type": "string"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/SectionSummary"
+            },
+            "title": "Sections",
+            "type": "array"
           },
           "title": {
             "title": "Title",
@@ -1580,7 +1588,7 @@
           "created_at",
           "schema_version",
           "prompt_version",
-          "lesson_json",
+          "sections",
           "meta"
         ],
         "title": "LessonRecordResponse",
@@ -2732,6 +2740,30 @@
           "value"
         ],
         "title": "RuntimeConfigSetRequest",
+        "type": "object"
+      },
+      "SectionSummary": {
+        "description": "Summary of a lesson section.",
+        "properties": {
+          "section_id": {
+            "title": "Section Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "section_id",
+          "title",
+          "status"
+        ],
+        "title": "SectionSummary",
         "type": "object"
       },
       "SignupRequest": {
@@ -5184,6 +5216,56 @@
         "summary": "Create Lesson Job",
         "tags": [
           "lessons"
+        ]
+      }
+    },
+    "/v1/lessons/lessons/{lesson_id}/sections/{section_id}": {
+      "get": {
+        "description": "Get a specific section of a lesson.",
+        "operationId": "get_section_v1_lessons_lessons__lesson_id__sections__section_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
+            "schema": {
+              "title": "Lesson Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "section_id",
+            "required": true,
+            "schema": {
+              "title": "Section Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Section",
+        "tags": [
+          "sections"
         ]
       }
     },

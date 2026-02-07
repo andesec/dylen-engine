@@ -235,7 +235,7 @@ class LessonJobResponse(JobCreateResponse):
   lesson_id: StrictStr
 
 
-RetryAgent = Literal["planner", "section_builder", "repair", "stitcher"]
+RetryAgent = Literal["planner", "section_builder", "repair"]
 
 
 class JobRetryRequest(BaseModel):

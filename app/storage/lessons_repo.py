@@ -38,6 +38,7 @@ class LessonRecord:
   is_archived: bool = False
   idempotency_key: str | None = None
   tags: set[str] | None = None
+  lesson_plan: dict[str, Any] | None = None
 
 
 class LessonsRepository(Protocol):
@@ -45,6 +46,9 @@ class LessonsRepository(Protocol):
 
   async def create_lesson(self, record: LessonRecord) -> None:
     """Persist a lesson record."""
+
+  async def upsert_lesson(self, record: LessonRecord) -> None:
+    """Insert or update a lesson record."""
 
   async def create_sections(self, records: list[SectionRecord]) -> None:
     """Persist section records."""

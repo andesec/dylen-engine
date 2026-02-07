@@ -91,6 +91,10 @@ class GeminiModel(AIModel):
     # Parse the JSON response
     # Parse the model response with a lenient fallback to reduce retry churn.
     try:
+      # The response.text is already a string, but sometimes it might be None or empty
+      if not response.text:
+        raise ValueError("Empty response from Gemini")
+
       cleaned = self.strip_json_fences(response.text)
       parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))
       return StructuredModelResponse(content=parsed, usage=usage)

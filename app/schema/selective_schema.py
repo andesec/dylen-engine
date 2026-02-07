@@ -78,20 +78,33 @@ def create_selective_widget_item(widget_names: list[str]) -> type[msgspec.Struct
       >>> SelectiveWidgetItem = create_selective_widget_item(['markdown', 'mcqs'])
       >>> # This WidgetItem only has markdown and mcqs fields
   """
-  # Build field annotations
+  # Build field annotations and defaults
   annotations = {}
+  defaults = {}
+
   for widget_name in widget_names:
     if widget_name not in WIDGET_PAYLOAD_MAP:
       raise ValueError(f"Unknown widget: {widget_name}")
     payload_type = WIDGET_PAYLOAD_MAP[widget_name]
+    # All widget fields are optional
     annotations[widget_name] = payload_type | None
+    defaults[widget_name] = None
 
-  # Create the class dynamically
-  # Note: msgspec.Struct types cannot define __init__, validation happens at construction time
-  class SelectiveWidgetItem(msgspec.Struct):
-    __annotations__ = annotations
+  def __post_init__(self):  # noqa: N807
+    # Ensure exactly one field is set
+    set_fields = 0
+    for name in widget_names:
+      if getattr(self, name) is not None:
+        set_fields += 1
 
-  return SelectiveWidgetItem
+    if set_fields != 1:
+      raise ValueError(f"Widget item must have exactly one widget key defined. Found {set_fields}.")
+
+  # Create the class dynamically using type() to ensure defaults are registered correctly
+  # msgspec.Struct uses the class dictionary at creation time to determine fields and defaults
+  class_dict = {"__annotations__": annotations, "__post_init__": __post_init__, **defaults}
+
+  return type("SelectiveWidgetItem", (msgspec.Struct,), class_dict)
 
 
 def create_selective_subsection(widget_names: list[str]) -> type[msgspec.Struct]:
@@ -106,11 +119,10 @@ def create_selective_subsection(widget_names: list[str]) -> type[msgspec.Struct]
   """
   widget_item = create_selective_widget_item(widget_names)
 
-  class SelectiveSubsection(msgspec.Struct):
-    title: Annotated[str, msgspec.Meta(min_length=1, description="Subsection title")]
-    items: Annotated[list[widget_item], msgspec.Meta(min_length=1, max_length=5, description="Widget items (1-5)")]
+  # Create the class dynamically to avoid forward reference issues
+  class_dict = {"__annotations__": {"title": Annotated[str, msgspec.Meta(min_length=1, description="Subsection title")], "items": Annotated[list[widget_item], msgspec.Meta(min_length=1, max_length=5, description="Widget items (1-5)")]}}
 
-  return SelectiveSubsection
+  return type("SelectiveSubsection", (msgspec.Struct,), class_dict)
 
 
 def create_selective_section(widget_names: list[str]) -> type[msgspec.Struct]:
@@ -132,14 +144,19 @@ def create_selective_section(widget_names: list[str]) -> type[msgspec.Struct]:
       ...     'markdown', 'flip', 'tr', 'fillblank', 'table', 'mcqs'
       ... ])
   """
-  subsection = create_selective_subsection(widget_names)
+  subsection_cls = create_selective_subsection(widget_names)
 
-  class SelectiveSection(msgspec.Struct):
-    section: Annotated[str, msgspec.Meta(min_length=1, description="Section title")]
-    markdown: Annotated[MarkdownPayload, msgspec.Meta(description="Section introduction")]
-    subsections: Annotated[list[subsection], msgspec.Meta(min_length=1, max_length=8, description="Subsections (1-8)")]
+  # Create the class dynamically to avoid forward reference issues
+  # msgspec needs to resolve type annotations, and subsection_cls is a local variable
+  class_dict = {
+    "__annotations__": {
+      "title": Annotated[str, msgspec.Meta(min_length=1, description="Section title")],
+      "markdown": Annotated[MarkdownPayload, msgspec.Meta(description="Section introduction")],
+      "subsections": Annotated[list[subsection_cls], msgspec.Meta(min_length=1, max_length=8, description="Subsections (1-8)")],
+    }
+  }
 
-  return SelectiveSection
+  return type("SelectiveSection", (msgspec.Struct,), class_dict)
 
 
 def create_selective_lesson(widget_names: list[str]) -> type[msgspec.Struct]:
@@ -152,13 +169,12 @@ def create_selective_lesson(widget_names: list[str]) -> type[msgspec.Struct]:
   Returns:
       A new LessonDocument msgspec.Struct class
   """
-  section = create_selective_section(widget_names)
+  section_cls = create_selective_section(widget_names)
 
-  class SelectiveLessonDocument(msgspec.Struct):
-    title: Annotated[str, msgspec.Meta(max_length=60, description="Lesson title")]
-    blocks: Annotated[list[section], msgspec.Meta(description="List of sections")]
+  # Create the class dynamically to avoid forward reference issues
+  class_dict = {"__annotations__": {"title": Annotated[str, msgspec.Meta(max_length=60, description="Lesson title")], "blocks": Annotated[list[section_cls], msgspec.Meta(description="List of sections")]}}
 
-  return SelectiveLessonDocument
+  return type("SelectiveLessonDocument", (msgspec.Struct,), class_dict)
 
 
 # Pre-defined common configurations

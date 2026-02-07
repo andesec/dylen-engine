@@ -65,15 +65,15 @@ services:
       - ./secrets/service-account.json:/app/service-account.json:ro
     command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt", "--no-server-header" ]
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: dylen-cloudflared
-    restart: unless-stopped
-    command: tunnel run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    networks:
-      - dylen-network
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: dylen-cloudflared
+  #   restart: unless-stopped
+  #   command: tunnel run
+  #   environment:
+  #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+  #   networks:
+  #     - dylen-network
 
 networks:
   dylen-network:

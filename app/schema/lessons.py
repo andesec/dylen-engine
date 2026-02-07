@@ -22,6 +22,7 @@ class Lesson(Base):
   provider_b: Mapped[str] = mapped_column(String, nullable=False)
   model_b: Mapped[str] = mapped_column(String, nullable=False)
   # lesson_json removed
+  lesson_plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
   status: Mapped[str] = mapped_column(String, nullable=False)
   latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
   idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)

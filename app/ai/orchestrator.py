@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import uuid
@@ -10,8 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
-from app.ai.agents import PlannerAgent, RepairerAgent, SectionBuilder, StitcherAgent
-from app.ai.pipeline.contracts import GenerationRequest, JobContext, LessonPlan, RepairInput, SectionDraft, StructuredSection, StructuredSectionBatch
+from app.ai.agents import PlannerAgent, RepairerAgent, SectionBuilder
+from app.ai.pipeline.contracts import GenerationRequest, JobContext, LessonPlan, RepairInput, SectionDraft, StructuredSection
 from app.ai.providers.base import AIModel
 from app.ai.router import get_model_for_mode
 from app.ai.utils.artifacts import build_failure_snapshot, build_partial_lesson
@@ -23,6 +24,8 @@ from app.schema.service import SchemaService
 from app.services.quota_buckets import get_quota_snapshot
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
+from app.storage.lessons_repo import SectionRecord
+from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 
 OptStr = str | None
 Msgs = list[str] | None
@@ -35,11 +38,12 @@ DEFAULT_MODEL = "gemini-2.5-pro"
 class OrchestrationResult:
   """Output from the AI orchestration layer."""
 
-  lesson_json: dict[str, Any]
+  # lesson_json removed
   provider_a: str
   model_a: str
   provider_b: str
   model_b: str
+  lesson_id: str | None = None
   validation_errors: list[str] | None = None
   logs: list[str] = field(default_factory=list)
   usage: list[dict[str, Any]] = field(default_factory=list)
@@ -82,7 +86,6 @@ class _AgentsBundle:
   planner: PlannerAgent
   section_builder: SectionBuilder
   repairer: RepairerAgent
-  stitcher: StitcherAgent
   planner_model: AIModel
   section_builder_model: AIModel
   repairer_model: AIModel
@@ -112,6 +115,7 @@ class DylenOrchestrator:
     self._schema_version = schema_version
     self._schema_service = SchemaService()
     self._fenster_technical_constraints = fenster_technical_constraints or {}
+    self._lessons_repo = PostgresLessonsRepository()
 
   async def generate_lesson(
     self,
@@ -135,7 +139,7 @@ class DylenOrchestrator:
     job_creator: JobCreator = None,
     job_metadata: dict[str, Any] | None = None,
   ) -> OrchestrationResult:
-    """Run the pipeline and return lesson JSON."""
+    """Run the pipeline and save lesson sections."""
     logger = logging.getLogger(__name__)
 
     async def _report_progress(phase_name: str, subphase: OptStr, messages: Msgs = None, advance: bool = True, partial_json: dict[str, Any] | None = None, section_progress: SectionProgressUpdate | None = None) -> None:
@@ -181,19 +185,22 @@ class DylenOrchestrator:
     # Generate Sections
     await self._run_section_generation_phase(ctx, agents, logger, section_filter, enable_repair, job_creator)
 
-    # Stitch
-    lesson_json = await self._run_stitching_phase(ctx, agents, logger)
+    # Construct a minimal lesson JSON for compatibility
+    # lesson_json generation removed
 
     # Finalize
     total_cost = calculate_total_cost(ctx.usage)
-    artifacts = {"plan": ctx.lesson_plan.model_dump(mode="python") if ctx.lesson_plan else None, "drafts": ctx.draft_artifacts, "structured_sections": ctx.structured_artifacts, "repairs": ctx.repair_artifacts, "final_lesson": lesson_json}
+    artifacts = {"plan": ctx.lesson_plan.model_dump(mode="python") if ctx.lesson_plan else None, "drafts": ctx.draft_artifacts, "structured_sections": ctx.structured_artifacts, "repairs": ctx.repair_artifacts}
 
     log_msg = "Generation pipeline complete"
     ctx.logs.append(log_msg)
     logger.info(log_msg)
 
+    lesson_id = (job_metadata or {}).get("lesson_id")
+
     return OrchestrationResult(
-      lesson_json=lesson_json,
+      # lesson_json removed
+      lesson_id=str(lesson_id) if lesson_id else None,
       provider_a=self._planner_provider,
       model_a=_model_name(agents.planner_model),
       provider_b=self._section_builder_provider,
@@ -230,20 +237,14 @@ class DylenOrchestrator:
     section_builder_model_instance = get_model_for_mode(self._section_builder_provider, section_builder_model_name, agent="section_builder")
     planner_model_instance = get_model_for_mode(self._planner_provider, planner_model_name, agent="planner")
     repairer_model_instance = get_model_for_mode(self._repair_provider, self._repair_model_name or DEFAULT_MODEL, agent="repairer")
-    # Stitcher uses section builder model implicitly or can be separate. Using section builder model for consistency if nothing else specified, but stitcher agent usually just needs a robust model.
-    # The original code used structurer model for stitcher. Let's use section builder model.
-    stitcher_model_instance = section_builder_model_instance
 
     schema = self._schema_service
 
     planner_agent = PlannerAgent(model=planner_model_instance, prov=self._planner_provider, schema=schema, use=usage_sink)
     section_builder_agent = SectionBuilder(model=section_builder_model_instance, prov=self._section_builder_provider, schema=schema, use=usage_sink)
     repairer_agent = RepairerAgent(model=repairer_model_instance, prov=self._repair_provider, schema=schema, use=usage_sink)
-    stitcher_agent = StitcherAgent(model=stitcher_model_instance, prov=self._section_builder_provider, schema=schema, use=usage_sink)
 
-    return _AgentsBundle(
-      planner=planner_agent, section_builder=section_builder_agent, repairer=repairer_agent, stitcher=stitcher_agent, planner_model=planner_model_instance, section_builder_model=section_builder_model_instance, repairer_model=repairer_model_instance
-    )
+    return _AgentsBundle(planner=planner_agent, section_builder=section_builder_agent, repairer=repairer_agent, planner_model=planner_model_instance, section_builder_model=section_builder_model_instance, repairer_model=repairer_model_instance)
 
   async def _run_planning_phase(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, job_creator: JobCreator) -> None:
     await ctx.progress_reporter("plan", "planner_start", ["Planning lesson sections..."])
@@ -255,16 +256,38 @@ class DylenOrchestrator:
 
     await ctx.progress_reporter("plan", "planner_complete", ["Lesson plan ready."])
 
+    # Persist the plan immediately so it's safe even if generation fails later.
+    # Persist the plan immediately so it's safe even if generation fails later.
+    if ctx.lesson_plan and ctx.job_context.job_id:
+      try:
+        current_lesson_id = ctx.job_context.metadata.get("lesson_id")
+        if current_lesson_id:
+          repo = PostgresLessonsRepository()
+          # We only update the plan here; other fields are managed by the worker/service.
+          # Note: We use a lightweight update or re-fetch the record first.
+          # Since upsert_lesson requires a full record, and we don't want to clobber status,
+          # we should probably fetch -> update -> upsert, or just use a specialized method if available.
+          # Given standard repo pattern, fetching first is safest.
+          record = await repo.get_lesson(current_lesson_id)
+          if record:
+            updated_record = dataclasses.replace(
+              record,
+              lesson_plan=ctx.lesson_plan.model_dump(mode="python"),
+              # Ensure we don't accidentally revert other fields if the record was stale (unlikely in this short window)
+            )
+            await repo.upsert_lesson(updated_record)
+      except Exception as exc:
+        logger.warning("Failed to persist lesson plan immediately: %s", exc)
+
     if job_creator and ctx.lesson_plan:
       await self._create_widget_jobs(ctx.lesson_plan, ctx.job_context, job_creator, logger)
 
-  async def _create_widget_jobs(self, plan: LessonPlan, job_context: JobContext, job_creator: Callable[[str, dict[str, Any]], Awaitable[None]], logger: logging.Logger) -> None:
+  async def _resolve_runtime_config(self, job_context: JobContext, logger: logging.Logger) -> dict[str, Any]:
     session_factory = get_session_factory()
     user_id_str = (job_context.metadata or {}).get("user_id")
     settings = (job_context.metadata or {}).get("settings")
     user_id = uuid.UUID(str(user_id_str)) if user_id_str else None
 
-    # Resolve runtime config if possible
     runtime_config = {}
     if session_factory and user_id and settings:
       try:
@@ -274,7 +297,16 @@ class DylenOrchestrator:
             tier_id, _ = await get_user_subscription_tier(session, user.id)
             runtime_config = await resolve_effective_runtime_config(session, settings=settings, org_id=user.org_id, subscription_tier_id=tier_id)
       except Exception as exc:
-        logger.warning("Failed to resolve runtime config for widget jobs: %s", exc)
+        logger.warning("Failed to resolve runtime config: %s", exc)
+    return runtime_config
+
+  async def _create_widget_jobs(self, plan: LessonPlan, job_context: JobContext, job_creator: Callable[[str, dict[str, Any]], Awaitable[None]], logger: logging.Logger) -> None:
+    session_factory = get_session_factory()
+    user_id_str = (job_context.metadata or {}).get("user_id")
+    user_id = uuid.UUID(str(user_id_str)) if user_id_str else None
+
+    # Resolve runtime config if possible
+    runtime_config = await self._resolve_runtime_config(job_context, logger)
 
     for section in plan.sections:
       for subsection in section.subsections:
@@ -314,6 +346,8 @@ class DylenOrchestrator:
     target_sections = set(section_filter) if section_filter else None
     target_section_count = len(target_sections) if target_sections is not None else ctx.section_count
 
+    runtime_config = await self._resolve_runtime_config(ctx.job_context, logger)
+
     if not enable_repair:
       msg = "Repair is disabled; pipeline will stop on invalid sections."
       ctx.logs.append(msg)
@@ -324,7 +358,7 @@ class DylenOrchestrator:
       if target_sections is not None and section_index not in target_sections:
         continue
 
-      await self._generate_section(ctx, agents, logger, plan_section, sections, enable_repair, job_creator)
+      await self._generate_section(ctx, agents, logger, plan_section, sections, enable_repair, job_creator, runtime_config)
 
     # Validation of collected sections
     if len(sections) < target_section_count:
@@ -338,7 +372,7 @@ class DylenOrchestrator:
       await ctx.progress_reporter("collect", "missing_sections", [error_msg], advance=False)
       raise OrchestrationError(error_msg, logs=list(ctx.logs))
 
-  async def _generate_section(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, plan_section: Any, sections: dict[int, SectionDraft], enable_repair: bool, job_creator: JobCreator) -> None:
+  async def _generate_section(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, plan_section: Any, sections: dict[int, SectionDraft], enable_repair: bool, job_creator: JobCreator, runtime_config: dict[str, Any]) -> None:
     section_index = plan_section.section_number
 
     subphase = f"build_section_{section_index}_of_{ctx.section_count}"
@@ -358,20 +392,22 @@ class DylenOrchestrator:
     ctx.draft_artifacts.append(draft.model_dump(mode="python"))
     ctx.structured_artifacts.append(structured.model_dump(mode="python"))
 
-    await self._validate_and_repair_section(ctx, agents, logger, draft, structured, section_index, enable_repair, job_creator)
+    await self._validate_and_repair_section(ctx, agents, logger, draft, structured, section_index, enable_repair, job_creator, runtime_config)
 
-  async def _validate_and_repair_section(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, draft: SectionDraft, structured: StructuredSection, section_index: int, enable_repair: bool, job_creator: JobCreator) -> None:
-    if structured.validation_errors and not enable_repair:
-      ctx.validation_errors = structured.validation_errors
-      msg = f"Section {section_index} failed validation: {structured.validation_errors}"
-      ctx.logs.append(msg)
-      logger.error("Section %s failed validation: %s", section_index, structured.validation_errors)
-      await ctx.progress_reporter("transform", f"validate_section_{section_index}_of_{ctx.section_count}", [msg], advance=False)
-      raise OrchestrationError(msg, logs=list(ctx.logs))
+  async def _validate_and_repair_section(
+    self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, draft: SectionDraft, structured: StructuredSection, section_index: int, enable_repair: bool, job_creator: JobCreator, runtime_config: dict[str, Any]
+  ) -> None:
+    # If validation errors exist, try to repair (unless disabled)
+    if structured.validation_errors:
+      if not enable_repair:
+        ctx.validation_errors = structured.validation_errors
+        msg = f"Section {section_index} failed validation: {structured.validation_errors}"
+        ctx.logs.append(msg)
+        logger.error("Section %s failed validation: %s", section_index, structured.validation_errors)
+        await ctx.progress_reporter("transform", f"validate_section_{section_index}_of_{ctx.section_count}", [msg], advance=False)
+        raise OrchestrationError(msg, logs=list(ctx.logs))
 
-    section_json = structured.payload
-
-    if enable_repair and structured.validation_errors:
+      # Attempt repair
       await ctx.progress_reporter(
         "transform",
         f"repair_section_{section_index}_of_{ctx.section_count}",
@@ -397,15 +433,56 @@ class DylenOrchestrator:
         raise OrchestrationError(msg, logs=list(ctx.logs))
 
       section_json = repair_result.fixed_json
+    else:
+      # No errors, use the payload as is
+      section_json = structured.payload
 
-    await ctx.progress_reporter("transform", f"validate_section_{section_index}_of_{ctx.section_count}", [f"Section {section_index} validated."])
+    # --- SUCCESS PATH ---
+    # 1. Convert to shorthand JSON
+    final_content = _convert_to_shorthand(section_json)
+
+    # 2. Save to DB
+    lesson_id = (ctx.job_context.metadata or {}).get("lesson_id")
+
+    if lesson_id:
+      try:
+        record = SectionRecord(section_id=str(uuid.uuid4()), lesson_id=str(lesson_id), title=draft.title, order_index=section_index, status="completed", content=final_content)
+        await self._lessons_repo.create_sections([record])
+        logger.info(f"Saved section {section_index} to DB for lesson {lesson_id}")
+      except Exception as e:
+        logger.error(f"Failed to save section to DB: {e}")
+
+    await ctx.progress_reporter("transform", f"validate_section_{section_index}_of_{ctx.section_count}", [f"Section {section_index} validated and saved."])
+
     final_section = StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
     ctx.structured_sections.append(final_section)
 
     if job_creator:
-      payload = {"section_index": section_index, "topic": ctx.topic, "section_data": section_json, "learning_data_points": section_json.get("learning_data_points", [])}
-      await job_creator("coach", payload)
-      logger.info("Created coach job for section %s", section_index)
+      # Check coach quota
+      coach_limit = int(runtime_config.get("limits.coach_sections_per_month") or 0)
+      if coach_limit > 0:
+        # Check remaining quota
+        session_factory = get_session_factory()
+        user_id_str = (ctx.job_context.metadata or {}).get("user_id")
+        user_id = uuid.UUID(str(user_id_str)) if user_id_str else None
+
+        has_quota = True
+        if session_factory and user_id:
+          try:
+            async with session_factory() as session:
+              snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key="coach.generate", period=QuotaPeriod.MONTH, limit=coach_limit)
+              if snapshot.remaining <= 0:
+                has_quota = False
+                logger.warning("Coach quota exhausted for user %s. Skipping coach job.", user_id)
+          except Exception as exc:
+            logger.error("Failed to check coach quota: %s", exc)
+
+        if has_quota:
+          payload = {"section_index": section_index, "topic": ctx.topic, "section_data": section_json, "learning_data_points": section_json.get("learning_data_points", [])}
+          await job_creator("coach", payload)
+          logger.info("Created coach job for section %s", section_index)
+      else:
+        logger.info("Coach disabled (limit=0). Skipping coach job for section %s", section_index)
 
     await ctx.progress_reporter(
       "transform",
@@ -416,30 +493,63 @@ class DylenOrchestrator:
       section_progress=create_section_progress(section_index, title=draft.title, status="completed", completed_sections=len(ctx.structured_sections)),
     )
 
-  async def _run_stitching_phase(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger) -> dict[str, Any]:
-    await ctx.progress_reporter("transform", "stitch_sections", ["Stitching sections..."])
-    log_msg = "Stitching sections..."
-    ctx.logs.append(log_msg)
-    logger.info(log_msg)
 
-    batch = StructuredSectionBatch(sections=ctx.structured_sections)
-    try:
-      stitch_result = await agents.stitcher.run(batch, ctx.job_context)
-    except Exception as exc:
-      _handle_agent_failure(ctx, logger, "Stitcher", self._section_builder_provider, agents.section_builder_model, exc)
+def _convert_to_shorthand(section_json: dict[str, Any]) -> dict[str, Any]:
+  """Convert structured section JSON (nested objects) to shorthand JSON (arrays)."""
+  import msgspec
 
-    lesson_json = stitch_result.lesson_json
-    metadata = stitch_result.metadata or {}
-    val_errors = metadata.get("validation_errors") or None
+  from app.schema.widget_models import Section
 
-    if val_errors:
-      msg = f"Stitcher validation failed: {val_errors}"
-      ctx.logs.append(msg)
-      logger.error("Stitcher validation failed: %s", val_errors)
-      await ctx.progress_reporter("transform", "stitch_sections", [msg], advance=False)
-      raise OrchestrationError(msg, logs=list(ctx.logs))
+  try:
+    # Convert dict to struct to use the .output() methods
+    section_struct = msgspec.convert(section_json, type=Section)
 
-    return lesson_json
+    # Reconstruct the section dict with shorthand items
+    shorthand_subsections = []
+    for sub in section_struct.subsections:
+      shorthand_items = []
+      for item in sub.items:
+        # Find the set widget
+        # WidgetItem has fields like markdown, flip, etc.
+        # Only one is set.
+        # We need to find which one, get its output(), and format it as expected by frontend.
+        # Assuming frontend expects: {"type": "MarkdownText", "data": [markdown, align]} or similar?
+        # OR does it expect the raw list from output()?
+        # The prompt says "object notation to array notation shorthand".
+        # Let's assume it means: {"markdown": [markdown, align]} instead of {"markdown": {"markdown": ..., "align": ...}}
+
+        # Iterate over fields to find the set one
+        # We can use msgspec.structs.asdict(item) to get a dict, then find the non-None key
+        item_dict = msgspec.structs.asdict(item)
+        for key, val in item_dict.items():
+          if val is not None:
+            # val is the Payload struct (e.g. MarkdownPayload)
+            # It has an output() method
+            if hasattr(val, "output"):
+              shorthand_data = val.output()
+              shorthand_items.append({key: shorthand_data})
+            else:
+              # Fallback if no output method (shouldn't happen for widgets)
+              shorthand_items.append({key: val})
+            break
+
+      shorthand_subsections.append({"title": sub.title, "items": shorthand_items})
+
+    # Handle section markdown
+    section_markdown = section_struct.markdown.output() if section_struct.markdown else []
+
+    return {
+      "title": section_struct.title,
+      "markdown": {"markdown": section_markdown},  # Wrapper to match item style? Or just "markdown": [...]?
+      # The original Section struct has 'markdown' field which is MarkdownPayload.
+      # If we follow the pattern, it should be converted too.
+      # Let's assume the root markdown is also shorthand.
+      "subsections": shorthand_subsections,
+    }
+
+  except Exception as e:
+    logging.getLogger(__name__).warning(f"Failed to convert to shorthand: {e}")
+    return section_json
 
 
 def _handle_agent_failure(ctx: _OrchestrationContext, logger: logging.Logger, agent_name: str, provider: str, model: AIModel, error: Exception) -> None:

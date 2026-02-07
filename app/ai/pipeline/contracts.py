@@ -110,10 +110,3 @@ class RepairResult(BaseModel):
   fixed_json: dict[str, Any]
   changes: list[str] = Field(default_factory=list)
   errors: list[str] = Field(default_factory=list)
-
-
-class FinalLesson(BaseModel):
-  """Final stitched lesson JSON with metadata."""
-
-  lesson_json: dict[str, Any]
-  metadata: dict[str, Any] | None = None

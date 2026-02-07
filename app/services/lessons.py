@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import time
 
@@ -69,7 +68,7 @@ async def process_lesson_generation(
     return
 
   # Provide user context so agents can reserve quota locally.
-  job_metadata = {"user_id": str(current_user.id), "settings": settings}
+  job_metadata = {"user_id": str(current_user.id), "settings": settings, "lesson_id": lesson_id}
   # Provide a stable job id for quota reservations when available.
   result = await orchestrator.generate_lesson(
     job_id=job_id or lesson_id,
@@ -104,11 +103,13 @@ async def process_lesson_generation(
     # Surface quota capping to clients so they can explain partial output clearly.
     logs.append(f"Quota cap applied: generated {effective_sections} section(s) (requested {requested_sections}).")
 
+  # Sections are persisted incrementally by the Orchestrator now.
+
   record = LessonRecord(
     lesson_id=lesson_id,
     user_id=str(current_user.id),
     topic=request.topic,
-    title=result.lesson_json["title"],
+    title=request.topic,
     created_at=time.strftime(_DATE_FORMAT, time.gmtime()),
     schema_version=request.schema_version or settings.schema_version,
     prompt_version=settings.prompt_version,
@@ -116,21 +117,22 @@ async def process_lesson_generation(
     model_a=result.model_a,
     provider_b=result.provider_b,
     model_b=result.model_b,
-    lesson_json=json.dumps(result.lesson_json, ensure_ascii=True),
+    # lesson_json used to be here
     status="ok",
     latency_ms=latency_ms,
     idempotency_key=idempotency_key or request.idempotency_key,
+    lesson_plan=result.artifacts.get("plan") if result.artifacts else None,
   )
 
   repo = _get_repo(settings)
-  await repo.create_lesson(record)
+  await repo.upsert_lesson(record)
   # Notify the user after a successful persistence write.
   email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=current_user.org_id, subscription_tier_id=tier_id)
   await build_notification_service(settings, email_enabled=email_enabled).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
 
   return GenerateLessonResponse(
     lesson_id=lesson_id,
-    lesson_json=result.lesson_json,
+    # lesson_json removed
     meta=LessonMeta(provider_a=result.provider_a, model_a=result.model_a, provider_b=result.provider_b, model_b=result.model_b, latency_ms=latency_ms),
     logs=logs,  # Include logs from orchestrator plus quota capping when applied.
   )

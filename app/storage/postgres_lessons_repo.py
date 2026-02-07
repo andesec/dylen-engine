@@ -39,14 +39,42 @@ class PostgresLessonsRepository(LessonsRepository):
         model_a=record.model_a,
         provider_b=record.provider_b,
         model_b=record.model_b,
-        # lesson_json removed
         status=record.status,
         latency_ms=record.latency_ms,
         idempotency_key=record.idempotency_key,
         tags=tags,
         is_archived=bool(record.is_archived),
+        lesson_plan=record.lesson_plan,
       )
       session.add(lesson)
+      await session.commit()
+
+  async def upsert_lesson(self, record: LessonRecord) -> None:
+    """Insert or update a lesson record."""
+    async with self._session_factory() as session:
+      lesson = await session.get(Lesson, record.lesson_id)
+      tags = sorted(record.tags) if record.tags else None
+      if not lesson:
+        lesson = Lesson(lesson_id=record.lesson_id)
+        session.add(lesson)
+
+      lesson.user_id = record.user_id
+      lesson.topic = record.topic
+      lesson.title = record.title
+      lesson.created_at = record.created_at
+      lesson.schema_version = record.schema_version
+      lesson.prompt_version = record.prompt_version
+      lesson.provider_a = record.provider_a
+      lesson.model_a = record.model_a
+      lesson.provider_b = record.provider_b
+      lesson.model_b = record.model_b
+      lesson.status = record.status
+      lesson.latency_ms = record.latency_ms
+      lesson.idempotency_key = record.idempotency_key
+      lesson.tags = tags
+      lesson.is_archived = bool(record.is_archived)
+      lesson.lesson_plan = record.lesson_plan
+
       await session.commit()
 
   async def create_sections(self, records: list[SectionRecord]) -> None:
@@ -129,4 +157,5 @@ class PostgresLessonsRepository(LessonsRepository):
       is_archived=bool(getattr(lesson, "is_archived", False)),
       idempotency_key=lesson.idempotency_key,
       tags=tags,
+      lesson_plan=lesson.lesson_plan,
     )
