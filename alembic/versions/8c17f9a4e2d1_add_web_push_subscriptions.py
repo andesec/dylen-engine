@@ -1,8 +1,8 @@
 """Add web push subscriptions table.
 
 Revision ID: 8c17f9a4e2d1
-Revises: f97d9c8ef481
-Create Date: 2026-02-07 05:15:55.382948
+Revises: c1a2e33c7b9d
+Create Date: 2026-02-08 00:00:01.000000
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from app.core.migration_guards import guarded_create_index, guarded_create_table
 from sqlalchemy.dialects import postgresql
 
 revision = "8c17f9a4e2d1"
-down_revision = "f97d9c8ef481"
+down_revision = "c1a2e33c7b9d"
 branch_labels = None
 depends_on = None
 REPAIR_SAFE = True

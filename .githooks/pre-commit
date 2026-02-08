@@ -134,7 +134,11 @@ fi
 
 python3 scripts/db_migration_lint.py
 python3 scripts/db_check_heads.py
-# Enforce linear history and Create Date ordering for migrations.
+# Normalize Create Date ordering before strict checks so commit-time behavior
+# matches migration-auto generation flow.
+python3 scripts/db_check_linear_history.py --fix
+git_add_migration_versions
+# Enforce linear history and Create Date ordering for migrations after autofix.
 python3 scripts/db_check_linear_history.py
 
 if [[ "${DYLEN_MIGRATION_HOOK_STRICT:-}" == "1" ]]; then
