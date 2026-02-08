@@ -3,113 +3,129 @@
   "sections": [
     {
       "section_number": 1,
-      "title": "Understanding Design and Core Purpose",
+      "title": "The Foundation: Force, Mass, and Acceleration",
       "subsections": [
         {
-          "title": "Boxerbriefs: Design and Coverage",
+          "title": "What is Force?",
+          "planned_widgets": [
+            "markdown"
+          ]
+        },
+        {
+          "title": "What is Mass?",
+          "planned_widgets": [
+            "markdown"
+          ]
+        },
+        {
+          "title": "What is Acceleration?",
+          "planned_widgets": [
+            "markdown"
+          ]
+        },
+        {
+          "title": "Force's Effect: Initiating Acceleration",
           "planned_widgets": [
             "markdown",
             "asciiDiagram"
           ]
         },
         {
-          "title": "Jockstraps: Support and Minimal Coverage",
+          "title": "Identifying the Key Players: F, m, and a",
           "planned_widgets": [
-            "markdown",
-            "asciiDiagram"
+            "mcqs"
           ]
         },
         {
-          "title": "Side-by-Side: Key Design Element Differences",
+          "title": "Predicting Motion Changes: Qualitative Reasoning",
           "planned_widgets": [
-            "compare",
-            "markdown"
+            "mcqs"
           ]
         },
         {
-          "title": "Matching Underwear to Activity: Intended Applications",
-          "planned_widgets": [
-            "swipecards",
-            "markdown"
-          ]
-        },
-        {
-          "title": "Mini-Check: Basic Design and Use",
+          "title": "Mini-Check: Core Concepts of Motion",
           "planned_widgets": [
             "mcqs"
           ]
         }
       ],
       "data_collection_points": [
-        "formal definitions and terminology for boxerbriefs and jockstraps",
-        "detailed descriptions of design elements for each type (e.g., fabric coverage, pouch design, waistband, leg length, straps)",
-        "primary functional differences and their implications",
-        "common activities or situations where each is typically worn",
-        "common misconceptions about basic design or function",
-        "2 practice tasks: identify basic design features, match underwear to activity",
-        "mini-check focus: basic design, function, and typical use; question types: multiple choice, true/false"
+        "formal definitions: Force, Mass, Acceleration",
+        "causal chains/logical structures: Force causes acceleration; Mass resists acceleration",
+        "examples: Everyday forces (push, pull, gravity), varying masses and their effect",
+        "common misconceptions: Mass vs. Weight",
+        "practice tasks: Identifying F, m, a in scenarios; predicting qualitative changes in motion",
+        "mini-check focus: Definitions, qualitative relationships. Question types: Multiple choice"
       ],
-      "goals": "Learner can differentiate between the basic design elements of boxerbriefs and jockstraps. Learner will be able to identify common situations or activities where each underwear type is typically preferred.",
-      "continuity_note": "This section establishes the foundational understanding of boxerbriefs and jockstraps by examining their distinct designs and primary functions."
+      "goals": "Learner can state Newton's Second Law of Motion qualitatively and identify the variables (Force, Mass, Acceleration) in the equation F=ma.",
+      "continuity_note": "No previous section. This section introduces the fundamental concepts necessary to understand Newton's Second Law of Motion."
     },
     {
       "section_number": 2,
-      "title": "Factors Influencing Men's Preferences and Informed Choice",
+      "title": "Newton's Second Law: Calculation and Application",
       "subsections": [
         {
-          "title": "The Appeal of Boxerbriefs: Comfort, Coverage, and Fit",
+          "title": "The Quantitative Rule: F=ma Unveiled",
           "planned_widgets": [
             "markdown",
-            "swipecards"
+            "asciiDiagram"
           ]
         },
         {
-          "title": "The Appeal of Jockstraps: Support, Airflow, and Freedom",
-          "planned_widgets": [
-            "markdown",
-            "swipecards"
-          ]
-        },
-        {
-          "title": "Activity, Climate, and Clothing: Contextual Preferences",
-          "planned_widgets": [
-            "markdown",
-            "compare"
-          ]
-        },
-        {
-          "title": "Logical Choice: Aligning Underwear with Personal Needs",
+          "title": "Breaking Down F=ma: Variables, Units, and Their Significance",
           "planned_widgets": [
             "markdown"
           ]
         },
         {
-          "title": "Common Misconceptions About Underwear Preferences",
+          "title": "Solving for the Unknown: A Step-by-Step Approach",
           "planned_widgets": [
-            "markdown",
+            "stepFlow"
+          ]
+        },
+        {
+          "title": "Numerical Problem 1: Calculating Net Force",
+          "planned_widgets": [
+            "markdown"
+          ]
+        },
+        {
+          "title": "Numerical Problem 2: Determining Mass or Acceleration",
+          "planned_widgets": [
+            "markdown"
+          ]
+        },
+        {
+          "title": "Practice Drills: Applying F=ma to Find Unknowns",
+          "planned_widgets": [
             "mcqs"
           ]
         },
         {
-          "title": "Final Quiz: Design, Satisfaction, and Informed Decision-Making",
+          "title": "Scenario Analysis: Real-World Problem Solving",
+          "planned_widgets": [
+            "mcqs"
+          ]
+        },
+        {
+          "title": "Mini-Check: Newton's Second Law in Action",
           "planned_widgets": [
             "mcqs"
           ]
         }
       ],
       "data_collection_points": [
-        "causal chains explaining how specific design features lead to satisfaction factors (e.g., support, breathability, restriction)",
-        "logical structures linking activity types (e.g., sports, daily wear, specific clothing) to optimal underwear choice",
-        "factors contributing to satisfaction for boxerbriefs (e.g., coverage, minimal movement, warmth)",
-        "factors contributing to satisfaction for jockstraps (e.g., maximum ventilation, athletic support, no leg fabric)",
-        "examples and counterexamples of appropriate/inappropriate usage",
-        "a decision-making framework for personal choice",
-        "common misconceptions about preferences and comfort",
-        "2 practice tasks: apply preference factors to scenarios, justify choices",
-        "long MCQs quiz focus: comprehensive understanding of design, function, preference factors, and informed choice; question types: multiple choice, scenario-based reasoning"
+        "formal definitions: Newton's Second Law of Motion (quantitative statement)",
+        "rules, laws, or theoretical models: The equation F=ma, its algebraic rearrangements for solving F, m, or a",
+        "causal chains/logical structures: Direct proportionality of F to a, inverse proportionality of m to a",
+        "examples: Numerical problems calculating F, m, or a with solutions",
+        "verification methods: Unit consistency checks (e.g., N = kg*m/s^2)",
+        "common misconceptions: Incorrect unit usage, algebraic errors when rearranging F=ma",
+        "practice tasks: Solving for F, m, or a given two values; applying the law in various contexts",
+        "mini-check focus: Equation application, unit knowledge, numerical problem-solving. Question types: Multiple choice"
       ],
-      "goals": "Learner can describe factors that contribute to men's satisfaction and preference for boxerbriefs. Learner can describe factors that contribute to men's satisfaction and preference for jockstraps. Learner will be able to make an informed choice between boxerbriefs and jockstraps for personal comfort and activity needs.",
-      "continuity_note": "Building on our understanding of the fundamental designs and typical uses of boxerbriefs and jockstraps, this section will delve into the deeper reasons behind men's preferences and how to make an informed choice."
+      "goals": "Learner can state Newton's Second Law of Motion with its equation, apply F=ma to calculate an unknown value in a given scenario, and solve basic numerical problems using the law.",
+      "continuity_note": "In the previous section, we defined force, mass, and acceleration and understood their qualitative relationship: force causes acceleration. This section builds on that foundation to introduce the quantitative aspect of Newton's Second Law."
     }
   ]
 }

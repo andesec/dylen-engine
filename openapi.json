@@ -1386,38 +1386,36 @@
         "title": "LessonJobResponse",
         "type": "object"
       },
-      "LessonMeta": {
-        "description": "Metadata about the lesson generation process.",
+      "LessonOutlineResponse": {
+        "description": "Lesson title, topic, and section outline.",
         "properties": {
-          "latency_ms": {
-            "title": "Latency Ms",
-            "type": "integer"
-          },
-          "model_a": {
-            "title": "Model A",
+          "lesson_id": {
+            "title": "Lesson Id",
             "type": "string"
           },
-          "model_b": {
-            "title": "Model B",
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/SectionOutline"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
             "type": "string"
           },
-          "provider_a": {
-            "title": "Provider A",
-            "type": "string"
-          },
-          "provider_b": {
-            "title": "Provider B",
+          "topic": {
+            "title": "Topic",
             "type": "string"
           }
         },
         "required": [
-          "provider_a",
-          "model_a",
-          "provider_b",
-          "model_b",
-          "latency_ms"
+          "lesson_id",
+          "topic",
+          "title",
+          "sections"
         ],
-        "title": "LessonMeta",
+        "title": "LessonOutlineResponse",
         "type": "object"
       },
       "LessonRecord": {
@@ -1554,17 +1552,6 @@
             "title": "Lesson Id",
             "type": "string"
           },
-          "meta": {
-            "$ref": "#/components/schemas/LessonMeta"
-          },
-          "prompt_version": {
-            "title": "Prompt Version",
-            "type": "string"
-          },
-          "schema_version": {
-            "title": "Schema Version",
-            "type": "string"
-          },
           "sections": {
             "items": {
               "$ref": "#/components/schemas/SectionSummary"
@@ -1586,10 +1573,7 @@
           "topic",
           "title",
           "created_at",
-          "schema_version",
-          "prompt_version",
-          "sections",
-          "meta"
+          "sections"
         ],
         "title": "LessonRecordResponse",
         "type": "object"
@@ -2128,6 +2112,71 @@
           "intendedUse"
         ],
         "title": "Personalization",
+        "type": "object"
+      },
+      "PushSubscribeRequest": {
+        "additionalProperties": false,
+        "description": "Standard browser push subscription object payload.",
+        "properties": {
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "expirationTime": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expirationtime"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/PushSubscriptionKeys"
+          }
+        },
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "title": "PushSubscribeRequest",
+        "type": "object"
+      },
+      "PushSubscriptionKeys": {
+        "additionalProperties": false,
+        "description": "Browser-provided key material for Web Push encryption.",
+        "properties": {
+          "auth": {
+            "title": "Auth",
+            "type": "string"
+          },
+          "p256dh": {
+            "title": "P256Dh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "PushSubscriptionKeys",
+        "type": "object"
+      },
+      "PushUnsubscribeRequest": {
+        "additionalProperties": false,
+        "description": "Payload for deleting an existing push subscription.",
+        "properties": {
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "PushUnsubscribeRequest",
         "type": "object"
       },
       "QuotaEntry": {
@@ -2740,6 +2789,28 @@
           "value"
         ],
         "title": "RuntimeConfigSetRequest",
+        "type": "object"
+      },
+      "SectionOutline": {
+        "description": "Title of a section and its subsections.",
+        "properties": {
+          "subsections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Subsections",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "subsections"
+        ],
+        "title": "SectionOutline",
         "type": "object"
       },
       "SectionSummary": {
@@ -5093,6 +5164,69 @@
         ]
       }
     },
+    "/v1/lessons": {
+      "get": {
+        "description": "List lessons for the current user with pagination.",
+        "operationId": "list_lessons_v1_lessons_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LessonRecordResponse"
+                  },
+                  "title": "Response List Lessons V1 Lessons Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Lessons",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
     "/v1/lessons/catalog": {
       "get": {
         "description": "Return blueprint, teaching style, and widget metadata for clients.",
@@ -5219,56 +5353,6 @@
         ]
       }
     },
-    "/v1/lessons/lessons/{lesson_id}/sections/{section_id}": {
-      "get": {
-        "description": "Get a specific section of a lesson.",
-        "operationId": "get_section_v1_lessons_lessons__lesson_id__sections__section_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "lesson_id",
-            "required": true,
-            "schema": {
-              "title": "Lesson Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "section_id",
-            "required": true,
-            "schema": {
-              "title": "Section Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Section",
-        "tags": [
-          "sections"
-        ]
-      }
-    },
     "/v1/lessons/outcomes": {
       "post": {
         "description": "Return a topic safety decision and a small set of learning outcomes.",
@@ -5311,50 +5395,6 @@
           }
         ],
         "summary": "Generate Outcomes Endpoint",
-        "tags": [
-          "lessons"
-        ]
-      }
-    },
-    "/v1/lessons/validate": {
-      "post": {
-        "description": "Validate lesson payloads from stored lessons or job results against schema and widgets.",
-        "operationId": "validate_endpoint_v1_lessons_validate_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "title": "Payload",
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Validate Endpoint",
         "tags": [
           "lessons"
         ]
@@ -5405,6 +5445,109 @@
         "summary": "Get Lesson",
         "tags": [
           "lessons"
+        ]
+      }
+    },
+    "/v1/lessons/{lesson_id}/outline": {
+      "get": {
+        "description": "Fetch the structured outline of a lesson from its plan.",
+        "operationId": "get_lesson_outline_v1_lessons__lesson_id__outline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
+            "schema": {
+              "title": "Lesson Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonOutlineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Lesson Outline",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/v1/lessons/{lesson_id}/sections/{order_index}": {
+      "get": {
+        "description": "Get a specific section of a lesson by its order index (1-based).",
+        "operationId": "get_section_v1_lessons__lesson_id__sections__order_index__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
+            "schema": {
+              "title": "Lesson Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "order_index",
+            "required": true,
+            "schema": {
+              "title": "Order Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Section",
+        "tags": [
+          "sections"
         ]
       }
     },
@@ -5489,6 +5632,104 @@
         "summary": "List Notifications",
         "tags": [
           "notifications"
+        ]
+      }
+    },
+    "/v1/push/subscribe": {
+      "post": {
+        "description": "Upsert the authenticated user's browser push subscription.",
+        "operationId": "subscribe_to_push_v1_push_subscribe_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "user-agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User-Agent"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Subscribe To Push",
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/v1/push/unsubscribe": {
+      "delete": {
+        "description": "Delete a push subscription owned by the authenticated user.",
+        "operationId": "unsubscribe_from_push_v1_push_unsubscribe_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushUnsubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Unsubscribe From Push",
+        "tags": [
+          "push"
         ]
       }
     },

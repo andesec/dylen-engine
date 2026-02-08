@@ -181,6 +181,22 @@ class SectionSummary(BaseModel):
   status: StrictStr
 
 
+class SectionOutline(BaseModel):
+  """Title of a section and its subsections."""
+
+  title: StrictStr
+  subsections: list[StrictStr]
+
+
+class LessonOutlineResponse(BaseModel):
+  """Lesson title, topic, and section outline."""
+
+  lesson_id: StrictStr
+  topic: StrictStr
+  title: StrictStr
+  sections: list[SectionOutline]
+
+
 class LessonRecordResponse(BaseModel):
   """Response payload for lesson retrieval."""
 
@@ -188,10 +204,7 @@ class LessonRecordResponse(BaseModel):
   topic: StrictStr
   title: StrictStr
   created_at: StrictStr
-  schema_version: StrictStr
-  prompt_version: StrictStr
   sections: list[SectionSummary]
-  meta: LessonMeta
 
 
 class OptionDetail(BaseModel):

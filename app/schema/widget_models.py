@@ -4,6 +4,13 @@ from typing import Annotated, Any, Literal
 
 import msgspec
 
+SECTION_TITLE_MIN_CHARS = 6
+SECTION_TITLE_MAX_CHARS = 40
+SUBSECTION_TITLE_MIN_CHARS = 6
+SUBSECTION_TITLE_MAX_CHARS = 40
+SUBSECTIONS_PER_SECTION_MIN = 1
+SUBSECTIONS_PER_SECTION_MAX = 5
+
 
 class Widget(msgspec.Struct):
   """Base class for all widgets."""
@@ -12,7 +19,7 @@ class Widget(msgspec.Struct):
 
 
 class MarkdownPayload(msgspec.Struct):
-  markdown: Annotated[str, msgspec.Meta(min_length=30, max_length=700, description="Markdown text content min 30, max 600 chars (including spaces and markdown symbols)")]
+  markdown: Annotated[str, msgspec.Meta(min_length=30, max_length=700, description="Main markdown content (30-700 chars including symbols), break into short paragraphs as needed.")]
   align: Literal["left", "center"] = "left"
 
   def output(self) -> list[str]:
@@ -20,8 +27,8 @@ class MarkdownPayload(msgspec.Struct):
 
 
 class FlipPayload(msgspec.Struct):
-  front: Annotated[str, msgspec.Meta(max_length=80, description="Front text (prompt)")]
-  back: Annotated[str, msgspec.Meta(max_length=120, description="Back text (reveal)")]
+  front: Annotated[str, msgspec.Meta(max_length=80, description="Front prompt text (max 80 chars)")]
+  back: Annotated[str, msgspec.Meta(max_length=100, description="Back reveal text (max 100 chars)")]
   front_hint: str | None = None
   back_hint: str | None = None
 
@@ -35,26 +42,26 @@ class FlipPayload(msgspec.Struct):
 
 
 class TranslationPayload(msgspec.Struct):
-  source: Annotated[str, msgspec.Meta(pattern=r"^[a-zA-Z]{2,3}[:\-] .+", description="Source text with lang prefix (e.g. 'EN: Hello')")]
-  target: Annotated[str, msgspec.Meta(pattern=r"^[a-zA-Z]{2,3}[:\-] .+", description="Target text with lang prefix (e.g. 'DE: Hallo')")]
+  source: Annotated[str, msgspec.Meta(pattern=r"^[a-zA-Z]{2,3}[:\-] .+", description="Source text with lang prefix (e.g. 'EN: Text')")]
+  target: Annotated[str, msgspec.Meta(pattern=r"^[a-zA-Z]{2,3}[:\-] .+", description="Target text with lang prefix (e.g. 'DE: Text')")]
 
   def output(self) -> list[str]:
     return [self.source, self.target]
 
 
 class FillBlankPayload(msgspec.Struct):
-  prompt: Annotated[str, msgspec.Meta(pattern=r"___", description="Prompt with '___' placeholder")]
-  answer: Annotated[str, msgspec.Meta(description="Correct answer")]
-  hint: Annotated[str, msgspec.Meta(description="Short but clear hint")]
-  explanation: Annotated[str, msgspec.Meta(description="Explanation for the answer")]
+  prompt: Annotated[str, msgspec.Meta(pattern=r"___", description="Prompt text with '___' placeholder")]
+  answer: Annotated[str, msgspec.Meta(description="The expected answer string")]
+  hint: Annotated[str, msgspec.Meta(description="Brief hint for the blank")]
+  explanation: Annotated[str, msgspec.Meta(description="Explanation of the correct answer")]
 
   def output(self) -> list[str]:
     return [self.prompt, self.answer, self.hint, self.explanation]
 
 
 class FreeTextPayload(msgspec.Struct):
-  prompt: Annotated[str, msgspec.Meta(min_length=1, description="Title shown above the editor")]
-  seed_locked: Annotated[str | None, msgspec.Meta(description="Non-removable prefix text")] = None
+  prompt: Annotated[str, msgspec.Meta(min_length=1, description="Editor label text (min 1 char)")]
+  seed_locked: Annotated[str | None, msgspec.Meta(description="Fixed non-removable prefix text")] = None
   lang: Annotated[str | None, msgspec.Meta(description="Language code (e.g. 'en')")] = None
   wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated vocabulary terms")] = None
 
@@ -70,9 +77,9 @@ class FreeTextPayload(msgspec.Struct):
 
 
 class InputLinePayload(msgspec.Struct):
-  prompt: Annotated[str, msgspec.Meta(min_length=1, description="Label/prompt for the input")]
+  prompt: Annotated[str, msgspec.Meta(min_length=1, description="Input field label (min 1 char)")]
   lang: Annotated[str | None, msgspec.Meta(description="Language code (e.g. 'en')")] = None
-  wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated terms for checking")] = None
+  wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated terms for validation")] = None
 
   def output(self) -> list[str | None]:
     res = [self.prompt]
@@ -84,8 +91,8 @@ class InputLinePayload(msgspec.Struct):
 
 
 class AsciiDiagramPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=1, description="Title shown above the diagram")]
-  diagram: Annotated[str, msgspec.Meta(min_length=1, description="Raw ASCII text (whitespace preserved)")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Title for the proper ASCII diagram (6-40 chars)")]
+  diagram: Annotated[str, msgspec.Meta(min_length=1, description="Diagram text. Make all ASCII diagram lines the same length (pad with spaces) and separate lines with \n.")]
 
   def output(self) -> list[str]:
     return [self.title, self.diagram]
@@ -103,9 +110,12 @@ class GuidedTask(msgspec.Struct):
 
 
 class InteractiveTerminalPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=1, description="Title shown above the terminal")]
-  rules: Annotated[list[TerminalRule], msgspec.Meta(min_length=1, description="List of terminal rules")]
-  guided: Annotated[list[GuidedTask] | None, msgspec.Meta(description="List of guided tasks")] = None
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Terminal title (6-40 chars)")]
+  rules: Annotated[list[TerminalRule], msgspec.Meta(min_length=1, description="Regex-based terminal rule list (min 1 rule)")]
+  guided: Annotated[list[GuidedTask] | None, msgspec.Meta(description="List of optional guided tasks")] = None
+
+  def output(self) -> dict[str, Any]:
+    return msgspec.to_builtins(self)
 
 
 class DemoRule(msgspec.Struct):
@@ -115,13 +125,16 @@ class DemoRule(msgspec.Struct):
 
 
 class TerminalDemoPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=1, description="Title shown above the demo")]
-  rules: Annotated[list[DemoRule], msgspec.Meta(min_length=1, description="List of demo steps")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Demo title (6-40 chars)")]
+  rules: Annotated[list[DemoRule], msgspec.Meta(min_length=1, description="Demo step list (min 1 step)")]
+
+  def output(self) -> dict[str, Any]:
+    return msgspec.to_builtins(self)
 
 
 class CodeEditorPayload(msgspec.Struct):
-  code: Annotated[str, msgspec.Meta(description="Code to display (string)")]
-  language: Annotated[str, msgspec.Meta(min_length=1, description="Language for syntax highlighting (e.g. 'javascript', 'python')")]
+  code: Annotated[str, msgspec.Meta(description="Code content to display")]
+  language: Annotated[str, msgspec.Meta(min_length=1, description="Syntax highlighting language (e.g. 'javascript', 'python')")]
   read_only: bool = False
   highlighted_lines: Annotated[list[int] | None, msgspec.Meta(description="List of 1-based line numbers to highlight")] = None
 
@@ -135,9 +148,9 @@ class CodeEditorPayload(msgspec.Struct):
 
 
 class SwipeCardPayload(msgspec.Struct):
-  text: Annotated[str, msgspec.Meta(max_length=120, description="Card text")]
-  correct_bucket_index: Annotated[int, msgspec.Meta(description="Correct bucket index (0 or 1)")]
-  feedback: Annotated[str, msgspec.Meta(max_length=150, description="Feedback shown after swipe")]
+  text: Annotated[str, msgspec.Meta(max_length=70, description="Card content text (max 70 chars)")]
+  correct_bucket_index: Annotated[int, msgspec.Meta(description="Correct bucket index: 0 (left) or 1 (right)")]
+  feedback: Annotated[str, msgspec.Meta(max_length=90, description="Post-swipe feedback (max 90 chars)")]
 
   def output(self) -> list[Any]:
     return [self.text, self.correct_bucket_index, self.feedback]
@@ -149,35 +162,35 @@ class BucketLabels(msgspec.Struct):
 
 
 class SwipeCardsPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=1, description="Title/instruction text for the drill")]
-  buckets: Annotated[BucketLabels, msgspec.Meta(description="Bucket labels")]
-  cards: Annotated[list[SwipeCardPayload], msgspec.Meta(min_length=1, description="List of swipe cards")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Drill instruction title (6-40 chars)")]
+  buckets: Annotated[BucketLabels, msgspec.Meta(description="Left and right bucket labels")]
+  cards: Annotated[list[SwipeCardPayload], msgspec.Meta(min_length=4, description="Swipe card list (min 4 cards)")]
 
   def output(self) -> list[Any]:
     return [self.title, [self.buckets.left, self.buckets.right], [c.output() for c in self.cards]]
 
 
 class StepFlowPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=1, description="Title shown above the flow")]
-  flow: Annotated[list[Any], msgspec.Meta(min_length=1, description="Steps and/or branch nodes (max depth: 5)")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Flow title (6-40 chars)")]
+  flow: Annotated[list[Annotated[str | list[Any], msgspec.Meta(description="Node: 'Step' (string) or [['Choice', [substeps...]], ...] branch")]], msgspec.Meta(min_length=1, description="Sequential steps or branch nodes (max depth 4)")]
 
   def output(self) -> list[Any]:
     return [self.title, self.flow]
 
 
 class ChecklistPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=1, description="Title shown above the checklist")]
-  tree: Annotated[list[Any], msgspec.Meta(min_length=1, description="Nested items and groups (max depth: 3)")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Checklist title (6-40 chars)")]
+  tree: Annotated[list[Annotated[str | list[Any], msgspec.Meta(description="Node: 'Item' (string) or ['Group Title', [children...]]")]], msgspec.Meta(min_length=1, description="Checklist items and groups (max depth 3)")]
 
   def output(self) -> list[Any]:
     return [self.title, self.tree]
 
 
 class TreeViewPayload(msgspec.Struct):
-  lesson: Annotated[dict[str, Any] | str | None, msgspec.Meta(description="Lesson data with blocks, or JSON string")]
-  title: Annotated[str | None, msgspec.Meta(description="Header shown above the tree")] = None
-  textarea_id: Annotated[str | None, msgspec.Meta(description="Editor textarea ID for scroll-to-path")] = None
-  editor_id: Annotated[str | None, msgspec.Meta(description="Editor container ID for scroll-to-path")] = None
+  lesson: Annotated[dict[str, Any] | str | None, msgspec.Meta(description="Lesson data object or JSON string")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Header shown above the tree (6-40 chars)")] | None = None
+  textarea_id: Annotated[str | None, msgspec.Meta(description="Editor textarea ID for scrolling")] = None
+  editor_id: Annotated[str | None, msgspec.Meta(description="Editor container ID for scrolling")] = None
 
   def output(self) -> list[Any]:
     res = [self.lesson]
@@ -191,10 +204,10 @@ class TreeViewPayload(msgspec.Struct):
 
 
 class MCQsQuestion(msgspec.Struct):
-  q: Annotated[str, msgspec.Meta(min_length=1, description="Question text")]
-  c: Annotated[list[str], msgspec.Meta(min_length=3, max_length=4, description="Answer choices (3-4)")]
-  a: Annotated[int, msgspec.Meta(ge=0, description="Correct answer index (0-based)")]
-  e: Annotated[str, msgspec.Meta(min_length=1, description="Explanation for the correct answer")]
+  q: Annotated[str, msgspec.Meta(min_length=20, description="Question content (min 20 chars)")]
+  c: Annotated[list[str], msgspec.Meta(min_length=3, max_length=4, description="List of 3-4 answer choices")]
+  a: Annotated[int, msgspec.Meta(ge=0, description="0-based index of the correct answer")]
+  e: Annotated[str, msgspec.Meta(min_length=30, description="Correct answer explanation (min 30 chars)")]
 
   def __post_init__(self):
     if not (0 <= self.a < len(self.c)):
@@ -202,14 +215,17 @@ class MCQsQuestion(msgspec.Struct):
 
 
 class MCQsInner(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=1, description="Quiz title")]
-  questions: Annotated[list[MCQsQuestion], msgspec.Meta(min_length=1, description="List of questions (at least 1)")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Quiz title (6-40 chars)")]
+  questions: Annotated[list[MCQsQuestion], msgspec.Meta(min_length=1, description="Question list (min 1 question)")]
+
+  def output(self) -> dict[str, Any]:
+    return msgspec.to_builtins(self)
 
 
 class FensterPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=1, description="Widget title")]
-  description: Annotated[str, msgspec.Meta(min_length=1, description="Description text explaining the concept")]
-  ai_prompt: Annotated[str, msgspec.Meta(min_length=1, description="Prompt for AI to generate HTML/JS/CSS implementation")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Widget title (6-40 chars)")]
+  description: Annotated[str, msgspec.Meta(min_length=20, description="Concept explanation text (min 20 chars)")]
+  ai_prompt: Annotated[str, msgspec.Meta(min_length=50, description="AI generation prompt to create an interactive widget based on the topic using HTML/JS/CSS (min 50 chars)")]
 
   def output(self) -> list[str]:
     return [self.title, self.description, self.ai_prompt]
@@ -222,8 +238,8 @@ class TablePayload(msgspec.Struct):
     list[list[str]],
     msgspec.Meta(
       min_length=2,  # At least header + 1 data row
-      max_length=16,  # Header + max 15 data rows
-      description="Table rows (first row is header, 2-6 columns, 2-15 data rows)",
+      max_length=10,  # Header + max 9 data rows
+      description="List of rows, where each row is a list of 2-6 strings. First row is the header.",
     ),
   ]
 
@@ -242,7 +258,7 @@ class TablePayload(msgspec.Struct):
         raise ValueError(f"Row {i} has {len(row)} columns, expected {header_cols}")
 
   def output(self) -> list[list[str]]:
-    return [self.rows]
+    return self.rows
 
 
 class CompareRow(msgspec.Struct):
@@ -257,13 +273,13 @@ class ComparePayload(msgspec.Struct):
     list[CompareRow],
     msgspec.Meta(
       min_length=2,  # At least header + 1 comparison
-      max_length=16,  # Header + max 15 comparisons
-      description="Comparison table rows (first row is headers, exactly 2 columns, first column item 1, second column item 2 to be compared)",
+      max_length=10,  # Header + max 9 comparisons
+      description="Header row + 1-9 comparison rows (exactly 2 columns)",
     ),
   ]
 
-  def output(self) -> list[list[tuple[str, str]]]:
-    return [[(r.left, r.right) for r in self.rows]]
+  def output(self) -> list[list[str]]:
+    return [[r.left, r.right] for r in self.rows]
 
 
 class WidgetItem(msgspec.Struct):
@@ -331,93 +347,90 @@ class WidgetItem(msgspec.Struct):
     if set_fields != 1:
       raise ValueError("Widget item must have exactly one widget key defined.")
 
-  def output(self) -> list[Any]:
-    """Return the array shorthand for the active widget."""
+  def output(self) -> dict[str, Any]:
+    """Return the full shorthand object/array for the active widget."""
     if self.markdown:
-      return self.markdown.output()
+      return {"markdown": self.markdown.output()}
     if self.flip:
-      return self.flip.output()
+      return {"flip": self.flip.output()}
     if self.tr:
-      return self.tr.output()
+      return {"tr": self.tr.output()}
     if self.fillblank:
-      return self.fillblank.output()
+      return {"fillblank": self.fillblank.output()}
     if self.table:
-      return self.table.output()
+      return {"table": self.table.output()}
     if self.compare:
-      return self.compare.output()
+      return {"compare": self.compare.output()}
     if self.swipecards:
-      return self.swipecards.output()
+      return {"swipecards": self.swipecards.output()}
     if self.free_text:
-      return self.free_text.output()
+      return {"freeText": self.free_text.output()}
     if self.input_line:
-      return self.input_line.output()
+      return {"inputLine": self.input_line.output()}
     if self.step_flow:
-      return self.step_flow.output()
+      return {"stepFlow": self.step_flow.output()}
     if self.ascii_diagram:
-      return self.ascii_diagram.output()
+      return {"asciiDiagram": self.ascii_diagram.output()}
     if self.checklist:
-      return self.checklist.output()
+      return {"checklist": self.checklist.output()}
     if self.interactive_terminal:
-      # InteractiveTerminalPayload doesn't have output() in the snippet, assuming it might not or I should check.
-      # Checked snippet: it does NOT have output().
-      # I should probably just return the struct or implement it?
-      # The user only mentioned "section json to array shorthand".
-      # Most widgets have it. If one is missing, maybe return as is or dict?
-      # Let's check which ones have it.
-      # InteractiveTerminalPayload - MISSING
-      # TerminalDemoPayload - MISSING
-      # CodeEditorPayload - HAS it (lines 128)
-      # TreeViewPayload - HAS it (lines 182)
-      # MCQsInner - MISSING
-      # FensterPayload - HAS it
-      pass
-
+      return {"interactiveTerminal": self.interactive_terminal.output()}
     if self.terminal_demo:
-      pass
-
+      return {"terminalDemo": self.terminal_demo.output()}
     if self.code_editor:
-      return self.code_editor.output()
+      return {"codeEditor": self.code_editor.output()}
     if self.treeview:
-      return self.treeview.output()
+      return {"treeview": self.treeview.output()}
     if self.mcqs:
-      pass
+      return {"mcqs": self.mcqs.output()}
     if self.fenster:
-      return self.fenster.output()
+      return {"fenster": self.fenster.output()}
 
-    # Fallback for complex widgets without shorthand (return as dict/struct)
-    # Using msgspec.to_builtins or similar?
-    # For now, let's just return what we can and maybe raise or return dict for others.
-    # Given the user request, I should probably implement output() for all if possible, or just fallback.
-    return msgspec.to_builtins(self)
+    # Fallback to empty if somehow none are set
+    return {}
 
 
 class Subsection(msgspec.Struct):
   """Subsection model."""
 
-  title: Annotated[str, msgspec.Meta(min_length=5, max_length=60, description="Subsection title")]
+  title: Annotated[str, msgspec.Meta(min_length=SUBSECTION_TITLE_MIN_CHARS, max_length=SUBSECTION_TITLE_MAX_CHARS, description=f"Subsection title ({SUBSECTION_TITLE_MIN_CHARS}-{SUBSECTION_TITLE_MAX_CHARS} chars)")]
   items: list[WidgetItem]
 
   def __post_init__(self):
     if not (1 <= len(self.items) <= 5):
       raise ValueError("Subsection items must be between 1 and 5")
 
+  def output(self) -> dict[str, Any]:
+    """Return the shorthand object for the subsection."""
+    return {"section": self.title, "items": [item.output() for item in self.items], "subsections": []}
+
 
 class Section(msgspec.Struct):
   """Section model."""
 
-  title: Annotated[str, msgspec.Meta(min_length=5, max_length=60, description="Section title")]
+  title: Annotated[str, msgspec.Meta(min_length=SECTION_TITLE_MIN_CHARS, max_length=SECTION_TITLE_MAX_CHARS, description=f"Section title ({SECTION_TITLE_MIN_CHARS}-{SECTION_TITLE_MAX_CHARS} chars)")]
   markdown: MarkdownPayload
-  subsections: list[Subsection]
+  subsections: Annotated[
+    list[Subsection], msgspec.Meta(min_length=SUBSECTIONS_PER_SECTION_MIN, max_length=SUBSECTIONS_PER_SECTION_MAX, description=f"At least {SUBSECTIONS_PER_SECTION_MIN} to {SUBSECTIONS_PER_SECTION_MAX} subsections divided from the section topic")
+  ]
 
   def __post_init__(self):
-    if not (1 <= len(self.subsections) <= 8):
-      raise ValueError("Section subsections must be between 1 and 8")
+    if not (SUBSECTIONS_PER_SECTION_MIN <= len(self.subsections) <= SUBSECTIONS_PER_SECTION_MAX):
+      raise ValueError(f"Section subsections must be between {SUBSECTIONS_PER_SECTION_MIN} and {SUBSECTIONS_PER_SECTION_MAX}")
+
+  def output(self) -> dict[str, Any]:
+    """Return the shorthand object for the section."""
+    items = []
+    if self.markdown:
+      items.append({"markdown": self.markdown.output()})
+
+    return {"section": self.title, "items": items, "subsections": [sub.output() for sub in self.subsections]}
 
 
 class LessonDocument(msgspec.Struct):
   """Root lesson document."""
 
-  title: Annotated[str, msgspec.Meta(max_length=60, description="Lesson title")]
+  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Lesson title (6-40 chars)")]
   blocks: list[Section]
 
 

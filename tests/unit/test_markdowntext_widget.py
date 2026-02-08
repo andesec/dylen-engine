@@ -12,12 +12,21 @@ def test_markdowntext_accepts_object() -> None:
   """Accept {"markdown": {"markdown": "...", "align": "..."}} object/struct widget payloads."""
   service = SchemaService()
   payload = {
-    "title": "T",
+    "title": "Lesson Title",
     "blocks": [
       {
-        "title": "S",
-        "markdown": {"markdown": "Section Intro"},
-        "subsections": [{"title": "Sub", "items": [{"markdown": {"markdown": "Hello"}}, {"markdown": {"markdown": "Centered", "align": "center"}}, {"markdown": {"markdown": "Left", "align": "left"}}]}],
+        "title": "Section Title",
+        "markdown": {"markdown": "Section Intro must be thirty characters long"},
+        "subsections": [
+          {
+            "title": "Subsection Title",
+            "items": [
+              {"markdown": {"markdown": "Hello this is a long enough string to pass validation."}},
+              {"markdown": {"markdown": "Centered text that is long enough.", "align": "center"}},
+              {"markdown": {"markdown": "Left aligned text that is long enough.", "align": "left"}},
+            ],
+          }
+        ],
       }
     ],
   }
@@ -57,15 +66,19 @@ def test_markdowntext_newlines_are_standard_json_escaped() -> None:
 
 def test_markdowntext_enforces_max_length() -> None:
   """Reject MarkdownText widgets when md exceeds the configured hard limit."""
-  payload = {"title": "T", "blocks": [{"title": "S", "markdown": {"markdown": "I"}, "subsections": [{"title": "Sub", "items": [{"markdown": {"markdown": "01234567890"}}]}]}]}
-  ok, errors, _model = validate_lesson(payload, max_markdown_chars=10)
+  # Use max=40 to respect schema min=30
+  long_text = "0123456789" * 5  # 50 chars
+  payload = {"title": "Lesson Title", "blocks": [{"title": "Section Title", "markdown": {"markdown": "Section Intro must be thirty characters long"}, "subsections": [{"title": "Subsection Title", "items": [{"markdown": {"markdown": long_text}}]}]}]}
+  ok, errors, _model = validate_lesson(payload, max_markdown_chars=40)
   assert not ok
   assert any("markdown exceeds max length" in error for error in errors)
 
 
 def test_markdowntext_allows_within_max_length() -> None:
   """Accept MarkdownText widgets when md is within the configured hard limit."""
-  payload = {"title": "T", "blocks": [{"title": "S", "markdown": {"markdown": "I"}, "subsections": [{"title": "Sub", "items": [{"markdown": {"markdown": "0123456789"}}]}]}]}
-  ok, errors, _model = validate_lesson(payload, max_markdown_chars=10)
+  # Use max=40 to respect schema min=30
+  short_text = "0123456789" * 3 + "abcde"  # 35 chars
+  payload = {"title": "Lesson Title", "blocks": [{"title": "Section Title", "markdown": {"markdown": "Section Intro must be thirty characters long"}, "subsections": [{"title": "Subsection Title", "items": [{"markdown": {"markdown": short_text}}]}]}]}
+  ok, errors, _model = validate_lesson(payload, max_markdown_chars=40)
   assert ok
   assert errors == []

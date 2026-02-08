@@ -35,19 +35,54 @@ Recommendations:
 ```json
 {
   "section": "Section title",
-  "items": [ /* widgets */ ],
-  "subsections": [ /* optional nested sections */ ]
+  "markdown": "{markdown object}",
+  "subsections": [
+    {
+      "section": "Subsection title",
+      "items": [
+        widgets
+      ]
+    }
+  ]
 }
 ```
 
 Constraints:
 - `section` must be a non-empty string.
-- `items` must be an array (can be empty, but avoid empty sections).
 - `subsections`, must be an array of section blocks with the same structure.
 - All widgets must be placed inside the `items` array, not alongside `section` or `subsections`.
 
 Recommendation:
 - Prefer multiple shorter sections and subsections over one long section.
+
+---
+
+## Item Widgets (inside `items`)
+
+Each item is either:
+- an object with exactly one shorthand key, or
+- a full-form widget object with `type` (advanced escape hatch).
+
+Unless the object is a block (`section`) or uses `type`, it must use exactly one key.
+
+Note:
+- Dividers are auto-inserted between widgets when a section/subsection has multiple items.
+
+### `markdown` (MarkdownText)
+
+```json
+{ "markdown": ["A short explanation, definition, or narrative context."] }
+{ "markdown": ["**Warning:** Common pitfall / misconception."] }
+{ "markdown": ["**Success:** Checkpoint: how to know you understood it."] }
+{ "markdown": ["- Item 1\n- Item 2\n- Item 3"] }
+{ "markdown": ["1. Step 1\n2. Step 2\n3. Step 3"] }
+{ "markdown": ["Centered note.", "center"] }
+{ "markdown": ["Left aligned by default.", "left"] }
+```
+
+Rules:
+- Position 0 is markdown text (`md`).
+- Position 1 is optional alignment: `"left"` or `"center"`.
 
 ---
 
@@ -86,35 +121,6 @@ Constraints:
 
 Recommendation:
 - Place a quiz as the final block. Include at least 3 questions per section you taught.
-
----
-
-## Item Widgets (inside `items`)
-
-Each item is either:
-- an object with exactly one shorthand key, or
-- a full-form widget object with `type` (advanced escape hatch).
-
-Unless the object is a block (`section`) or uses `type`, it must use exactly one key.
-
-Note:
-- Dividers are auto-inserted between widgets when a section/subsection has multiple items.
-
-### `markdown` (MarkdownText)
-
-```json
-{ "markdown": ["A short explanation, definition, or narrative context."] }
-{ "markdown": ["**Warning:** Common pitfall / misconception."] }
-{ "markdown": ["**Success:** Checkpoint: how to know you understood it."] }
-{ "markdown": ["- Item 1\n- Item 2\n- Item 3"] }
-{ "markdown": ["1. Step 1\n2. Step 2\n3. Step 3"] }
-{ "markdown": ["Centered note.", "center"] }
-{ "markdown": ["Left aligned by default.", "left"] }
-```
-
-Rules:
-- Position 0 is markdown text (`md`).
-- Position 1 is optional alignment: `"left"` or `"center"`.
 
 ---
 

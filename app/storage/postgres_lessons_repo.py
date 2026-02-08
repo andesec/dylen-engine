@@ -85,10 +85,16 @@ class PostgresLessonsRepository(LessonsRepository):
         session.add(section)
       await session.commit()
 
-  async def get_lesson(self, lesson_id: str) -> LessonRecord | None:
+  async def get_lesson(self, lesson_id: str, user_id: str | None = None) -> LessonRecord | None:
     """Fetch a lesson record by lesson identifier."""
     async with self._session_factory() as session:
-      lesson = await session.get(Lesson, lesson_id)
+      stmt = select(Lesson).where(Lesson.lesson_id == lesson_id)
+      if user_id:
+        stmt = stmt.where(Lesson.user_id == user_id)
+
+      result = await session.execute(stmt)
+      lesson = result.scalar_one_or_none()
+
       if not lesson:
         return None
       return self._model_to_record(lesson)
@@ -112,7 +118,7 @@ class PostgresLessonsRepository(LessonsRepository):
       session.add(lesson)
       await session.commit()
 
-  async def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None) -> tuple[list[LessonRecord], int]:
+  async def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None, user_id: str | None = None) -> tuple[list[LessonRecord], int]:
     """Return a paginated list of lessons with optional filters, and total count."""
     async with self._session_factory() as session:
       # Build query
@@ -125,6 +131,8 @@ class PostgresLessonsRepository(LessonsRepository):
         conditions.append(Lesson.topic == topic)
       if status:
         conditions.append(Lesson.status == status)
+      if user_id:
+        conditions.append(Lesson.user_id == user_id)
 
       if conditions:
         stmt = stmt.where(*conditions)

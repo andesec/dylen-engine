@@ -460,16 +460,24 @@ async def get_job_status(job_id: str, settings: Settings, user_id: str | None = 
 
 async def process_job_sync(job_id: str, settings: Settings) -> JobRecord | None:
   """Run a queued job immediately (synchronously)."""
-  from app.jobs.worker import JobProcessor
-
   repo = _get_jobs_repo(settings)
-  record = await repo.get_job(job_id)
+  try:
+    from app.jobs.worker import JobProcessor
 
-  if record is None:
-    return
+    record = await repo.get_job(job_id)
 
-  processor = JobProcessor(jobs_repo=repo, orchestrator=_get_orchestrator(settings), settings=settings)
-  return await processor.process_job(record)
+    if record is None:
+      return
+
+    processor = JobProcessor(jobs_repo=repo, orchestrator=_get_orchestrator(settings), settings=settings)
+    return await processor.process_job(record)
+  except Exception as exc:
+    logger.error("Synchronous job processing failed for job %s: %s", job_id, exc, exc_info=True)
+    try:
+      await repo.update_job(job_id, status="error", phase="failed", progress=100.0, logs=[f"System error during job initialization: {exc}"])
+    except Exception as update_exc:
+      logger.error("Failed to update job status after processing error: %s", update_exc)
+    return None
 
 
 def trigger_job_processing(background_tasks: BackgroundTasks, job_id: str, settings: Settings) -> None:

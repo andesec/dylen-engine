@@ -71,6 +71,10 @@ class Settings:
   mailersend_api_key: str | None
   mailersend_timeout_seconds: int
   mailersend_base_url: str
+  push_notifications_enabled: bool
+  push_vapid_public_key: str | None
+  push_vapid_private_key: str | None
+  push_vapid_sub: str | None
   tavily_api_key: str | None
   cloud_tasks_queue_path: str | None
   task_service_provider: str
@@ -176,6 +180,10 @@ def get_settings() -> Settings:
   mailersend_api_key = _optional_str(os.getenv("DYLEN_MAILERSEND_API_KEY"))
   mailersend_timeout_seconds = int(os.getenv("DYLEN_MAILERSEND_TIMEOUT_SECONDS", "10"))
   mailersend_base_url = (os.getenv("DYLEN_MAILERSEND_BASE_URL") or "https://api.mailersend.com/v1").strip()
+  push_notifications_enabled = _parse_bool(os.getenv("DYLEN_PUSH_NOTIFICATIONS_ENABLED"))
+  push_vapid_public_key = _optional_str(os.getenv("DYLEN_PUSH_VAPID_PUBLIC_KEY"))
+  push_vapid_private_key = _optional_str(os.getenv("DYLEN_PUSH_VAPID_PRIVATE_KEY"))
+  push_vapid_sub = _optional_str(os.getenv("DYLEN_PUSH_VAPID_SUB"))
 
   # Validate notification settings only when notifications are enabled.
   if email_notifications_enabled:
@@ -190,6 +198,20 @@ def get_settings() -> Settings:
 
     if mailersend_timeout_seconds <= 0:
       raise ValueError("DYLEN_MAILERSEND_TIMEOUT_SECONDS must be a positive integer.")
+
+  # Validate push configuration only when push notifications are enabled.
+  if push_notifications_enabled:
+    if not push_vapid_public_key:
+      raise ValueError("DYLEN_PUSH_VAPID_PUBLIC_KEY must be set when push notifications are enabled.")
+
+    if not push_vapid_private_key:
+      raise ValueError("DYLEN_PUSH_VAPID_PRIVATE_KEY must be set when push notifications are enabled.")
+
+    if not push_vapid_sub:
+      raise ValueError("DYLEN_PUSH_VAPID_SUB must be set when push notifications are enabled.")
+
+    if not (push_vapid_sub.startswith("mailto:") or push_vapid_sub.startswith("https://")):
+      raise ValueError("DYLEN_PUSH_VAPID_SUB must start with 'mailto:' or 'https://'.")
 
   return Settings(
     app_id=app_id,
@@ -246,6 +268,10 @@ def get_settings() -> Settings:
     mailersend_api_key=mailersend_api_key,
     mailersend_timeout_seconds=mailersend_timeout_seconds,
     mailersend_base_url=mailersend_base_url,
+    push_notifications_enabled=push_notifications_enabled,
+    push_vapid_public_key=push_vapid_public_key,
+    push_vapid_private_key=push_vapid_private_key,
+    push_vapid_sub=push_vapid_sub,
     tavily_api_key=_optional_str(os.getenv("TAVILY_API_KEY")),
     cloud_tasks_queue_path=_optional_str(os.getenv("DYLEN_CLOUD_TASKS_QUEUE_PATH")),
     task_service_provider=os.getenv("DYLEN_TASK_SERVICE_PROVIDER", "local-http").lower(),

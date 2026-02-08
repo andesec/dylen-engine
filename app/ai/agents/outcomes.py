@@ -66,12 +66,9 @@ class OutcomesAgent(BaseAgent[OutcomesAgentInput, OutcomesAgentResponse]):
       try:
         response = await self._model.generate_structured(prompt_text, schema)
       except Exception as exc:  # noqa: BLE001
-        if not is_output_error(exc):
-          raise
-        retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
-        with llm_call_context(agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="outcomes_check_retry", call_index="retry/1"):
-          response = await self._model.generate_structured(retry_prompt, schema)
-        self._record_usage(agent=self.name, purpose="outcomes_check_retry", call_index="retry/1", usage=response.usage)
+        if is_output_error(exc):
+          logger.error(f"Outcomes agent failed to generate JSON: {exc}")
+        raise
 
     self._record_usage(agent=self.name, purpose="outcomes_check", call_index="1/1", usage=response.usage)
     result_json = cast(dict[str, Any], response.content)

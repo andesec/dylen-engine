@@ -25,6 +25,9 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
 
   async def run(self, input_data: PlanSection, ctx: JobContext) -> StructuredSection:
     """Generate a structured section directly from the planner output."""
+    from app.storage.lessons_repo import SectionRecord
+    from app.storage.postgres_lessons_repo import PostgresLessonsRepository
+
     logger = logging.getLogger(__name__)
     request = ctx.request
     reservation_limit = 0
@@ -171,6 +174,21 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
         await commit_quota_reservation(
           session, user_id=reservation_user_id, metric_key="section.generate", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(ctx.job_id), section_index=int(input_data.section_number), metadata=commit_metadata
         )
+
+      # Persist the section directly
+      if not validation_errors:
+        try:
+          # Use output() to get the shorthand
+          shorthand_content = section_struct.output()
+          lesson_id = (ctx.metadata or {}).get("lesson_id")
+          if lesson_id:
+            repo = PostgresLessonsRepository()
+            record = SectionRecord(section_id=str(uuid.uuid4()), lesson_id=str(lesson_id), title=section_struct.title, order_index=int(input_data.section_number), status="completed", content=shorthand_content)
+            await repo.create_sections([record])
+            logger.info(f"SectionBuilder saved section {input_data.section_number} to DB")
+        except Exception as e:
+          logger.error(f"Failed to save section to DB in SectionBuilder: {e}", exc_info=True)
+          # We don't raise here to allow the pipeline to continue, but we log the error.
 
       return StructuredSection(section_number=section_index, payload=section_json, validation_errors=validation_errors)
     except Exception:  # noqa: BLE001

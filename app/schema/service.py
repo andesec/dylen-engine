@@ -168,38 +168,21 @@ def _issues_to_messages(issues: list[ValidationIssue]) -> list[str]:
 
 def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
   """
-  Flatten and simplify the schema.
-  - Inline structural definitions (Section, Subsection, WidgetItem).
-  - Keep Widget definitions in $defs.
-  - Remove constraints.
+  Flatten and simplify the schema while preserving $defs.
+  - Keeps $defs at the root.
+  - Keeps structural elements (Section, Subsection, etc.) as refs.
+  - Recursively cleans all nodes.
   """
-  # Extract definitions to resolve refs
   defs = schema.get("$defs", {}) or schema.get("definitions", {})
-
-  # Identify which definitions should be inlined (Structural) vs kept (Widgets)
-  def _should_inline(name: str) -> bool:
-    # Inline Section, Subsection, and WidgetItem
-    if "Section" in name or "Subsection" in name or "WidgetItem" in name:
-      return True
-    return False
 
   def _clean_node(node: Any) -> Any:
     if not isinstance(node, dict):
       return node
 
-    # Handle $ref
+    # Handle $ref - convert to standard #/$defs/ format
     if "$ref" in node:
       ref_key = node["$ref"].split("/")[-1]
-
-      if ref_key in defs:
-        if _should_inline(ref_key):
-          # Inline it!
-          return _clean_node(defs[ref_key])
-        else:
-          # Keep as ref
-          return {"$ref": f"#/$defs/{ref_key}"}
-
-      return node
+      return {"$ref": f"#/$defs/{ref_key}"}
 
     # Simplify anyOf/oneOf (handle Optional)
     for key in ("anyOf", "oneOf"):
@@ -207,26 +190,42 @@ def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
         options = node[key]
         # Filter out null types
         valid_options = [opt for opt in options if not (isinstance(opt, dict) and opt.get("type") == "null")]
+
+        # Collapse Optional[T] -> T if only one valid option left
         if len(valid_options) == 1:
-          # Collapse Optional[T] -> T
           return _clean_node(valid_options[0])
 
-        # Recurse on options
-        return {key: [_clean_node(opt) for opt in valid_options]}
+        # Recurse on all options
+        res = node.copy()
+        res[key] = [_clean_node(opt) for opt in valid_options]
+        # Remove top-level common keys that might conflict
+        res.pop("type", None)
+        return res
 
     # Process children
     new_node = node.copy()
 
     # Remove metadata and constraints
-    keys_to_remove = ("$defs", "definitions", "title", "$schema", "minItems", "maxItems", "minLength", "maxLength", "pattern", "format")
+    keys_to_remove = ("$defs", "definitions", "title", "$schema", "minItems", "maxItems", "minLength", "maxLength", "pattern", "format", "additionalProperties", "additional_properties")
     for k in keys_to_remove:
       new_node.pop(k, None)
 
     if "properties" in new_node:
       new_node["properties"] = {k: _clean_node(v) for k, v in new_node["properties"].items()}
+    elif new_node.get("type") == "object":
+      # Gemini likes to know the object can have any properties if not specified
+      new_node["additionalProperties"] = True
 
     if "items" in new_node:
       new_node["items"] = _clean_node(new_node["items"])
+    elif "prefixItems" in new_node:
+      new_node["prefixItems"] = [_clean_node(item) for item in new_node["prefixItems"]]
+      # If prefixItems is used (Tuples), Gemini often requires items: false or items: {}
+      if "items" not in new_node:
+        new_node["items"] = False
+    elif new_node.get("type") == "array":
+      # Gemini requires "items" for array types
+      new_node["items"] = {}
 
     # Fix for Gemini: enum must have type: string
     if "enum" in new_node and "type" not in new_node:
@@ -237,11 +236,10 @@ def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
   # Process the root
   cleaned_root = _clean_node(schema)
 
-  # Now build the final $defs containing only the non-inlined items (Widgets)
+  # Process all definitions
   final_defs = {}
   for name, definition in defs.items():
-    if not _should_inline(name):
-      final_defs[name] = _clean_node(definition)
+    final_defs[name] = _clean_node(definition)
 
   if final_defs:
     cleaned_root["$defs"] = final_defs

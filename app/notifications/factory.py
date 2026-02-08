@@ -6,7 +6,8 @@ from app.config import Settings
 from app.notifications.email_log_repo import EmailDeliveryLogRepository, NullEmailDeliveryLogRepository
 from app.notifications.email_sender import MailerSendConfig, MailerSendEmailSender, NullEmailSender
 from app.notifications.in_app_repo import InAppNotificationRepository, NullInAppNotificationRepository
-from app.notifications.push_sender import NullPushSender
+from app.notifications.push_sender import NullPushSender, VapidConfig, WebPushSender
+from app.notifications.push_subscription_repo import PushSubscriptionRepository
 from app.notifications.service import NotificationService
 
 
@@ -36,6 +37,14 @@ def build_notification_service(settings: Settings, *, email_enabled: bool | None
   else:
     in_app_repo = NullInAppNotificationRepository()
 
-  # Push is currently a no-op until a provider integration is configured.
-  push_sender = NullPushSender()
-  return NotificationService(email_sender=email_sender, email_log_repo=email_log_repo, push_sender=push_sender, in_app_repo=in_app_repo, email_enabled=effective_email_enabled, push_enabled=False)
+  # Push follows the same event path as email notifications in this phase.
+  effective_push_enabled = bool(settings.push_notifications_enabled) and bool(effective_email_enabled)
+  if effective_push_enabled and settings.push_vapid_public_key and settings.push_vapid_private_key and settings.push_vapid_sub:
+    push_sender = WebPushSender(vapid_config=VapidConfig(public_key=settings.push_vapid_public_key, private_key=settings.push_vapid_private_key, sub=settings.push_vapid_sub))
+  else:
+    push_sender = NullPushSender()
+
+  push_subscription_repo = PushSubscriptionRepository()
+  return NotificationService(
+    email_sender=email_sender, email_log_repo=email_log_repo, push_sender=push_sender, in_app_repo=in_app_repo, push_subscription_repo=push_subscription_repo, email_enabled=effective_email_enabled, push_enabled=effective_push_enabled
+  )

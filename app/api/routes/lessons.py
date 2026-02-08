@@ -2,25 +2,22 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.pipeline.contracts import GenerationRequest
 from app.api.deps_concurrency import verify_concurrency
-from app.api.models import MAX_REQUEST_BYTES, GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonJobResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
+from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonJobResponse, LessonOutlineResponse, LessonRecordResponse, OrchestrationFailureResponse, SectionOutline, SectionSummary
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
-from app.jobs.guardrails import estimate_bytes
 from app.jobs.models import JobRecord
 from app.jobs.progress import build_call_plan
 from app.schema.lesson_catalog import build_lesson_catalog
 from app.schema.outcomes import OutcomesAgentResponse
 from app.schema.quotas import QuotaPeriod
 from app.schema.sql import User
-from app.schema.validate_lesson import validate_lesson
 from app.services.jobs import create_job
 from app.services.outcomes import generate_lesson_outcomes
 from app.services.quota_buckets import QuotaExceededError, consume_quota, get_quota_snapshot, refund_quota
@@ -37,6 +34,29 @@ logger = logging.getLogger(__name__)
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
+@router.get("", response_model=list[LessonRecordResponse])
+async def list_lessons(settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_active_user), page: int = 1, limit: int = 10) -> list[LessonRecordResponse]:
+  """List lessons for the current user with pagination."""
+  repo = _get_repo(settings)
+  if page < 1:
+    page = 1
+  if limit < 1:
+    limit = 10
+  if limit > 100:
+    limit = 100
+
+  offset = (page - 1) * limit
+  lessons, _total = await repo.list_lessons(limit=limit, offset=offset, user_id=str(current_user.id))
+
+  response = []
+  for record in lessons:
+    sections = await repo.list_sections(record.lesson_id)
+    section_summaries = [SectionSummary(section_id=s.section_id, title=s.title, status=s.status) for s in sections]
+    response.append(LessonRecordResponse(lesson_id=record.lesson_id, topic=record.topic, title=record.title, created_at=record.created_at, sections=section_summaries))
+
+  return response
+
+
 @router.get("/catalog", response_model=LessonCatalogResponse)
 async def get_lesson_catalog(response: Response, settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db)) -> LessonCatalogResponse:  # noqa: B008
   """Return blueprint, teaching style, and widget metadata for clients."""
@@ -47,21 +67,6 @@ async def get_lesson_catalog(response: Response, settings: Settings = Depends(ge
   # Build a static payload so the client can cache the response safely.
   payload = build_lesson_catalog(settings)
   return LessonCatalogResponse(**payload)
-
-
-@router.post("/validate", response_model=ValidationResponse)
-async def validate_endpoint(payload: dict[str, Any], settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db)) -> ValidationResponse:  # noqa: B008
-  """Validate lesson payloads from stored lessons or job results against schema and widgets."""
-  # Reject oversized payloads early to reduce request-level memory/CPU DoS risk.
-  if estimate_bytes(payload) > MAX_REQUEST_BYTES:
-    return ValidationResponse(ok=False, errors=["payload: request payload is too large for validation."])
-  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=None, subscription_tier_id=None, user_id=None)
-  max_markdown_chars = int(runtime_config.get("limits.max_markdown_chars") or settings.max_markdown_chars)
-  # Treat invalid operator configuration as a server error to avoid ambiguous behavior.
-  if max_markdown_chars <= 0:
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid markdown length configuration.")
-  ok, errors, _model = validate_lesson(payload, max_markdown_chars=max_markdown_chars)
-  return ValidationResponse(ok=ok, errors=errors)
 
 
 @router.post("/outcomes", response_model=OutcomesAgentResponse)
@@ -259,31 +264,44 @@ async def get_lesson(  # noqa: B008
 ) -> LessonRecordResponse:
   """Fetch a stored lesson by identifier, consistent with async job persistence."""
   repo = _get_repo(settings)
-  record = await repo.get_lesson(lesson_id)
+  record = await repo.get_lesson(lesson_id, user_id=str(current_user.id))
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
   # Hide archived lessons from end users so retention rules are enforced server-side.
   if record.is_archived:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
 
-  if record.user_id != str(current_user.id):
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
-
   sections = await repo.list_sections(lesson_id)
-  from app.api.models import SectionSummary
 
   section_summaries = [SectionSummary(section_id=s.section_id, title=s.title, status=s.status) for s in sections]
 
-  return LessonRecordResponse(
-    lesson_id=record.lesson_id,
-    topic=record.topic,
-    title=record.title,
-    created_at=record.created_at,
-    schema_version=record.schema_version,
-    prompt_version=record.prompt_version,
-    sections=section_summaries,
-    meta=LessonMeta(provider_a=record.provider_a, model_a=record.model_a, provider_b=record.provider_b, model_b=record.model_b, latency_ms=record.latency_ms),
-  )
+  return LessonRecordResponse(lesson_id=record.lesson_id, topic=record.topic, title=record.title, created_at=record.created_at, sections=section_summaries)
+
+
+@router.get("/{lesson_id}/outline", response_model=LessonOutlineResponse)
+async def get_lesson_outline(
+  lesson_id: str,
+  settings: Settings = Depends(get_settings),  # noqa: B008
+  current_user: User = Depends(get_current_active_user),  # noqa: B008
+) -> LessonOutlineResponse:
+  """Fetch the structured outline of a lesson from its plan."""
+  repo = _get_repo(settings)
+  record = await repo.get_lesson(lesson_id, user_id=str(current_user.id))
+  if record is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
+
+  if not record.lesson_plan:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson outline not available.")
+
+  plan = record.lesson_plan
+  sections = []
+
+  # Plan is stored as a dict (from model_dump)
+  for s in plan.get("sections", []):
+    subsections = [sub.get("title", "Untitled") for sub in s.get("subsections", [])]
+    sections.append(SectionOutline(title=s.get("title", "Untitled"), subsections=subsections))
+
+  return LessonOutlineResponse(lesson_id=record.lesson_id, topic=record.topic, title=record.title, sections=sections)
 
 
 @router.post("/jobs", response_model=JobCreateResponse)

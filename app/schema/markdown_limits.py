@@ -92,12 +92,12 @@ def _collect_overlong_markdown_errors_for_item(errors: list[str], item: Any, *, 
   """Collect markdown-length errors for a single widget item."""
   if not isinstance(item, dict):
     return
-  markdown = item.get("markdown")
-  if not isinstance(markdown, list) or not markdown:
+  markdown_widget = item.get("markdown")
+  if not isinstance(markdown_widget, dict):
     return
-  md = markdown[0]
+  md = markdown_widget.get("markdown")
   if not isinstance(md, str):
     return
   # Emit an actionable message that includes the hard limit for repair prompts.
   if len(md) > max_markdown_chars:
-    errors.append(f"{path_prefix}.markdown.0: markdown exceeds max length of {max_markdown_chars} chars.")
+    errors.append(f"{path_prefix}.markdown.markdown: markdown exceeds max length of {max_markdown_chars} chars.")

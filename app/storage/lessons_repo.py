@@ -53,7 +53,7 @@ class LessonsRepository(Protocol):
   async def create_sections(self, records: list[SectionRecord]) -> None:
     """Persist section records."""
 
-  async def get_lesson(self, lesson_id: str) -> LessonRecord | None:
+  async def get_lesson(self, lesson_id: str, user_id: str | None = None) -> LessonRecord | None:
     """Fetch a lesson record by lesson identifier."""
 
   async def list_sections(self, lesson_id: str) -> list[SectionRecord]:
@@ -62,5 +62,5 @@ class LessonsRepository(Protocol):
   async def update_lesson_title(self, lesson_id: str, title: str) -> None:
     """Update an existing lesson's title."""
 
-  async def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None) -> tuple[list[LessonRecord], int]:
+  async def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None, user_id: str | None = None) -> tuple[list[LessonRecord], int]:
     """Return a paginated list of lessons with optional filters, and total count."""

@@ -96,9 +96,11 @@ def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[Widg
   # Look for patterns like: { "widget": ["field1", "field2", ...] }
   # or numbered positions like "1. `field` (type):"
 
-  # Look for "Schema (array positions):" pattern
-  if "Schema (array positions):" in section_text or "array positions" in section_text.lower():
-    is_shorthand = True
+  # Look for "Schema:" or "Schema (array positions):" pattern
+  if "Schema:" in section_text or "Schema (array positions):" in section_text or "array positions" in section_text.lower():
+    if "array positions" in section_text.lower():
+      is_shorthand = True
+
     # Extract position-based fields (e.g., "1. `prompt` (string):")
     position_pattern = r"^\s*(\d+)\.\s+`?(\w+)`?\s*(?:\(([^)]+)\))?:?\s*(.*)"
     for line in section_text.splitlines():
@@ -106,7 +108,8 @@ def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[Widg
       if match:
         pos_str, field_name, field_type_hint, description = match.groups()
         position = int(pos_str) - 1  # Convert to 0-indexed
-        shorthand_positions[position] = field_name
+        if is_shorthand:
+          shorthand_positions[position] = field_name
 
         required = "optional" not in (description or "").lower()
         field_type = "string"  # Default

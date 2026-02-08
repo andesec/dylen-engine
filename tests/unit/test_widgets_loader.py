@@ -33,9 +33,9 @@ def test_widget_definition_fields() -> None:
   # Check that shorthand widgets are correctly identified
   flip_def = registry.get_definition("flip")
   assert flip_def is not None
-  assert flip_def.is_shorthand
+  assert not flip_def.is_shorthand
 
-  # Check that we extracted shorthand positions for some widgets
+  # Check that we extracted fields for some widgets
   free_text_def = registry.get_definition("freeText")
-  if free_text_def and free_text_def.is_shorthand:
-    assert len(free_text_def.shorthand_positions) > 0
+  assert free_text_def is not None
+  assert any(f.name == "prompt" for f in free_text_def.fields)

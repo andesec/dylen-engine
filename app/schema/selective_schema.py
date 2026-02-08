@@ -7,7 +7,7 @@ that only include specific widgets, reducing schema size and token usage.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import msgspec
 
@@ -100,9 +100,29 @@ def create_selective_widget_item(widget_names: list[str]) -> type[msgspec.Struct
     if set_fields != 1:
       raise ValueError(f"Widget item must have exactly one widget key defined. Found {set_fields}.")
 
+  def output_method(self) -> dict[str, Any]:
+    """Return the shorthand object for the active widget."""
+    for name in widget_names:
+      val = getattr(self, name)
+      if val is not None:
+        # Map back to camelCase if needed, or just use the field name if it matches the shorthand key
+        # The WIDGET_PAYLOAD_MAP keys are already the shorthand keys (mostly)
+        # But wait, WIDGET_PAYLOAD_MAP has both snake_case and camelCase keys pointing to the same payload.
+        # We need to ensure we use the correct shorthand key.
+        # Simple heuristic: if the field name is snake_case and has a camelCase alias in the map, use the camelCase one?
+        # Actually, let's look at how the standard WidgetItem.output works. it explicitly maps 'ascii_diagram' to 'asciiDiagram'.
+        # We should probably pass the shorthand key mapping or derive it.
+        # For now, let's assume the keys used to create the selective item ARE the shorthand keys (or close enough).
+        # The user's prompt examples show keys like "asciiDiagram", "freeText".
+        # value in WIDGET_PAYLOAD_MAP keys.
+
+        # We need to return {key: val.output()}
+        return {name: val.output()}
+    return {}
+
   # Create the class dynamically using type() to ensure defaults are registered correctly
   # msgspec.Struct uses the class dictionary at creation time to determine fields and defaults
-  class_dict = {"__annotations__": annotations, "__post_init__": __post_init__, **defaults}
+  class_dict = {"__annotations__": annotations, "__post_init__": __post_init__, "output": output_method, **defaults}
 
   return type("SelectiveWidgetItem", (msgspec.Struct,), class_dict)
 
@@ -120,7 +140,13 @@ def create_selective_subsection(widget_names: list[str]) -> type[msgspec.Struct]
   widget_item = create_selective_widget_item(widget_names)
 
   # Create the class dynamically to avoid forward reference issues
-  class_dict = {"__annotations__": {"title": Annotated[str, msgspec.Meta(min_length=1, description="Subsection title")], "items": Annotated[list[widget_item], msgspec.Meta(min_length=1, max_length=5, description="Widget items (1-5)")]}}
+  def output_method(self) -> dict[str, Any]:
+    return {"section": self.title, "items": [item.output() for item in self.items], "subsections": []}
+
+  class_dict = {
+    "__annotations__": {"title": Annotated[str, msgspec.Meta(min_length=1, description="Subsection title")], "items": Annotated[list[widget_item], msgspec.Meta(min_length=1, max_length=5, description="Widget items (1-5)")]},
+    "output": output_method,
+  }
 
   return type("SelectiveSubsection", (msgspec.Struct,), class_dict)
 
@@ -153,7 +179,8 @@ def create_selective_section(widget_names: list[str]) -> type[msgspec.Struct]:
       "title": Annotated[str, msgspec.Meta(min_length=1, description="Section title")],
       "markdown": Annotated[MarkdownPayload, msgspec.Meta(description="Section introduction")],
       "subsections": Annotated[list[subsection_cls], msgspec.Meta(min_length=1, max_length=8, description="Subsections (1-8)")],
-    }
+    },
+    "output": lambda self: {"section": self.title, "items": [{"markdown": self.markdown.output()}] if self.markdown else [], "subsections": [s.output() for s in self.subsections]},
   }
 
   return type("SelectiveSection", (msgspec.Struct,), class_dict)

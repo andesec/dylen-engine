@@ -9,6 +9,7 @@ from typing import Any
 
 from app.ai.pipeline.contracts import GenerationRequest, PlanSection, SectionDraft
 from app.schema.service import DEFAULT_WIDGETS_PATH
+from app.schema.widget_models import SECTION_TITLE_MAX_CHARS, SECTION_TITLE_MIN_CHARS, SUBSECTION_TITLE_MAX_CHARS, SUBSECTION_TITLE_MIN_CHARS, SUBSECTIONS_PER_SECTION_MAX, SUBSECTIONS_PER_SECTION_MIN
 from app.schema.widgets_loader import load_widget_registry
 
 JsonDict = dict[str, Any]
@@ -123,6 +124,8 @@ def render_planner_prompt(request: Req) -> str:
     "TEACHING_STYLE_ADDENDUM": teaching_style,
     "PRIMARY_LANGUAGE": primary_language,
     "SECTION_COUNT": str(request.section_count),
+    "SUBSECTIONS_PER_SECTION_RULE": f"{SUBSECTIONS_PER_SECTION_MIN}-{SUBSECTIONS_PER_SECTION_MAX} subsections per section",
+    "TITLE_CONSTRAINTS_RULE": (f"Section titles must be {SECTION_TITLE_MIN_CHARS}-{SECTION_TITLE_MAX_CHARS} chars; subsection titles must be {SUBSECTION_TITLE_MIN_CHARS}-{SUBSECTION_TITLE_MAX_CHARS} chars."),
   }
   rendered_prompt = _replace_placeholders(prompt_template, replacements)
   return rendered_prompt

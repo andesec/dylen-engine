@@ -9,7 +9,8 @@ RULES
 - Exactly {{SECTION_COUNT}} sections
 - Use ONLY supportedWidgets
 - planned_widgets required in every subsection
-- 3–8 subsections per section
+- {{SUBSECTIONS_PER_SECTION_RULE}}
+- {{TITLE_CONSTRAINTS_RULE}}
 - Last subsection = mini-check (quiz)
 - Subsection titles must be fact, logic and subtopic-specific
 - Subsections within each section must be purpose-built for that section’s goal; avoid repeating identical subsection patterns, task types, or learning sequences across sections unless explicitly required by the topic.

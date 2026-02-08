@@ -24,7 +24,6 @@ from app.schema.service import SchemaService
 from app.services.quota_buckets import get_quota_snapshot
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
-from app.storage.lessons_repo import SectionRecord
 from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 
 OptStr = str | None
@@ -438,21 +437,10 @@ class DylenOrchestrator:
       section_json = structured.payload
 
     # --- SUCCESS PATH ---
-    # 1. Convert to shorthand JSON
-    final_content = _convert_to_shorthand(section_json)
+    # Section has already been saved by SectionBuilder or Repairer (if successful)
+    # We just need to update the structured artifacts
 
-    # 2. Save to DB
-    lesson_id = (ctx.job_context.metadata or {}).get("lesson_id")
-
-    if lesson_id:
-      try:
-        record = SectionRecord(section_id=str(uuid.uuid4()), lesson_id=str(lesson_id), title=draft.title, order_index=section_index, status="completed", content=final_content)
-        await self._lessons_repo.create_sections([record])
-        logger.info(f"Saved section {section_index} to DB for lesson {lesson_id}")
-      except Exception as e:
-        logger.error(f"Failed to save section to DB: {e}")
-
-    await ctx.progress_reporter("transform", f"validate_section_{section_index}_of_{ctx.section_count}", [f"Section {section_index} validated and saved."])
+    await ctx.progress_reporter("transform", f"validate_section_{section_index}_of_{ctx.section_count}", [f"Section {section_index} validated."])
 
     final_section = StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
     ctx.structured_sections.append(final_section)
@@ -492,64 +480,6 @@ class DylenOrchestrator:
       partial_json=build_partial_lesson(ctx.structured_sections, ctx.topic),
       section_progress=create_section_progress(section_index, title=draft.title, status="completed", completed_sections=len(ctx.structured_sections)),
     )
-
-
-def _convert_to_shorthand(section_json: dict[str, Any]) -> dict[str, Any]:
-  """Convert structured section JSON (nested objects) to shorthand JSON (arrays)."""
-  import msgspec
-
-  from app.schema.widget_models import Section
-
-  try:
-    # Convert dict to struct to use the .output() methods
-    section_struct = msgspec.convert(section_json, type=Section)
-
-    # Reconstruct the section dict with shorthand items
-    shorthand_subsections = []
-    for sub in section_struct.subsections:
-      shorthand_items = []
-      for item in sub.items:
-        # Find the set widget
-        # WidgetItem has fields like markdown, flip, etc.
-        # Only one is set.
-        # We need to find which one, get its output(), and format it as expected by frontend.
-        # Assuming frontend expects: {"type": "MarkdownText", "data": [markdown, align]} or similar?
-        # OR does it expect the raw list from output()?
-        # The prompt says "object notation to array notation shorthand".
-        # Let's assume it means: {"markdown": [markdown, align]} instead of {"markdown": {"markdown": ..., "align": ...}}
-
-        # Iterate over fields to find the set one
-        # We can use msgspec.structs.asdict(item) to get a dict, then find the non-None key
-        item_dict = msgspec.structs.asdict(item)
-        for key, val in item_dict.items():
-          if val is not None:
-            # val is the Payload struct (e.g. MarkdownPayload)
-            # It has an output() method
-            if hasattr(val, "output"):
-              shorthand_data = val.output()
-              shorthand_items.append({key: shorthand_data})
-            else:
-              # Fallback if no output method (shouldn't happen for widgets)
-              shorthand_items.append({key: val})
-            break
-
-      shorthand_subsections.append({"title": sub.title, "items": shorthand_items})
-
-    # Handle section markdown
-    section_markdown = section_struct.markdown.output() if section_struct.markdown else []
-
-    return {
-      "title": section_struct.title,
-      "markdown": {"markdown": section_markdown},  # Wrapper to match item style? Or just "markdown": [...]?
-      # The original Section struct has 'markdown' field which is MarkdownPayload.
-      # If we follow the pattern, it should be converted too.
-      # Let's assume the root markdown is also shorthand.
-      "subsections": shorthand_subsections,
-    }
-
-  except Exception as e:
-    logging.getLogger(__name__).warning(f"Failed to convert to shorthand: {e}")
-    return section_json
 
 
 def _handle_agent_failure(ctx: _OrchestrationContext, logger: logging.Logger, agent_name: str, provider: str, model: AIModel, error: Exception) -> None:

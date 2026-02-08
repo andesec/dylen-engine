@@ -10,7 +10,6 @@ from collections.abc import Awaitable, Callable, Iterable
 from datetime import datetime
 from typing import Any
 
-import msgspec  # Explicit import for array conversion
 from pydantic import ValidationError
 
 from app.ai.agents.coach import CoachAgent
@@ -29,7 +28,6 @@ from app.notifications.factory import build_notification_service
 from app.schema.fenster import FensterWidget, FensterWidgetType
 from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
-from app.schema.widget_models import Section
 from app.services.maintenance import archive_old_lessons
 from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
 from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
@@ -39,8 +37,8 @@ from app.services.tasks.factory import get_task_enqueuer
 from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
-from app.storage.lessons_repo import LessonRecord, SectionRecord
-from app.utils.html import compress_html
+from app.storage.lessons_repo import LessonRecord
+from app.utils.compression import compress_html
 from app.utils.ids import generate_lesson_id
 from app.writing.orchestrator import WritingCheckOrchestrator
 
@@ -472,42 +470,9 @@ class JobProcessor:
         status="ok",
         latency_ms=latency_ms,
         idempotency_key=request_model.idempotency_key,
+        lesson_plan=orchestration_result.artifacts.get("plan") if orchestration_result.artifacts else None,
       )
-      # Save Sections with array shorthand conversion
-      repo = _get_repo(self._settings)
-      if orchestration_result.artifacts and "structured_sections" in orchestration_result.artifacts:
-        raw_sections = orchestration_result.artifacts["structured_sections"]
-        section_records = []
-        for sec in raw_sections:
-          payload = sec.get("json")
-          if not payload:
-            continue
-
-          try:
-            # Convert dict to Section model to ensure validity
-            section_model = msgspec.convert(payload, Section)
-
-            # Transform subsections/items to shorthand
-            converted_subsections = []
-            for sub in section_model.subsections:
-              converted_items = []
-              for item in sub.items:
-                try:
-                  converted_items.append(item.output())
-                except Exception:
-                  # Fallback if output() fails or isn't implemented
-                  converted_items.append(msgspec.to_builtins(item))
-
-              converted_subsections.append({"title": sub.title, "items": converted_items})
-
-            converted_content = {"title": section_model.title, "markdown": section_model.markdown.output(), "subsections": converted_subsections}
-
-            section_records.append(SectionRecord(section_id=str(uuid.uuid4()), lesson_id=lesson_id, title=section_model.title, order_index=sec.get("section_number", 0), status="completed", content=converted_content))
-          except Exception as e:
-            self._logger.warning("Failed to process section %s for persistence: %s", sec.get("section_number"), e)
-
-        if section_records:
-          await repo.create_sections(section_records)
+      # Save Sections logic removed - handled by SectionBuilder
 
       # Save Lesson Record
       await repo.upsert_lesson(final_lesson_record)
