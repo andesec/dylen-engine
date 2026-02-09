@@ -1,3 +1,4 @@
+import base64
 import logging
 import warnings
 from typing import Any, Final, cast
@@ -76,6 +77,34 @@ class VertexAIModel(AIModel):
       raise RuntimeError("No audio data received from Vertex AI.")
     except Exception as e:
       logger.error(f"Vertex AI speech generation failed: {e}")
+      raise
+
+  async def generate_image(self, prompt: str) -> bytes:
+    try:
+      response = await self._client.aio.models.generate_content(model=self.name, contents=prompt)
+      for candidate in list(getattr(response, "candidates", []) or []):
+        content = getattr(candidate, "content", None)
+        parts = list(getattr(content, "parts", []) or [])
+        for part in parts:
+          inline_data = getattr(part, "inline_data", None)
+          if inline_data is None:
+            continue
+          data = getattr(inline_data, "data", None)
+          if isinstance(data, bytes):
+            return data
+          if isinstance(data, str):
+            return base64.b64decode(data)
+      if response.parts:
+        for part in response.parts:
+          if part.inline_data and part.inline_data.data:
+            data = part.inline_data.data
+            if isinstance(data, bytes):
+              return data
+            if isinstance(data, str):
+              return base64.b64decode(data)
+      raise RuntimeError("No image data received from Vertex AI.")
+    except Exception as e:
+      logger.error(f"Vertex AI image generation failed: {e}")
       raise
 
 

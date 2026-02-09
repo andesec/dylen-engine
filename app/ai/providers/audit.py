@@ -27,21 +27,27 @@ class AuditModel(AIModel):
     """Generate a structured response while capturing an audit trail."""
     return cast(StructuredModelResponse, await self._capture(prompt=prompt, schema=schema))
 
-  async def _capture(self, *, prompt: str, schema: dict[str, Any] | None) -> ModelResponse:
+  async def generate_image(self, prompt: str) -> bytes:
+    """Generate image bytes while capturing an audit trail."""
+    return cast(bytes, await self._capture(prompt=prompt, schema=None, call_mode="generate_image"))
+
+  async def _capture(self, *, prompt: str, schema: dict[str, Any] | None, call_mode: str | None = None) -> ModelResponse | bytes:
     """Call the underlying model while capturing audit metadata."""
     started_at = utc_now()
     start_time = time.monotonic()
-    response: ModelResponse | StructuredModelResponse | None = None
+    response: Any = None
     # Serialize prompt + schema so the request can be stored before any network call.
     request_payload = serialize_request(prompt, schema)
-    request_type = "generate_structured" if schema is not None else "generate"
+    request_type = call_mode or ("generate_structured" if schema is not None else "generate")
     # Insert the pending call record so failures are still tracked.
     call_id = await start_llm_call(provider=self._provider_name, model=self.name, request_type=request_type, request_payload=request_payload, started_at=started_at)
 
     # Capture timing and usage even when the provider raises.
 
     try:
-      if schema is None:
+      if request_type == "generate_image":
+        response = await self._model.generate_image(prompt)
+      elif schema is None:
         response = await self._model.generate(prompt)
 
       else:
@@ -54,7 +60,10 @@ class AuditModel(AIModel):
       duration_ms = int((time.monotonic() - start_time) * 1000)
       error = cast(BaseException | None, sys.exc_info()[1])
       usage = getattr(response, "usage", None) if response is not None else None
-      content = getattr(response, "content", None) if response is not None else None
+      if isinstance(response, (bytes, bytearray)):
+        content: Any = f"<binary:{len(response)} bytes>"
+      else:
+        content = getattr(response, "content", None) if response is not None else response
       response_payload = serialize_response(content)
       await finalize_llm_call(call_id=call_id, response_payload=response_payload, usage=usage, duration_ms=duration_ms, error=error)
 

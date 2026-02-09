@@ -418,12 +418,17 @@ async def cancel_job(job_id: str, settings: Settings, user_id: str | None = None
 
 async def get_job_status(job_id: str, settings: Settings, user_id: str | None = None) -> JobStatusResponse:
   """Fetch the status and result of a background job."""
+  # Require caller identity so job status reads are always user-scoped.
+  if not user_id:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
   repo = _get_jobs_repo(settings)
   record = await repo.get_job(job_id)
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_JOB_NOT_FOUND_MSG)
 
-  if user_id and record.user_id != user_id:
+  # Enforce strict ownership check against the JWT user id.
+  if record.user_id != user_id:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
   child_jobs = await _resolve_child_jobs(record, settings)

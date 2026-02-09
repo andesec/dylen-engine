@@ -146,7 +146,7 @@ def require_permission(permission_slug: str):  # noqa: ANN001
     flag = await get_feature_flag_by_key(db, key=permission_flag_key)
     if flag is not None:
       tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
-      enabled = await is_feature_enabled(db, key=permission_flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id)
+      enabled = await is_feature_enabled(db, key=permission_flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
       if not enabled:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission disabled")
 
@@ -162,7 +162,7 @@ def require_feature_flag(flag_key: str):  # noqa: ANN001
     """Resolve the flag for the current tenant/tier and enforce it."""
     # Enforce secure defaults by treating missing flags as disabled.
     tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
-    enabled = await is_feature_enabled(db, key=flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id)
+    enabled = await is_feature_enabled(db, key=flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
     if not enabled:
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "FEATURE_DISABLED", "flag": flag_key})
     return current_user

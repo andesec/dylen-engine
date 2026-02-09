@@ -199,6 +199,41 @@ def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
   """
   defs = schema.get("$defs", {}) or schema.get("definitions", {})
 
+  def _with_nullable_type(option: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert a cleaned option schema into a nullable type schema when possible."""
+    option_type = option.get("type")
+    if isinstance(option_type, str):
+      nullable_option = option.copy()
+      nullable_option["type"] = [option_type, "null"]
+      return nullable_option
+    if isinstance(option_type, list):
+      nullable_option = option.copy()
+      if "null" not in option_type:
+        nullable_option["type"] = [*option_type, "null"]
+      return nullable_option
+    return None
+
+  def _simplify_union(key: str, options: list[Any], node: dict[str, Any]) -> dict[str, Any]:
+    """Simplify anyOf/oneOf while preserving nullable unions required by structured output."""
+    cleaned_options = [_clean_node(option) for option in options]
+    non_null_options = [option for option in cleaned_options if not (isinstance(option, dict) and option.get("type") == "null")]
+    has_null_option = len(non_null_options) != len(cleaned_options)
+
+    # Optional[T] should remain nullable after simplification; convert to type union when possible.
+    if has_null_option and len(non_null_options) == 1 and isinstance(non_null_options[0], dict):
+      nullable_option = _with_nullable_type(non_null_options[0])
+      if nullable_option is not None:
+        return nullable_option
+
+    # Collapse single-option unions for cleaner schemas when null is not involved.
+    if not has_null_option and len(cleaned_options) == 1 and isinstance(cleaned_options[0], dict):
+      return cleaned_options[0]
+
+    union_node = node.copy()
+    union_node[key] = cleaned_options
+    union_node.pop("type", None)
+    return union_node
+
   def _clean_node(node: Any) -> Any:
     if not isinstance(node, dict):
       return node
@@ -212,19 +247,8 @@ def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
     for key in ("anyOf", "oneOf"):
       if key in node:
         options = node[key]
-        # Filter out null types
-        valid_options = [opt for opt in options if not (isinstance(opt, dict) and opt.get("type") == "null")]
-
-        # Collapse Optional[T] -> T if only one valid option left
-        if len(valid_options) == 1:
-          return _clean_node(valid_options[0])
-
-        # Recurse on all options
-        res = node.copy()
-        res[key] = [_clean_node(opt) for opt in valid_options]
-        # Remove top-level common keys that might conflict
-        res.pop("type", None)
-        return res
+        if isinstance(options, list):
+          return _simplify_union(key, options, node)
 
     # Process children
     new_node = node.copy()

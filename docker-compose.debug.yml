@@ -39,6 +39,17 @@ services:
     entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
     restart: "no"
 
+  gcs-emulator:
+    image: fsouza/fake-gcs-server:latest
+    container_name: dylen-gcs-emulator
+    command: [ "-scheme", "http", "-port", "4443", "-backend", "filesystem", "-filesystem-root", "/data" ]
+    ports:
+      - "4443:4443"
+    volumes:
+      - ./storage_data:/data
+    networks:
+      - dylen-network
+
   app:
     build:
       context: .
@@ -49,6 +60,8 @@ services:
         condition: service_healthy
       postgres-init:
         condition: service_completed_successfully
+      gcs-emulator:
+        condition: service_started
     env_file:
       - .env
     environment:
@@ -60,6 +73,8 @@ services:
       - DYLEN_DUMMY_OUTCOMES_RESPONSE_PATH=./fixtures/dummy_outcomes_response.md
       - DYLEN_DUMMY_SECTION_BUILDER_RESPONSE_PATH=./fixtures/dummy_section_builder_response.md
       - DYLEN_DUMMY_REPAIRER_RESPONSE_PATH=./fixtures/dummy_repairer_response.md
+      - GCS_STORAGE_HOST=http://gcs-emulator:4443/storage/v1/
+      - DYLEN_ILLUSTRATION_BUCKET=dylen-illustrations
     networks:
       - dylen-network
     ports:

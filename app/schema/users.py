@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+GEMINI_LANGUAGE_CODES = frozenset({"en", "es", "fr", "de", "zh", "ja", "ko", "pt", "it", "ru", "ar", "hi", "bn", "tr", "vi", "pl", "nl", "id"})
+
 
 def _to_camel(string: str) -> str:
   """Convert snake_case to camelCase so the API accepts frontend-style payloads."""
@@ -31,6 +33,8 @@ class Personalization(BaseModel):
   topics_of_interest: list[str] = Field(..., description="List of topics user is interested in")
   intended_use: str = Field(..., description="Intended use of the platform")
   intended_use_other: str | None = Field(None, description="Other intended use if applicable")
+  primary_language: str = Field(..., description="Primary language code (e.g., 'en', 'es')")
+  secondary_language: str | None = Field(None, description="Secondary language code (e.g., 'de') or null")
 
   @field_validator("topics_of_interest")
   @classmethod
@@ -38,6 +42,16 @@ class Personalization(BaseModel):
     if not v:
       raise ValueError("At least one topic of interest is required")
     return v
+
+  @field_validator("primary_language", "secondary_language")
+  @classmethod
+  def validate_languages(cls, v: str | None) -> str | None:
+    if v is None:
+      return v
+    normalized = v.strip().lower()
+    if normalized not in GEMINI_LANGUAGE_CODES:
+      raise ValueError(f"Language '{v}' is not supported")
+    return normalized
 
 
 class LegalConsent(BaseModel):

@@ -127,7 +127,7 @@ async def process_lesson_generation(
   repo = _get_repo(settings)
   await repo.upsert_lesson(record)
   # Notify the user after a successful persistence write.
-  email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=current_user.org_id, subscription_tier_id=tier_id)
+  email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
   await build_notification_service(settings, email_enabled=email_enabled).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
 
   return GenerateLessonResponse(

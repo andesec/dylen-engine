@@ -11,9 +11,11 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from app.ai.agents.coach import CoachAgent
 from app.ai.agents.fenster_builder import FensterBuilderAgent
+from app.ai.agents.illustration import IllustrationAgent
 from app.ai.orchestrator import DylenOrchestrator, OrchestrationError, OrchestrationResult
 from app.ai.pipeline.contracts import GenerationRequest, JobContext
 from app.ai.router import get_model_for_mode
@@ -26,6 +28,8 @@ from app.jobs.models import JobRecord
 from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
 from app.notifications.factory import build_notification_service
 from app.schema.fenster import FensterWidget, FensterWidgetType
+from app.schema.illustrations import Illustration, SectionIllustration
+from app.schema.lessons import Section
 from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
 from app.services.maintenance import archive_old_lessons
@@ -33,6 +37,8 @@ from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
 from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.section_shorthand import build_section_shorthand_content
+from app.services.storage_client import build_storage_client
 from app.services.tasks.factory import get_task_enqueuer
 from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.factory import _get_repo
@@ -62,6 +68,9 @@ class JobProcessor:
 
     if job.target_agent == "coach":
       return await self._process_coach_job(job)
+
+    if job.target_agent == "illustration":
+      return await self._process_illustration_job(job)
 
     if job.target_agent == "maintenance":
       return await self._process_maintenance_job(job)
@@ -221,6 +230,209 @@ class JobProcessor:
     except Exception as exc:
       self._logger.error("Coach job failed", exc_info=True)
       await tracker.fail(phase="failed", message=f"Coach job failed: {exc}")
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      await self._jobs_repo.update_job(job.job_id, **payload)
+      return None
+
+  async def _process_illustration_job(self, job: JobRecord) -> JobRecord | None:
+    """Execute section illustration generation and persistence."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="illustration", initial_logs=["Illustration job picked up."])
+    await tracker.set_phase(phase="building", subphase="generating_image")
+
+    payload = job.request.get("payload", {})
+    section_id = int(payload.get("section_id") or 0)
+    illustration_row_id: int | None = None
+    uploaded_object_name: str | None = None
+    generation_caption: str | None = None
+    generation_prompt: str | None = None
+    generation_keywords: list[str] | None = None
+    finalized_success = False
+
+    try:
+      if section_id <= 0:
+        raise ValueError("Illustration job payload missing valid section_id.")
+
+      session_factory = get_session_factory()
+      if session_factory is None:
+        raise RuntimeError("Database session factory unavailable.")
+      storage_client = build_storage_client(self._settings)
+
+      # Resolve section row first to support idempotency checks and fallback metadata.
+      async with session_factory() as session:
+        section_stmt = select(Section).where(Section.section_id == section_id)
+        section_result = await session.execute(section_stmt)
+        section_row = section_result.scalar_one_or_none()
+        if section_row is None:
+          raise RuntimeError(f"Section {section_id} not found for illustration job.")
+        section_content = dict(section_row.content or {})
+
+      fallback_caption, fallback_prompt, fallback_keywords = _derive_illustration_metadata_from_payload(payload, section_content)
+      generation_caption = fallback_caption
+      generation_prompt = fallback_prompt
+      generation_keywords = fallback_keywords
+
+      # Check active section pointer first so retried child jobs are idempotent.
+      async with session_factory() as session:
+        section_row = await session.get(Section, section_id)
+        if section_row is None:
+          raise RuntimeError(f"Section {section_id} not found for illustration job.")
+        existing_illustration_id = _extract_section_illustration_id(section_row.content)
+        if existing_illustration_id is not None:
+          existing_illustration = await session.get(Illustration, existing_illustration_id)
+          if existing_illustration is not None and existing_illustration.status == "completed" and await storage_client.exists(existing_illustration.storage_object_name):
+            total_cost = calculate_total_cost([])
+            cost_summary = _summarize_cost([], total_cost)
+            await tracker.set_cost(cost_summary)
+            completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            result_json = {"section_id": section_id, "illustration_id": int(existing_illustration.id), "image_name": existing_illustration.storage_object_name, "skipped": True}
+            update_payload = {
+              "status": "done",
+              "phase": "complete",
+              "progress": 100.0,
+              "logs": tracker.logs + [f"Illustration already exists for section {section_id}. Skipping regeneration."],
+              "result_json": result_json,
+              "cost": cost_summary,
+              "completed_at": completed_at,
+            }
+            updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
+            return updated
+
+      # Resolve runtime-configured provider/model for the illustration agent.
+      runtime_config: dict[str, Any] = {}
+      if job.user_id:
+        try:
+          parsed_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          parsed_user_id = None
+        if parsed_user_id is not None:
+          async with session_factory() as session:
+            user = await get_user_by_id(session, parsed_user_id)
+            if user is not None:
+              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+      provider = str(runtime_config.get("ai.illustration.provider") or runtime_config.get("ai.visualizer.provider") or self._settings.illustration_provider)
+      model_name = str(runtime_config.get("ai.illustration.model") or runtime_config.get("ai.visualizer.model") or self._settings.illustration_model or "")
+      model_instance = get_model_for_mode(provider, model_name or None, agent="illustration")
+      schema_service = SchemaService()
+      usage_list: list[dict[str, Any]] = []
+
+      def usage_sink(usage_entry: dict[str, Any]) -> None:
+        usage_list.append(usage_entry)
+
+      agent = IllustrationAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
+      topic = str(payload.get("topic") or "unknown")
+      dummy_req = GenerationRequest(topic=topic, depth="highlights", section_count=1)
+      job_metadata = {"settings": self._settings}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=dummy_req, metadata=job_metadata)
+      generation = await agent.run(payload, job_ctx)
+      generation_caption = str(generation["caption"])
+      generation_prompt = str(generation["ai_prompt"])
+      generation_keywords = [str(item) for item in list(generation["keywords"])]
+
+      # Persist an explicit processing row before upload so failures always have a DB status trail.
+      async with session_factory() as session:
+        pending_object_name = f"tmp-{uuid.uuid4().hex}.webp"
+        illustration_row = Illustration(
+          storage_bucket=storage_client.bucket_name,
+          storage_object_name=pending_object_name,
+          mime_type="image/webp",
+          caption=generation_caption,
+          ai_prompt=generation_prompt,
+          keywords=generation_keywords,
+          status="processing",
+          is_archived=False,
+          regenerate=False,
+        )
+        session.add(illustration_row)
+        await session.commit()
+        await session.refresh(illustration_row)
+        illustration_row_id = int(illustration_row.id)
+
+      object_name = f"{illustration_row_id}.webp"
+      await storage_client.upload_webp(generation["image_bytes"], object_name, cache_control="public, max-age=3600")
+      uploaded_object_name = object_name
+
+      async with session_factory() as session:
+        section_row = await session.get(Section, section_id)
+        if section_row is None:
+          raise RuntimeError(f"Section {section_id} not found for final illustration update.")
+        illustration_row = await session.get(Illustration, illustration_row_id)
+        if illustration_row is None:
+          raise RuntimeError(f"Illustration row {illustration_row_id} not found for finalization.")
+        illustration_row.storage_object_name = object_name
+        illustration_row.status = "completed"
+        illustration_row.caption = generation_caption
+        illustration_row.ai_prompt = generation_prompt
+        illustration_row.keywords = generation_keywords
+        session.add(illustration_row)
+        link_row = SectionIllustration(section_id=section_id, illustration_id=illustration_row_id)
+        session.add(link_row)
+
+        # Keep section payload as source of truth for the active illustration pointer.
+        section_content = dict(section_row.content or {})
+        section_content["illustration"] = {"caption": generation_caption, "ai_prompt": generation_prompt, "keywords": generation_keywords, "id": illustration_row_id}
+        shorthand_content = build_section_shorthand_content(section_content)
+        section_row.content = section_content
+        section_row.content_shorthand = shorthand_content
+        session.add(section_row)
+        await session.commit()
+      finalized_success = True
+
+      total_cost = calculate_total_cost(usage_list)
+      cost_summary = _summarize_cost(usage_list, total_cost)
+      await tracker.set_cost(cost_summary)
+      completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+      result_json = {"section_id": section_id, "illustration_id": illustration_row_id, "image_name": uploaded_object_name or "", "mime_type": "image/webp"}
+      update_payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + [f"Illustration generated for section {section_id}."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
+      updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
+      return updated
+
+    except Exception as exc:
+      # Best-effort cleanup and state persistence so failures remain diagnosable.
+      session_factory = get_session_factory()
+      if session_factory is not None and not finalized_success:
+        try:
+          async with session_factory() as session:
+            if illustration_row_id is None:
+              failed_row = Illustration(
+                storage_bucket=self._settings.illustration_bucket,
+                storage_object_name=uploaded_object_name or f"failed-{uuid.uuid4().hex}.webp",
+                mime_type="image/webp",
+                caption=generation_caption or "Illustration failed",
+                ai_prompt=generation_prompt or "Illustration generation failed before prompt completion.",
+                keywords=generation_keywords or ["failed", "illustration", "section", "error"],
+                status="failed",
+                is_archived=False,
+                regenerate=False,
+              )
+              session.add(failed_row)
+              await session.commit()
+            else:
+              illustration_row = await session.get(Illustration, illustration_row_id)
+              if illustration_row is not None:
+                illustration_row.status = "failed"
+                if generation_caption:
+                  illustration_row.caption = generation_caption
+                if generation_prompt:
+                  illustration_row.ai_prompt = generation_prompt
+                if generation_keywords:
+                  illustration_row.keywords = generation_keywords
+                if uploaded_object_name:
+                  illustration_row.storage_object_name = uploaded_object_name
+                session.add(illustration_row)
+                await session.commit()
+        except Exception:  # noqa: BLE001
+          self._logger.error("Illustration failure persistence hook failed.", exc_info=True)
+      if uploaded_object_name and not finalized_success:
+        try:
+          storage_client = build_storage_client(self._settings)
+          await storage_client.delete(uploaded_object_name)
+        except Exception:  # noqa: BLE001
+          self._logger.warning("Failed to remove partially uploaded illustration object %s", uploaded_object_name)
+      self._logger.error("Illustration job failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Illustration job failed: {exc}")
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
       return None
@@ -800,7 +1012,7 @@ def _strip_internal_request_fields(request: dict[str, Any]) -> dict[str, Any]:
 def _extract_quota_metric(error_message: str) -> str | None:
   """Extract a known quota metric name from an error message."""
   lowered = error_message.lower()
-  known_metrics = ("lesson.generate", "section.generate", "coach.generate", "fenster.widget.generate", "writing.check", "ocr.extract")
+  known_metrics = ("lesson.generate", "section.generate", "coach.generate", "fenster.widget.generate", "writing.check", "ocr.extract", "image.generate")
   for metric in known_metrics:
     # Match explicit metric names so job logs can report the exact exhausted resource.
     if metric in lowered:
@@ -918,6 +1130,63 @@ def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str,
     output_tokens = int(entry.get("output_tokens") or entry.get("completion_tokens") or 0)
     total_output_tokens += output_tokens
   return {"currency": "USD", "total_input_tokens": total_input_tokens, "total_output_tokens": total_output_tokens, "total_cost": total_cost, "calls": usage}
+
+
+def _extract_section_illustration_id(section_content: dict[str, Any] | None) -> int | None:
+  """Return the active illustration id from section content when present."""
+  if not isinstance(section_content, dict):
+    return None
+  illustration = section_content.get("illustration")
+  if not isinstance(illustration, dict):
+    return None
+  raw_id = illustration.get("id")
+  if raw_id is None:
+    return None
+  try:
+    normalized_id = int(raw_id)
+  except (TypeError, ValueError):
+    return None
+  if normalized_id <= 0:
+    return None
+  return normalized_id
+
+
+def _derive_illustration_metadata_from_payload(payload: dict[str, Any], section_content: dict[str, Any]) -> tuple[str, str, list[str]]:
+  """Build safe fallback illustration metadata for failure logging and row persistence."""
+  illustration = section_content.get("illustration") if isinstance(section_content, dict) else None
+  caption = ""
+  ai_prompt = ""
+  keywords: list[str] = []
+  if isinstance(illustration, dict):
+    caption = str(illustration.get("caption") or "").strip()
+    ai_prompt = str(illustration.get("ai_prompt") or "").strip()
+    raw_keywords = illustration.get("keywords")
+    if isinstance(raw_keywords, list):
+      keywords = [str(item).strip() for item in raw_keywords if str(item).strip()]
+
+  topic = str(payload.get("topic") or "Lesson Topic").strip() or "Lesson Topic"
+  section_title = str(section_content.get("section") or f"Section {payload.get('section_index') or 'Unknown'}").strip()
+  markdown_payload = section_content.get("markdown")
+  markdown_text = ""
+  if isinstance(markdown_payload, dict):
+    markdown_text = str(markdown_payload.get("markdown") or "").strip()
+
+  if not caption:
+    caption = f"{section_title} visual summary"
+  if not ai_prompt:
+    guidance = markdown_text[:400] if markdown_text else section_title
+    ai_prompt = f"Create an educational illustration for topic '{topic}'. Focus on: {guidance}."
+  if len(keywords) < 4:
+    defaults = [topic, section_title, "illustration", "learning"]
+    merged = [*keywords]
+    for item in defaults:
+      normalized = str(item).strip()
+      if normalized and normalized not in merged:
+        merged.append(normalized)
+      if len(merged) == 4:
+        break
+    keywords = merged[:4]
+  return caption, ai_prompt, keywords
 
 
 _ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair"}

@@ -13,7 +13,6 @@ import logging
 import os
 import subprocess
 import sys
-import zlib
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -150,12 +149,6 @@ async def _guard_schema_history_state(connection: AsyncConnection) -> None:
       )
 
 
-def _lock_key() -> int:
-  """Return a stable advisory lock key for Dylen migrations."""
-  # Use CRC32 to produce a stable 32-bit value compatible with pg_advisory_lock(bigint).
-  return int(zlib.crc32(b"dylen-engine-alembic-migrate"))
-
-
 def _run_upgrade_sync(connection: Connection, alembic_ini_path: Path) -> None:
   """Run `alembic upgrade head` using the provided sync connection."""
   # Provide the existing connection to Alembic so env.py uses it rather than creating a new engine.
@@ -171,7 +164,7 @@ def _build_engine(*, dsn: str) -> AsyncEngine:
 
 
 async def _run_migrations() -> None:
-  """Run migrations with guardrails and a database-level lock."""
+  """Run migrations with guardrails but WITHOUT advisory locks."""
   # Configure base logging for CLI usage.
   logging.basicConfig(level=logging.INFO)
   # Read the database DSN from the environment for safety.
@@ -193,12 +186,11 @@ async def _run_migrations() -> None:
     raise RuntimeError(f"Missing Alembic config at {alembic_ini_path}.")
 
   engine = _build_engine(dsn=dsn)
-  async with engine.begin() as connection:
-    # Acquire an advisory lock so only one migrator runs at a time.
-    key = _lock_key()
-    logger.info("Acquiring migration lock key=%s", key)
-    await connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
-    try:
+
+  # Connect without locking.
+  async with engine.connect() as connection:
+    # Start a transaction for schema operations.
+    async with connection.begin():
       # Guard against inconsistent schema/history states that cause duplicate DDL failures.
       await _guard_schema_history_state(connection)
       # Enforce the public schema before verification/repair.
@@ -206,6 +198,7 @@ async def _run_migrations() -> None:
       # Log the active schema configuration before migrations.
       search_path, current_schema, notifications_exists = await _fetch_runtime_state(connection)
       logger.info("Pre-migration DB state search_path=%s current_schema=%s notifications_table=%s", search_path, current_schema, notifications_exists)
+
       if migrator_mode in {"migrate", "repair"}:
         # Apply Alembic migrations first so the version table stays authoritative.
         logger.info("Running alembic upgrade head")
@@ -214,48 +207,49 @@ async def _run_migrations() -> None:
         search_path, current_schema, notifications_exists = await _fetch_runtime_state(connection)
         logger.info("Post-migration DB state search_path=%s current_schema=%s notifications_table=%s", search_path, current_schema, notifications_exists)
 
-      # Always verify the schema to detect drift and missing objects.
-      logger.info("Verifying schema after migrations")
-      from scripts.schema_checks import format_failure_report, verify_schema
+    # Transaction is committed here.
 
-      if connection.in_transaction():
-        # Ensure schema scoping is enforced within the active transaction.
-        await connection.execute(text("SET LOCAL search_path TO public"))
-        verification = await connection.run_sync(verify_schema, schema="public")
-      else:
-        # Start a transaction so SET LOCAL applies within verification.
-        async with connection.begin():
-          await connection.execute(text("SET LOCAL search_path TO public"))
-          verification = await connection.run_sync(verify_schema, schema="public")
-      if verification.has_failures() and migrator_mode in {"migrate", "repair"}:
-        # Run targeted repair only when verification fails.
-        logger.warning("Schema verification failed; initiating targeted repair.")
-        from scripts.repair_schema import _repair_schema
+    # Always verify the schema to detect drift and missing objects.
+    logger.info("Verifying schema after migrations")
+    from scripts.schema_checks import format_failure_report, verify_schema
 
+    # Verification needs its own transaction if utilizing SET LOCAL or similar.
+    async with connection.begin():
+      await connection.execute(text("SET LOCAL search_path TO public"))
+      verification = await connection.run_sync(verify_schema, schema="public")
+
+    if verification.has_failures() and migrator_mode in {"migrate", "repair"}:
+      # Run targeted repair only when verification fails.
+      logger.warning("Schema verification failed; initiating targeted repair.")
+      from scripts.repair_schema import _repair_schema
+
+      async with connection.begin():
         verification = await _repair_schema(connection=connection, schema="public")
 
-      if verification.has_failures():
-        # Emit a single actionable failure report and stop.
-        report = format_failure_report(verification)
-        logger.error("%s", report)
-        if fail_open:
-          logger.error("DYLEN_MIGRATOR_FAIL_OPEN enabled; continuing despite verification failures.")
-        else:
-          raise RuntimeError(report)
+    if verification.has_failures():
+      # Emit a single actionable failure report and stop.
+      report = format_failure_report(verification)
+      logger.error("%s", report)
+      if fail_open:
+        logger.error("DYLEN_MIGRATOR_FAIL_OPEN enabled; continuing despite verification failures.")
+      else:
+        raise RuntimeError(report)
 
-      if migrator_mode in {"migrate", "repair"}:
-        if verification.has_failures() and fail_open:
-          # Skip seeds when schema verification fails to avoid data drift.
-          logger.warning("Skipping seed scripts due to verification failures with fail-open enabled.")
-        else:
-          # Run seed scripts once per migration revision to keep data in sync without reapplying.
-          logger.info("Running seed scripts after migrations")
-          repo_root = Path(__file__).resolve().parents[1]
-          subprocess.run([sys.executable, "scripts/run_seed_scripts.py"], check=True, cwd=repo_root)
-    finally:
-      # Always release the lock even when migrations fail so subsequent attempts can proceed.
-      logger.info("Releasing migration lock key=%s", key)
-      await connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+    if migrator_mode in {"migrate", "repair"}:
+      if verification.has_failures() and fail_open:
+        # Skip seeds when schema verification fails to avoid data drift.
+        logger.warning("Skipping seed scripts due to verification failures with fail-open enabled.")
+      else:
+        # Run seed scripts once per migration revision to keep data in sync without reapplying.
+        logger.info("Running seed scripts after migrations")
+        repo_root = Path(__file__).resolve().parents[1]
+        subprocess.run([sys.executable, "scripts/run_seed_scripts.py"], check=True, cwd=repo_root)
+
+        # Ensure the superadmin user exists and is synced specifically after seeds are done.
+        logger.info("Ensuring superadmin user is provisioned")
+        from scripts.ensure_superadmin_user import ensure_superadmin_user
+
+        await ensure_superadmin_user()
 
   await engine.dispose()
 

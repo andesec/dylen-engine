@@ -84,8 +84,10 @@ _RUNTIME_CONFIG_DEFINITIONS: dict[str, RuntimeConfigDefinition] = {
   "ai.writing.model": RuntimeConfigDefinition(key="ai.writing.model", value_type="str", description="Default model for writing checks.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.tutor.provider": RuntimeConfigDefinition(key="ai.tutor.provider", value_type="str", description="Default provider for tutor.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.tutor.model": RuntimeConfigDefinition(key="ai.tutor.model", value_type="str", description="Default model for tutor.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.visualizer.provider": RuntimeConfigDefinition(key="ai.visualizer.provider", value_type="str", description="Default provider for visualizer.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.visualizer.model": RuntimeConfigDefinition(key="ai.visualizer.model", value_type="str", description="Default model for visualizer.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.illustration.provider": RuntimeConfigDefinition(key="ai.illustration.provider", value_type="str", description="Default provider for illustration.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.illustration.model": RuntimeConfigDefinition(key="ai.illustration.model", value_type="str", description="Default model for illustration.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.visualizer.provider": RuntimeConfigDefinition(key="ai.visualizer.provider", value_type="str", description="Legacy alias for ai.illustration.provider.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.visualizer.model": RuntimeConfigDefinition(key="ai.visualizer.model", value_type="str", description="Legacy alias for ai.illustration.model.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.youtube.provider": RuntimeConfigDefinition(key="ai.youtube.provider", value_type="str", description="Default provider for YouTube capture.", allowed_scopes=_SCOPES_TIER_TENANT),
   "ai.youtube.model": RuntimeConfigDefinition(key="ai.youtube.model", value_type="str", description="Default model for YouTube capture.", allowed_scopes=_SCOPES_TIER_TENANT),
   "email.from_address": RuntimeConfigDefinition(key="email.from_address", value_type="str", description="Email 'from' address for outbound notifications.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
@@ -261,10 +263,14 @@ def _env_fallback(settings: Settings, key: str) -> Any:
     return str(settings.tutor_provider)
   if key == "ai.tutor.model":
     return str(settings.tutor_model or "")
+  if key == "ai.illustration.provider":
+    return str(settings.illustration_provider)
+  if key == "ai.illustration.model":
+    return str(settings.illustration_model or "")
   if key == "ai.visualizer.provider":
-    return str(settings.visualizer_provider)
+    return str(settings.illustration_provider)
   if key == "ai.visualizer.model":
-    return str(settings.visualizer_model or "")
+    return str(settings.illustration_model or "")
   if key == "ai.youtube.provider":
     return str(settings.youtube_provider)
   if key == "ai.youtube.model":

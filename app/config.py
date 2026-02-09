@@ -44,8 +44,10 @@ class Settings:
   writing_model: str | None
   tutor_provider: str
   tutor_model: str | None
-  visualizer_provider: str
-  visualizer_model: str | None
+  illustration_provider: str
+  illustration_model: str | None
+  illustration_bucket: str
+  gcs_storage_host: str | None
   youtube_provider: str
   youtube_model: str | None
   fenster_technical_constraints: dict[str, Any] = field(hash=False)
@@ -241,8 +243,10 @@ def get_settings() -> Settings:
     writing_model=os.getenv("DYLEN_WRITING_MODEL", "gemini-2.5-flash"),
     tutor_provider=os.getenv("DYLEN_TUTOR_PROVIDER", "gemini"),
     tutor_model=os.getenv("DYLEN_TUTOR_MODEL", "gemini-2.5-flash"),
-    visualizer_provider=os.getenv("DYLEN_VISUALIZER_PROVIDER", "gemini"),
-    visualizer_model=os.getenv("DYLEN_VISUALIZER_MODEL", "nano-banana-pro"),
+    illustration_provider=os.getenv("DYLEN_ILLUSTRATION_PROVIDER") or os.getenv("DYLEN_VISUALIZER_PROVIDER", "gemini"),
+    illustration_model=os.getenv("DYLEN_ILLUSTRATION_MODEL") or os.getenv("DYLEN_VISUALIZER_MODEL", "gemini-2.5-flash-image"),
+    illustration_bucket=os.getenv("DYLEN_ILLUSTRATION_BUCKET", "dylen-illustrations"),
+    gcs_storage_host=_optional_str(os.getenv("GCS_STORAGE_HOST")),
     youtube_provider=os.getenv("DYLEN_YOUTUBE_PROVIDER", "gemini"),
     youtube_model=os.getenv("DYLEN_YOUTUBE_MODEL", "gemini-2.0-flash"),
     fenster_technical_constraints=_parse_json_dict(os.getenv("DYLEN_FENSTER_TECHNICAL_CONSTRAINTS"), {"max_tokens": 4000, "allowed_libs": ["alpine", "tailwind"]}),

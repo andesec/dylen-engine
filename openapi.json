@@ -118,36 +118,9 @@
         "additionalProperties": false,
         "description": "Status payload for a child job.",
         "properties": {
-          "created_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created At"
-          },
           "job_id": {
             "title": "Job Id",
             "type": "string"
-          },
-          "phase": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Phase"
-          },
-          "retry_available": {
-            "default": false,
-            "title": "Retry Available",
-            "type": "boolean"
           },
           "status": {
             "enum": [
@@ -159,17 +132,6 @@
             ],
             "title": "Status",
             "type": "string"
-          },
-          "target_agent": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Agent"
           }
         },
         "required": [
@@ -177,54 +139,6 @@
           "status"
         ],
         "title": "ChildJobStatus",
-        "type": "object"
-      },
-      "CurrentSectionStatus": {
-        "additionalProperties": false,
-        "description": "Section status metadata for streaming job progress.",
-        "properties": {
-          "index": {
-            "description": "0-based index of the active section.",
-            "minimum": 0.0,
-            "title": "Index",
-            "type": "integer"
-          },
-          "retry_count": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Retry attempts for the active section when applicable.",
-            "title": "Retry Count"
-          },
-          "status": {
-            "description": "Section generation status.",
-            "title": "Status",
-            "type": "string"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Title of the active section when known.",
-            "title": "Title"
-          }
-        },
-        "required": [
-          "index",
-          "status"
-        ],
-        "title": "CurrentSectionStatus",
         "type": "object"
       },
       "ExtractionResult": {
@@ -430,8 +344,6 @@
             "anyOf": [
               {
                 "items": {
-                  "maxLength": 140,
-                  "minLength": 3,
                   "type": "string"
                 },
                 "maxItems": 8,
@@ -944,20 +856,8 @@
         "type": "object"
       },
       "JobStatusResponse": {
-        "description": "Status payload for an asynchronous job.",
+        "description": "Status payload for a background job.",
         "properties": {
-          "artifacts": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Artifacts"
-          },
           "child_jobs": {
             "anyOf": [
               {
@@ -972,122 +872,11 @@
             ],
             "title": "Child Jobs"
           },
-          "completed_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Completed At"
-          },
-          "completed_section_indexes": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "0-based section indexes that have been completed so far.",
-            "title": "Completed Section Indexes"
-          },
-          "completed_sections": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Number of lesson sections completed so far.",
-            "title": "Completed Sections"
-          },
-          "completed_steps": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Completed progress steps when available.",
-            "title": "Completed Steps"
-          },
-          "cost": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cost"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "current_section": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CurrentSectionStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "expected_sections": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Total number of expected sections for lesson jobs.",
-            "title": "Expected Sections"
-          },
           "job_id": {
             "title": "Job Id",
             "type": "string"
           },
-          "logs": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Logs",
-            "type": "array"
-          },
-          "max_retries": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Maximum retry attempts allowed for this job.",
-            "title": "Max Retries"
-          },
-          "phase": {
+          "lesson_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -1096,76 +885,7 @@
                 "type": "null"
               }
             ],
-            "title": "Phase"
-          },
-          "progress": {
-            "anyOf": [
-              {
-                "maximum": 100.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Progress percent (0-100) when available.",
-            "title": "Progress"
-          },
-          "result": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Result"
-          },
-          "retry_agents": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pipeline agents targeted for retry, when applicable.",
-            "title": "Retry Agents"
-          },
-          "retry_count": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Retry attempts already used for this job.",
-            "title": "Retry Count"
-          },
-          "retry_sections": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "0-based section indexes targeted for retry, when applicable.",
-            "title": "Retry Sections"
+            "title": "Lesson Id"
           },
           "status": {
             "enum": [
@@ -1177,51 +897,11 @@
             ],
             "title": "Status",
             "type": "string"
-          },
-          "subphase": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subphase"
-          },
-          "total_steps": {
-            "anyOf": [
-              {
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Total number of progress steps when available.",
-            "title": "Total Steps"
-          },
-          "updated_at": {
-            "title": "Updated At",
-            "type": "string"
-          },
-          "validation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ValidationResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "required": [
           "job_id",
-          "status",
-          "created_at",
-          "updated_at"
+          "status"
         ],
         "title": "JobStatusResponse",
         "type": "object"
@@ -1775,6 +1455,218 @@
         "title": "MaintenanceJobResponse",
         "type": "object"
       },
+      "OnboardingProfileRecord": {
+        "properties": {
+          "accepted_privacy_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Privacy At"
+          },
+          "accepted_terms_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Terms At"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "gender_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender Other"
+          },
+          "intended_use": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intended Use"
+          },
+          "intended_use_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intended Use Other"
+          },
+          "occupation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occupation"
+          },
+          "onboarding_completed": {
+            "title": "Onboarding Completed",
+            "type": "boolean"
+          },
+          "primary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Language"
+          },
+          "privacy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Privacy Version"
+          },
+          "secondary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Language"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "terms_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms Version"
+          },
+          "topics_of_interest": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topics Of Interest"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "status",
+          "onboarding_completed",
+          "age",
+          "gender",
+          "gender_other",
+          "city",
+          "country",
+          "occupation",
+          "topics_of_interest",
+          "intended_use",
+          "intended_use_other",
+          "primary_language",
+          "secondary_language",
+          "accepted_terms_at",
+          "accepted_privacy_at",
+          "terms_version",
+          "privacy_version"
+        ],
+        "title": "OnboardingProfileRecord",
+        "type": "object"
+      },
       "OnboardingRequest": {
         "properties": {
           "basic": {
@@ -1889,8 +1781,6 @@
           "outcomes": {
             "description": "A small list of straightforward learning outcomes.",
             "items": {
-              "maxLength": 140,
-              "minLength": 3,
               "type": "string"
             },
             "maxItems": 8,
@@ -2088,6 +1978,23 @@
             "title": "Occupation",
             "type": "string"
           },
+          "primaryLanguage": {
+            "description": "Primary language code (e.g., 'en', 'es')",
+            "title": "Primarylanguage",
+            "type": "string"
+          },
+          "secondaryLanguage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Secondary language code (e.g., 'de') or null",
+            "title": "Secondarylanguage"
+          },
           "topicsOfInterest": {
             "description": "List of topics user is interested in",
             "items": {
@@ -2100,9 +2007,254 @@
         "required": [
           "occupation",
           "topicsOfInterest",
-          "intendedUse"
+          "intendedUse",
+          "primaryLanguage"
         ],
         "title": "Personalization",
+        "type": "object"
+      },
+      "PromoQuotaOverrideRequest": {
+        "properties": {
+          "coach_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coach Mode Enabled"
+          },
+          "concurrent_coach_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Coach Limit"
+          },
+          "concurrent_lesson_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Lesson Limit"
+          },
+          "concurrent_research_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Research Limit"
+          },
+          "concurrent_writing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Writing Limit"
+          },
+          "file_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Upload Quota"
+          },
+          "gen_sections_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gen Sections Quota"
+          },
+          "image_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Upload Quota"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "research_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Quota"
+          }
+        },
+        "title": "PromoQuotaOverrideRequest",
+        "type": "object"
+      },
+      "PromoQuotaOverrideResponse": {
+        "properties": {
+          "coach_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coach Mode Enabled"
+          },
+          "concurrent_coach_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Coach Limit"
+          },
+          "concurrent_lesson_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Lesson Limit"
+          },
+          "concurrent_research_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Research Limit"
+          },
+          "concurrent_writing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Writing Limit"
+          },
+          "file_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Upload Quota"
+          },
+          "gen_sections_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gen Sections Quota"
+          },
+          "image_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Upload Quota"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "research_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Quota"
+          }
+        },
+        "required": [
+          "max_file_upload_kb",
+          "file_upload_quota",
+          "image_upload_quota",
+          "gen_sections_quota",
+          "research_quota",
+          "concurrent_lesson_limit",
+          "concurrent_research_limit",
+          "concurrent_writing_limit",
+          "concurrent_coach_limit",
+          "coach_mode_enabled"
+        ],
+        "title": "PromoQuotaOverrideResponse",
         "type": "object"
       },
       "PushSubscribeRequest": {
@@ -3038,6 +3190,464 @@
         "title": "TaskPayload",
         "type": "object"
       },
+      "TierRecord": {
+        "properties": {
+          "coach_mode_enabled": {
+            "title": "Coach Mode Enabled",
+            "type": "boolean"
+          },
+          "coach_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coach Voice Tier"
+          },
+          "concurrent_coach_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Coach Limit"
+          },
+          "concurrent_lesson_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Lesson Limit"
+          },
+          "concurrent_research_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Research Limit"
+          },
+          "concurrent_writing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Writing Limit"
+          },
+          "file_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Upload Quota"
+          },
+          "gen_sections_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gen Sections Quota"
+          },
+          "highest_lesson_depth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Lesson Depth"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "image_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Upload Quota"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "max_sections_per_lesson": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sections Per Lesson"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "research_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Quota"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "max_file_upload_kb",
+          "highest_lesson_depth",
+          "max_sections_per_lesson",
+          "file_upload_quota",
+          "image_upload_quota",
+          "gen_sections_quota",
+          "research_quota",
+          "concurrent_lesson_limit",
+          "concurrent_research_limit",
+          "concurrent_writing_limit",
+          "concurrent_coach_limit",
+          "coach_mode_enabled",
+          "coach_voice_tier"
+        ],
+        "title": "TierRecord",
+        "type": "object"
+      },
+      "TierUpdateRequest": {
+        "properties": {
+          "coach_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coach Mode Enabled"
+          },
+          "coach_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coach Voice Tier"
+          },
+          "concurrent_coach_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Coach Limit"
+          },
+          "concurrent_lesson_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Lesson Limit"
+          },
+          "concurrent_research_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Research Limit"
+          },
+          "concurrent_writing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Writing Limit"
+          },
+          "file_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Upload Quota"
+          },
+          "gen_sections_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gen Sections Quota"
+          },
+          "highest_lesson_depth": {
+            "anyOf": [
+              {
+                "enum": [
+                  "highlights",
+                  "detailed",
+                  "training"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Lesson Depth"
+          },
+          "image_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Upload Quota"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "max_sections_per_lesson": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sections Per Lesson"
+          },
+          "research_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Quota"
+          }
+        },
+        "title": "TierUpdateRequest",
+        "type": "object"
+      },
+      "UserEnabledUpdateRequest": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "UserEnabledUpdateRequest",
+        "type": "object"
+      },
+      "UserPromoResponse": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "feature_overrides": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Feature Overrides",
+            "type": "object"
+          },
+          "quota_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoQuotaOverrideResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "tier_name": {
+            "title": "Tier Name",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "tier_name",
+          "starts_at",
+          "expires_at",
+          "quota_overrides",
+          "feature_overrides"
+        ],
+        "title": "UserPromoResponse",
+        "type": "object"
+      },
+      "UserPromoUpdateRequest": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "feature_overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Overrides"
+          },
+          "quota_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoQuotaOverrideRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "tier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Name"
+          }
+        },
+        "required": [
+          "expires_at"
+        ],
+        "title": "UserPromoUpdateRequest",
+        "type": "object"
+      },
       "UserRecord": {
         "properties": {
           "email": {
@@ -3075,6 +3685,19 @@
           "org_id"
         ],
         "title": "UserRecord",
+        "type": "object"
+      },
+      "UserRoleNameUpdateRequest": {
+        "properties": {
+          "role_name": {
+            "title": "Role Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_name"
+        ],
+        "title": "UserRoleNameUpdateRequest",
         "type": "object"
       },
       "UserRoleUpdateRequest": {
@@ -3178,28 +3801,6 @@
           "type"
         ],
         "title": "ValidationError",
-        "type": "object"
-      },
-      "ValidationResponse": {
-        "description": "Response model for lesson validation results.",
-        "properties": {
-          "errors": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Errors",
-            "type": "array"
-          },
-          "ok": {
-            "title": "Ok",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "ok",
-          "errors"
-        ],
-        "title": "ValidationResponse",
         "type": "object"
       },
       "WritingCheckRequest": {
@@ -4178,6 +4779,64 @@
         ]
       }
     },
+    "/admin/tiers/{tier_name}": {
+      "patch": {
+        "description": "Update subscription tier quotas and limits for admin plan management.",
+        "operationId": "update_subscription_tier_admin_tiers__tier_name__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tier_name",
+            "required": true,
+            "schema": {
+              "title": "Tier Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TierUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TierRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Subscription Tier",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/users": {
       "get": {
         "description": "List users with tenant scoping for org admins.",
@@ -4329,6 +4988,257 @@
         ]
       }
     },
+    "/admin/users/{user_id}/enabled": {
+      "patch": {
+        "description": "Enable or disable a user account explicitly for admin workflows.",
+        "operationId": "update_user_enabled_state_admin_users__user_id__enabled_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserEnabledUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Enabled State",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/onboarding": {
+      "get": {
+        "description": "Return onboarding details so admins can review and approve/reject accounts.",
+        "operationId": "get_user_onboarding_profile_admin_users__user_id__onboarding_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingProfileRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get User Onboarding Profile",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/promo": {
+      "delete": {
+        "description": "Delete active promo overrides for a user.",
+        "operationId": "delete_user_promo_admin_users__user_id__promo_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete User Promo",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Upsert promo tier/quota/feature overrides for a user.",
+        "operationId": "upsert_user_promo_admin_users__user_id__promo_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPromoUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPromoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert User Promo",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/reject": {
+      "patch": {
+        "description": "Reject a user account after onboarding review.",
+        "operationId": "reject_user_admin_users__user_id__reject_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/users/{user_id}/role": {
       "patch": {
         "description": "Update a user's role assignment and refresh RBAC claims.",
@@ -4382,6 +5292,64 @@
           }
         ],
         "summary": "Update User Account Role",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/role-by-name": {
+      "patch": {
+        "description": "Promote or demote a user by assigning a role using its canonical name.",
+        "operationId": "update_user_account_role_by_name_admin_users__user_id__role_by_name_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRoleNameUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Account Role By Name",
         "tags": [
           "admin"
         ]
@@ -4911,6 +5879,61 @@
         "tags": [
           "tasks",
           "tasks"
+        ]
+      }
+    },
+    "/media/lessons/{lesson_id}/{image_name}": {
+      "get": {
+        "description": "Authorize lesson media access and stream illustration bytes through the backend.",
+        "operationId": "get_lesson_media_media_lessons__lesson_id___image_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
+            "schema": {
+              "title": "Lesson Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "image_name",
+            "required": true,
+            "schema": {
+              "title": "Image Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Lesson Media",
+        "tags": [
+          "media"
         ]
       }
     },

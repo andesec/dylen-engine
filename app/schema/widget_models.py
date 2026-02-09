@@ -49,6 +49,19 @@ class MarkdownPayload(msgspec.Struct):
     return [self.markdown, self.align]
 
 
+class IllustrationPayload(msgspec.Struct):
+  """Section-level illustration metadata generated at runtime."""
+
+  caption: Annotated[str | None, msgspec.Meta(description="Short caption shown beside section markdown.")] = None
+  ai_prompt: Annotated[str | None, msgspec.Meta(description="Prompt used for image generation.")] = None
+  keywords: Annotated[list[str] | None, msgspec.Meta(description="Preferred 4-keyword concept guide for image generation.")] = None
+  id: Annotated[int | None, msgspec.Meta(description="Generated illustration identifier used for media retrieval.")] = None
+
+  def output(self) -> list[Any]:
+    """Return frontend shorthand as [id, caption]."""
+    return [self.id, self.caption or ""]
+
+
 class FlipPayload(msgspec.Struct):
   front: Annotated[str, msgspec.Meta(description="Front prompt text (max 80 chars)")]
   back: Annotated[str, msgspec.Meta(description="Back reveal text (max 100 chars)")]
@@ -271,6 +284,10 @@ class MCQsQuestion(msgspec.Struct):
     if not (0 <= self.a < len(self.c)):
       raise ValueError("mcqs answer index must be within choices range")
 
+  def output(self) -> list[Any]:
+    """Return compact question shorthand."""
+    return [self.q, self.c, self.a, self.e]
+
 
 class MCQsInner(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Quiz title (6-40 chars)")]
@@ -280,8 +297,9 @@ class MCQsInner(msgspec.Struct):
     _warn_len_out_of_range(field_name="mcqs.title", value=self.title, min_length=6, max_length=40)
     _warn_len_out_of_range(field_name="mcqs.questions", value=self.questions, min_length=1)
 
-  def output(self) -> dict[str, Any]:
-    return msgspec.to_builtins(self)
+  def output(self) -> list[Any]:
+    """Return frontend shorthand as [title, questions]."""
+    return [self.title, [question.output() for question in self.questions]]
 
 
 class FensterPayload(msgspec.Struct):
@@ -506,7 +524,7 @@ class Subsection(msgspec.Struct):
 
   def output(self) -> dict[str, Any]:
     """Return the shorthand object for the subsection."""
-    return {"section": self.section, "items": [item.output() for item in self.items], "subsections": []}
+    return {"section": self.section, "items": [item.output() for item in self.items]}
 
 
 class Section(msgspec.Struct):
@@ -515,6 +533,7 @@ class Section(msgspec.Struct):
   section: Annotated[str, msgspec.Meta(description=f"Section title ({SECTION_TITLE_MIN_CHARS}-{SECTION_TITLE_MAX_CHARS} chars)")]
   markdown: MarkdownPayload
   subsections: Annotated[list[Subsection], msgspec.Meta(description=f"At least {SUBSECTIONS_PER_SECTION_MIN} to {SUBSECTIONS_PER_SECTION_MAX} subsections divided from the section topic")]
+  illustration: IllustrationPayload | None = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="section.section", value=self.section, min_length=SECTION_TITLE_MIN_CHARS, max_length=SECTION_TITLE_MAX_CHARS)
@@ -522,11 +541,8 @@ class Section(msgspec.Struct):
 
   def output(self) -> dict[str, Any]:
     """Return the shorthand object for the section."""
-    items = []
-    if self.markdown:
-      items.append({"markdown": self.markdown.output()})
-
-    return {"section": self.section, "items": items, "subsections": [sub.output() for sub in self.subsections]}
+    illustration_output = self.illustration.output() if self.illustration else None
+    return {"section": self.section, "markdown": self.markdown.output(), "illustration": illustration_output, "subsections": [sub.output() for sub in self.subsections]}
 
 
 class LessonDocument(msgspec.Struct):

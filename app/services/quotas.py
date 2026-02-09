@@ -53,6 +53,7 @@ class QuotaSummaryEntry:
 class QuotaSummaryResponse:
   """Minimal quota response with optional detailed payload."""
 
+  tier_name: str
   quotas: list[QuotaSummaryEntry] = field(default_factory=list)
   details: ResolvedQuota | None = None
 
@@ -118,7 +119,7 @@ async def get_active_override(session: AsyncSession, user_id: uuid.UUID) -> User
   """Return an active override for the user if present."""
   # Restrict override selection to the active window to avoid stale promos.
   now = datetime.datetime.now(datetime.UTC)
-  stmt = select(UserTierOverride).where(UserTierOverride.user_id == user_id, UserTierOverride.starts_at <= now, UserTierOverride.expires_at >= now)
+  stmt = select(UserTierOverride).where(UserTierOverride.user_id == user_id, UserTierOverride.starts_at <= now, UserTierOverride.expires_at >= now).order_by(UserTierOverride.starts_at.desc(), UserTierOverride.id.desc()).limit(1)
   result = await session.execute(stmt)
   return result.scalar_one_or_none()
 
@@ -160,7 +161,7 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
   settings = get_settings()
   user = await session.get(User, user_id)
   org_id = user.org_id if user is not None else None
-  flags = await resolve_effective_feature_flags(session, org_id=org_id, subscription_tier_id=int(usage.subscription_tier_id))
+  flags = await resolve_effective_feature_flags(session, org_id=org_id, subscription_tier_id=int(usage.subscription_tier_id), user_id=user_id)
   runtime_config = await resolve_effective_runtime_config(session, settings=settings, org_id=org_id, subscription_tier_id=int(usage.subscription_tier_id), user_id=None)
 
   async def _bucket_entry(*, key: str, label: str, period: QuotaPeriod, limit_key: str, metric_key: str, feature_flag: str | None = None) -> QuotaEntry | None:

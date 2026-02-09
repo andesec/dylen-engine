@@ -169,6 +169,13 @@ async def update_user_status(session: AsyncSession, *, user: User, status: UserS
   session.add(user)
   await session.commit()
   await session.refresh(user)
+
+  # Initialize quotas when a user is approved to ensure deterministic bucket availability.
+  if status == UserStatus.APPROVED:
+    from app.services.quota_buckets import initialize_user_quotas
+
+    await initialize_user_quotas(session, user.id)
+
   return user
 
 
@@ -203,6 +210,8 @@ async def complete_user_onboarding(session: AsyncSession, *, user: User, data: O
   user.topics_of_interest = data.personalization.topics_of_interest
   user.intended_use = data.personalization.intended_use
   user.intended_use_other = data.personalization.intended_use_other
+  user.primary_language = data.personalization.primary_language
+  user.secondary_language = data.personalization.secondary_language
 
   user.accepted_terms_at = datetime.datetime.now(datetime.UTC)
   user.accepted_privacy_at = datetime.datetime.now(datetime.UTC)
@@ -265,11 +274,25 @@ async def ensure_usage_row(session: AsyncSession, user_id: uuid.UUID, *, tier_id
       raise RuntimeError("Default 'Free' subscription tier not available.")
     tier_id = free_tier.id
 
-  # Use INSERT ... ON CONFLICT DO NOTHING for atomic consistency
-  stmt = insert(UserUsageMetrics).values(user_id=user_id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0, research_usage_count=0).on_conflict_do_nothing(index_elements=["user_id"])
+  # Use INSERT ... ON CONFLICT DO UPDATE to ensure the tier stays in sync
+  # with the intended state during bootstrap or script-driven updates.
+  stmt = (
+    insert(UserUsageMetrics)
+    .values(user_id=user_id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0, research_usage_count=0)
+    .on_conflict_do_update(index_elements=["user_id"], set_={"subscription_tier_id": tier_id})
+  )
 
   await session.execute(stmt)
   await session.commit()
 
   # Fetch the row, which is now guaranteed to exist (either inserted or already there)
-  return await session.get(UserUsageMetrics, user_id)
+  usage = await session.get(UserUsageMetrics, user_id)
+
+  # Also trigger quota initialization if the user is already approved.
+  user = await session.get(User, user_id)
+  if user and user.status == UserStatus.APPROVED:
+    from app.services.quota_buckets import initialize_user_quotas
+
+    await initialize_user_quotas(session, user_id)
+
+  return usage

@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -42,4 +42,19 @@ class SubscriptionTierFeatureFlag(Base):
   subscription_tier_id: Mapped[int] = mapped_column(ForeignKey("subscription_tiers.id"), primary_key=True)
   feature_flag_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("feature_flags.id"), primary_key=True)
   enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class UserFeatureFlagOverride(Base):
+  """Per-user promo overrides for feature flags."""
+
+  __tablename__ = "user_feature_flag_overrides"
+  __table_args__ = (UniqueConstraint("user_id", "feature_flag_id", name="ux_user_feature_flag_overrides_user_flag"),)
+
+  id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+  user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+  feature_flag_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("feature_flags.id"), nullable=False, index=True)
+  enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+  starts_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+  expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

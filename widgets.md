@@ -35,7 +35,8 @@ Recommendations:
 ```json
 {
   "section": "Section title",
-  "markdown": "{markdown object}",
+  "markdown": ["Section intro markdown.", "left"],
+  "illustration": [42, "Optional runtime caption"],
   "subsections": [
     {
       "section": "Subsection title",
@@ -49,8 +50,10 @@ Recommendations:
 
 Constraints:
 - `section` must be a non-empty string.
-- `subsections`, must be an array of section blocks with the same structure.
-- All widgets must be placed inside the `items` array, not alongside `section` or `subsections`.
+- `markdown` is required at section level.
+- `subsections` must be an array of subsection blocks.
+- Every subsection block includes `section` and `items`.
+- `illustration` is an image to depict the concept being discussed.
 
 Recommendation:
 - Prefer multiple shorter sections and subsections over one long section.
@@ -86,6 +89,22 @@ Rules:
 
 ---
 
+### `illustration` (Visual Widget)
+
+`illustration` uses compact shorthand: `[id, caption]`.
+
+```json
+"illustration": [42, "Visual summary caption"]
+```
+
+Rules:
+- Index `0` is `id` (integer or `null`).
+- Index `1` is caption string.
+- Frontend media URL is built as `/media/lessons/{lesson_id}/{illustration[0]}.webp`.
+- If `illustration[0]` is null/missing/empty/not an integer, frontend should skip rendering illustration.
+
+---
+
 ### `mcqs` (Assessment Widget)
 
 Note: `mcqs` is the canonical widget for assessments. It must be placed inside `items`.
@@ -95,29 +114,26 @@ Note: `mcqs` is the canonical widget for assessments. It must be placed inside `
   "section": "Quiz",
   "items": [
     {
-      "mcqs": {
-        "title": "Quiz Title",
-        "questions": [
-          {
-            "q": "Question?",
-            "c": ["Option A", "Option B", "Option C"],
-            "a": 1,
-            "e": "Explanation"
-          }
+      "mcqs": [
+        "Quiz Title",
+        [
+          ["Question?", ["Option A", "Option B", "Option C"], 1, "Explanation"]
         ]
-      }
+      ]
     }
   ]
 }
 ```
 
 Constraints:
-- `questions` must be a non-empty array.
-- Each question must include:
-  - `q` (string, non-empty)
-  - `c` (array, at least 2 choices)
-  - `a` (integer, 0-based index into `c`)
-  - `e` (string, non-empty explanation)
+- `mcqs` array index contract:
+  - `0`: quiz title (string)
+  - `1`: questions array
+- Each question is `[q, c, a, e]`:
+  - `q` question text string
+  - `c` choices array (3-4 choices recommended)
+  - `a` integer (0-based correct choice index)
+  - `e` explanation string
 
 Recommendation:
 - Place a quiz as the final block. Include at least 3 questions per section you taught.
@@ -458,37 +474,68 @@ Notes:
   "blocks": [
     {
       "section": "What it is",
-      "items": [
-        { "markdown": ["Define the concept in plain language."] },
-        { "markdown": ["**Warning:** Common misunderstanding to avoid."] }
-      ]
-    },
-    {
-      "section": "Examples",
-      "items": [
-        { "tr": ["EN: A concrete example", "DE: Bedeutung / Ubersetzung"] },
-        { "tr": ["EN: A second example", "DE: Zweite Ubersetzung"] }
-      ]
-    },
-    {
-      "section": "Practice",
-      "items": [
-        { "fillblank": ["Fill in: ___ is used when ...", "The concept", "Definition", "It matches the definition you learned."] }
-      ]
-    },
-    {
-      "section": "Check your understanding",
-      "items": [
+      "markdown": ["Define the concept in plain language.", "left"],
+      "illustration": [42, "Quick visual of the core idea"],
+      "subsections": [
         {
-          "mcqs": {
-            "title": "Check your understanding",
-            "questions": [
-              { "q": "What is the best description?", "c": ["A", "B", "C"], "a": 1, "e": "B matches the definition; A/C miss key parts." }
-            ]
-          }
+          "section": "Examples",
+          "items": [
+            { "tr": ["EN: A concrete example", "DE: Bedeutung / Ubersetzung"] },
+            { "fillblank": ["Fill in: ___ is used when ...", "The concept", "Definition", "It matches the definition you learned."] }
+          ]
+        },
+        {
+          "section": "Check your understanding",
+          "items": [
+            {
+              "mcqs": [
+                "Check your understanding",
+                [
+                  ["What is the best description?", ["A", "B", "C"], 1, "B matches the definition; A/C miss key parts."]
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "Wrap-up",
+      "markdown": ["Summarize key takeaways and next steps.", "left"],
+      "subsections": [
+        {
+          "section": "Practice",
+          "items": [
+            { "freeText": ["Explain the concept in your own words.", "In my view,", "en", "concept,clarity,example,summary"] }
+          ]
         }
       ]
     }
   ]
 }
 ```
+
+---
+
+## Section/Subsection Shape (Canonical Shorthand Output)
+
+```json
+{
+  "section": "Section title",
+  "markdown": ["Section intro", "left"],
+  "illustration": [42, "Optional caption"],
+  "subsections": [
+    {
+      "section": "Subsection title",
+      "items": [
+        { "markdown": ["Subsection content", "left"] }
+      ]
+    }
+  ]
+}
+```
+
+Where:
+- `section.markdown` carries markdown in shorthand output.
+- `section.illustration` is optional runtime metadata in this example shape.
+- `subsections` contains subsection objects with `section` and `items`.

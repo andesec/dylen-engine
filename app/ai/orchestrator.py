@@ -445,6 +445,33 @@ class DylenOrchestrator:
     ctx.structured_sections.append(final_section)
 
     if job_creator:
+      # Check illustration quota and enqueue illustration jobs for section-level visuals.
+      image_limit = int(runtime_config.get("limits.image_generations_per_month") or 0)
+      if image_limit > 0:
+        session_factory = get_session_factory()
+        user_id_str = (ctx.job_context.metadata or {}).get("user_id")
+        lesson_id = (ctx.job_context.metadata or {}).get("lesson_id")
+        user_id = uuid.UUID(str(user_id_str)) if user_id_str else None
+        has_illustration_quota = True
+        if session_factory and user_id:
+          try:
+            async with session_factory() as session:
+              snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key="image.generate", period=QuotaPeriod.MONTH, limit=image_limit)
+              if snapshot.remaining <= 0:
+                has_illustration_quota = False
+                logger.warning("Illustration quota exhausted for user %s. Skipping illustration job.", user_id)
+          except Exception as exc:
+            has_illustration_quota = False
+            logger.error("Failed to check illustration quota: %s", exc)
+        if has_illustration_quota and final_section.db_section_id is not None and lesson_id:
+          payload = {"section_index": section_index, "section_id": int(final_section.db_section_id), "lesson_id": str(lesson_id), "topic": ctx.topic, "section_data": section_json}
+          await job_creator("illustration", payload)
+          logger.info("Created illustration job for section %s", section_index)
+        elif final_section.db_section_id is None:
+          logger.warning("Skipping illustration job because section_id is missing for section %s", section_index)
+      else:
+        logger.info("Illustration disabled (limit=0). Skipping illustration job for section %s", section_index)
+
       # Check coach quota
       coach_limit = int(runtime_config.get("limits.coach_sections_per_month") or 0)
       if coach_limit > 0:

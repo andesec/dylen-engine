@@ -111,6 +111,10 @@ class FallbackModel(AIModel):
     """Generate structured output while falling back on provider/model errors."""
     return await self._attempt(lambda model: model.generate_structured(prompt, schema))
 
+  async def generate_image(self, prompt: str) -> bytes:
+    """Generate image bytes while falling back on provider/model errors."""
+    return await self._attempt(lambda model: model.generate_image(prompt))
+
   async def _attempt(self, func: Callable[[AIModel], Any]) -> Any:
     """Execute a model call with provider-aware fallbacks."""
     while True:

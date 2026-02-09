@@ -40,7 +40,7 @@ async def get_my_quota(details: bool = False, quota: ResolvedQuota = Depends(get
   # Attach full details only when explicitly requested.
   detailed_quota = quota if details else None
 
-  return QuotaSummaryResponse(quotas=summary, details=detailed_quota)
+  return QuotaSummaryResponse(tier_name=quota.tier_name, quotas=summary, details=detailed_quota)
 
 
 @router.get("/me/features")
@@ -52,7 +52,7 @@ async def get_my_features(current_user: User = Depends(get_current_user), db: As
   tier_id, tier_name = await get_user_subscription_tier(db, current_user.id)
 
   # Compute effective feature flags so the UI can hide disabled capabilities.
-  flags = await resolve_effective_feature_flags(db, org_id=current_user.org_id, subscription_tier_id=tier_id)
+  flags = await resolve_effective_feature_flags(db, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
   disabled_keys = await resolve_global_disabled_features(db)
   for key in disabled_keys:
     flags.pop(key, None)

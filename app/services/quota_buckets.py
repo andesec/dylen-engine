@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from app.schema.quotas import QuotaPeriod, UserQuotaBucket, UserQuotaReservation, UserUsageLog
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -168,29 +168,33 @@ async def commit_quota_reservation(session: AsyncSession, *, user_id: uuid.UUID,
   start = period_start_date(now=now, period=period)
 
   async with _quota_transaction(session):
-    # Lock the bucket row so reserved/used transitions are atomic.
-    stmt = select(UserQuotaBucket).where(UserQuotaBucket.user_id == user_id, UserQuotaBucket.metric_key == metric_key, UserQuotaBucket.period == period, UserQuotaBucket.period_start == start).with_for_update()
+    # Lock reservation rows first so commit is anchored to the reservation period.
+    reservation_filters = [UserQuotaReservation.user_id == user_id, UserQuotaReservation.metric_key == metric_key, UserQuotaReservation.period == period, UserQuotaReservation.job_id == job_id, UserQuotaReservation.section_index == section_index]
+    reservation_stmt = select(UserQuotaReservation).where(*reservation_filters).order_by(UserQuotaReservation.created_at.desc()).with_for_update()
+    reservation_result = await session.execute(reservation_stmt)
+    reservation = reservation_result.scalar_one_or_none()
+
+    # Fall back to the current period snapshot when no reservation exists.
+    if reservation is None:
+      # Lock the current period bucket row before returning snapshot values.
+      stmt = select(UserQuotaBucket).where(UserQuotaBucket.user_id == user_id, UserQuotaBucket.metric_key == metric_key, UserQuotaBucket.period == period, UserQuotaBucket.period_start == start).with_for_update()
+      result = await session.execute(stmt)
+      bucket = result.scalar_one_or_none()
+      if bucket is None:
+        return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=0, reserved=0, remaining=max(normalized_limit, 0))
+      remaining = max(normalized_limit - int(bucket.used) - int(bucket.reserved), 0)
+      return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=int(bucket.used), reserved=int(bucket.reserved), remaining=remaining)
+
+    effective_start = reservation.period_start
+    # Lock the bucket for the reservation period so rollover boundaries stay consistent.
+    stmt = select(UserQuotaBucket).where(UserQuotaBucket.user_id == user_id, UserQuotaBucket.metric_key == metric_key, UserQuotaBucket.period == period, UserQuotaBucket.period_start == effective_start).with_for_update()
     result = await session.execute(stmt)
     bucket = result.scalar_one_or_none()
     if bucket is None:
-      # Missing bucket indicates a logic error; treat as quota exceeded.
-      raise QuotaExceededError(f"quota bucket missing for {metric_key}")
-
-    # Compose reservation filters to keep the query readable.
-    reservation_filters = [
-      UserQuotaReservation.user_id == user_id,
-      UserQuotaReservation.metric_key == metric_key,
-      UserQuotaReservation.period == period,
-      UserQuotaReservation.period_start == start,
-      UserQuotaReservation.job_id == job_id,
-      UserQuotaReservation.section_index == section_index,
-    ]
-    reservation_stmt = select(UserQuotaReservation).where(*reservation_filters).with_for_update()
-    reservation_result = await session.execute(reservation_stmt)
-    reservation = reservation_result.scalar_one_or_none()
-    if reservation is None:
-      remaining = max(normalized_limit - int(bucket.used) - int(bucket.reserved), 0)
-      return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=int(bucket.used), reserved=int(bucket.reserved), remaining=remaining)
+      # Self-heal bucket rows when external cleanup/drift removed them.
+      bucket = UserQuotaBucket(id=uuid.uuid4(), user_id=user_id, metric_key=metric_key, period=period, period_start=effective_start, used=0, reserved=0, updated_at=now)
+      session.add(bucket)
+      await session.flush()
 
     bucket.reserved = max(int(bucket.reserved) - int(quantity), 0)
     bucket.used = int(bucket.used) + int(quantity)
@@ -200,7 +204,7 @@ async def commit_quota_reservation(session: AsyncSession, *, user_id: uuid.UUID,
     session.add(UserUsageLog(user_id=user_id, action_type=f"quota:{metric_key}", quantity=int(quantity), metadata_json=metadata))
 
   remaining = max(normalized_limit - int(bucket.used) - int(bucket.reserved), 0)
-  return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=int(bucket.used), reserved=int(bucket.reserved), remaining=remaining)
+  return QuotaSnapshot(metric_key=metric_key, period=period, period_start=bucket.period_start, limit=normalized_limit, used=int(bucket.used), reserved=int(bucket.reserved), remaining=remaining)
 
 
 async def release_quota_reservation(session: AsyncSession, *, user_id: uuid.UUID, metric_key: str, period: QuotaPeriod, quantity: int, limit: int, job_id: str, section_index: int | None = None, metadata: dict | None = None) -> QuotaSnapshot:
@@ -217,29 +221,34 @@ async def release_quota_reservation(session: AsyncSession, *, user_id: uuid.UUID
   start = period_start_date(now=now, period=period)
 
   async with _quota_transaction(session):
-    # Lock the bucket row so reserved counters are accurate.
-    stmt = select(UserQuotaBucket).where(UserQuotaBucket.user_id == user_id, UserQuotaBucket.metric_key == metric_key, UserQuotaBucket.period == period, UserQuotaBucket.period_start == start).with_for_update()
+    # Lock reservation rows first so release is anchored to the reservation period.
+    reservation_filters = [UserQuotaReservation.user_id == user_id, UserQuotaReservation.metric_key == metric_key, UserQuotaReservation.period == period, UserQuotaReservation.job_id == job_id, UserQuotaReservation.section_index == section_index]
+    reservation_stmt = select(UserQuotaReservation).where(*reservation_filters).order_by(UserQuotaReservation.created_at.desc()).with_for_update()
+    reservation_result = await session.execute(reservation_stmt)
+    reservation = reservation_result.scalar_one_or_none()
+
+    # Return current-period snapshot if there is no reservation to release.
+    if reservation is None:
+      # Lock the current period bucket row before returning snapshot values.
+      stmt = select(UserQuotaBucket).where(UserQuotaBucket.user_id == user_id, UserQuotaBucket.metric_key == metric_key, UserQuotaBucket.period == period, UserQuotaBucket.period_start == start).with_for_update()
+      result = await session.execute(stmt)
+      bucket = result.scalar_one_or_none()
+      if bucket is None:
+        remaining = max(normalized_limit, 0)
+        return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=0, reserved=0, remaining=remaining)
+      remaining = max(normalized_limit - int(bucket.used) - int(bucket.reserved), 0)
+      return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=int(bucket.used), reserved=int(bucket.reserved), remaining=remaining)
+
+    effective_start = reservation.period_start
+    # Lock the bucket for the reservation period so rollover boundaries stay consistent.
+    stmt = select(UserQuotaBucket).where(UserQuotaBucket.user_id == user_id, UserQuotaBucket.metric_key == metric_key, UserQuotaBucket.period == period, UserQuotaBucket.period_start == effective_start).with_for_update()
     result = await session.execute(stmt)
     bucket = result.scalar_one_or_none()
     if bucket is None:
-      remaining = max(normalized_limit, 0)
-      return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=0, reserved=0, remaining=remaining)
-
-    # Compose reservation filters to keep the query readable.
-    reservation_filters = [
-      UserQuotaReservation.user_id == user_id,
-      UserQuotaReservation.metric_key == metric_key,
-      UserQuotaReservation.period == period,
-      UserQuotaReservation.period_start == start,
-      UserQuotaReservation.job_id == job_id,
-      UserQuotaReservation.section_index == section_index,
-    ]
-    reservation_stmt = select(UserQuotaReservation).where(*reservation_filters).with_for_update()
-    reservation_result = await session.execute(reservation_stmt)
-    reservation = reservation_result.scalar_one_or_none()
-    if reservation is None:
-      remaining = max(normalized_limit - int(bucket.used) - int(bucket.reserved), 0)
-      return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=int(bucket.used), reserved=int(bucket.reserved), remaining=remaining)
+      # Self-heal missing bucket rows so release can complete idempotently.
+      bucket = UserQuotaBucket(id=uuid.uuid4(), user_id=user_id, metric_key=metric_key, period=period, period_start=effective_start, used=0, reserved=0, updated_at=now)
+      session.add(bucket)
+      await session.flush()
 
     bucket.reserved = max(int(bucket.reserved) - int(quantity), 0)
     bucket.updated_at = now
@@ -248,7 +257,7 @@ async def release_quota_reservation(session: AsyncSession, *, user_id: uuid.UUID
     session.add(UserUsageLog(user_id=user_id, action_type=f"quota_release:{metric_key}", quantity=int(quantity), metadata_json=metadata))
 
   remaining = max(normalized_limit - int(bucket.used) - int(bucket.reserved), 0)
-  return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=int(bucket.used), reserved=int(bucket.reserved), remaining=remaining)
+  return QuotaSnapshot(metric_key=metric_key, period=period, period_start=bucket.period_start, limit=normalized_limit, used=int(bucket.used), reserved=int(bucket.reserved), remaining=remaining)
 
 
 async def consume_quota(session: AsyncSession, *, user_id: uuid.UUID, metric_key: str, period: QuotaPeriod, quantity: int, limit: int, metadata: dict | None = None) -> QuotaSnapshot:
@@ -326,3 +335,32 @@ async def refund_quota(session: AsyncSession, *, user_id: uuid.UUID, metric_key:
 
   remaining = max(normalized_limit - new_used - int(bucket.reserved), 0)
   return QuotaSnapshot(metric_key=metric_key, period=period, period_start=start, limit=normalized_limit, used=new_used, reserved=int(bucket.reserved), remaining=remaining)
+
+
+async def initialize_user_quotas(session: AsyncSession, user_id: uuid.UUID) -> None:
+  """Pre-create quota buckets for standard metrics to ensure they are available to clients."""
+  now = _utc_now()
+  metrics = [
+    ("lesson.generate", QuotaPeriod.WEEK),
+    ("section.generate", QuotaPeriod.MONTH),
+    ("coach.generate", QuotaPeriod.MONTH),
+    ("fenster.widget.generate", QuotaPeriod.MONTH),
+    ("ocr.extract", QuotaPeriod.MONTH),
+    ("writing.check", QuotaPeriod.MONTH),
+    ("youtube.capture.minutes", QuotaPeriod.MONTH),
+    ("image.generate", QuotaPeriod.MONTH),
+  ]
+
+  async with _quota_transaction(session):
+    for metric_key, period in metrics:
+      start = period_start_date(now=now, period=period)
+      # Check for existence before inserting to keep initialization idempotent
+      # without relying on DB-level unique constraints.
+      exists_stmt = select(UserQuotaBucket.id).where(and_(UserQuotaBucket.user_id == user_id, UserQuotaBucket.metric_key == metric_key, UserQuotaBucket.period == period, UserQuotaBucket.period_start == start))
+      exists_res = await session.execute(exists_stmt)
+      if exists_res.scalar_one_or_none() is None:
+        bucket = UserQuotaBucket(id=uuid.uuid4(), user_id=user_id, metric_key=metric_key, period=period, period_start=start, used=0, reserved=0, updated_at=now)
+        session.add(bucket)
+
+    # Flush to ensure any newly created buckets are persisted before returning.
+    await session.flush()

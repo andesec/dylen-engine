@@ -44,6 +44,22 @@ def _prune_none_values(value: Any) -> Any:
   return value
 
 
+def _normalize_provider_section_payload(payload: dict[str, Any], logger: logging.Logger) -> dict[str, Any]:
+  """Normalize provider payload keys and drop unsupported top-level section fields."""
+  from app.schema.section_normalizer import normalize_section_payload_keys
+
+  normalized_payload = normalize_section_payload_keys(payload)
+  if not isinstance(normalized_payload, dict):
+    return payload
+  allowed_top_level_fields = {"section", "markdown", "subsections", "illustration"}
+  extra_fields = [field_name for field_name in normalized_payload.keys() if field_name not in allowed_top_level_fields]
+  if extra_fields:
+    # Drop non-schema top-level fields (for example, learning_data_points) to reduce avoidable hard failures.
+    logger.warning("SectionBuilder dropped unsupported top-level fields from provider payload: %s", sorted(extra_fields))
+  sanitized_payload = {field_name: field_value for field_name, field_value in normalized_payload.items() if field_name in allowed_top_level_fields}
+  return sanitized_payload
+
+
 def _build_shorthand_content(section_struct: Any, section_json: Any, section_number: int, logger: logging.Logger) -> dict[str, Any]:
   """Build shorthand JSON from canonical section struct output."""
   if section_struct is not None and hasattr(section_struct, "output"):
@@ -77,6 +93,33 @@ def _extract_error_location(error_message: str) -> tuple[str | None, str | None,
   if item_match:
     item_index = int(item_match.group(1))
   return normalized_path, section_scope, subsection_index, item_index
+
+
+def _normalize_allowed_widgets(widget_names: list[str] | None) -> list[str] | None:
+  """Normalize widget keys for schema filtering and always keep markdown available."""
+  if widget_names is None:
+    return None
+  logger = logging.getLogger(__name__)
+  from app.schema.widget_models import resolve_widget_shorthand_name
+
+  normalized_widgets: list[str] = []
+  seen_widgets: set[str] = set()
+  for widget_name in widget_names:
+    try:
+      canonical_name = resolve_widget_shorthand_name(widget_name)
+    except ValueError:
+      # Ignore unknown widget keys so stale clients do not break section generation.
+      logger.warning("SectionBuilder ignored unsupported widget key: %s", widget_name)
+      continue
+    if canonical_name in seen_widgets:
+      continue
+    seen_widgets.add(canonical_name)
+    normalized_widgets.append(canonical_name)
+
+  # Markdown is backend-required and planner-aligned, so include it even when callers omit it.
+  if "markdown" not in seen_widgets:
+    normalized_widgets.append("markdown")
+  return normalized_widgets
 
 
 class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
@@ -192,11 +235,11 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
 
       # Determine allowed widgets
       if request.widgets:
-        allowed_widgets = request.widgets
+        allowed_widgets = _normalize_allowed_widgets(request.widgets)
       elif request.blueprint:
         from app.schema.widget_preference import get_widget_preference
 
-        allowed_widgets = get_widget_preference(request.blueprint, request.teaching_style)
+        allowed_widgets = _normalize_allowed_widgets(get_widget_preference(request.blueprint, request.teaching_style))
       else:
         allowed_widgets = None
 
@@ -235,6 +278,11 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
             usage = response.usage
 
             self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=usage)
+            if not isinstance(result_dict, dict):
+              raise RuntimeError(f"Structured output provider returned non-object JSON payload: {type(result_dict).__name__}.")
+            result_dict = _normalize_provider_section_payload(result_dict, logger)
+            if not result_dict:
+              raise RuntimeError("Structured output provider returned an empty JSON object.")
 
             # Validate provider output against canonical runtime model.
             from app.schema.widget_models import Section as CanonicalSection

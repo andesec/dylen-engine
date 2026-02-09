@@ -274,5 +274,5 @@ async def get_effective_flags(org_id: str | None = Query(None), tier_name: str |
     await _require_tenant_scope(db, current_user, parsed)
     target_org_id = parsed
 
-  effective = await resolve_effective_feature_flags(db, org_id=target_org_id, subscription_tier_id=tier_id)
+  effective = await resolve_effective_feature_flags(db, org_id=target_org_id, subscription_tier_id=tier_id, user_id=None)
   return {"tier": tier_name, "org_id": str(target_org_id) if target_org_id else None, "flags": effective}

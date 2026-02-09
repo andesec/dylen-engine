@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 import msgspec
 
-from app.schema.widget_models import SUBSECTION_ITEMS_MAX, SUBSECTION_ITEMS_MIN, SUBSECTIONS_PER_SECTION_MAX, SUBSECTIONS_PER_SECTION_MIN, MarkdownPayload, get_widget_payload, get_widget_shorthand_names, resolve_widget_shorthand_name
+from app.schema.widget_models import SUBSECTION_ITEMS_MAX, SUBSECTION_ITEMS_MIN, SUBSECTIONS_PER_SECTION_MAX, SUBSECTIONS_PER_SECTION_MIN, IllustrationPayload, MarkdownPayload, get_widget_payload, get_widget_shorthand_names, resolve_widget_shorthand_name
 
 
 def _normalize_widget_names(widget_names: list[str]) -> list[str]:
@@ -92,7 +92,7 @@ def create_selective_subsection(widget_names: list[str]) -> type[msgspec.Struct]
 
   # Create the class dynamically to avoid forward reference issues
   def output_method(self) -> dict[str, Any]:
-    return {"section": self.section, "items": [item.output() for item in self.items], "subsections": []}
+    return {"section": self.section, "items": [item.output() for item in self.items]}
 
   class_dict = {
     "__annotations__": {
@@ -133,8 +133,10 @@ def create_selective_section(widget_names: list[str]) -> type[msgspec.Struct]:
       "section": Annotated[str, msgspec.Meta(min_length=1, description="Section title")],
       "markdown": Annotated[MarkdownPayload, msgspec.Meta(description="Section introduction")],
       "subsections": Annotated[list[subsection_cls], msgspec.Meta(min_length=SUBSECTIONS_PER_SECTION_MIN, max_length=SUBSECTIONS_PER_SECTION_MAX, description=f"Subsections ({SUBSECTIONS_PER_SECTION_MIN}-{SUBSECTIONS_PER_SECTION_MAX})")],
+      "illustration": Annotated[IllustrationPayload | None, msgspec.Meta(description="Section-level illustration metadata generated at runtime.")],
     },
-    "output": lambda self: {"section": self.section, "items": [{"markdown": self.markdown.output()}] if self.markdown else [], "subsections": [s.output() for s in self.subsections]},
+    "illustration": None,
+    "output": lambda self: {"section": self.section, "markdown": self.markdown.output(), "illustration": self.illustration.output() if self.illustration else None, "subsections": [s.output() for s in self.subsections]},
   }
 
   return type("Section", (msgspec.Struct,), class_dict)

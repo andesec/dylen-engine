@@ -120,6 +120,7 @@ async def run_async_migrations() -> None:
   # Run migrations using an async connection.
   async with connectable.connect() as connection:
     await connection.run_sync(do_run_migrations)
+    await connection.commit()
 
   # Dispose the engine so connections close cleanly.
   await connectable.dispose()

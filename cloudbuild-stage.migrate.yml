@@ -12,6 +12,8 @@ substitutions:
 
   _ENV_FILE: ".env.example"
   _DBURL_SECRET: "STAGE_DATABASE_URL"
+  _ILLUSTRATION_BUCKET: "dylen-stage-illustrations"
+  _GCS_STORAGE_HOST: ""
 
 steps:
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
@@ -59,7 +61,7 @@ steps:
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
             --env-vars-file "/workspace/env.stage.yaml" \
-            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},GCS_STORAGE_HOST=${_GCS_STORAGE_HOST}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest" \
             --command "python" \
@@ -70,7 +72,7 @@ steps:
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
             --env-vars-file "/workspace/env.stage.yaml" \
-            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},GCS_STORAGE_HOST=${_GCS_STORAGE_HOST}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest,DYLEN_PG_DSN=${_DBURL_SECRET}:latest"
         fi
@@ -89,7 +91,7 @@ steps:
           --image "$${IMAGE}" \
           --service-account "${_RUN_SA}" \
           --env-vars-file "/workspace/env.stage.yaml" \
-          --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0" \
+          --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},GCS_STORAGE_HOST=${_GCS_STORAGE_HOST}" \
           --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
           --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
           --port 8002 \

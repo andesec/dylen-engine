@@ -89,6 +89,10 @@ class AIModel(ABC):
     """Generate speech audio from text."""
     raise NotImplementedError("Text-to-speech is not supported by this model.")
 
+  async def generate_image(self, prompt: str) -> bytes:
+    """Generate image bytes from a prompt."""
+    raise NotImplementedError("Image generation is not supported by this model.")
+
   @staticmethod
   def strip_json_fences(raw: str) -> str:
     stripped = raw.strip()

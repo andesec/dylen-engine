@@ -9,6 +9,7 @@ import app.schema.coach  # noqa: F401
 import app.schema.email_delivery_logs  # noqa: F401
 import app.schema.feature_flags  # noqa: F401
 import app.schema.fenster  # noqa: F401
+import app.schema.illustrations  # noqa: F401
 import app.schema.jobs  # noqa: F401
 import app.schema.lessons  # noqa: F401
 import app.schema.notifications  # noqa: F401

@@ -34,20 +34,27 @@ Your focus is 100% on the CONTENT inside those specific widgets:
     - **Commented:** Explain *why*, not just what (e.g., `// Good practice: handle errors here`).
     - **Context:** Brief intro before the block explaining what it does.
 
-- **Quiz (`multichoice`):**
+- **Quiz (`MCQs`):**
     - **Questions:** Test *application* or *diagnosis*, not just recall.
     - **Distractors:** Plausible but incorrect (common misconceptions). No obvious throwaways.
     - **Feedback:** Explain *why* the right answer is right.
 
-- **Free Text (`freetext` / `reflection`):**
+- **Free Text (`freetext` / `inputLine`):**
     - **Prompt:** Ask Open-ended, thought-provoking questions.
     - **Goal:** Trigger metacognition (e.g., "How would you apply this to your current project?").
 
 ### RULES
 1.  **Strict Schema Compliance:** Return VALID JSON.
 2.  **Fidelity:** Do not change the *structure* (widgets/subsections) defined by the Planner.
-3.  **No Hallucinations:** Do not invent features or facts.
+3.  **No Hallucinations:** Do not invent features or facts. Avoid hard numbers unless essential; prefer ranges or functional descriptions.
 4.  **Learning Data Points:** Generate a specific `learning_data_points` list summarizing the key concepts.
 
 ### OUTPUT
 Return ONLY valid JSON matching the `Section` schema.
+
+### ILLUSTRATION METADATA
+- Include a top-level `illustration` object when possible.
+- Set `illustration.id` to `null`.
+- `illustration.keywords` must contain exactly 4 concise keywords.
+- Keep `illustration.caption` short and learner-friendly.
+- Make `illustration.ai_prompt` explicit enough for image generation.

@@ -10,7 +10,9 @@ from urllib.parse import urlparse
 from app.core.database import get_db_engine
 from app.core.firebase import initialize_firebase
 from app.core.logging import _initialize_logging
+from app.services.storage_client import build_storage_client
 from fastapi import FastAPI
+from scripts.ensure_superadmin_user import ensure_superadmin_user
 from sqlalchemy import text
 
 # Background worker loop code removed in favor of Cloud Tasks / HTTP Dispatcher.
@@ -34,6 +36,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Initialize Firebase before handling requests.
     initialize_firebase()
+    # Ensure the illustration bucket exists before media jobs begin.
+    try:
+      storage_client = build_storage_client(settings)
+      await storage_client.ensure_bucket()
+      logger.info("Illustration bucket ensured: %s", storage_client.bucket_name)
+    except Exception as exc:  # noqa: BLE001
+      logger.warning("Failed to ensure illustration bucket at startup: %s", exc)
     # Decide whether to auto-apply migrations based on the runtime flag.
     auto_apply = (os.getenv("DYLEN_AUTO_APPLY_MIGRATIONS", "") or "").strip().lower() in {"1", "true", "yes", "on"}
     # Apply migrations at startup when the flag is enabled.
@@ -45,17 +54,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Log the configured DSN without credentials for troubleshooting.
         logger.info("Auto-apply migrations enabled; DYLEN_PG_DSN=%s", _redact_dsn(settings.pg_dsn))
         repo_root = Path(__file__).resolve().parents[2]
-        # Capture migrator output so failures include actionable details.
-        subprocess.run([sys.executable, "scripts/migrate_with_lock.py"], check=True, cwd=repo_root, capture_output=True, text=True)
+        # Stream migrator output so logs appear in real-time.
+        subprocess.run([sys.executable, "scripts/migrate_with_lock.py"], check=True, cwd=repo_root)
         # Log the database state after migrations to confirm the runtime schema.
         await _log_db_state(logger=logger)
 
   except Exception as exc:
     # Log initialization failures but allow the app to continue starting.
     if isinstance(exc, subprocess.CalledProcessError):
-      logger.warning("Initial logging setup failed; migrator returned non-zero exit status. stdout=%s stderr=%s", exc.stdout, exc.stderr, exc_info=True)
+      logger.warning("Initial logging setup failed; migrator returned non-zero exit status.", exc_info=True)
     else:
       logger.warning("Initial logging setup failed; will retry on lifespan.", exc_info=True)
+
+  # Enforce strict superadmin bootstrap so admin login remains guaranteed after startup.
+  await ensure_superadmin_user()
 
   yield
 
