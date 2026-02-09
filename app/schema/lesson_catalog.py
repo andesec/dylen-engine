@@ -148,6 +148,7 @@ def _build_widget_tooltip(description: str, label: str) -> str:
     "interactiveterminal": "Practice commands like a real terminal session.",
     "terminaldemo": "Shows a command sequence as a guided demo.",
     "treeview": "Map hierarchies and breakdowns at a glance.",
+    "fenster": "A custom made, topic-related interactive widget to demonstrate the concept.",
   }
 
   if normalized in tooltip_map:
@@ -191,6 +192,7 @@ def _build_teaching_style_options() -> list[dict[str, str]]:
 def _build_widget_options() -> list[dict[str, str]]:
   """Build widget option payloads with tooltip guidance."""
   options: list[dict[str, str]] = []
+  seen_widget_ids: set[str] = set()
   registry = load_widget_registry(DEFAULT_WIDGETS_PATH)
   label_map = {
     "markdown": "Markdown Text",
@@ -210,18 +212,27 @@ def _build_widget_options() -> list[dict[str, str]]:
     "interactiveterminal": "Interactive Terminal",
     "terminaldemo": "Demo Terminal",
     "treeview": "Tree View",
+    "fenster": "Fenster Widget",
   }
 
   # Convert widget docs into concise tooltip strings.
   for widget_name in registry.available_types():
     # Normalize widget ids for client-friendly option keys.
     widget_id = "".join(ch for ch in widget_name.lower() if ch.isalnum())
+    # Hide markdown from client-selectable widgets because the backend injects it automatically.
+    if widget_id == "markdown":
+      continue
     # Map the normalized id to a friendly label when available.
     widget_label = label_map.get(widget_id, widget_name)
     # Extract a brief tooltip for each widget entry.
     description = registry.describe(widget_name)
     tooltip = _build_widget_tooltip(description, widget_name)
     options.append({"id": widget_id, "label": widget_label, "tooltip": tooltip})
+    seen_widget_ids.add(widget_id)
+
+  # Add fenster explicitly so catalog stays aligned with backend-supported selective schemas.
+  if "fenster" not in seen_widget_ids:
+    options.append({"id": "fenster", "label": label_map["fenster"], "tooltip": _build_widget_tooltip("Interactive Fenster widget container.", "fenster")})
 
   return options
 
@@ -239,8 +250,8 @@ def build_widget_defaults() -> dict[str, dict[str, list[str]]]:
     # Map explicit styles using lowercase option ids.
     for style_key in ("conceptual", "theoretical", "practical"):
       widgets = styles.get(style_key, [])
-      # Normalize widget ids so defaults align with option ids.
-      style_defaults[style_key] = ["".join(ch for ch in widget.lower() if ch.isalnum()) for widget in widgets]
+      # Keep catalog defaults aligned with client-selectable widgets.
+      style_defaults[style_key] = ["".join(ch for ch in widget.lower() if ch.isalnum()) for widget in widgets if "".join(ch for ch in widget.lower() if ch.isalnum()) != "markdown"]
 
     defaults[blueprint_id] = style_defaults
 

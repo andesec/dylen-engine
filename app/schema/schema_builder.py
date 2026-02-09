@@ -11,47 +11,37 @@ from typing import Any
 
 from app.schema.schema_export import build_gemini_config, struct_to_json_schema
 from app.schema.widget_models import (
-  AsciiDiagramPayload,
-  ChecklistPayload,
-  CodeEditorPayload,
-  FensterPayload,
-  FillBlankPayload,
-  FlipPayload,
-  FreeTextPayload,
-  InputLinePayload,
-  InteractiveTerminalPayload,
+  SECTION_TITLE_MIN_CHARS,
+  SUBSECTION_ITEMS_MAX,
+  SUBSECTION_ITEMS_MIN,
+  SUBSECTION_TITLE_MIN_CHARS,
+  SUBSECTIONS_PER_SECTION_MAX,
+  SUBSECTIONS_PER_SECTION_MIN,
   MarkdownPayload,
-  MCQsInner,
-  MCQsQuestion,
-  StepFlowPayload,
-  SwipeCardPayload,
-  SwipeCardsPayload,
-  TerminalDemoPayload,
-  TranslationPayload,
-  TreeViewPayload,
+  get_widget_payload,
+  get_widget_shorthand_names,
+  resolve_widget_shorthand_name,
 )
 
-# Widget dependency map: which payload types are needed for each widget
-WIDGET_DEPENDENCIES = {
-  "markdown": [MarkdownPayload],
-  "flip": [FlipPayload],
-  "tr": [TranslationPayload],
-  "fillblank": [FillBlankPayload],
-  "table": [],  # Uses list[list[str]], no custom payload
-  "compare": [],  # Uses list[list[str]], no custom payload
-  "swipecards": [SwipeCardsPayload, SwipeCardPayload],
-  "freeText": [FreeTextPayload],
-  "inputLine": [InputLinePayload],
-  "stepFlow": [StepFlowPayload],
-  "asciiDiagram": [AsciiDiagramPayload],
-  "checklist": [ChecklistPayload],
-  "interactiveTerminal": [InteractiveTerminalPayload],
-  "terminalDemo": [TerminalDemoPayload],
-  "codeEditor": [CodeEditorPayload],
-  "treeview": [TreeViewPayload],
-  "mcqs": [MCQsInner, MCQsQuestion],
-  "fenster": [FensterPayload],
-}
+TABLE_LIKE_WIDGETS = {"table", "compare"}
+
+
+def _string_schema(min_length: int, description: str) -> dict[str, Any]:
+  """Build string constraints for schema output without hard max bounds."""
+  return {"type": "string", "minLength": min_length, "description": description}
+
+
+def _normalize_widget_names(widget_names: list[str]) -> list[str]:
+  """Normalize aliases to canonical shorthand keys while preserving order."""
+  normalized_names: list[str] = []
+  seen_names: set[str] = set()
+  for widget_name in widget_names:
+    canonical_name = resolve_widget_shorthand_name(widget_name)
+    if canonical_name in seen_names:
+      continue
+    seen_names.add(canonical_name)
+    normalized_names.append(canonical_name)
+  return normalized_names
 
 
 def get_widget_dependencies(widget_names: list[str]) -> set[type]:
@@ -64,10 +54,11 @@ def get_widget_dependencies(widget_names: list[str]) -> set[type]:
   Returns:
       Set of payload class types needed
   """
-  dependencies = set()
-  for widget_name in widget_names:
-    if widget_name in WIDGET_DEPENDENCIES:
-      dependencies.update(WIDGET_DEPENDENCIES[widget_name])
+  dependencies: set[type] = set()
+  for widget_name in _normalize_widget_names(widget_names):
+    if widget_name in TABLE_LIKE_WIDGETS:
+      continue
+    dependencies.add(get_widget_payload(widget_name))
   return dependencies
 
 
@@ -81,8 +72,10 @@ def build_widget_item_schema(widget_names: list[str]) -> dict[str, Any]:
   Returns:
       JSON Schema for WidgetItem with only specified widgets
   """
+  normalized_names = _normalize_widget_names(widget_names)
+
   # Get dependencies
-  payload_types = get_widget_dependencies(widget_names)
+  payload_types = get_widget_dependencies(normalized_names)
 
   # Build schema definitions for each payload
   definitions = {}
@@ -98,19 +91,16 @@ def build_widget_item_schema(widget_names: list[str]) -> dict[str, Any]:
   }
 
   # Add each widget as a property
-  for widget_name in widget_names:
-    if widget_name in WIDGET_DEPENDENCIES:
-      payload_types_list = WIDGET_DEPENDENCIES[widget_name]
-      if payload_types_list:
-        # Reference the payload schema
-        payload_type = payload_types_list[0]
-        widget_item_schema["properties"][widget_name] = {"$ref": f"#/$defs/{payload_type.__name__}"}
-      elif widget_name == "table" or widget_name == "compare":
-        # Simple array of arrays
-        widget_item_schema["properties"][widget_name] = {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+  for widget_name in normalized_names:
+    if widget_name in TABLE_LIKE_WIDGETS:
+      # Keep shorthand schema for table/compare widgets.
+      widget_item_schema["properties"][widget_name] = {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+      continue
+    payload_type = get_widget_payload(widget_name)
+    widget_item_schema["properties"][widget_name] = {"$ref": f"#/$defs/{payload_type.__name__}"}
 
   # Add oneOf constraint (exactly one widget must be set)
-  for widget_name in widget_names:
+  for widget_name in normalized_names:
     widget_item_schema["oneOf"].append({"required": [widget_name]})
 
   return widget_item_schema, definitions
@@ -132,7 +122,10 @@ def build_section_schema(widget_names: list[str]) -> dict[str, Any]:
   subsection_schema = {
     "type": "object",
     "description": "Subsection model",
-    "properties": {"title": {"type": "string", "minLength": 1, "description": "Subsection title"}, "items": {"type": "array", "items": widget_item_schema, "minItems": 1, "maxItems": 5, "description": "Widget items (1-5)"}},
+    "properties": {
+      "title": _string_schema(SUBSECTION_TITLE_MIN_CHARS, "Subsection title"),
+      "items": {"type": "array", "items": widget_item_schema, "minItems": SUBSECTION_ITEMS_MIN, "maxItems": SUBSECTION_ITEMS_MAX, "description": f"Widget items ({SUBSECTION_ITEMS_MIN}-{SUBSECTION_ITEMS_MAX})"},
+    },
     "required": ["title", "items"],
   }
 
@@ -141,9 +134,9 @@ def build_section_schema(widget_names: list[str]) -> dict[str, Any]:
     "type": "object",
     "description": "Section model",
     "properties": {
-      "section": {"type": "string", "minLength": 1, "description": "Section title"},
+      "section": _string_schema(SECTION_TITLE_MIN_CHARS, "Section title"),
       "markdown": {"$ref": "#/$defs/MarkdownPayload"},
-      "subsections": {"type": "array", "items": subsection_schema, "minItems": 1, "maxItems": 8, "description": "Subsections (1-8)"},
+      "subsections": {"type": "array", "items": subsection_schema, "minItems": SUBSECTIONS_PER_SECTION_MIN, "maxItems": SUBSECTIONS_PER_SECTION_MAX, "description": f"Subsections ({SUBSECTIONS_PER_SECTION_MIN}-{SUBSECTIONS_PER_SECTION_MAX})"},
     },
     "required": ["section", "markdown", "subsections"],
   }
@@ -171,7 +164,7 @@ def build_lesson_schema(widget_names: list[str]) -> dict[str, Any]:
     "type": "object",
     "description": "Root lesson document",
     "properties": {
-      "title": {"type": "string", "maxLength": 60, "description": "Lesson title"},
+      "title": {"type": "string", "description": "Lesson title"},
       "blocks": {"type": "array", "items": {"type": "object", "properties": section_schema["properties"], "required": section_schema["required"]}, "description": "List of sections"},
     },
     "required": ["title", "blocks"],
@@ -191,7 +184,7 @@ def build_schema_for_context(context: str, widget_names: list[str] | None = None
       Complete Gemini API config with response_mime_type and response_json_schema
   """
   # Default widget sets for common contexts
-  context_widgets = {"outcomes": ["markdown", "mcqs"], "section_builder": ["markdown", "flip", "tr", "fillblank", "table", "mcqs"], "full": list(WIDGET_DEPENDENCIES.keys())}
+  context_widgets = {"outcomes": ["markdown", "mcqs"], "section_builder": ["markdown", "flip", "tr", "fillblank", "table", "mcqs"], "full": get_widget_shorthand_names()}
 
   if widget_names is None:
     if context not in context_widgets:

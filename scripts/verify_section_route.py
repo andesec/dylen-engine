@@ -29,8 +29,8 @@ async def test_get_section_by_order_index():
 
   # 2. Mock Section check
   section_result = MagicMock()
-  section_content = {"title": "Test Section", "markdown": "Hello"}
-  section_result.scalar_one_or_none.return_value = Section(section_id="sect-id", lesson_id=lesson_id, order_index=order_index, status="completed", content=section_content)
+  section_content = {"section": "Test Section", "items": [{"markdown": "Hello"}], "subsections": []}
+  section_result.scalar_one_or_none.return_value = Section(section_id=1, lesson_id=lesson_id, order_index=order_index, status="completed", content={"raw": True}, content_shorthand=section_content)
 
   session.execute = AsyncMock()
   session.execute.side_effect = [lesson_result, section_result]
@@ -40,7 +40,7 @@ async def test_get_section_by_order_index():
 
   # Verify
   assert result == section_content
-  print("Verification Passed: Section content retrieved correctly using order_index.")
+  print("Verification Passed: Section shorthand retrieved correctly using order_index.")
 
   # Verify query
   calls = session.execute.call_args_list

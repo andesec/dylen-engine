@@ -14,6 +14,7 @@ RULES
 - {{SUBSECTIONS_PER_SECTION_RULE}}
 - {{TITLE_CONSTRAINTS_RULE}}
 - Last subsection = mini-check (mcqs/fillblank/code-output)
+- NO MCQs, Quizzes, or Check widgets in any subsection except the last one of each section.
 - Subsection titles must be implementation- or concept-specific (no generic titles)
 - Subsections within each section must be purpose-built for that section’s coding goal; avoid repeating identical subsection patterns.
 - In case of confusion follow "details" input.

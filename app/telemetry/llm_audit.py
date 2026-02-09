@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -61,7 +60,7 @@ def _get_repository() -> PostgresLlmAuditRepository | None:
   return PostgresLlmAuditRepository()
 
 
-async def start_llm_call(*, provider: str, model: str, request_type: str, request_payload: str, started_at: datetime) -> str | None:
+async def start_llm_call(*, provider: str, model: str, request_type: str, request_payload: str, started_at: datetime) -> int | None:
   """Insert a pending LLM call row before the network request."""
   # Exit early when audit logging is disabled to keep calls fast.
 
@@ -82,11 +81,10 @@ async def start_llm_call(*, provider: str, model: str, request_type: str, reques
   event = LlmAuditStart(provider=provider, model=model, request_type=request_type, request_payload=safe_payload or "", started_at=started_at)
   record = _build_pending_record(event)
 
-  await _insert_record(repo, record)
-  return record.record_id
+  return await _insert_record(repo, record)
 
 
-async def finalize_llm_call(*, call_id: str | None, response_payload: str | None, usage: dict[str, int] | None, duration_ms: int, error: BaseException | None) -> None:
+async def finalize_llm_call(*, call_id: int | None, response_payload: str | None, usage: dict[str, int] | None, duration_ms: int, error: BaseException | None) -> None:
   """Update the pending LLM call row after the response or failure."""
   # Avoid update attempts when the insert did not happen.
 
@@ -141,7 +139,7 @@ def _build_pending_record(event: LlmAuditStart) -> LlmAuditRecord:
   call_index = context.call_index if context else None
 
   return LlmAuditRecord(
-    record_id=str(uuid.uuid4()),
+    record_id=0,
     timestamp_request=event.started_at,
     timestamp_response=None,
     started_at=event.started_at,
@@ -164,19 +162,20 @@ def _build_pending_record(event: LlmAuditStart) -> LlmAuditRecord:
   )
 
 
-async def _insert_record(repo: PostgresLlmAuditRepository, record: LlmAuditRecord) -> None:
+async def _insert_record(repo: PostgresLlmAuditRepository, record: LlmAuditRecord) -> int | None:
   """Insert a record and swallow database failures to avoid breaking calls."""
   logger = logging.getLogger(__name__)
 
   try:
-    await repo.insert_record(record)
+    return await repo.insert_record(record)
 
   except Exception as exc:  # noqa: BLE001 - avoid breaking upstream calls
     logger.warning("Failed to insert LLM audit record: %s", exc)
+    return None
 
 
 async def _update_record(
-  repo: PostgresLlmAuditRepository, record_id: str, *, finished_at: datetime, response_payload: str | None, status: str, error_message: str | None, duration_ms: int, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None
+  repo: PostgresLlmAuditRepository, record_id: int, *, finished_at: datetime, response_payload: str | None, status: str, error_message: str | None, duration_ms: int, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None
 ) -> None:
   """Update an existing audit record and swallow database failures."""
   logger = logging.getLogger(__name__)

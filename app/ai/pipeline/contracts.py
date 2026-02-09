@@ -22,7 +22,7 @@ class GenerationRequest(BaseModel):
   teaching_style: list[str] | None = None
   language: str | None = None
   learner_level: str | None = None
-  widgets: list[str] | None = Field(default=None, min_length=3, max_length=8)
+  widgets: list[str] | None = Field(default=None, min_length=3, max_length=7)
   constraints: dict[str, Any] | None = None
 
 
@@ -77,6 +77,7 @@ class StructuredSection(BaseModel):
   section_number: int = Field(ge=1)
   payload: dict[str, Any] = Field(serialization_alias="json", validation_alias="json", description="Validated section payload")
   validation_errors: list[str] = Field(default_factory=list)
+  db_section_id: int | None = None
   model_config = ConfigDict(populate_by_name=True)
 
 

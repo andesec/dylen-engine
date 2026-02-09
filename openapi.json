@@ -357,28 +357,21 @@
         "description": "Request payload for lesson generation.",
         "properties": {
           "blueprint": {
-            "anyOf": [
-              {
-                "enum": [
-                  "skillbuilding",
-                  "knowledgeunderstanding",
-                  "communicationskills",
-                  "planningandproductivity",
-                  "movementandfitness",
-                  "growthmindset",
-                  "criticalthinking",
-                  "creativeskills",
-                  "webdevandcoding",
-                  "languagepractice"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "description": "Required blueprint guidance for lesson planning.",
+            "enum": [
+              "skillbuilding",
+              "knowledgeunderstanding",
+              "communicationskills",
+              "planningandproductivity",
+              "movementandfitness",
+              "growthmindset",
+              "criticalthinking",
+              "creativeskills",
+              "webdevandcoding",
+              "languagepractice"
             ],
-            "description": "Optional blueprint or learning outcome guidance for lesson planning.",
-            "title": "Blueprint"
+            "title": "Blueprint",
+            "type": "string"
           },
           "depth": {
             "default": "highlights",
@@ -476,24 +469,19 @@
             "title": "Schema Version"
           },
           "teaching_style": {
-            "anyOf": [
-              {
-                "items": {
-                  "enum": [
-                    "conceptual",
-                    "theoretical",
-                    "practical"
-                  ],
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional teaching style or pedagogy guidance for lesson planning.",
-            "title": "Teaching Style"
+            "description": "Required teaching style guidance for lesson planning.",
+            "items": {
+              "enum": [
+                "conceptual",
+                "theoretical",
+                "practical"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Teaching Style",
+            "type": "array"
           },
           "topic": {
             "description": "Topic to generate a lesson for.",
@@ -510,7 +498,7 @@
                 "items": {
                   "type": "string"
                 },
-                "maxItems": 8,
+                "maxItems": 7,
                 "minItems": 3,
                 "type": "array"
               },
@@ -523,7 +511,9 @@
           }
         },
         "required": [
-          "topic"
+          "topic",
+          "blueprint",
+          "teaching_style"
         ],
         "title": "GenerateLessonRequest",
         "type": "object"
@@ -1675,7 +1665,7 @@
           },
           "record_id": {
             "title": "Record Id",
-            "type": "string"
+            "type": "integer"
           },
           "request_payload": {
             "title": "Request Payload",
@@ -1866,7 +1856,8 @@
                 "enum": [
                   "sexual",
                   "political",
-                  "military"
+                  "military",
+                  "invalid_input"
                 ],
                 "type": "string"
               },
@@ -2119,6 +2110,8 @@
         "description": "Standard browser push subscription object payload.",
         "properties": {
           "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
             "title": "Endpoint",
             "type": "string"
           },
@@ -2149,10 +2142,14 @@
         "description": "Browser-provided key material for Web Push encryption.",
         "properties": {
           "auth": {
+            "maxLength": 256,
+            "minLength": 16,
             "title": "Auth",
             "type": "string"
           },
           "p256dh": {
+            "maxLength": 512,
+            "minLength": 40,
             "title": "P256Dh",
             "type": "string"
           }
@@ -2169,6 +2166,8 @@
         "description": "Payload for deleting an existing push subscription.",
         "properties": {
           "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
             "title": "Endpoint",
             "type": "string"
           }
@@ -2813,12 +2812,60 @@
         "title": "SectionOutline",
         "type": "object"
       },
+      "SectionShorthandBackfillRequest": {
+        "properties": {
+          "section_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Section Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "section_ids"
+        ],
+        "title": "SectionShorthandBackfillRequest",
+        "type": "object"
+      },
+      "SectionShorthandBackfillResponse": {
+        "properties": {
+          "failed": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "object"
+          },
+          "missing_section_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Missing Section Ids",
+            "type": "array"
+          },
+          "updated_section_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Updated Section Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "updated_section_ids",
+          "missing_section_ids",
+          "failed"
+        ],
+        "title": "SectionShorthandBackfillResponse",
+        "type": "object"
+      },
       "SectionSummary": {
         "description": "Summary of a lesson section.",
         "properties": {
           "section_id": {
             "title": "Section Id",
-            "type": "string"
+            "type": "integer"
           },
           "status": {
             "title": "Status",
@@ -4084,6 +4131,53 @@
         ]
       }
     },
+    "/admin/sections/backfill-shorthand": {
+      "post": {
+        "description": "Backfill section shorthand content from stored raw section JSON.",
+        "operationId": "backfill_sections_shorthand_admin_sections_backfill_shorthand_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SectionShorthandBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SectionShorthandBackfillResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Backfill Sections Shorthand",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/users": {
       "get": {
         "description": "List users with tenant scoping for org admins.",
@@ -5175,6 +5269,7 @@
             "required": false,
             "schema": {
               "default": 1,
+              "minimum": 1,
               "title": "Page",
               "type": "integer"
             }
@@ -5185,6 +5280,8 @@
             "required": false,
             "schema": {
               "default": 10,
+              "maximum": 100,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -5410,6 +5507,7 @@
             "name": "lesson_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Lesson Id",
               "type": "string"
             }
@@ -5458,6 +5556,7 @@
             "name": "lesson_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Lesson Id",
               "type": "string"
             }
@@ -5498,7 +5597,7 @@
     },
     "/v1/lessons/{lesson_id}/sections/{order_index}": {
       "get": {
-        "description": "Get a specific section of a lesson by its order index (1-based).",
+        "description": "Get a specific section shorthand payload by its order index (1-based).",
         "operationId": "get_section_v1_lessons__lesson_id__sections__order_index__get",
         "parameters": [
           {

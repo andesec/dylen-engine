@@ -35,11 +35,28 @@ class Lesson(Base):
 class Section(Base):
   __tablename__ = "sections"
 
-  section_id: Mapped[str] = mapped_column(String, primary_key=True)
+  section_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
   lesson_id: Mapped[str] = mapped_column(ForeignKey("lessons.lesson_id"), nullable=False, index=True)
   title: Mapped[str] = mapped_column(String, nullable=False)
   order_index: Mapped[int] = mapped_column(Integer, nullable=False)
   status: Mapped[str] = mapped_column(String, nullable=False)
   content: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+  content_shorthand: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
   lesson: Mapped[Lesson] = relationship("Lesson", back_populates="sections")
+  errors: Mapped[list[SectionError]] = relationship("SectionError", back_populates="section", cascade="all, delete-orphan")
+
+
+class SectionError(Base):
+  __tablename__ = "section_errors"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  section_id: Mapped[int] = mapped_column(ForeignKey("sections.section_id", ondelete="CASCADE"), nullable=False, index=True)
+  error_index: Mapped[int] = mapped_column(Integer, nullable=False)
+  error_message: Mapped[str] = mapped_column(Text, nullable=False)
+  error_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+  section_scope: Mapped[str | None] = mapped_column(String, nullable=True)
+  subsection_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  item_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+  section: Mapped[Section] = relationship("Section", back_populates="errors")

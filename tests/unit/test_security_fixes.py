@@ -90,12 +90,12 @@ def test_pii_scrubbing_phone():
 def test_generate_lesson_request_max_length():
   long_details = "a" * 301
   with pytest.raises(ValidationError) as excinfo:
-    GenerateLessonRequest(topic="Topic", details=long_details)
+    GenerateLessonRequest(topic="Topic", details=long_details, blueprint="knowledgeunderstanding", teaching_style=["conceptual"])
 
   assert "String should have at most 300 characters" in str(excinfo.value)
 
 
 def test_generate_lesson_request_valid_length():
   details = "a" * 300
-  req = GenerateLessonRequest(topic="Topic", details=details)
+  req = GenerateLessonRequest(topic="Topic", details=details, blueprint="knowledgeunderstanding", teaching_style=["conceptual"])
   assert req.details == details

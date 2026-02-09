@@ -43,6 +43,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     structured = input_data.structured
     errors = structured.validation_errors
     section_json: JsonDict = structured.payload
+    persisted_section_id = structured.db_section_id
     topic = request.topic
     section_number = section.section_number
     dummy_json = self._load_dummy_json()
@@ -52,6 +53,8 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       validator = self._schema_service.validate_section_payload
       ok, repaired_errors, _ = validator(dummy_json, topic=topic, section_index=section_number)
       err_list = [] if ok else repaired_errors
+      if not err_list:
+        await _persist_repaired_section(section_id=persisted_section_id, repaired_json=dummy_json)
       return RepairResult(section_number=section_number, fixed_json=dummy_json, changes=["dummy_fixture"], errors=err_list)
 
     if errors:
@@ -64,9 +67,11 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
         ok, errors, _ = validator(section_json, topic=topic, section_index=section_number)
 
         if ok:
+          await _persist_repaired_section(section_id=persisted_section_id, repaired_json=section_json)
           return RepairResult(section_number=section_number, fixed_json=section_json, changes=manual_changes, errors=[])
 
     if not errors:
+      await _persist_repaired_section(section_id=persisted_section_id, repaired_json=section_json)
       return RepairResult(section_number=section_number, fixed_json=section_json, changes=[], errors=[])
 
     # Identify only the widget entries tied to validation failures.
@@ -140,7 +145,21 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     ok, repaired_errors, _ = validator(repaired_json, topic=topic, section_index=section_number)
     changes = ["ai_repair"]
     err_list = [] if ok else repaired_errors
+    if not err_list:
+      await _persist_repaired_section(section_id=persisted_section_id, repaired_json=repaired_json)
     return RepairResult(section_number=section_number, fixed_json=repaired_json, changes=changes, errors=err_list)
+
+
+async def _persist_repaired_section(section_id: int | None, repaired_json: JsonDict) -> None:
+  """Persist repaired section payload and canonical shorthand for the existing section row."""
+  from app.services.section_shorthand import build_section_shorthand_content
+  from app.storage.postgres_lessons_repo import PostgresLessonsRepository
+
+  if section_id is None:
+    raise RuntimeError("Repairer missing persisted section id for section update.")
+  shorthand_content = build_section_shorthand_content(repaired_json)
+  repo = PostgresLessonsRepository()
+  await repo.update_section_content_and_shorthand(section_id, repaired_json, shorthand_content)
 
 
 def _collect_repair_targets(section_json: JsonDict, errors: Errors) -> list[RepairTarget]:

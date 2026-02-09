@@ -10,12 +10,13 @@ from typing import Any, Protocol
 class SectionRecord:
   """Record stored in the sections table."""
 
-  section_id: str
+  section_id: int | None
   lesson_id: str
   title: str
   order_index: int
   status: str
   content: dict[str, Any] | None
+  content_shorthand: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,20 @@ class LessonRecord:
   lesson_plan: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class SectionErrorRecord:
+  """Validation error persisted for a generated section."""
+
+  id: int | None
+  section_id: int | None
+  error_index: int
+  error_message: str
+  error_path: str | None = None
+  section_scope: str | None = None
+  subsection_index: int | None = None
+  item_index: int | None = None
+
+
 class LessonsRepository(Protocol):
   """Repository contract for lesson persistence."""
 
@@ -50,8 +65,20 @@ class LessonsRepository(Protocol):
   async def upsert_lesson(self, record: LessonRecord) -> None:
     """Insert or update a lesson record."""
 
-  async def create_sections(self, records: list[SectionRecord]) -> None:
+  async def create_sections(self, records: list[SectionRecord]) -> list[SectionRecord]:
     """Persist section records."""
+
+  async def create_section_errors(self, records: list[SectionErrorRecord]) -> list[SectionErrorRecord]:
+    """Persist section validation errors."""
+
+  async def create_section_with_errors(self, section: SectionRecord, errors: list[SectionErrorRecord]) -> SectionRecord:
+    """Persist one section and its validation errors atomically."""
+
+  async def update_section_content_and_shorthand(self, section_id: int, content: dict[str, Any], content_shorthand: dict[str, Any]) -> None:
+    """Update a section row with final content and shorthand payloads."""
+
+  async def update_section_shorthand(self, section_id: int, content_shorthand: dict[str, Any]) -> None:
+    """Update only shorthand content for an existing section."""
 
   async def get_lesson(self, lesson_id: str, user_id: str | None = None) -> LessonRecord | None:
     """Fetch a lesson record by lesson identifier."""

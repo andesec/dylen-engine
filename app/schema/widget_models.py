@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+import logging
+from typing import Annotated, Any, Literal, cast, get_args, get_type_hints
 
 import msgspec
 
@@ -10,6 +11,23 @@ SUBSECTION_TITLE_MIN_CHARS = 6
 SUBSECTION_TITLE_MAX_CHARS = 40
 SUBSECTIONS_PER_SECTION_MIN = 1
 SUBSECTIONS_PER_SECTION_MAX = 5
+SUBSECTION_ITEMS_MIN = 1
+SUBSECTION_ITEMS_MAX = 5
+
+logger = logging.getLogger(__name__)
+
+
+def _warn_len_out_of_range(*, field_name: str, value: Any, min_length: int | None = None, max_length: int | None = None) -> None:
+  """Log a warning when a string/list length falls outside configured bounds."""
+  if value is None:
+    return
+  length = len(value) if isinstance(value, (str, list)) else None
+  if length is None:
+    return
+  if min_length is not None and length < min_length:
+    logger.warning("Widget length warning for %s: got %s, expected >= %s", field_name, length, min_length)
+  if max_length is not None and length > max_length:
+    logger.warning("Widget length warning for %s: got %s, expected <= %s", field_name, length, max_length)
 
 
 class Widget(msgspec.Struct):
@@ -19,18 +37,25 @@ class Widget(msgspec.Struct):
 
 
 class MarkdownPayload(msgspec.Struct):
-  markdown: Annotated[str, msgspec.Meta(min_length=30, max_length=700, description="Main markdown content (30-700 chars including symbols), break into short paragraphs as needed.")]
+  markdown: Annotated[str, msgspec.Meta(description="Main markdown content (30-700 chars including symbols), break into short paragraphs as needed.")]
   align: Literal["left", "center"] = "left"
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="markdown.markdown", value=self.markdown, min_length=30, max_length=700)
 
   def output(self) -> list[str]:
     return [self.markdown, self.align]
 
 
 class FlipPayload(msgspec.Struct):
-  front: Annotated[str, msgspec.Meta(max_length=80, description="Front prompt text (max 80 chars)")]
-  back: Annotated[str, msgspec.Meta(max_length=100, description="Back reveal text (max 100 chars)")]
+  front: Annotated[str, msgspec.Meta(description="Front prompt text (max 80 chars)")]
+  back: Annotated[str, msgspec.Meta(description="Back reveal text (max 100 chars)")]
   front_hint: str | None = None
   back_hint: str | None = None
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="flip.front", value=self.front, max_length=80)
+    _warn_len_out_of_range(field_name="flip.back", value=self.back, max_length=100)
 
   def output(self) -> list[str]:
     res = [self.front, self.back]
@@ -60,7 +85,7 @@ class FillBlankPayload(msgspec.Struct):
 
 
 class FreeTextPayload(msgspec.Struct):
-  prompt: Annotated[str, msgspec.Meta(min_length=1, description="Editor label text (min 1 char)")]
+  prompt: Annotated[str, msgspec.Meta(description="Editor label text (min 1 char)")]
   seed_locked: Annotated[str | None, msgspec.Meta(description="Fixed non-removable prefix text")] = None
   lang: Annotated[str | None, msgspec.Meta(description="Language code (e.g. 'en')")] = None
   wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated vocabulary terms")] = None
@@ -77,7 +102,7 @@ class FreeTextPayload(msgspec.Struct):
 
 
 class InputLinePayload(msgspec.Struct):
-  prompt: Annotated[str, msgspec.Meta(min_length=1, description="Input field label (min 1 char)")]
+  prompt: Annotated[str, msgspec.Meta(description="Input field label (min 1 char)")]
   lang: Annotated[str | None, msgspec.Meta(description="Language code (e.g. 'en')")] = None
   wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated terms for validation")] = None
 
@@ -91,8 +116,12 @@ class InputLinePayload(msgspec.Struct):
 
 
 class AsciiDiagramPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Title for the proper ASCII diagram (6-40 chars)")]
-  diagram: Annotated[str, msgspec.Meta(min_length=1, description="Diagram text. Make all ASCII diagram lines the same length (pad with spaces) and separate lines with \n.")]
+  title: Annotated[str, msgspec.Meta(description="Title for the proper ASCII diagram (6-40 chars)")]
+  diagram: Annotated[str, msgspec.Meta(description="Diagram text. Make all ASCII diagram lines the same length (pad with spaces) and separate lines with \n.")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="asciiDiagram.title", value=self.title, min_length=6, max_length=40)
+    _warn_len_out_of_range(field_name="asciiDiagram.diagram", value=self.diagram, min_length=1)
 
   def output(self) -> list[str]:
     return [self.title, self.diagram]
@@ -110,9 +139,13 @@ class GuidedTask(msgspec.Struct):
 
 
 class InteractiveTerminalPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Terminal title (6-40 chars)")]
-  rules: Annotated[list[TerminalRule], msgspec.Meta(min_length=1, description="Regex-based terminal rule list (min 1 rule)")]
+  title: Annotated[str, msgspec.Meta(description="Terminal title (6-40 chars)")]
+  rules: Annotated[list[TerminalRule], msgspec.Meta(description="Regex-based terminal rule list (min 1 rule)")]
   guided: Annotated[list[GuidedTask] | None, msgspec.Meta(description="List of optional guided tasks")] = None
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="interactiveTerminal.title", value=self.title, min_length=6, max_length=40)
+    _warn_len_out_of_range(field_name="interactiveTerminal.rules", value=self.rules, min_length=1)
 
   def output(self) -> dict[str, Any]:
     return msgspec.to_builtins(self)
@@ -125,8 +158,12 @@ class DemoRule(msgspec.Struct):
 
 
 class TerminalDemoPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Demo title (6-40 chars)")]
-  rules: Annotated[list[DemoRule], msgspec.Meta(min_length=1, description="Demo step list (min 1 step)")]
+  title: Annotated[str, msgspec.Meta(description="Demo title (6-40 chars)")]
+  rules: Annotated[list[DemoRule], msgspec.Meta(description="Demo step list (min 1 step)")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="terminalDemo.title", value=self.title, min_length=6, max_length=40)
+    _warn_len_out_of_range(field_name="terminalDemo.rules", value=self.rules, min_length=1)
 
   def output(self) -> dict[str, Any]:
     return msgspec.to_builtins(self)
@@ -134,7 +171,7 @@ class TerminalDemoPayload(msgspec.Struct):
 
 class CodeEditorPayload(msgspec.Struct):
   code: Annotated[str, msgspec.Meta(description="Code content to display")]
-  language: Annotated[str, msgspec.Meta(min_length=1, description="Syntax highlighting language (e.g. 'javascript', 'python')")]
+  language: Annotated[str, msgspec.Meta(description="Syntax highlighting language (e.g. 'javascript', 'python')")]
   read_only: bool = False
   highlighted_lines: Annotated[list[int] | None, msgspec.Meta(description="List of 1-based line numbers to highlight")] = None
 
@@ -148,9 +185,13 @@ class CodeEditorPayload(msgspec.Struct):
 
 
 class SwipeCardPayload(msgspec.Struct):
-  text: Annotated[str, msgspec.Meta(max_length=70, description="Card content text (max 70 chars)")]
+  text: Annotated[str, msgspec.Meta(description="Card content text (max 70 chars)")]
   correct_bucket_index: Annotated[int, msgspec.Meta(description="Correct bucket index: 0 (left) or 1 (right)")]
-  feedback: Annotated[str, msgspec.Meta(max_length=90, description="Post-swipe feedback (max 90 chars)")]
+  feedback: Annotated[str, msgspec.Meta(description="Post-swipe feedback (max 90 chars)")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="swipecards.card.text", value=self.text, max_length=70)
+    _warn_len_out_of_range(field_name="swipecards.card.feedback", value=self.feedback, max_length=90)
 
   def output(self) -> list[Any]:
     return [self.text, self.correct_bucket_index, self.feedback]
@@ -162,25 +203,37 @@ class BucketLabels(msgspec.Struct):
 
 
 class SwipeCardsPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Drill instruction title (6-40 chars)")]
+  title: Annotated[str, msgspec.Meta(description="Drill instruction title (6-40 chars)")]
   buckets: Annotated[BucketLabels, msgspec.Meta(description="Left and right bucket labels")]
-  cards: Annotated[list[SwipeCardPayload], msgspec.Meta(min_length=4, description="Swipe card list (min 4 cards)")]
+  cards: Annotated[list[SwipeCardPayload], msgspec.Meta(description="Swipe card list (min 4 cards)")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="swipecards.title", value=self.title, min_length=6, max_length=40)
+    _warn_len_out_of_range(field_name="swipecards.cards", value=self.cards, min_length=4)
 
   def output(self) -> list[Any]:
     return [self.title, [self.buckets.left, self.buckets.right], [c.output() for c in self.cards]]
 
 
 class StepFlowPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Flow title (6-40 chars)")]
-  flow: Annotated[list[Annotated[str | list[Any], msgspec.Meta(description="Node: 'Step' (string) or [['Choice', [substeps...]], ...] branch")]], msgspec.Meta(min_length=1, description="Sequential steps or branch nodes (max depth 4)")]
+  title: Annotated[str, msgspec.Meta(description="Flow title (6-40 chars)")]
+  flow: Annotated[list[Annotated[str | list[Any], msgspec.Meta(description="Node: 'Step' (string) or [['Choice', [substeps...]], ...] branch")]], msgspec.Meta(description="Sequential steps or branch nodes (max depth 4)")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="stepFlow.title", value=self.title, min_length=6, max_length=40)
+    _warn_len_out_of_range(field_name="stepFlow.flow", value=self.flow, min_length=1)
 
   def output(self) -> list[Any]:
     return [self.title, self.flow]
 
 
 class ChecklistPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Checklist title (6-40 chars)")]
-  tree: Annotated[list[Annotated[str | list[Any], msgspec.Meta(description="Node: 'Item' (string) or ['Group Title', [children...]]")]], msgspec.Meta(min_length=1, description="Checklist items and groups (max depth 3)")]
+  title: Annotated[str, msgspec.Meta(description="Checklist title (6-40 chars)")]
+  tree: Annotated[list[Annotated[str | list[Any], msgspec.Meta(description="Node: 'Item' (string) or ['Group Title', [children...]]")]], msgspec.Meta(description="Checklist items and groups (max depth 3)")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="checklist.title", value=self.title, min_length=6, max_length=40)
+    _warn_len_out_of_range(field_name="checklist.tree", value=self.tree, min_length=1)
 
   def output(self) -> list[Any]:
     return [self.title, self.tree]
@@ -188,7 +241,7 @@ class ChecklistPayload(msgspec.Struct):
 
 class TreeViewPayload(msgspec.Struct):
   lesson: Annotated[dict[str, Any] | str | None, msgspec.Meta(description="Lesson data object or JSON string")]
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Header shown above the tree (6-40 chars)")] | None = None
+  title: Annotated[str, msgspec.Meta(description="Header shown above the tree (6-40 chars)")] | None = None
   textarea_id: Annotated[str | None, msgspec.Meta(description="Editor textarea ID for scrolling")] = None
   editor_id: Annotated[str | None, msgspec.Meta(description="Editor container ID for scrolling")] = None
 
@@ -204,28 +257,40 @@ class TreeViewPayload(msgspec.Struct):
 
 
 class MCQsQuestion(msgspec.Struct):
-  q: Annotated[str, msgspec.Meta(min_length=20, description="Question content (min 20 chars)")]
-  c: Annotated[list[str], msgspec.Meta(min_length=3, max_length=4, description="List of 3-4 answer choices")]
+  q: Annotated[str, msgspec.Meta(description="Question content (min 20 chars)")]
+  c: Annotated[list[str], msgspec.Meta(description="List of 3-4 answer choices")]
   a: Annotated[int, msgspec.Meta(ge=0, description="0-based index of the correct answer")]
-  e: Annotated[str, msgspec.Meta(min_length=30, description="Correct answer explanation (min 30 chars)")]
+  e: Annotated[str, msgspec.Meta(description="Correct answer explanation (min 30 chars)")]
 
   def __post_init__(self):
+    _warn_len_out_of_range(field_name="mcqs.question", value=self.q, min_length=20)
+    _warn_len_out_of_range(field_name="mcqs.choices", value=self.c, min_length=3, max_length=4)
+    _warn_len_out_of_range(field_name="mcqs.explanation", value=self.e, min_length=30)
     if not (0 <= self.a < len(self.c)):
       raise ValueError("mcqs answer index must be within choices range")
 
 
 class MCQsInner(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Quiz title (6-40 chars)")]
-  questions: Annotated[list[MCQsQuestion], msgspec.Meta(min_length=1, description="Question list (min 1 question)")]
+  title: Annotated[str, msgspec.Meta(description="Quiz title (6-40 chars)")]
+  questions: Annotated[list[MCQsQuestion], msgspec.Meta(description="Question list (min 1 question)")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="mcqs.title", value=self.title, min_length=6, max_length=40)
+    _warn_len_out_of_range(field_name="mcqs.questions", value=self.questions, min_length=1)
 
   def output(self) -> dict[str, Any]:
     return msgspec.to_builtins(self)
 
 
 class FensterPayload(msgspec.Struct):
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Widget title (6-40 chars)")]
-  description: Annotated[str, msgspec.Meta(min_length=20, description="Concept explanation text (min 20 chars)")]
-  ai_prompt: Annotated[str, msgspec.Meta(min_length=50, description="AI generation prompt to create an interactive widget based on the topic using HTML/JS/CSS (min 50 chars)")]
+  title: Annotated[str, msgspec.Meta(description="Widget title (6-40 chars)")]
+  description: Annotated[str, msgspec.Meta(description="Concept explanation text (min 20 chars)")]
+  ai_prompt: Annotated[str, msgspec.Meta(description="AI generation prompt to create an interactive widget based on the topic using HTML/JS/CSS (min 50 chars)")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="fenster.title", value=self.title, min_length=6, max_length=40)
+    _warn_len_out_of_range(field_name="fenster.description", value=self.description, min_length=20)
+    _warn_len_out_of_range(field_name="fenster.ai_prompt", value=self.ai_prompt, min_length=50)
 
   def output(self) -> list[str]:
     return [self.title, self.description, self.ai_prompt]
@@ -234,28 +299,22 @@ class FensterPayload(msgspec.Struct):
 class TablePayload(msgspec.Struct):
   """Tabular data widget with header row and data rows."""
 
-  rows: Annotated[
-    list[list[str]],
-    msgspec.Meta(
-      min_length=2,  # At least header + 1 data row
-      max_length=10,  # Header + max 9 data rows
-      description="List of rows, where each row is a list of 2-6 strings. First row is the header.",
-    ),
-  ]
+  rows: Annotated[list[list[str]], msgspec.Meta(description="List of rows, where each row is a list of 2-6 strings. First row is the header.")]
 
   def __post_init__(self):
+    _warn_len_out_of_range(field_name="table.rows", value=self.rows, min_length=2, max_length=10)
     if not self.rows:
-      raise ValueError("Table must have at least a header row and one data row")
+      return
 
     # Validate column count (2-6 columns)
     header_cols = len(self.rows[0])
     if not (2 <= header_cols <= 6):
-      raise ValueError(f"Table must have 2-6 columns, got {header_cols}")
+      logger.warning("Widget length warning for table.header_cols: got %s, expected between 2 and 6", header_cols)
 
     # Validate all rows have same column count
     for i, row in enumerate(self.rows):
       if len(row) != header_cols:
-        raise ValueError(f"Row {i} has {len(row)} columns, expected {header_cols}")
+        logger.warning("Widget length warning for table.row[%s].cols: got %s, expected %s", i, len(row), header_cols)
 
   def output(self) -> list[list[str]]:
     return self.rows
@@ -269,14 +328,10 @@ class CompareRow(msgspec.Struct):
 class ComparePayload(msgspec.Struct):
   """Two-column comparison widget."""
 
-  rows: Annotated[
-    list[CompareRow],
-    msgspec.Meta(
-      min_length=2,  # At least header + 1 comparison
-      max_length=10,  # Header + max 9 comparisons
-      description="Header row + 1-9 comparison rows (exactly 2 columns)",
-    ),
-  ]
+  rows: Annotated[list[CompareRow], msgspec.Meta(description="Header row + 1-9 comparison rows (exactly 2 columns)")]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="compare.rows", value=self.rows, min_length=2, max_length=10)
 
   def output(self) -> list[list[str]]:
     return [[r.left, r.right] for r in self.rows]
@@ -390,15 +445,79 @@ class WidgetItem(msgspec.Struct):
     return {}
 
 
+def _snake_to_camel(widget_name: str) -> str:
+  """Convert snake_case widget keys to camelCase shorthand keys."""
+  parts = widget_name.split("_")
+  if len(parts) <= 1:
+    return widget_name
+  return parts[0] + "".join(part.capitalize() for part in parts[1:])
+
+
+def _extract_payload_from_optional(annotation: Any) -> type[msgspec.Struct]:
+  """Extract payload type from `Payload | None` widget field annotations."""
+  for annotation_arg in get_args(annotation):
+    if annotation_arg is not type(None):
+      return cast(type[msgspec.Struct], annotation_arg)
+  raise ValueError(f"Unsupported widget annotation: {annotation!r}")
+
+
+WIDGET_ITEM_FIELD_NAMES = list(WidgetItem.__annotations__)
+WIDGET_ITEM_TYPE_HINTS = get_type_hints(WidgetItem, globalns=globals(), localns=locals())
+WIDGET_FIELD_TO_SHORTHAND = {field_name: _snake_to_camel(field_name) for field_name in WIDGET_ITEM_FIELD_NAMES}
+WIDGET_SHORTHAND_TO_FIELD = {shorthand: field_name for field_name, shorthand in WIDGET_FIELD_TO_SHORTHAND.items()}
+WIDGET_LEGACY_ALIASES = {"swipeCards": "swipecards", "treeView": "treeview"}
+WIDGET_PAYLOAD_BY_FIELD = {field_name: _extract_payload_from_optional(WIDGET_ITEM_TYPE_HINTS[field_name]) for field_name in WIDGET_ITEM_FIELD_NAMES}
+
+
+def resolve_widget_field_name(widget_name: str) -> str:
+  """Resolve any supported widget key (snake_case or shorthand) to WidgetItem field name."""
+  if widget_name in WIDGET_LEGACY_ALIASES:
+    widget_name = WIDGET_LEGACY_ALIASES[widget_name]
+  if widget_name in WIDGET_PAYLOAD_BY_FIELD:
+    return widget_name
+  if widget_name in WIDGET_SHORTHAND_TO_FIELD:
+    return WIDGET_SHORTHAND_TO_FIELD[widget_name]
+  raise ValueError(f"Unknown widget: {widget_name}")
+
+
+def resolve_widget_shorthand_name(widget_name: str) -> str:
+  """Resolve any supported widget key to canonical shorthand key used in output JSON."""
+  field_name = resolve_widget_field_name(widget_name)
+  return WIDGET_FIELD_TO_SHORTHAND[field_name]
+
+
+def get_widget_payload(widget_name: str) -> type[msgspec.Struct]:
+  """Get payload type for a widget key (snake_case or shorthand)."""
+  field_name = resolve_widget_field_name(widget_name)
+  return WIDGET_PAYLOAD_BY_FIELD[field_name]
+
+
+def get_widget_payload_map(include_aliases: bool = True) -> dict[str, type[msgspec.Struct]]:
+  """Return widget key to payload mapping sourced from WidgetItem annotations."""
+  if not include_aliases:
+    return dict(WIDGET_PAYLOAD_BY_FIELD)
+
+  payload_map = {}
+  for field_name, payload in WIDGET_PAYLOAD_BY_FIELD.items():
+    payload_map[field_name] = payload
+    payload_map[WIDGET_FIELD_TO_SHORTHAND[field_name]] = payload
+  return payload_map
+
+
+def get_widget_shorthand_names() -> list[str]:
+  """Return canonical shorthand widget keys in WidgetItem declaration order."""
+  return [WIDGET_FIELD_TO_SHORTHAND[field_name] for field_name in WIDGET_ITEM_FIELD_NAMES]
+
+
 class Subsection(msgspec.Struct):
   """Subsection model."""
 
-  title: Annotated[str, msgspec.Meta(min_length=SUBSECTION_TITLE_MIN_CHARS, max_length=SUBSECTION_TITLE_MAX_CHARS, description=f"Subsection title ({SUBSECTION_TITLE_MIN_CHARS}-{SUBSECTION_TITLE_MAX_CHARS} chars)")]
-  items: list[WidgetItem]
+  title: Annotated[str, msgspec.Meta(description=f"Subsection title ({SUBSECTION_TITLE_MIN_CHARS}-{SUBSECTION_TITLE_MAX_CHARS} chars)")]
+  items: Annotated[list[WidgetItem], msgspec.Meta(description=f"Widget items ({SUBSECTION_ITEMS_MIN}-{SUBSECTION_ITEMS_MAX})")]
 
   def __post_init__(self):
-    if not (1 <= len(self.items) <= 5):
-      raise ValueError("Subsection items must be between 1 and 5")
+    _warn_len_out_of_range(field_name="subsection.title", value=self.title, min_length=SUBSECTION_TITLE_MIN_CHARS, max_length=SUBSECTION_TITLE_MAX_CHARS)
+    _warn_len_out_of_range(field_name="subsection.items", value=self.items, min_length=SUBSECTION_ITEMS_MIN, max_length=SUBSECTION_ITEMS_MAX)
 
   def output(self) -> dict[str, Any]:
     """Return the shorthand object for the subsection."""
@@ -408,15 +527,13 @@ class Subsection(msgspec.Struct):
 class Section(msgspec.Struct):
   """Section model."""
 
-  title: Annotated[str, msgspec.Meta(min_length=SECTION_TITLE_MIN_CHARS, max_length=SECTION_TITLE_MAX_CHARS, description=f"Section title ({SECTION_TITLE_MIN_CHARS}-{SECTION_TITLE_MAX_CHARS} chars)")]
+  title: Annotated[str, msgspec.Meta(description=f"Section title ({SECTION_TITLE_MIN_CHARS}-{SECTION_TITLE_MAX_CHARS} chars)")]
   markdown: MarkdownPayload
-  subsections: Annotated[
-    list[Subsection], msgspec.Meta(min_length=SUBSECTIONS_PER_SECTION_MIN, max_length=SUBSECTIONS_PER_SECTION_MAX, description=f"At least {SUBSECTIONS_PER_SECTION_MIN} to {SUBSECTIONS_PER_SECTION_MAX} subsections divided from the section topic")
-  ]
+  subsections: Annotated[list[Subsection], msgspec.Meta(description=f"At least {SUBSECTIONS_PER_SECTION_MIN} to {SUBSECTIONS_PER_SECTION_MAX} subsections divided from the section topic")]
 
   def __post_init__(self):
-    if not (SUBSECTIONS_PER_SECTION_MIN <= len(self.subsections) <= SUBSECTIONS_PER_SECTION_MAX):
-      raise ValueError(f"Section subsections must be between {SUBSECTIONS_PER_SECTION_MIN} and {SUBSECTIONS_PER_SECTION_MAX}")
+    _warn_len_out_of_range(field_name="section.title", value=self.title, min_length=SECTION_TITLE_MIN_CHARS, max_length=SECTION_TITLE_MAX_CHARS)
+    _warn_len_out_of_range(field_name="section.subsections", value=self.subsections, min_length=SUBSECTIONS_PER_SECTION_MIN, max_length=SUBSECTIONS_PER_SECTION_MAX)
 
   def output(self) -> dict[str, Any]:
     """Return the shorthand object for the section."""
@@ -430,8 +547,11 @@ class Section(msgspec.Struct):
 class LessonDocument(msgspec.Struct):
   """Root lesson document."""
 
-  title: Annotated[str, msgspec.Meta(min_length=6, max_length=40, description="Lesson title (6-40 chars)")]
+  title: Annotated[str, msgspec.Meta(description="Lesson title (6-40 chars)")]
   blocks: list[Section]
+
+  def __post_init__(self):
+    _warn_len_out_of_range(field_name="lesson.title", value=self.title, min_length=6, max_length=40)
 
 
 class RepairItem(msgspec.Struct):

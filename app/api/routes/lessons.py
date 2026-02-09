@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.pipeline.contracts import GenerationRequest
-from app.api.deps_concurrency import verify_concurrency
+from app.api.deps_concurrency import check_concurrency_limit
 from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonJobResponse, LessonOutlineResponse, LessonRecordResponse, OrchestrationFailureResponse, SectionOutline, SectionSummary
 from app.config import Settings, get_settings
 from app.core.database import get_db
@@ -25,6 +27,7 @@ from app.services.request_validation import _validate_generate_request
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.tasks.factory import get_task_enqueuer
 from app.services.users import get_user_subscription_tier
+from app.services.widget_entitlements import validate_widget_entitlements
 from app.storage.factory import _get_jobs_repo, _get_repo
 from app.utils.ids import generate_job_id, generate_lesson_id
 
@@ -32,18 +35,17 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+_DEFAULT_PAGE = 1
+_DEFAULT_LIMIT = 10
+_MAX_LIMIT = 100
 
 
 @router.get("", response_model=list[LessonRecordResponse])
-async def list_lessons(settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_active_user), page: int = 1, limit: int = 10) -> list[LessonRecordResponse]:
+async def list_lessons(
+  settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_active_user), page: Annotated[int, Query(ge=1)] = _DEFAULT_PAGE, limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = _DEFAULT_LIMIT
+) -> list[LessonRecordResponse]:
   """List lessons for the current user with pagination."""
   repo = _get_repo(settings)
-  if page < 1:
-    page = 1
-  if limit < 1:
-    limit = 10
-  if limit > 100:
-    limit = 100
 
   offset = (page - 1) * limit
   lessons, _total = await repo.list_lessons(limit=limit, offset=offset, user_id=str(current_user.id))
@@ -75,12 +77,14 @@ async def generate_outcomes_endpoint(  # noqa: B008
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
-  concurrency_check=Depends(verify_concurrency("lesson")),  # noqa: B008
 ) -> OutcomesAgentResponse:
   """Return a topic safety decision and a small set of learning outcomes."""
+  # Enforce lesson concurrency after request validation to fail malformed bodies before DB-heavy checks.
+  await check_concurrency_limit("lesson", current_user, db_session)
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
   runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
   # Deny-by-default: if lesson generation is disabled for this user, outcomes preflight is also disabled.
+  validate_widget_entitlements(request.widgets, runtime_config=runtime_config)
   lessons_per_week = int(runtime_config.get("limits.lessons_per_week") or 0)
   if lessons_per_week <= 0:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
@@ -133,11 +137,13 @@ async def generate_lesson(  # noqa: B008
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
-  concurrency_check=Depends(verify_concurrency("lesson")),  # noqa: B008
 ) -> LessonJobResponse:
   """Generate a lesson from a topic using the asynchronous pipeline."""
+  # Enforce lesson concurrency after request validation to fail malformed bodies before DB-heavy checks.
+  await check_concurrency_limit("lesson", current_user, db_session)
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
   runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
+  validate_widget_entitlements(request.widgets, runtime_config=runtime_config)
   # Enforce hard quotas before enqueueing work so invalid requests fail fast.
   lessons_per_week = int(runtime_config.get("limits.lessons_per_week") or 0)
   sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
@@ -257,21 +263,22 @@ async def generate_lesson(  # noqa: B008
 
 @router.get("/{lesson_id}", response_model=LessonRecordResponse)
 async def get_lesson(  # noqa: B008
-  lesson_id: str,
+  lesson_id: uuid.UUID,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LessonRecordResponse:
   """Fetch a stored lesson by identifier, consistent with async job persistence."""
+  lesson_id_str = str(lesson_id)
   repo = _get_repo(settings)
-  record = await repo.get_lesson(lesson_id, user_id=str(current_user.id))
+  record = await repo.get_lesson(lesson_id_str, user_id=str(current_user.id))
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
   # Hide archived lessons from end users so retention rules are enforced server-side.
   if record.is_archived:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
 
-  sections = await repo.list_sections(lesson_id)
+  sections = await repo.list_sections(lesson_id_str)
 
   section_summaries = [SectionSummary(section_id=s.section_id, title=s.title, status=s.status) for s in sections]
 
@@ -280,13 +287,14 @@ async def get_lesson(  # noqa: B008
 
 @router.get("/{lesson_id}/outline", response_model=LessonOutlineResponse)
 async def get_lesson_outline(
-  lesson_id: str,
+  lesson_id: uuid.UUID,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
 ) -> LessonOutlineResponse:
   """Fetch the structured outline of a lesson from its plan."""
+  lesson_id_str = str(lesson_id)
   repo = _get_repo(settings)
-  record = await repo.get_lesson(lesson_id, user_id=str(current_user.id))
+  record = await repo.get_lesson(lesson_id_str, user_id=str(current_user.id))
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
 
@@ -311,7 +319,13 @@ async def create_lesson_job(  # noqa: B008
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
-  _=Depends(verify_concurrency("lesson")),  # noqa: B008
 ) -> JobCreateResponse:
   """Alias route for creating a background lesson generation job."""
+  # Validate request payloads at the route boundary before queue orchestration.
+  tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
+  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
+  validate_widget_entitlements(request.widgets, runtime_config=runtime_config)
+  _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
+  # Enforce lesson concurrency after request validation to fail malformed bodies before DB-heavy checks.
+  await check_concurrency_limit("lesson", current_user, db_session)
   return await create_job(request, settings, background_tasks, db_session, user_id=str(current_user.id), target_agent="lesson")

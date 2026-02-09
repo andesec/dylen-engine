@@ -8,6 +8,27 @@ from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 
 
+def _coerce_json_safe(value: Any) -> Any:
+  """Convert unsupported values into JSON-safe primitives for error responses."""
+  # Keep native JSON primitives unchanged.
+  if value is None or isinstance(value, bool | int | float | str):
+    return value
+  # Recursively sanitize mapping values so nested contexts remain serializable.
+  if isinstance(value, dict):
+    return {str(key): _coerce_json_safe(item) for key, item in value.items()}
+  # Normalize iterable containers to lists for deterministic JSON encoding.
+  if isinstance(value, list | tuple | set):
+    return [_coerce_json_safe(item) for item in value]
+  # Serialize exception instances explicitly to avoid leaking non-serializable objects.
+  if isinstance(value, BaseException):
+    error_message = str(value)
+    if error_message:
+      return f"{type(value).__name__}: {error_message}"
+    return type(value).__name__
+  # Fallback to string coercion for arbitrary custom objects.
+  return str(value)
+
+
 def _error_payload(detail: Any, settings: Settings, *, request_id: str | None = None) -> dict[str, Any]:
   """Build a safe error payload that avoids leaking internal details to clients."""
   payload: dict[str, Any] = {"detail": detail}
@@ -22,15 +43,14 @@ def _sanitize_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, 
   sanitized: list[dict[str, Any]] = []
   # Strip payload values so logs are useful without leaking request bodies.
   for error in errors:
-    scrubbed = dict(error)
-    scrubbed.pop("input", None)
+    scrubbed = {key: value for key, value in error.items() if key != "input"}
     # Remove nested input values from context payloads as well.
     if "ctx" in scrubbed and isinstance(scrubbed["ctx"], dict):
       scrubbed_ctx = dict(scrubbed["ctx"])
       scrubbed_ctx.pop("input", None)
       scrubbed["ctx"] = scrubbed_ctx
 
-    sanitized.append(scrubbed)
+    sanitized.append(_coerce_json_safe(scrubbed))
 
   return sanitized
 
@@ -72,9 +92,9 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
   settings = get_settings()
   request_id = getattr(request.state, "request_id", None)
   sanitized_errors = _sanitize_validation_errors(exc.errors())
-  # Log validation errors with a traceback so failures are visible in server logs.
+  # Keep validation logs concise because 422s are client-correctable and expected.
   logger = logging.getLogger("uvicorn.error")
-  logger.warning("Request validation failed request_id=%s path=%s method=%s errors=%s", request_id, request.url.path, request.method, sanitized_errors, exc_info=True)
+  logger.warning("Request validation failed request_id=%s path=%s method=%s errors=%s", request_id, request.url.path, request.method, sanitized_errors)
   return DecimalJSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=_error_payload(sanitized_errors, settings, request_id=request_id))
 
 

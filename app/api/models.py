@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, field_validator, model_validator
 
 from app.jobs.guardrails import MAX_ITEM_BYTES
 from app.jobs.models import JobStatus
@@ -60,14 +60,14 @@ class GenerateLessonRequest(BaseModel):
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
   details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
   outcomes: list[OutcomeText] | None = Field(default=None, min_length=1, max_length=8, description="Optional outcomes to guide the planner (3-8 items recommended).")
-  blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] | None = Field(
-    default=None, description="Optional blueprint or learning outcome guidance for lesson planning."
+  blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] = Field(
+    description="Required blueprint guidance for lesson planning."
   )
-  teaching_style: list[Literal["conceptual", "theoretical", "practical"]] | None = Field(default=None, description="Optional teaching style or pedagogy guidance for lesson planning.")
+  teaching_style: list[Literal["conceptual", "theoretical", "practical"]] = Field(min_length=1, max_length=3, description="Required teaching style guidance for lesson planning.")
   learner_level: StrictStr | None = Field(default=None, min_length=1, description="Optional learner level hint used for prompt guidance.")
   depth: Literal["highlights", "detailed", "training"] = Field(default="highlights", description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).")
   primary_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
-  widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=8, description="Optional list of allowed widgets (overrides defaults).")
+  widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=7, description="Optional list of allowed widgets (overrides defaults).")
   schema_version: StrictStr | None = Field(default=None, description="Optional schema version to pin the lesson output to.")
   idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
   model_config = ConfigDict(extra="forbid")
@@ -87,9 +87,6 @@ class GenerateLessonRequest(BaseModel):
 
     teaching_style = data.get("teaching_style")
 
-    if isinstance(teaching_style, str):
-      teaching_style = [teaching_style]
-
     if isinstance(teaching_style, list):
       normalized_styles: list[str] = []
 
@@ -98,10 +95,6 @@ class GenerateLessonRequest(BaseModel):
         if not isinstance(style, str):
           raise ValueError("Teaching style entries must be strings.")
         normalized_styles.append(_normalize_option_id(style))
-
-      # Expand legacy "all" into the explicit style list.
-      if "all" in normalized_styles:
-        normalized_styles = ["conceptual", "theoretical", "practical"]
 
       data["teaching_style"] = normalized_styles
 
@@ -130,12 +123,26 @@ class GenerateLessonRequest(BaseModel):
 
     return data
 
-  @model_validator(mode="after")
-  def validate_depth_style_constraint(self) -> GenerateLessonRequest:
-    if self.depth == "highlights" and self.teaching_style:
-      if len(self.teaching_style) == 3:
-        raise ValueError("Cannot select all teaching styles when depth is 'highlights'.")
-    return self
+  @field_validator("teaching_style")
+  @classmethod
+  def validate_unique_teaching_styles(cls, teaching_style: list[str]) -> list[str]:
+    """Reject duplicate teaching style selections to keep request intent explicit."""
+    # Enforce uniqueness so downstream defaults do not receive ambiguous style arrays.
+    if len(set(teaching_style)) != len(teaching_style):
+      raise ValueError("Teaching style entries must be unique.")
+    return teaching_style
+
+  @field_validator("widgets")
+  @classmethod
+  def validate_unique_widgets(cls, widgets: list[str] | None) -> list[str] | None:
+    """Reject duplicate widget selections so each requested widget id is intentional."""
+    # Skip uniqueness checks when clients rely on server defaults.
+    if widgets is None:
+      return widgets
+    # Enforce uniqueness after normalization to avoid alias duplicates.
+    if len(set(widgets)) != len(widgets):
+      raise ValueError("Widget entries must be unique.")
+    return widgets
 
 
 class LessonMeta(BaseModel):
@@ -176,7 +183,7 @@ class OrchestrationFailureResponse(BaseModel):
 class SectionSummary(BaseModel):
   """Summary of a lesson section."""
 
-  section_id: StrictStr
+  section_id: StrictInt
   title: StrictStr
   status: StrictStr
 

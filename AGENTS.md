@@ -40,6 +40,7 @@ These instructions apply to the entire repository unless a more specific `AGENTS
 - Migrations create schema only; seeds populate data. If startup runs migrations, it must also run seed scripts.
 - Seed scripts must not assume prior seed ordering beyond what `seed_versions` enforces.
 
-## User Rules
+## HARD Rules
 - Prioritize code verification and identifying edge cases over writing comprehensive test suites.
 - Focus on fixing failures and implementing requests directly.
+- Avoid writing tests for verification, instead verify the code thoroughly.

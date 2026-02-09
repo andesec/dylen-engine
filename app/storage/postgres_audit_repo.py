@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class LlmAuditRecord:
   """Store raw request/response details for a single LLM call."""
 
-  record_id: str
+  record_id: int
   timestamp_request: datetime
   timestamp_response: datetime | None
   started_at: datetime
@@ -48,11 +48,10 @@ class PostgresLlmAuditRepository:
     if self._session_factory is None:
       raise RuntimeError("Database not initialized")
 
-  async def insert_record(self, record: LlmAuditRecord) -> None:
+  async def insert_record(self, record: LlmAuditRecord) -> int:
     """Insert an audit record."""
     async with self._session_factory() as session:
       audit = LlmCallAudit(
-        id=record.record_id,
         timestamp_request=record.timestamp_request,
         timestamp_response=record.timestamp_response,
         started_at=record.started_at,
@@ -74,11 +73,13 @@ class PostgresLlmAuditRepository:
         error_message=record.error_message,
       )
       session.add(audit)
+      await session.flush()
       await session.commit()
-      logger.debug("Inserted LLM audit record %s", record.record_id)
+      logger.debug("Inserted LLM audit record %s", audit.id)
+      return audit.id
 
   async def update_record(
-    self, *, record_id: str, timestamp_response: datetime, response_payload: str | None, status: str, error_message: str | None, duration_ms: int, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None
+    self, *, record_id: int, timestamp_response: datetime, response_payload: str | None, status: str, error_message: str | None, duration_ms: int, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None
   ) -> None:
     """Update an existing audit record after the LLM call completes."""
     async with self._session_factory() as session:

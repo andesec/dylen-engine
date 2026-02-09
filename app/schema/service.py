@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets_prompt.md")
 SchemaDict = dict[str, Any]
 SectionPayload = dict[str, Any]
 SectionValidationResult = tuple[bool, list[str], SectionPayload | None]
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,11 @@ class SchemaService:
     wrap = self._wrap_section_for_validation
     payload = wrap(section_json, topic=topic, section_index=section_index)
     result = self.validate_lesson_payload(payload)
+    if not result.ok and _is_overlong_only_issues(result.issues):
+      messages = _issues_to_messages(result.issues)
+      for message in messages:
+        logger.warning("Over-limit content accepted during section validation: %s", message)
+      return True, messages, section_json
     if not result.ok or result.model is None or not result.model.blocks:
       return False, _issues_to_messages(result.issues), None
     return True, _issues_to_messages(result.issues), section_json
@@ -166,12 +173,27 @@ def _issues_to_messages(issues: list[ValidationIssue]) -> list[str]:
   return [f"{issue.path}: {issue.message}" for issue in issues]
 
 
+def _is_overlong_only_issues(issues: list[ValidationIssue]) -> bool:
+  """Allow non-blocking validation when failures are only max-length/max-items violations."""
+  if not issues:
+    return False
+  return all(_is_overlong_issue(issue.message) for issue in issues)
+
+
+def _is_overlong_issue(message: str) -> bool:
+  """Detect msgspec errors that are strictly about upper length bounds."""
+  lowered = message.lower()
+  if "length <=" not in lowered:
+    return False
+  return "expected `str`" in lowered or "expected `array`" in lowered
+
+
 def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
   """
   Flatten and simplify the schema while preserving $defs.
   - Keeps $defs at the root.
   - Keeps structural elements (Section, Subsection, etc.) as refs.
-  - Recursively cleans all nodes.
+  - Recursively cleans all nodes and removes strict size bounds.
   """
   defs = schema.get("$defs", {}) or schema.get("definitions", {})
 
@@ -205,7 +227,7 @@ def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
     # Process children
     new_node = node.copy()
 
-    # Remove metadata and constraints
+    # Strip schema metadata and unsupported noise for provider compatibility.
     keys_to_remove = ("$defs", "definitions", "title", "$schema", "minItems", "maxItems", "minLength", "maxLength", "pattern", "format", "additionalProperties", "additional_properties")
     for k in keys_to_remove:
       new_node.pop(k, None)

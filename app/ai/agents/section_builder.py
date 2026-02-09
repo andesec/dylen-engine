@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
+from typing import Any
 
 import msgspec
 
@@ -18,6 +20,51 @@ from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.telemetry.context import llm_call_context
 
 
+def _is_overlong_validation_error(message: str) -> bool:
+  """Treat max-length and max-items violations as non-blocking generation warnings."""
+  lowered = message.lower()
+  if "length <=" not in lowered:
+    return False
+  return "expected `str`" in lowered or "expected `array`" in lowered
+
+
+def _resolve_section_title(section_struct: Any, section_json: dict[str, Any], fallback_title: str) -> str:
+  """Resolve a stable section title from strict output, raw payload, or planner fallback."""
+  if section_struct is not None:
+    return str(section_struct.title or fallback_title)
+  return str(section_json.get("title") or section_json.get("section") or fallback_title)
+
+
+def _build_shorthand_content(section_struct: Any, section_json: Any, section_number: int, logger: logging.Logger) -> dict[str, Any]:
+  """Build shorthand JSON from canonical section struct output."""
+  if not isinstance(section_json, dict):
+    raise RuntimeError(f"SectionBuilder received non-dict payload for section {section_number}.")
+  from app.services.section_shorthand import build_section_shorthand_content
+
+  if section_struct is None:
+    logger.warning("SectionBuilder shorthand conversion retried from raw payload for section %s.", section_number)
+  return build_section_shorthand_content(section_json)
+
+
+def _extract_error_location(error_message: str) -> tuple[str | None, str | None, int | None, int | None]:
+  """Extract section/subsection location from validation error text."""
+  normalized_path = None
+  path_match = re.search(r"at `([^`]+)`", error_message)
+  if path_match:
+    normalized_path = str(path_match.group(1)).strip()
+  section_scope = "section"
+  subsection_index = None
+  subsection_match = re.search(r"subsections\[(\d+)\]", error_message)
+  if subsection_match:
+    section_scope = "subsection"
+    subsection_index = int(subsection_match.group(1))
+  item_index = None
+  item_match = re.search(r"items\[(\d+)\]", error_message)
+  if item_match:
+    item_index = int(item_match.group(1))
+  return normalized_path, section_scope, subsection_index, item_index
+
+
 class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
   """Collect and structure a planned section in a single call."""
 
@@ -25,7 +72,7 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
 
   async def run(self, input_data: PlanSection, ctx: JobContext) -> StructuredSection:
     """Generate a structured section directly from the planner output."""
-    from app.storage.lessons_repo import SectionRecord
+    from app.storage.lessons_repo import SectionErrorRecord, SectionRecord
     from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 
     logger = logging.getLogger(__name__)
@@ -33,6 +80,11 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
     reservation_limit = 0
     reservation_active = False
     reservation_user_id: uuid.UUID | None = None
+    section_index = input_data.section_number
+    lesson_id = (ctx.metadata or {}).get("lesson_id")
+    if not lesson_id:
+      raise RuntimeError("SectionBuilder missing lesson_id metadata for section persistence.")
+    repo = PostgresLessonsRepository()
 
     # Resolve the user id from metadata so quota reservations are scoped correctly.
     raw_user_id = (ctx.metadata or {}).get("user_id")
@@ -76,12 +128,29 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       dummy_json = self._load_dummy_json()
 
       if dummy_json is not None:
-        section_index = input_data.section_number
         topic = request.topic
         # For dummy data, we still use the full validator to ensure fixtures are correct
         validator = self._schema_service.validate_section_payload
         ok, errors, _ = validator(dummy_json, topic=topic, section_index=section_index)
         validation_errors = [] if ok else errors
+        if not isinstance(dummy_json, dict):
+          raise RuntimeError(f"SectionBuilder received non-dict dummy payload for section {section_index}.")
+        section_title = _resolve_section_title(section_struct=None, section_json=dummy_json, fallback_title=input_data.title)
+        record = SectionRecord(section_id=None, lesson_id=str(lesson_id), title=section_title, order_index=int(input_data.section_number), status="completed", content=dummy_json, content_shorthand=None)
+        created_sections = await repo.create_sections([record])
+        created_section = created_sections[0]
+        if created_section.section_id is None:
+          raise RuntimeError("SectionBuilder failed to persist section row before validation handling.")
+        if validation_errors:
+          error_records = []
+          for index, message in enumerate(validation_errors):
+            error_path, section_scope, subsection_index, item_index = _extract_error_location(message)
+            error_records.append(SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=index, error_message=message, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index))
+          await repo.create_section_errors(error_records)
+        else:
+          shorthand_content = _build_shorthand_content(section_struct=None, section_json=dummy_json, section_number=section_index, logger=logger)
+          await repo.update_section_shorthand(created_section.section_id, shorthand_content)
+        logger.info("SectionBuilder saved section %s to DB", input_data.section_number)
         # Commit quota reservation once section generation succeeds.
         async with session_factory() as session:
           # Build quota metadata for audit logging.
@@ -89,7 +158,7 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           await commit_quota_reservation(
             session, user_id=reservation_user_id, metric_key="section.generate", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(ctx.job_id), section_index=int(input_data.section_number), metadata=commit_metadata
           )
-        return StructuredSection(section_number=section_index, payload=dummy_json, validation_errors=validation_errors)
+        return StructuredSection(section_number=section_index, payload=dummy_json, validation_errors=validation_errors, db_section_id=created_section.section_id)
 
       schema_version = str((ctx.metadata or {}).get("schema_version", ""))
       structured_output = bool((ctx.metadata or {}).get("structured_output", True))
@@ -122,6 +191,7 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
         if structured_output:
           # 1. Generate and Sanitize Schema explicitly
+          section_struct = None
           try:
             raw_schema = msgspec.json.schema(response_model)
             final_schema = self._schema_service.sanitize_schema(raw_schema, provider_name="gemini")
@@ -150,12 +220,18 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
 
           except msgspec.ValidationError as e:
             # Capture validation errors from msgspec
-            logger.warning(f"Section validation failed: {e}")
-            # We return the raw (potentially invalid) payload but mark it with errors
-            # so the orchestrator can decide to repair it.
-            # If result_dict is available, use it; otherwise empty dict
-            section_json = locals().get("result_dict", {})
-            validation_errors = [str(e)]
+            err_msg = str(e)
+            if _is_overlong_validation_error(err_msg):
+              logger.warning("Section validation exceeded max length/items and was accepted: %s", err_msg)
+              section_json = locals().get("result_dict", {})
+              validation_errors = []
+            else:
+              logger.warning(f"Section validation failed: {e}")
+              # We return the raw (potentially invalid) payload but mark it with errors
+              # so the orchestrator can decide to repair it.
+              # If result_dict is available, use it; otherwise empty dict
+              section_json = locals().get("result_dict", {})
+              validation_errors = [err_msg]
 
           except Exception as e:
             # Log failure
@@ -164,8 +240,24 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
         else:
           raise RuntimeError("Structured output is required for section builder generation.")
 
-      section_index = input_data.section_number
-      topic = request.topic
+      if not isinstance(section_json, dict):
+        raise RuntimeError(f"SectionBuilder received non-dict payload for section {section_index}.")
+      section_title = _resolve_section_title(section_struct=section_struct, section_json=section_json, fallback_title=input_data.title)
+      record = SectionRecord(section_id=None, lesson_id=str(lesson_id), title=section_title, order_index=int(input_data.section_number), status="completed", content=section_json, content_shorthand=None)
+      created_sections = await repo.create_sections([record])
+      created_section = created_sections[0]
+      if created_section.section_id is None:
+        raise RuntimeError("SectionBuilder failed to persist section row before validation handling.")
+      if validation_errors:
+        error_records = []
+        for index, message in enumerate(validation_errors):
+          error_path, section_scope, subsection_index, item_index = _extract_error_location(message)
+          error_records.append(SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=index, error_message=message, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index))
+        await repo.create_section_errors(error_records)
+      else:
+        shorthand_content = _build_shorthand_content(section_struct=section_struct, section_json=section_json, section_number=section_index, logger=logger)
+        await repo.update_section_shorthand(created_section.section_id, shorthand_content)
+      logger.info("SectionBuilder saved section %s to DB", input_data.section_number)
 
       # Commit quota reservation once section generation succeeds (or we return a result).
       async with session_factory() as session:
@@ -175,22 +267,7 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           session, user_id=reservation_user_id, metric_key="section.generate", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(ctx.job_id), section_index=int(input_data.section_number), metadata=commit_metadata
         )
 
-      # Persist the section directly
-      if not validation_errors:
-        try:
-          # Use output() to get the shorthand
-          shorthand_content = section_struct.output()
-          lesson_id = (ctx.metadata or {}).get("lesson_id")
-          if lesson_id:
-            repo = PostgresLessonsRepository()
-            record = SectionRecord(section_id=str(uuid.uuid4()), lesson_id=str(lesson_id), title=section_struct.title, order_index=int(input_data.section_number), status="completed", content=shorthand_content)
-            await repo.create_sections([record])
-            logger.info(f"SectionBuilder saved section {input_data.section_number} to DB")
-        except Exception as e:
-          logger.error(f"Failed to save section to DB in SectionBuilder: {e}", exc_info=True)
-          # We don't raise here to allow the pipeline to continue, but we log the error.
-
-      return StructuredSection(section_number=section_index, payload=section_json, validation_errors=validation_errors)
+      return StructuredSection(section_number=section_index, payload=section_json, validation_errors=validation_errors, db_section_id=created_section.section_id)
     except Exception:  # noqa: BLE001
       # Release quota reservation when section builder fails.
       logger.error("SectionBuilder failed during execution.", exc_info=True)

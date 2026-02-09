@@ -14,6 +14,7 @@ RULES
 - {{SUBSECTIONS_PER_SECTION_RULE}}
 - {{TITLE_CONSTRAINTS_RULE}}
 - Last subsection = mini-check (quiz/fillblank)
+- NO MCQs, Quizzes, or Check widgets in any subsection except the last one of each section.
 - Subsection titles must be subtopic-specific (no generic titles)
 - Subsections within each section must be purpose-built for that section’s goal; avoid repeating identical subsection patterns, task types, or learning sequences across sections unless explicitly required by the topic.
 - In case of confusion follow "details" input.

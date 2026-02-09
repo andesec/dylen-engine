@@ -40,7 +40,7 @@ class OutcomesAgentResponse(BaseModel):
 
   ok: bool = Field(description="True when the topic is allowed and outcomes were generated.")
   error: Literal["TOPIC_NOT_ALLOWED"] | None = Field(default=None, description="Simple error code when the topic is blocked.")
-  blocked_category: Literal["sexual", "political", "military"] | None = Field(default=None, description="High-level category used when blocking a topic.")
+  blocked_category: Literal["sexual", "political", "military", "invalid_input"] | None = Field(default=None, description="High-level category used when blocking a topic.")
   outcomes: list[OutcomeText] = Field(default_factory=list, min_length=0, max_length=8, description="A small list of straightforward learning outcomes.")
 
   model_config = ConfigDict(extra="forbid")

@@ -19,6 +19,7 @@ from app.services.feature_flags import is_feature_enabled
 from app.services.jobs import trigger_job_processing
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, list_permission_slugs_for_role, set_role_permissions
+from app.services.section_shorthand_backfill import backfill_section_shorthand
 from app.services.users import delete_user, get_user_by_id, get_user_subscription_tier, get_user_tier_name, list_users, set_user_subscription_tier, update_user_role, update_user_status
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
@@ -135,6 +136,16 @@ class UserTierUpdateRequest(BaseModel):
 
 class MaintenanceJobResponse(BaseModel):
   job_id: str
+
+
+class SectionShorthandBackfillRequest(BaseModel):
+  section_ids: list[int]
+
+
+class SectionShorthandBackfillResponse(BaseModel):
+  updated_section_ids: list[int]
+  missing_section_ids: list[int]
+  failed: dict[int, str]
 
 
 async def _update_firebase_claims(db_session: AsyncSession, user: User, role: Role, *, permissions: list[str] | None = None) -> None:
@@ -424,3 +435,10 @@ async def list_llm_calls(limit: int = Query(20, ge=1, le=100), offset: int = Que
   items, total = await repo.list_records(limit=limit, offset=offset, job_id=job_id, agent=agent, status=status)
   # Return a typed pagination envelope that callers can rely on.
   return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.post("/sections/backfill-shorthand", response_model=SectionShorthandBackfillResponse, dependencies=[Depends(get_current_admin_user)])
+async def backfill_sections_shorthand(request: SectionShorthandBackfillRequest) -> SectionShorthandBackfillResponse:
+  """Backfill section shorthand content from stored raw section JSON."""
+  result = await backfill_section_shorthand(request.section_ids)
+  return SectionShorthandBackfillResponse(updated_section_ids=result.updated_section_ids, missing_section_ids=result.missing_section_ids, failed=result.failed)

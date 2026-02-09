@@ -437,12 +437,11 @@ class DylenOrchestrator:
       section_json = structured.payload
 
     # --- SUCCESS PATH ---
-    # Section has already been saved by SectionBuilder or Repairer (if successful)
-    # We just need to update the structured artifacts
+    # SectionBuilder persists the raw payload row first; repair updates that row in-place when needed.
 
     await ctx.progress_reporter("transform", f"validate_section_{section_index}_of_{ctx.section_count}", [f"Section {section_index} validated."])
 
-    final_section = StructuredSection(section_number=section_index, json=section_json, validation_errors=[])
+    final_section = StructuredSection(section_number=section_index, json=section_json, validation_errors=[], db_section_id=structured.db_section_id)
     ctx.structured_sections.append(final_section)
 
     if job_creator:
