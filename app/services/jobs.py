@@ -3,7 +3,7 @@ import time
 import uuid
 from typing import Any
 
-from app.api.models import ChildJobStatus, CurrentSectionStatus, GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse, ValidationResponse, WritingCheckRequest
+from app.api.models import ChildJobStatus, GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse, WritingCheckRequest
 from app.config import Settings
 from app.jobs.models import JobRecord
 from app.schema.quotas import QuotaPeriod
@@ -25,6 +25,23 @@ logger = logging.getLogger(__name__)
 _JOB_NOT_FOUND_MSG = "Job not found."
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _KNOWN_JOB_STATUSES = {"queued", "running", "done", "error", "canceled"}
+
+
+def _resolve_target_agent(request: GenerateLessonRequest | WritingCheckRequest, target_agent: str | None) -> str | None:
+  """Resolve a stable target agent for quota gating and persistence."""
+  # Preserve explicit target routing when callers provide it.
+  if target_agent:
+    return target_agent
+
+  # Default lesson requests to the lesson pipeline when target routing is omitted.
+  if isinstance(request, GenerateLessonRequest):
+    return "lesson"
+
+  # Default writing checks to the writing worker when target routing is omitted.
+  if isinstance(request, WritingCheckRequest):
+    return "writing"
+
+  return target_agent
 
 
 def _compute_job_ttl(settings: Settings) -> int | None:
@@ -73,58 +90,12 @@ def _strip_internal_fields(payload: dict[str, Any]) -> dict[str, Any]:
 def _job_status_from_record(record: JobRecord, settings: Settings, *, child_jobs: list[ChildJobStatus] | None = None) -> JobStatusResponse:
   """Convert a persisted job record into an API response payload."""
 
-  # Parse the stored payload into the correct request model for the job type.
-  try:
-    request = _parse_job_request(record.request)
+  lesson_id = None
+  # Extract lesson_id from result_json if available
+  if record.result_json:
+    lesson_id = record.result_json.get("lesson_id")
 
-  except ValidationError as exc:
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stored job request failed validation.") from exc
-
-  validation = None
-
-  if record.validation is not None:
-    validation = ValidationResponse.model_validate(record.validation)
-
-  expected_sections = record.expected_sections
-
-  # Backfill expected section counts for legacy job records.
-  if expected_sections is None and isinstance(request, GenerateLessonRequest):
-    expected_sections = _expected_sections_from_request(request, settings)
-
-  if expected_sections is None and isinstance(request, WritingCheckRequest):
-    expected_sections = 0
-
-  current_section = None
-
-  if record.current_section_index is not None and record.current_section_status is not None:
-    current_section = CurrentSectionStatus(index=record.current_section_index, title=record.current_section_title, status=record.current_section_status, retry_count=record.current_section_retry_count)
-
-  return JobStatusResponse(
-    job_id=record.job_id,
-    status=record.status,
-    phase=record.phase,
-    subphase=record.subphase,
-    expected_sections=expected_sections,
-    completed_sections=record.completed_sections,
-    completed_section_indexes=record.completed_section_indexes,
-    current_section=current_section,
-    retry_count=record.retry_count,
-    max_retries=record.max_retries,
-    retry_sections=record.retry_sections,
-    retry_agents=record.retry_agents,
-    total_steps=record.total_steps,
-    completed_steps=record.completed_steps,
-    progress=record.progress,
-    logs=record.logs or [],
-    result=record.result_json,
-    artifacts=record.artifacts,
-    child_jobs=child_jobs,
-    validation=validation,
-    cost=record.cost,
-    created_at=record.created_at,
-    updated_at=record.updated_at,
-    completed_at=record.completed_at,
-  )
+  return JobStatusResponse(job_id=record.job_id, status=record.status, child_jobs=child_jobs, lesson_id=lesson_id)
 
 
 def _normalize_job_status(raw_status: str | None) -> str:
@@ -155,12 +126,10 @@ async def _resolve_child_jobs(record: JobRecord, settings: Settings) -> list[Chi
     child_record = await repo.get_job(child_id)
     if child_record is None:
       status = _normalize_job_status(str(child.get("status") or "queued"))
-      retry_available = status in ("error", "canceled")
-      child_statuses.append(ChildJobStatus(job_id=child_id, status=status, target_agent=child.get("target_agent"), phase=None, created_at=None, retry_available=retry_available))
+      child_statuses.append(ChildJobStatus(job_id=child_id, status=status))
       continue
     # Prefer live job records when available.
-    retry_available = child_record.status in ("error", "canceled")
-    child_statuses.append(ChildJobStatus(job_id=child_record.job_id, status=child_record.status, target_agent=child_record.target_agent, phase=child_record.phase, created_at=child_record.created_at, retry_available=retry_available))
+    child_statuses.append(ChildJobStatus(job_id=child_record.job_id, status=child_record.status))
   return child_statuses or None
 
 
@@ -183,13 +152,15 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
   repo = _get_jobs_repo(settings)
   # Precompute section count so the client can render placeholders immediately.
   expected_sections = _expected_sections_from_request(request, settings) if isinstance(request, GenerateLessonRequest) else 0
+  # Resolve the effective target once so quota checks and persistence remain aligned.
+  effective_target_agent = _resolve_target_agent(request, target_agent)
   # Generate identifiers early so quota logs can reference the resulting job deterministically.
   job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
   # Enforce lesson and section quotas for lesson jobs, failing fast before persisting the job.
   lesson_user = None
   lesson_tier_id: int | None = None
-  if isinstance(request, GenerateLessonRequest) and user_id and target_agent == "lesson":
+  if isinstance(request, GenerateLessonRequest) and user_id and effective_target_agent == "lesson":
     try:
       parsed_user_id = uuid.UUID(str(user_id))
     except ValueError as exc:
@@ -216,7 +187,7 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
     # Defer lesson quota reservation to the planner agent so reservations are scoped to agent execution.
 
-  elif target_agent == "coach":
+  elif effective_target_agent == "coach":
     if user_id:
       try:
         parsed_user_id = uuid.UUID(str(user_id))
@@ -233,7 +204,7 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
       except ValueError:
         pass
 
-  elif target_agent == "fenster_builder":
+  elif effective_target_agent == "fenster_builder":
     if user_id:
       try:
         parsed_user_id = uuid.UUID(str(user_id))
@@ -250,7 +221,7 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
       except ValueError:
         pass
 
-  elif target_agent == "writing":
+  elif effective_target_agent == "writing":
     if user_id:
       try:
         parsed_user_id = uuid.UUID(str(user_id))
@@ -268,7 +239,7 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
       except ValueError:
         pass
 
-  elif target_agent == "ocr":
+  elif effective_target_agent == "ocr":
     if user_id:
       try:
         parsed_user_id = uuid.UUID(str(user_id))
@@ -297,7 +268,8 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
   if user_id:
     try:
       u_uuid = uuid.UUID(str(user_id))
-      await log_llm_interaction(user_id=u_uuid, model_name=model_name, prompt_summary=request.topic, status="job_queued", session=db_session)
+      prompt_summary = request.topic if isinstance(request, GenerateLessonRequest) else "writing-check"
+      await log_llm_interaction(user_id=u_uuid, model_name=model_name, prompt_summary=prompt_summary, status="job_queued", session=db_session)
     except ValueError:
       logger.warning("Invalid user_id for logging: %s", user_id)
 
@@ -311,7 +283,7 @@ async def create_job(request: GenerateLessonRequest | WritingCheckRequest, setti
     user_id=user_id,
     request=request_payload,
     status="queued",
-    target_agent=target_agent,
+    target_agent=effective_target_agent,
     phase="queued",
     subphase=None,
     expected_sections=expected_sections,
@@ -494,6 +466,11 @@ def trigger_job_processing(background_tasks: BackgroundTasks, job_id: str, setti
       await enqueuer.enqueue(job_id, {})
     except Exception as exc:  # noqa: BLE001
       logger.error("Failed to enqueue job %s: %s", job_id, exc, exc_info=True)
+      # Mark the job as failed on enqueue errors so queued jobs do not stay pending forever.
+      repo = _get_jobs_repo(settings)
+      record = await repo.get_job(job_id)
+      if record is not None and record.status == "queued":
+        await repo.update_job(job_id, status="error", phase="failed", progress=100.0, logs=record.logs + ["Enqueue failed: TASK_ENQUEUE_FAILED"])
 
   # Schedule the dispatch coroutine on the background tasks
   # We use background_tasks to ensure we don't block the API response

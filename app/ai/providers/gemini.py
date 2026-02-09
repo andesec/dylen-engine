@@ -71,14 +71,8 @@ class GeminiModel(AIModel):
       return response
 
     try:
-      # Use a plain dict for config to avoid pydantic validation errors on JSON Schema
-      # config: dict[str, Any] = {
-      #     "response_mime_type": "application/json",
-      #     "response_schema": schema,
-      # }
-      # Use the async client to avoid blocking the asyncio event loop.
-      # Use the async client to avoid blocking the asyncio event loop.
-      response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
+      # Send raw JSON Schema through `response_json_schema` to bypass strict OpenAPI-only validation.
+      response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_json_schema": schema})
 
       logger.info("Gemini structured response (raw):\n%s", response.text)
     except Exception as e:

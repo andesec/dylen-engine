@@ -8,7 +8,7 @@ from typing import Any, cast
 from pydantic import ValidationError
 
 from app.ai.agents.base import BaseAgent
-from app.ai.agents.prompts import _load_prompt
+from app.ai.agents.prompts import _build_prompt_widgets, _load_prompt
 from app.ai.errors import is_output_error
 from app.ai.pipeline.contracts import JobContext
 from app.schema.outcomes import OutcomesAgentInput, OutcomesAgentResponse
@@ -27,7 +27,8 @@ def _normalize_optional_text(value: str | None) -> str:
 def _render_prompt(input_data: OutcomesAgentInput) -> str:
   """Render the outcomes prompt with concrete request inputs."""
   template = _load_prompt("outcomes_agent.md")
-  widgets = ", ".join(input_data.widgets) if input_data.widgets else "-"
+  # Always include markdown because backend rendering depends on it.
+  widgets = ", ".join(_build_prompt_widgets(input_data.widgets))
   teaching_style = ", ".join(input_data.teaching_style) if input_data.teaching_style else "-"
   blueprint = _normalize_optional_text(input_data.blueprint)
   learner_level = _normalize_optional_text(input_data.learner_level)

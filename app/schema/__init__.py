@@ -1,55 +1,7 @@
-"""Schema utilities for lesson validation and widget metadata."""
+"""Schema package exports."""
 
-from .lesson_models import (
-  AsciiDiagramWidget,
-  ChecklistWidget,
-  CodeEditorWidget,
-  CompareWidget,
-  FillBlankWidget,
-  FlipWidget,
-  FreeTextWidget,
-  InputLineWidget,
-  InteractiveTerminalWidget,
-  LessonDocument,
-  MarkdownTextWidget,
-  MCQsWidget,
-  SectionBlock,
-  StepFlowWidget,
-  SwipeCardsWidget,
-  TableWidget,
-  TerminalDemoWidget,
-  TranslationWidget,
-  TreeViewWidget,
-  Widget,
-)
-from .serialize_lesson import lesson_to_shorthand
 from .validate_lesson import validate_lesson
+from .widget_models import LessonDocument, Section, Subsection, WidgetItem
 from .widgets_loader import WidgetDefinition, WidgetRegistry, load_widget_registry
 
-__all__ = [
-  "AsciiDiagramWidget",
-  "FillBlankWidget",
-  "ChecklistWidget",
-  "CodeEditorWidget",
-  "CompareWidget",
-  "FlipWidget",
-  "FreeTextWidget",
-  "InputLineWidget",
-  "InteractiveTerminalWidget",
-  "LessonDocument",
-  "MarkdownTextWidget",
-  "TerminalDemoWidget",
-  "MCQsWidget",
-  "SectionBlock",
-  "StepFlowWidget",
-  "SwipeCardsWidget",
-  "TableWidget",
-  "TranslationWidget",
-  "TreeViewWidget",
-  "Widget",
-  "lesson_to_shorthand",
-  "validate_lesson",
-  "WidgetDefinition",
-  "WidgetRegistry",
-  "load_widget_registry",
-]
+__all__ = ["LessonDocument", "Section", "Subsection", "WidgetItem", "validate_lesson", "WidgetDefinition", "WidgetRegistry", "load_widget_registry"]

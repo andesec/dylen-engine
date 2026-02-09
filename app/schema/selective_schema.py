@@ -92,11 +92,11 @@ def create_selective_subsection(widget_names: list[str]) -> type[msgspec.Struct]
 
   # Create the class dynamically to avoid forward reference issues
   def output_method(self) -> dict[str, Any]:
-    return {"section": self.title, "items": [item.output() for item in self.items], "subsections": []}
+    return {"section": self.section, "items": [item.output() for item in self.items], "subsections": []}
 
   class_dict = {
     "__annotations__": {
-      "title": Annotated[str, msgspec.Meta(min_length=1, description="Subsection title")],
+      "section": Annotated[str, msgspec.Meta(min_length=1, description="Subsection title")],
       "items": Annotated[list[widget_item], msgspec.Meta(min_length=SUBSECTION_ITEMS_MIN, max_length=SUBSECTION_ITEMS_MAX, description=f"Widget items ({SUBSECTION_ITEMS_MIN}-{SUBSECTION_ITEMS_MAX})")],
     },
     "output": output_method,
@@ -130,11 +130,11 @@ def create_selective_section(widget_names: list[str]) -> type[msgspec.Struct]:
   # msgspec needs to resolve type annotations, and subsection_cls is a local variable
   class_dict = {
     "__annotations__": {
-      "title": Annotated[str, msgspec.Meta(min_length=1, description="Section title")],
+      "section": Annotated[str, msgspec.Meta(min_length=1, description="Section title")],
       "markdown": Annotated[MarkdownPayload, msgspec.Meta(description="Section introduction")],
       "subsections": Annotated[list[subsection_cls], msgspec.Meta(min_length=SUBSECTIONS_PER_SECTION_MIN, max_length=SUBSECTIONS_PER_SECTION_MAX, description=f"Subsections ({SUBSECTIONS_PER_SECTION_MIN}-{SUBSECTIONS_PER_SECTION_MAX})")],
     },
-    "output": lambda self: {"section": self.title, "items": [{"markdown": self.markdown.output()}] if self.markdown else [], "subsections": [s.output() for s in self.subsections]},
+    "output": lambda self: {"section": self.section, "items": [{"markdown": self.markdown.output()}] if self.markdown else [], "subsections": [s.output() for s in self.subsections]},
   }
 
   return type("Section", (msgspec.Struct,), class_dict)

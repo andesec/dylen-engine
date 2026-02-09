@@ -86,8 +86,17 @@ async def generate_outcomes_endpoint(  # noqa: B008
   # Deny-by-default: if lesson generation is disabled for this user, outcomes preflight is also disabled.
   validate_widget_entitlements(request.widgets, runtime_config=runtime_config)
   lessons_per_week = int(runtime_config.get("limits.lessons_per_week") or 0)
+  sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
   if lessons_per_week <= 0:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
+  if sections_per_month <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
+  lesson_snapshot = await get_quota_snapshot(db_session, user_id=current_user.id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, limit=lessons_per_week)
+  if lesson_snapshot.remaining <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
+  section_snapshot = await get_quota_snapshot(db_session, user_id=current_user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=sections_per_month)
+  if section_snapshot.remaining <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
   outcomes_checks_per_week = int(runtime_config.get("limits.outcomes_checks_per_week") or lessons_per_week)
   if outcomes_checks_per_week <= 0:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.outcomes_check"})

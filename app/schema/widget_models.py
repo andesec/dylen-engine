@@ -1,3 +1,5 @@
+# ruff: noqa: N815
+
 from __future__ import annotations
 
 import logging
@@ -347,14 +349,14 @@ class WidgetItem(msgspec.Struct):
   table: TablePayload | None = None
   compare: ComparePayload | None = None
   swipecards: SwipeCardsPayload | None = None
-  free_text: FreeTextPayload | None = None
-  input_line: InputLinePayload | None = None
-  step_flow: StepFlowPayload | None = None
-  ascii_diagram: AsciiDiagramPayload | None = None
+  freeText: FreeTextPayload | None = None
+  inputLine: InputLinePayload | None = None
+  stepFlow: StepFlowPayload | None = None
+  asciiDiagram: AsciiDiagramPayload | None = None
   checklist: ChecklistPayload | None = None
-  interactive_terminal: InteractiveTerminalPayload | None = None
-  terminal_demo: TerminalDemoPayload | None = None
-  code_editor: CodeEditorPayload | None = None
+  interactiveTerminal: InteractiveTerminalPayload | None = None
+  terminalDemo: TerminalDemoPayload | None = None
+  codeEditor: CodeEditorPayload | None = None
   treeview: TreeViewPayload | None = None
   mcqs: MCQsInner | None = None
   fenster: FensterPayload | None = None
@@ -376,21 +378,21 @@ class WidgetItem(msgspec.Struct):
       set_fields += 1
     if self.swipecards is not None:
       set_fields += 1
-    if self.free_text is not None:
+    if self.freeText is not None:
       set_fields += 1
-    if self.input_line is not None:
+    if self.inputLine is not None:
       set_fields += 1
-    if self.step_flow is not None:
+    if self.stepFlow is not None:
       set_fields += 1
-    if self.ascii_diagram is not None:
+    if self.asciiDiagram is not None:
       set_fields += 1
     if self.checklist is not None:
       set_fields += 1
-    if self.interactive_terminal is not None:
+    if self.interactiveTerminal is not None:
       set_fields += 1
-    if self.terminal_demo is not None:
+    if self.terminalDemo is not None:
       set_fields += 1
-    if self.code_editor is not None:
+    if self.codeEditor is not None:
       set_fields += 1
     if self.treeview is not None:
       set_fields += 1
@@ -418,22 +420,22 @@ class WidgetItem(msgspec.Struct):
       return {"compare": self.compare.output()}
     if self.swipecards:
       return {"swipecards": self.swipecards.output()}
-    if self.free_text:
-      return {"freeText": self.free_text.output()}
-    if self.input_line:
-      return {"inputLine": self.input_line.output()}
-    if self.step_flow:
-      return {"stepFlow": self.step_flow.output()}
-    if self.ascii_diagram:
-      return {"asciiDiagram": self.ascii_diagram.output()}
+    if self.freeText:
+      return {"freeText": self.freeText.output()}
+    if self.inputLine:
+      return {"inputLine": self.inputLine.output()}
+    if self.stepFlow:
+      return {"stepFlow": self.stepFlow.output()}
+    if self.asciiDiagram:
+      return {"asciiDiagram": self.asciiDiagram.output()}
     if self.checklist:
       return {"checklist": self.checklist.output()}
-    if self.interactive_terminal:
-      return {"interactiveTerminal": self.interactive_terminal.output()}
-    if self.terminal_demo:
-      return {"terminalDemo": self.terminal_demo.output()}
-    if self.code_editor:
-      return {"codeEditor": self.code_editor.output()}
+    if self.interactiveTerminal:
+      return {"interactiveTerminal": self.interactiveTerminal.output()}
+    if self.terminalDemo:
+      return {"terminalDemo": self.terminalDemo.output()}
+    if self.codeEditor:
+      return {"codeEditor": self.codeEditor.output()}
     if self.treeview:
       return {"treeview": self.treeview.output()}
     if self.mcqs:
@@ -443,14 +445,6 @@ class WidgetItem(msgspec.Struct):
 
     # Fallback to empty if somehow none are set
     return {}
-
-
-def _snake_to_camel(widget_name: str) -> str:
-  """Convert snake_case widget keys to camelCase shorthand keys."""
-  parts = widget_name.split("_")
-  if len(parts) <= 1:
-    return widget_name
-  return parts[0] + "".join(part.capitalize() for part in parts[1:])
 
 
 def _extract_payload_from_optional(annotation: Any) -> type[msgspec.Struct]:
@@ -463,27 +457,19 @@ def _extract_payload_from_optional(annotation: Any) -> type[msgspec.Struct]:
 
 WIDGET_ITEM_FIELD_NAMES = list(WidgetItem.__annotations__)
 WIDGET_ITEM_TYPE_HINTS = get_type_hints(WidgetItem, globalns=globals(), localns=locals())
-WIDGET_FIELD_TO_SHORTHAND = {field_name: _snake_to_camel(field_name) for field_name in WIDGET_ITEM_FIELD_NAMES}
-WIDGET_SHORTHAND_TO_FIELD = {shorthand: field_name for field_name, shorthand in WIDGET_FIELD_TO_SHORTHAND.items()}
-WIDGET_LEGACY_ALIASES = {"swipeCards": "swipecards", "treeView": "treeview"}
 WIDGET_PAYLOAD_BY_FIELD = {field_name: _extract_payload_from_optional(WIDGET_ITEM_TYPE_HINTS[field_name]) for field_name in WIDGET_ITEM_FIELD_NAMES}
 
 
 def resolve_widget_field_name(widget_name: str) -> str:
-  """Resolve any supported widget key (snake_case or shorthand) to WidgetItem field name."""
-  if widget_name in WIDGET_LEGACY_ALIASES:
-    widget_name = WIDGET_LEGACY_ALIASES[widget_name]
+  """Resolve supported widget key to canonical WidgetItem field name."""
   if widget_name in WIDGET_PAYLOAD_BY_FIELD:
     return widget_name
-  if widget_name in WIDGET_SHORTHAND_TO_FIELD:
-    return WIDGET_SHORTHAND_TO_FIELD[widget_name]
   raise ValueError(f"Unknown widget: {widget_name}")
 
 
 def resolve_widget_shorthand_name(widget_name: str) -> str:
-  """Resolve any supported widget key to canonical shorthand key used in output JSON."""
-  field_name = resolve_widget_field_name(widget_name)
-  return WIDGET_FIELD_TO_SHORTHAND[field_name]
+  """Resolve supported widget key to canonical shorthand key used in output JSON."""
+  return resolve_widget_field_name(widget_name)
 
 
 def get_widget_payload(widget_name: str) -> type[msgspec.Struct]:
@@ -500,39 +486,38 @@ def get_widget_payload_map(include_aliases: bool = True) -> dict[str, type[msgsp
   payload_map = {}
   for field_name, payload in WIDGET_PAYLOAD_BY_FIELD.items():
     payload_map[field_name] = payload
-    payload_map[WIDGET_FIELD_TO_SHORTHAND[field_name]] = payload
   return payload_map
 
 
 def get_widget_shorthand_names() -> list[str]:
   """Return canonical shorthand widget keys in WidgetItem declaration order."""
-  return [WIDGET_FIELD_TO_SHORTHAND[field_name] for field_name in WIDGET_ITEM_FIELD_NAMES]
+  return list(WIDGET_ITEM_FIELD_NAMES)
 
 
 class Subsection(msgspec.Struct):
   """Subsection model."""
 
-  title: Annotated[str, msgspec.Meta(description=f"Subsection title ({SUBSECTION_TITLE_MIN_CHARS}-{SUBSECTION_TITLE_MAX_CHARS} chars)")]
+  section: Annotated[str, msgspec.Meta(description=f"Subsection title ({SUBSECTION_TITLE_MIN_CHARS}-{SUBSECTION_TITLE_MAX_CHARS} chars)")]
   items: Annotated[list[WidgetItem], msgspec.Meta(description=f"Widget items ({SUBSECTION_ITEMS_MIN}-{SUBSECTION_ITEMS_MAX})")]
 
   def __post_init__(self):
-    _warn_len_out_of_range(field_name="subsection.title", value=self.title, min_length=SUBSECTION_TITLE_MIN_CHARS, max_length=SUBSECTION_TITLE_MAX_CHARS)
+    _warn_len_out_of_range(field_name="subsection.section", value=self.section, min_length=SUBSECTION_TITLE_MIN_CHARS, max_length=SUBSECTION_TITLE_MAX_CHARS)
     _warn_len_out_of_range(field_name="subsection.items", value=self.items, min_length=SUBSECTION_ITEMS_MIN, max_length=SUBSECTION_ITEMS_MAX)
 
   def output(self) -> dict[str, Any]:
     """Return the shorthand object for the subsection."""
-    return {"section": self.title, "items": [item.output() for item in self.items], "subsections": []}
+    return {"section": self.section, "items": [item.output() for item in self.items], "subsections": []}
 
 
 class Section(msgspec.Struct):
   """Section model."""
 
-  title: Annotated[str, msgspec.Meta(description=f"Section title ({SECTION_TITLE_MIN_CHARS}-{SECTION_TITLE_MAX_CHARS} chars)")]
+  section: Annotated[str, msgspec.Meta(description=f"Section title ({SECTION_TITLE_MIN_CHARS}-{SECTION_TITLE_MAX_CHARS} chars)")]
   markdown: MarkdownPayload
   subsections: Annotated[list[Subsection], msgspec.Meta(description=f"At least {SUBSECTIONS_PER_SECTION_MIN} to {SUBSECTIONS_PER_SECTION_MAX} subsections divided from the section topic")]
 
   def __post_init__(self):
-    _warn_len_out_of_range(field_name="section.title", value=self.title, min_length=SECTION_TITLE_MIN_CHARS, max_length=SECTION_TITLE_MAX_CHARS)
+    _warn_len_out_of_range(field_name="section.section", value=self.section, min_length=SECTION_TITLE_MIN_CHARS, max_length=SECTION_TITLE_MAX_CHARS)
     _warn_len_out_of_range(field_name="section.subsections", value=self.subsections, min_length=SUBSECTIONS_PER_SECTION_MIN, max_length=SUBSECTIONS_PER_SECTION_MAX)
 
   def output(self) -> dict[str, Any]:
@@ -541,7 +526,7 @@ class Section(msgspec.Struct):
     if self.markdown:
       items.append({"markdown": self.markdown.output()})
 
-    return {"section": self.title, "items": items, "subsections": [sub.output() for sub in self.subsections]}
+    return {"section": self.section, "items": items, "subsections": [sub.output() for sub in self.subsections]}
 
 
 class LessonDocument(msgspec.Struct):

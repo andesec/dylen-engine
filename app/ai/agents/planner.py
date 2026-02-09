@@ -14,7 +14,7 @@ from app.ai.errors import is_output_error
 from app.ai.pipeline.contracts import GenerationRequest, JobContext, LessonPlan
 from app.core.database import get_session_factory
 from app.schema.quotas import QuotaPeriod
-from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, release_quota_reservation, reserve_quota
+from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, get_quota_snapshot, release_quota_reservation, reserve_quota
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.telemetry.context import llm_call_context
@@ -93,6 +93,10 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
     try:
       # Reserve weekly lesson quota before running the planner.
       async with session_factory() as session:
+        # Re-check live availability right before reservation so queued jobs fail fast with a clear quota reason.
+        snapshot = await get_quota_snapshot(session, user_id=reservation_user_id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, limit=reservation_limit)
+        if snapshot.remaining <= 0:
+          raise QuotaExceededError("lesson.generate quota exceeded")
         await reserve_quota(session, user_id=reservation_user_id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, quantity=1, limit=reservation_limit, job_id=str(ctx.job_id), metadata={"job_id": str(ctx.job_id)})
       reservation_active = True
 

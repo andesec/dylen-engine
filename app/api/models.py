@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator, model_validator
 
 from app.jobs.guardrails import MAX_ITEM_BYTES
 from app.jobs.models import JobStatus
@@ -291,38 +291,14 @@ class ChildJobStatus(BaseModel):
 
   job_id: StrictStr
   status: JobStatus
-  target_agent: StrictStr | None = None
-  phase: StrictStr | None = None
-  created_at: StrictStr | None = None
-  retry_available: bool = Field(default=False)
   model_config = ConfigDict(extra="forbid")
 
 
 class JobStatusResponse(BaseModel):
-  """Status payload for an asynchronous job."""
+  """Status payload for a background job."""
 
   job_id: StrictStr
   status: JobStatus
-  phase: StrictStr | None = None
-  subphase: StrictStr | None = None
-  expected_sections: StrictInt | None = Field(default=None, ge=0, description="Total number of expected sections for lesson jobs.")
-  completed_sections: StrictInt | None = Field(default=None, ge=0, description="Number of lesson sections completed so far.")
-  completed_section_indexes: list[StrictInt] | None = Field(default=None, description="0-based section indexes that have been completed so far.")
-  current_section: CurrentSectionStatus | None = None
-  retry_count: StrictInt | None = Field(default=None, ge=0, description="Retry attempts already used for this job.")
-  max_retries: StrictInt | None = Field(default=None, ge=0, description="Maximum retry attempts allowed for this job.")
-  retry_sections: list[StrictInt] | None = Field(default=None, description="0-based section indexes targeted for retry, when applicable.")
-  retry_agents: list[StrictStr] | None = Field(default=None, description="Pipeline agents targeted for retry, when applicable.")
-  total_steps: StrictInt | None = Field(default=None, ge=1, description="Total number of progress steps when available.")
-  completed_steps: StrictInt | None = Field(default=None, ge=0, description="Completed progress steps when available.")
-  progress: StrictFloat | None = Field(default=None, ge=0.0, le=100.0, description="Progress percent (0-100) when available.")
-  logs: list[StrictStr] = Field(default_factory=list)
-  result: dict[str, Any] | None = None
-  artifacts: dict[str, Any] | None = None
   child_jobs: list[ChildJobStatus] | None = None
-  validation: ValidationResponse | None = None
-  cost: dict[str, Any] | None = None
-  created_at: StrictStr
-  updated_at: StrictStr
-  completed_at: StrictStr | None = Field(default=None)
+  lesson_id: StrictStr | None = None
   model_config = ConfigDict(populate_by_name=True)

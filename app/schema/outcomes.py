@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import logging
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, model_validator
 
-OutcomeText = Annotated[StrictStr, Field(min_length=3, max_length=140)]
+logger = logging.getLogger(__name__)
+
+OUTCOME_TEXT_MIN_LENGTH = 3
+OUTCOME_TEXT_MAX_LENGTH = 180
+
+OutcomeText = StrictStr
+
+
+def _warn_len_out_of_range(*, field_name: str, value: Any, min_length: int | None = None, max_length: int | None = None) -> None:
+  """Log a warning when a string/list length falls outside configured bounds."""
+  if value is None:
+    return
+  length = len(value) if isinstance(value, (str, list)) else None
+  if length is None:
+    return
+  if min_length is not None and length < min_length:
+    logger.warning("Outcomes length warning for %s: got %s, expected >= %s", field_name, length, min_length)
+  if max_length is not None and length > max_length:
+    logger.warning("Outcomes length warning for %s: got %s, expected <= %s", field_name, length, max_length)
 
 
 class OutcomesAgentInput(BaseModel):
@@ -64,6 +83,8 @@ class OutcomesAgentResponse(BaseModel):
         raise ValueError("outcomes must be non-empty when ok is true.")
       if len(self.outcomes) > 8:
         raise ValueError("outcomes must be a small list (max 8).")
+      for index, outcome in enumerate(self.outcomes):
+        _warn_len_out_of_range(field_name=f"outcomes[{index}]", value=outcome, min_length=OUTCOME_TEXT_MIN_LENGTH, max_length=OUTCOME_TEXT_MAX_LENGTH)
     return self
 
 

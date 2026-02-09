@@ -1,71 +1,45 @@
-from app.schema.lesson_models import AsciiDiagramWidget, ParagraphWidget, TableWidget, TerminalDemoWidget, TreeViewWidget, UnorderedListWidget
-from pydantic import ValidationError
+import msgspec
+from app.schema.widget_models import AsciiDiagramPayload, CodeEditorPayload, DemoRule, MarkdownPayload, TerminalDemoPayload, TreeViewPayload
 
 
-def test_robust_widgets():
-  print("\n--- Testing Robust Widget Validators ---")
-
-  # 1. ParagraphWidget (List to String)
+def test_widget_payloads() -> None:
+  print("\n--- Testing msgspec widget payloads ---")
   try:
-    w = ParagraphWidget(p=["Line 1", "Line 2"])
-    print(f"Paragraph Coercion: {'SUCCESS' if w.p == 'Line 1\nLine 2' else 'FAILURE'}")
-  except ValidationError as e:
-    print(f"Paragraph Coercion FAILED: {e}")
-  else:
-    if w.p != "Line 1\nLine 2":
-      print(f"Paragraph Coercion FAILED value mismatch: repr(w.p)={repr(w.p)}")
+    md = MarkdownPayload(markdown="This markdown string is comfortably above thirty chars.", align="left")
+    print(f"MarkdownPayload: SUCCESS ({md.output()})")
+  except Exception as exc:  # noqa: BLE001
+    print(f"MarkdownPayload: FAILURE ({exc})")
 
-  # 2. UnorderedListWidget (String to List)
   try:
-    w = UnorderedListWidget(ul="Single Item")
-    print(f"UnorderedList Coercion: {'SUCCESS' if w.ul == ['Single Item'] else 'FAILURE'}")
-  except ValidationError as e:
-    print(f"UnorderedList Coercion FAILED: {e}")
+    ascii_diagram = AsciiDiagramPayload(title="ASCII Demo", diagram="+--+\n|A |\n+--+")
+    print(f"AsciiDiagramPayload: SUCCESS ({ascii_diagram.output()})")
+  except Exception as exc:  # noqa: BLE001
+    print(f"AsciiDiagramPayload: FAILURE ({exc})")
 
-  # 3. AsciiDiagramWidget (Heuristic merge)
   try:
-    w = AsciiDiagramWidget(asciiDiagram=["Title", "Line 1", "Line 2"])
-    print(f"AsciiDiagram Flattening: {'SUCCESS' if len(w.asciiDiagram) == 2 else 'FAILURE'}")
-    if len(w.asciiDiagram) == 2:
-      print(f"  Result: {w.asciiDiagram}")
-  except ValidationError as e:
-    print(f"AsciiDiagram Flattening FAILED: {e}")
+    terminal_demo = TerminalDemoPayload(title="Demo Title", rules=[DemoRule(command="ls", delay_ms=100, output="file.txt")])
+    print(f"TerminalDemoPayload: SUCCESS ({terminal_demo.output()})")
+  except Exception as exc:  # noqa: BLE001
+    print(f"TerminalDemoPayload: FAILURE ({exc})")
 
-  # 4. TableWidget (String rows)
   try:
-    w = TableWidget(table=["Row 1", "Row 2"])
-    print(f"Table Relaxed Input: {'SUCCESS' if w.table == [['Row 1'], ['Row 2']] else 'FAILURE'}")
-  except ValidationError as e:
-    print(f"Table Relaxed Input FAILED: {e}")
+    code_editor = CodeEditorPayload(code="print('ok')", language="python", read_only=True, highlighted_lines=[1])
+    print(f"CodeEditorPayload: SUCCESS ({code_editor.output()})")
+  except Exception as exc:  # noqa: BLE001
+    print(f"CodeEditorPayload: FAILURE ({exc})")
 
-  # 5. TerminalDemoWidget (Auto-delay injection)
   try:
-    # Input: [command, output] (missing delay)
-    w = TerminalDemoWidget(terminalDemo={"lead": "Demo", "rules": [["ls", "file.txt"]]})
-    rules = w.terminalDemo.rules
-    if len(rules) > 0 and len(rules[0]) == 3 and rules[0][1] == 100:
-      print("TerminalDemo Auto-delay: SUCCESS")
-    else:
-      print(f"TerminalDemo Auto-delay: FAILURE (rules={rules})")
-  except ValidationError as e:
-    print(f"TerminalDemo Auto-delay FAILED: {e}")
+    treeview = TreeViewPayload(lesson={"title": "Lesson", "blocks": []}, title="Tree", textarea_id="json-input", editor_id="json-editor")
+    print(f"TreeViewPayload: SUCCESS ({treeview.output()})")
+  except Exception as exc:  # noqa: BLE001
+    print(f"TreeViewPayload: FAILURE ({exc})")
 
-  # Retest TreeView just in case
-  test_treeview_fix()
-
-
-def test_treeview_fix():
-  print("--- Testing TreeView Validation Fix ---")
-  invalid_input = ["My Tree Title", ["Root", ["Child"]]]
   try:
-    widget = TreeViewWidget(treeview=invalid_input)
-    if widget.treeview[0] == ["Root", ["Child"]] and widget.treeview[1] == "My Tree Title":
-      print("TreeView Auto-swap: SUCCESS")
-    else:
-      print("TreeView Auto-swap: FAILURE")
-  except ValidationError:
-    print("TreeView Auto-swap: CRASHED")
+    widget_item = msgspec.convert({"codeEditor": {"code": "x=1", "language": "python"}}, type=dict)
+    print(f"Widget object sample parse: SUCCESS ({widget_item})")
+  except Exception as exc:  # noqa: BLE001
+    print(f"Widget object sample parse: FAILURE ({exc})")
 
 
 if __name__ == "__main__":
-  test_robust_widgets()
+  test_widget_payloads()

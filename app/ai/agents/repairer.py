@@ -21,6 +21,15 @@ JsonDict = dict[str, Any]
 Errors = list[str]
 
 
+def _prune_none_values(value: Any) -> Any:
+  """Remove `None` values recursively from repaired payload fragments."""
+  if isinstance(value, dict):
+    return {k: _prune_none_values(v) for k, v in value.items() if v is not None}
+  if isinstance(value, list):
+    return [_prune_none_values(item) for item in value]
+  return value
+
+
 @dataclass(frozen=True)
 class RepairTarget:
   """Represents a widget entry that needs targeted repair."""
@@ -83,18 +92,18 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     widget_types = [target.widget_type for target in repair_targets if target.widget_type]
     unique_widget_types = list(set(widget_types))
 
+    from app.schema.widget_models import RepairResponse as CanonicalRepairResponse
+
     if unique_widget_types:
       widget_item_cls = create_selective_widget_item(unique_widget_types)
 
       # Define response model dynamically
       repair_item_cls = type("RepairItem", (msgspec.Struct,), {"__annotations__": {"path": str, "widget": widget_item_cls}})
 
-      repair_response_cls = type("RepairResponse", (msgspec.Struct,), {"__annotations__": {"repairs": list[repair_item_cls]}})
+      schema_response_cls = type("RepairResponse", (msgspec.Struct,), {"__annotations__": {"repairs": list[repair_item_cls]}})
     else:
       # Fallback to full schema
-      from app.schema.widget_models import RepairResponse
-
-      repair_response_cls = RepairResponse
+      schema_response_cls = CanonicalRepairResponse
 
     # Provide minimal context for targeted repairs instead of the full section payload.
     prompt_targets = _serialize_repair_targets(repair_targets)
@@ -107,7 +116,7 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
     prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors)
 
-    raw_schema = msgspec.json.schema(repair_response_cls)
+    raw_schema = msgspec.json.schema(schema_response_cls)
     # Sanitize for Gemini (strips $defs, flattens refs, etc.)
     schema = self._schema_service.sanitize_schema(raw_schema, provider_name="gemini")
 
@@ -136,8 +145,8 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
     result_dict = response.content
     # Convert dict to msgspec Struct to ensure it matches our internal model
-    repair_response = msgspec.convert(result_dict, type=repair_response_cls)
-    repaired_payload = msgspec.to_builtins(repair_response)
+    repair_response = msgspec.convert(result_dict, type=CanonicalRepairResponse)
+    repaired_payload = _prune_none_values(msgspec.to_builtins(repair_response))
 
     # Apply only the repaired widget payloads back into their original positions.
     repaired_json = _apply_repairs(section_json, repaired_payload, repair_targets)
@@ -272,7 +281,7 @@ def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple
     misplaced_subsections = []
 
     for item in section_items:
-      # If an item looks like a SubsectionBlock (has 'title' or 'subsection' or 'section' + 'items' list),
+      # If an item looks like a SubsectionBlock (has legacy or canonical section key + items list),
       # it's likely misplaced.
       is_subsection_block = isinstance(item, dict) and (("title" in item or "subsection" in item or "section" in item) and isinstance(item.get("items"), list))
 
@@ -311,33 +320,27 @@ def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple
     if not isinstance(subsection, dict):
       continue
 
-    # Ensure subsection titles exist for schema validation.
-    if len(tokens) >= 3 and tokens[2] == "title":
-      title = subsection.get("title")
+    # Ensure canonical subsection key exists for schema validation.
+    if len(tokens) >= 3 and tokens[2] in ("title", "subsection", "section"):
+      section_name = subsection.get("section")
+      if not isinstance(section_name, str) or not section_name.strip():
+        migrated = False
+        for legacy_key in ("title", "subsection"):
+          legacy_value = subsection.pop(legacy_key, None)
+          if isinstance(legacy_value, str) and legacy_value.strip():
+            subsection["section"] = legacy_value
+            changes.append(f"migrated_subsection_section_{subsection_index}")
+            migrated = True
+            break
+        if not migrated:
+          subsection["section"] = f"Subsection {subsection_index + 1}"
+          changes.append(f"subsection_section_{subsection_index}")
 
-      # Migration: If title is missing but 'subsection' exists, rename it.
-      if (not isinstance(title, str) or not title.strip()) and "subsection" in subsection:
-        val = subsection.pop("subsection")
-        if isinstance(val, str) and val.strip():
-          subsection["title"] = val
-          changes.append(f"migrated_subsection_title_{subsection_index}")
-          continue
-
-      if not isinstance(title, str) or not title.strip():
-        subsection["title"] = f"Subsection {subsection_index + 1}"
-        changes.append(f"subsection_title_{subsection_index}")
-
-    # Handle deprecated 'subsection' field if flagged as extra
-    if len(tokens) >= 3 and tokens[2] == "subsection":
-      if "subsection" in subsection:
-        if "title" not in subsection:
-          val = subsection.pop("subsection")
-          if isinstance(val, str) and val.strip():
-            subsection["title"] = val
-            changes.append(f"migrated_subsection_title_{subsection_index}")
-        else:
-          subsection.pop("subsection")
-          changes.append(f"removed_deprecated_subsection_{subsection_index}")
+      # Remove deprecated alias keys after migration.
+      for legacy_key in ("title", "subsection"):
+        if legacy_key in subsection:
+          subsection.pop(legacy_key)
+          changes.append(f"removed_deprecated_{legacy_key}_{subsection_index}")
 
     # Normalize subsection items into a list so downstream validation stays stable.
     if "items" not in subsection or not isinstance(subsection.get("items"), list):

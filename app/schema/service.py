@@ -7,6 +7,7 @@ from typing import Any
 
 import msgspec
 
+from app.schema.section_normalizer import normalize_lesson_section_keys
 from app.schema.widget_models import LessonDocument, Section
 
 DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets_prompt.md")
@@ -84,7 +85,8 @@ class SchemaService:
   def validate_lesson_payload(self, payload: Any) -> ValidationResult:
     """Validate a lesson payload and return structured issues."""
     try:
-      lesson_model = msgspec.convert(payload, type=LessonDocument)
+      normalized_payload = normalize_lesson_section_keys(payload)
+      lesson_model = msgspec.convert(normalized_payload, type=LessonDocument)
       return ValidationResult(ok=True, issues=[], model=lesson_model)
     except msgspec.ValidationError as exc:
       issues = [_issue_from_msgspec_error(exc)]
@@ -227,8 +229,8 @@ def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
     # Process children
     new_node = node.copy()
 
-    # Strip schema metadata and unsupported noise for provider compatibility.
-    keys_to_remove = ("$defs", "definitions", "title", "$schema", "minItems", "maxItems", "minLength", "maxLength", "pattern", "format", "additionalProperties", "additional_properties")
+    # Strip metadata and state-space-heavy bounds for Gemini compatibility.
+    keys_to_remove = ("$defs", "definitions", "title", "$schema", "minItems", "maxItems", "minLength", "maxLength", "additional_properties")
     for k in keys_to_remove:
       new_node.pop(k, None)
 
@@ -266,4 +268,28 @@ def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
   if final_defs:
     cleaned_root["$defs"] = final_defs
 
+  _enforce_widget_item_schema_requirements(cleaned_root)
   return cleaned_root
+
+
+def _enforce_widget_item_schema_requirements(schema: dict[str, Any]) -> None:
+  """Require at least one known widget key and block unknown widget keys."""
+  defs = schema.get("$defs")
+  if not isinstance(defs, dict):
+    return
+
+  widget_item_schema = defs.get("WidgetItem")
+  if not isinstance(widget_item_schema, dict):
+    return
+
+  properties = widget_item_schema.get("properties")
+  if not isinstance(properties, dict) or not properties:
+    return
+
+  property_names = [str(name) for name in properties.keys()]
+  # `anyOf` with per-key required clauses enforces at least one widget key.
+  widget_item_schema["anyOf"] = [{"required": [name]} for name in property_names]
+  widget_item_schema.pop("oneOf", None)
+  widget_item_schema["additionalProperties"] = False
+  # `required` remains empty; selection is enforced by `anyOf`.
+  widget_item_schema["required"] = []

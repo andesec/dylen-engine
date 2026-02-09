@@ -324,13 +324,17 @@ class JobProcessor:
                 runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
                 quota_sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
                 if quota_sections_per_month <= 0:
-                  raise ValueError("Section quota is not enabled for this tier.")
+                  raise QuotaExceededError("section.generate quota disabled")
                 quota_snapshot = await get_quota_snapshot(session, user_id=user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=quota_sections_per_month)
                 if quota_snapshot.remaining <= 0:
-                  raise ValueError("Monthly section quota exhausted.")
+                  raise QuotaExceededError("section.generate quota exceeded")
                 # Respect any persisted cap plus the live remaining quota to avoid overruns.
                 expected_sections = min(int(expected_sections), int(quota_snapshot.remaining))
+                if expected_sections <= 0:
+                  raise QuotaExceededError("section.generate quota exceeded")
           except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, QuotaExceededError):
+              raise
             raise ValueError(f"Quota enforcement failed: {exc}") from exc
 
       if retry_section_indexes:
@@ -512,9 +516,28 @@ class JobProcessor:
     except OrchestrationError as exc:
       # Preserve pipeline logs when orchestration fails fast.
       tracker.extend_logs(exc.logs)
+      quota_metric = _extract_quota_metric(str(exc))
+      if quota_metric is not None:
+        quota_message = f"Quota exceeded during lesson job execution ({quota_metric})."
+        self._logger.warning("Job %s failed due to exhausted quota. metric=%s error=%s", job.job_id, quota_metric, exc)
+        await tracker.fail(phase="failed", message=quota_message)
+        payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+        await self._jobs_repo.update_job(job.job_id, **payload)
+        await _notify_job_failed(settings=self._settings, job=job)
+        return None
       error_log = f"Job failed: {exc}"
       self._logger.error(error_log)
       await tracker.fail(phase="failed", message=error_log)
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      await self._jobs_repo.update_job(job.job_id, **payload)
+      await _notify_job_failed(settings=self._settings, job=job)
+      return None
+
+    except QuotaExceededError as exc:
+      quota_metric = _extract_quota_metric(str(exc)) or "unknown"
+      quota_message = f"Quota exceeded during lesson job execution ({quota_metric})."
+      self._logger.warning("Job %s failed due to exhausted quota. metric=%s error=%s", job.job_id, quota_metric, exc)
+      await tracker.fail(phase="failed", message=quota_message)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
       await _notify_job_failed(settings=self._settings, job=job)
@@ -772,6 +795,19 @@ def _strip_internal_request_fields(request: dict[str, Any]) -> dict[str, Any]:
   cleaned.pop("checker_model", None)
 
   return cleaned
+
+
+def _extract_quota_metric(error_message: str) -> str | None:
+  """Extract a known quota metric name from an error message."""
+  lowered = error_message.lower()
+  known_metrics = ("lesson.generate", "section.generate", "coach.generate", "fenster.widget.generate", "writing.check", "ocr.extract")
+  for metric in known_metrics:
+    # Match explicit metric names so job logs can report the exact exhausted resource.
+    if metric in lowered:
+      return metric
+  if "quota" in lowered:
+    return "unknown"
+  return None
 
 
 def _extract_user_id(job_request: dict[str, Any]) -> uuid.UUID | None:

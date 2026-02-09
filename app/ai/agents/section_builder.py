@@ -14,7 +14,7 @@ from app.ai.agents.prompts import render_section_builder_prompt
 from app.ai.pipeline.contracts import JobContext, PlanSection, StructuredSection
 from app.core.database import get_session_factory
 from app.schema.quotas import QuotaPeriod
-from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, release_quota_reservation, reserve_quota
+from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, get_quota_snapshot, release_quota_reservation, reserve_quota
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.telemetry.context import llm_call_context
@@ -31,12 +31,26 @@ def _is_overlong_validation_error(message: str) -> bool:
 def _resolve_section_title(section_struct: Any, section_json: dict[str, Any], fallback_title: str) -> str:
   """Resolve a stable section title from strict output, raw payload, or planner fallback."""
   if section_struct is not None:
-    return str(section_struct.title or fallback_title)
-  return str(section_json.get("title") or section_json.get("section") or fallback_title)
+    return str(getattr(section_struct, "section", None) or fallback_title)
+  return str(section_json.get("section") or section_json.get("title") or fallback_title)
+
+
+def _prune_none_values(value: Any) -> Any:
+  """Remove `None` values recursively so widget items only keep active keys."""
+  if isinstance(value, dict):
+    return {k: _prune_none_values(v) for k, v in value.items() if v is not None}
+  if isinstance(value, list):
+    return [_prune_none_values(item) for item in value]
+  return value
 
 
 def _build_shorthand_content(section_struct: Any, section_json: Any, section_number: int, logger: logging.Logger) -> dict[str, Any]:
   """Build shorthand JSON from canonical section struct output."""
+  if section_struct is not None and hasattr(section_struct, "output"):
+    try:
+      return section_struct.output()
+    except Exception as exc:  # noqa: BLE001
+      logger.warning("SectionBuilder shorthand conversion failed from canonical struct for section %s: %s", section_number, exc)
   if not isinstance(section_json, dict):
     raise RuntimeError(f"SectionBuilder received non-dict payload for section {section_number}.")
   from app.services.section_shorthand import build_section_shorthand_content
@@ -117,6 +131,10 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
     try:
       # Reserve monthly section quota before running the section builder.
       async with session_factory() as session:
+        # Re-check live availability right before reservation so queued jobs fail fast with a clear quota reason.
+        snapshot = await get_quota_snapshot(session, user_id=reservation_user_id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=reservation_limit)
+        if snapshot.remaining <= 0:
+          raise QuotaExceededError("section.generate quota exceeded")
         # Build quota metadata for audit logging.
         section_metadata = {"job_id": str(ctx.job_id), "section_index": int(input_data.section_number)}
         await reserve_quota(
@@ -148,8 +166,16 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
             error_records.append(SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=index, error_message=message, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index))
           await repo.create_section_errors(error_records)
         else:
-          shorthand_content = _build_shorthand_content(section_struct=None, section_json=dummy_json, section_number=section_index, logger=logger)
-          await repo.update_section_shorthand(created_section.section_id, shorthand_content)
+          try:
+            shorthand_content = _build_shorthand_content(section_struct=None, section_json=dummy_json, section_number=section_index, logger=logger)
+            await repo.update_section_shorthand(created_section.section_id, shorthand_content)
+          except Exception as exc:  # noqa: BLE001
+            shorthand_error = f"payload: shorthand conversion failed: {exc}"
+            error_path, section_scope, subsection_index, item_index = _extract_error_location(shorthand_error)
+            await repo.create_section_errors(
+              [SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=0, error_message=shorthand_error, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index)]
+            )
+            validation_errors = [shorthand_error]
         logger.info("SectionBuilder saved section %s to DB", input_data.section_number)
         # Commit quota reservation once section generation succeeds.
         async with session_factory() as session:
@@ -174,15 +200,15 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       else:
         allowed_widgets = None
 
-      # Determine the response model based on allowed widgets
+      # Determine schema model used only for provider-side structured output.
       if allowed_widgets:
         from app.schema.selective_schema import create_selective_section
 
-        response_model = create_selective_section(allowed_widgets)
+        schema_model = create_selective_section(allowed_widgets)
       else:
         from app.schema.widget_models import Section
 
-        response_model = Section
+        schema_model = Section
 
       purpose = f"build_section_{input_data.section_number}_of_{request.depth}"
       call_index = f"{input_data.section_number}/{request.depth}"
@@ -193,10 +219,10 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           # 1. Generate and Sanitize Schema explicitly
           section_struct = None
           try:
-            raw_schema = msgspec.json.schema(response_model)
+            raw_schema = msgspec.json.schema(schema_model)
             final_schema = self._schema_service.sanitize_schema(raw_schema, provider_name="gemini")
           except Exception as e:
-            logger.error(f"Failed to generate schema for {response_model}: {e}")
+            logger.error(f"Failed to generate schema for {schema_model}: {e}")
             raise
 
           try:
@@ -210,10 +236,11 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
 
             self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=usage)
 
-            # Convert dict to msgspec Struct to ensure it matches our internal model
-            # This acts as the primary validation
-            section_struct = msgspec.convert(result_dict, type=response_model)
-            section_json = msgspec.to_builtins(section_struct)
+            # Validate provider output against canonical runtime model.
+            from app.schema.widget_models import Section as CanonicalSection
+
+            section_struct = msgspec.convert(result_dict, type=CanonicalSection)
+            section_json = _prune_none_values(msgspec.to_builtins(section_struct))
 
             # Validation successful
             validation_errors = []
@@ -223,14 +250,20 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
             err_msg = str(e)
             if _is_overlong_validation_error(err_msg):
               logger.warning("Section validation exceeded max length/items and was accepted: %s", err_msg)
-              section_json = locals().get("result_dict", {})
-              validation_errors = []
+              raw_payload = locals().get("result_dict", {})
+              if isinstance(raw_payload, dict):
+                section_json = _prune_none_values(raw_payload)
+                validation_errors = []
+              else:
+                section_json = {}
+                validation_errors = ["payload: provider returned non-object JSON payload."]
             else:
               logger.warning(f"Section validation failed: {e}")
               # We return the raw (potentially invalid) payload but mark it with errors
               # so the orchestrator can decide to repair it.
               # If result_dict is available, use it; otherwise empty dict
-              section_json = locals().get("result_dict", {})
+              raw_payload = locals().get("result_dict", {})
+              section_json = _prune_none_values(raw_payload) if isinstance(raw_payload, dict) else {}
               validation_errors = [err_msg]
 
           except Exception as e:
@@ -255,8 +288,16 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           error_records.append(SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=index, error_message=message, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index))
         await repo.create_section_errors(error_records)
       else:
-        shorthand_content = _build_shorthand_content(section_struct=section_struct, section_json=section_json, section_number=section_index, logger=logger)
-        await repo.update_section_shorthand(created_section.section_id, shorthand_content)
+        try:
+          shorthand_content = _build_shorthand_content(section_struct=section_struct, section_json=section_json, section_number=section_index, logger=logger)
+          await repo.update_section_shorthand(created_section.section_id, shorthand_content)
+        except Exception as exc:  # noqa: BLE001
+          shorthand_error = f"payload: shorthand conversion failed: {exc}"
+          error_path, section_scope, subsection_index, item_index = _extract_error_location(shorthand_error)
+          await repo.create_section_errors(
+            [SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=0, error_message=shorthand_error, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index)]
+          )
+          validation_errors = [shorthand_error]
       logger.info("SectionBuilder saved section %s to DB", input_data.section_number)
 
       # Commit quota reservation once section generation succeeds (or we return a result).

@@ -67,6 +67,25 @@ def _supported_widgets() -> list[str]:
   return registry.available_types()
 
 
+def _build_prompt_widgets(widgets: list[str] | None) -> list[str]:
+  """Build a deterministic prompt widget list and always include markdown."""
+  ordered_widgets: list[str] = []
+  seen_widgets: set[str] = set()
+
+  # Preserve caller order while dropping duplicates.
+  for widget in widgets or []:
+    if widget in seen_widgets:
+      continue
+    seen_widgets.add(widget)
+    ordered_widgets.append(widget)
+
+  # Markdown is backend-required and should never depend on frontend input.
+  if "markdown" not in seen_widgets:
+    ordered_widgets.append("markdown")
+
+  return ordered_widgets
+
+
 def _teaching_style_addendum(style: str | list[str] | None) -> str:
   """Explain how the chosen teaching style should shape structure and tone."""
   if not style:
@@ -105,9 +124,9 @@ def render_planner_prompt(request: Req) -> str:
   primary_language = request.language or "English"
 
   if request.widgets:
-    supported_widgets = ", ".join(request.widgets)
+    supported_widgets = ", ".join(_build_prompt_widgets(request.widgets))
   else:
-    supported_widgets = ", ".join(_supported_widgets())
+    supported_widgets = ", ".join(_build_prompt_widgets(_supported_widgets()))
 
   teaching_style = _teaching_style_addendum(request.teaching_style)
   outcomes = _format_outcomes(request.outcomes)

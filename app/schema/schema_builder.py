@@ -87,7 +87,7 @@ def build_widget_item_schema(widget_names: list[str]) -> dict[str, Any]:
     "type": "object",
     "description": "Container for any widget type (Mutually Exclusive)",
     "properties": {},
-    "oneOf": [],  # Enforce exactly one widget is set
+    "anyOf": [],  # Enforce at least one widget is set
   }
 
   # Add each widget as a property
@@ -99,9 +99,9 @@ def build_widget_item_schema(widget_names: list[str]) -> dict[str, Any]:
     payload_type = get_widget_payload(widget_name)
     widget_item_schema["properties"][widget_name] = {"$ref": f"#/$defs/{payload_type.__name__}"}
 
-  # Add oneOf constraint (exactly one widget must be set)
+  # Add anyOf constraint (at least one widget must be set)
   for widget_name in normalized_names:
-    widget_item_schema["oneOf"].append({"required": [widget_name]})
+    widget_item_schema["anyOf"].append({"required": [widget_name]})
 
   return widget_item_schema, definitions
 
