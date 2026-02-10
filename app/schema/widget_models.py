@@ -111,8 +111,10 @@ class FreeTextPayload(msgspec.Struct):
   seed_locked: Annotated[str | None, msgspec.Meta(description="Fixed non-removable prefix text")] = None
   lang: Annotated[str | None, msgspec.Meta(description="Language code (e.g. 'en')")] = None
   wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated vocabulary terms")] = None
+  ai_prompt: Annotated[str | None, msgspec.Meta(description="Prompt used to proofread/score the input")] = None
+  id: Annotated[int | None, msgspec.Meta(description="Database ID of the subjective input widget")] = None
 
-  def output(self) -> list[str | None]:
+  def output(self) -> list[Any]:
     res = [self.prompt]
     if self.seed_locked:
       res.append(self.seed_locked)
@@ -120,6 +122,8 @@ class FreeTextPayload(msgspec.Struct):
       res.append(self.lang)
     if self.wordlist_csv:
       res.append(self.wordlist_csv)
+    if self.id:
+      res.append(self.id)
     return res
 
 
@@ -127,13 +131,17 @@ class InputLinePayload(msgspec.Struct):
   prompt: Annotated[str, msgspec.Meta(description="Input field label (min 1 char)")]
   lang: Annotated[str | None, msgspec.Meta(description="Language code (e.g. 'en')")] = None
   wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated terms for validation")] = None
+  ai_prompt: Annotated[str | None, msgspec.Meta(description="Prompt used to proofread/score the input")] = None
+  id: Annotated[int | None, msgspec.Meta(description="Database ID of the subjective input widget")] = None
 
-  def output(self) -> list[str | None]:
+  def output(self) -> list[Any]:
     res = [self.prompt]
     if self.lang:
       res.append(self.lang)
     if self.wordlist_csv:
       res.append(self.wordlist_csv)
+    if self.id:
+      res.append(self.id)
     return res
 
 

@@ -38,8 +38,7 @@ def _writing_request_metrics(request: WritingCheckRequest) -> Mapping[str, int]:
   text = request.text or ""
   text_chars = len(text)
   text_words = len([part for part in text.split() if part.strip()])
-  criteria_count = len(request.criteria or [])
-  return {"text_chars": int(text_chars), "text_words": int(text_words), "criteria_count": int(criteria_count)}
+  return {"text_chars": int(text_chars), "text_words": int(text_words), "widget_id": int(request.widget_id)}
 
 
 def _compute_job_ttl(settings: Settings) -> int | None:
@@ -59,7 +58,7 @@ async def create_writing_check(  # noqa: B008
 
   if current_user.id:
     metrics = _writing_request_metrics(request)
-    prompt_summary = f"Writing check queued; chars={metrics['text_chars']} words={metrics['text_words']} criteria={metrics['criteria_count']}"
+    prompt_summary = f"Writing check queued; chars={metrics['text_chars']} words={metrics['text_words']} widget={metrics['widget_id']}"
     await log_llm_interaction(user_id=current_user.id, model_name="writing-check", prompt_summary=prompt_summary, status="queued", session=db_session)
 
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)

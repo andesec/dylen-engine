@@ -32,8 +32,8 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
   word_count = _count_words(request.text)
   if word_count > 300:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"User text is too long ({word_count} words). Max 300 words.")
-  if not request.criteria:
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Evaluation criteria are required.")
+  if request.widget_id <= 0:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid widget_id.")
   if estimate_bytes(request.model_dump(mode="python")) > MAX_REQUEST_BYTES:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request payload is too large for persistence.")
 

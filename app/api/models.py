@@ -256,7 +256,7 @@ class WritingCheckRequest(BaseModel):
   """Request payload for response evaluation."""
 
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
-  criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
+  widget_id: StrictInt = Field(description="The ID of the subjective input widget being checked.")
   idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
   model_config = ConfigDict(extra="forbid")
 

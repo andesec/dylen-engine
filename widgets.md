@@ -236,7 +236,7 @@ Recommendation:
 ### `freeText` (Free Text Editor - Multiline)
 
 ```json
-{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary"] }
+{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary", 123] }
 ```
 
 Schema (array positions):
@@ -244,6 +244,7 @@ Schema (array positions):
 2. `seedLocked` (string, optional): non-removable prefix.
 3. `lang` (string, optional): language key. Default: `en`.
 4. `wordlistCsv` (string, optional): comma-separated terms as one string.
+5. `id` (integer, optional): Database ID of the subjective input widget.
 
 Notes:
 - Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
@@ -261,13 +262,14 @@ Where to use:
 ### `inputLine` (Single Line Input)
 
 ```json
-{ "inputLine": ["Prompt text", "en", "term1,term2,term3"] }
+{ "inputLine": ["Prompt text", "en", "term1,term2,term3", 123] }
 ```
 
 Schema (array positions):
 1. `prompt` (string): label/prompt for the input.
 2. `lang` (string, optional): language code. Default: `en`.
 3. `wordlistCsv` (string, optional): comma-separated terms for checking.
+4. `id` (integer, optional): Database ID of the subjective input widget.
 
 Notes:
 - Single-line input only.
