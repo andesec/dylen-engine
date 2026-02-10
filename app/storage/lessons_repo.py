@@ -56,6 +56,18 @@ class SectionErrorRecord:
   item_index: int | None = None
 
 
+@dataclass(frozen=True)
+class SubjectiveInputWidgetRecord:
+  """Record stored in the subjective_input_widgets table."""
+
+  id: int | None
+  section_id: int
+  widget_type: str
+  ai_prompt: str
+  wordlist: str | None = None
+  created_at: str | None = None
+
+
 class LessonsRepository(Protocol):
   """Repository contract for lesson persistence."""
 
@@ -67,6 +79,9 @@ class LessonsRepository(Protocol):
 
   async def create_sections(self, records: list[SectionRecord]) -> list[SectionRecord]:
     """Persist section records."""
+
+  async def create_subjective_input_widgets(self, records: list[SubjectiveInputWidgetRecord]) -> list[SubjectiveInputWidgetRecord]:
+    """Persist subjective input widget records."""
 
   async def create_section_errors(self, records: list[SectionErrorRecord]) -> list[SectionErrorRecord]:
     """Persist section validation errors."""

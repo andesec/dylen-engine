@@ -17,15 +17,7 @@ down_revision: str | Sequence[str] | None = "30bf37f6dee4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-_TIMESTAMP_UPDATED_AT_TABLES = [
-  "users",
-  "runtime_config_values",
-  "organization_feature_flags",
-  "subscription_tier_feature_flags",
-  "user_feature_flag_overrides",
-  "illustrations",
-  "user_quota_buckets",
-]
+_TIMESTAMP_UPDATED_AT_TABLES = ["users", "runtime_config_values", "organization_feature_flags", "subscription_tier_feature_flags", "user_feature_flag_overrides", "illustrations", "user_quota_buckets"]
 
 _STRING_DEFAULT_EXPR = "to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
 
@@ -44,9 +36,7 @@ def _create_update_trigger(*, table_name: str, trigger_name: str, function_name:
   if not table_exists(table_name=table_name) or not column_exists(table_name=table_name, column_name="updated_at"):
     return
   op.execute(f'DROP TRIGGER IF EXISTS "{trigger_name}" ON "{table_name}"')
-  op.execute(
-    f'CREATE TRIGGER "{trigger_name}" BEFORE UPDATE ON "{table_name}" FOR EACH ROW EXECUTE FUNCTION "{function_name}"()'
-  )
+  op.execute(f'CREATE TRIGGER "{trigger_name}" BEFORE UPDATE ON "{table_name}" FOR EACH ROW EXECUTE FUNCTION "{function_name}"()')
 
 
 def upgrade() -> None:

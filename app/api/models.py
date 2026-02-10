@@ -256,9 +256,15 @@ class WritingCheckRequest(BaseModel):
   """Request payload for response evaluation."""
 
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
-  criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
-  idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
+  widget_id: StrictInt | None = Field(default=None, description="The ID of the subjective input widget being checked.")
+  criteria: dict[str, Any] | None = Field(default=None, description="Legacy evaluation criteria (deprecated).")
   model_config = ConfigDict(extra="forbid")
+
+  @model_validator(mode="after")
+  def validate_check_target(self) -> WritingCheckRequest:
+    if self.widget_id is None and self.criteria is None:
+      raise ValueError("Either widget_id or criteria must be provided.")
+    return self
 
 
 JobKind = Literal["lesson", "research", "youtube", "maintenance", "writing", "system"]

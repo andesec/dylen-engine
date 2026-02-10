@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.ai.router import get_model_for_mode
+from app.schema.lessons import SubjectiveInputWidget
 from app.telemetry.context import llm_call_context
+from sqlalchemy import select
 
 
 @dataclass(frozen=True)
@@ -25,14 +27,34 @@ class WritingCheckResult:
 class WritingCheckOrchestrator:
   """Evaluates user text against criteria using AI."""
 
-  def __init__(self, *, provider: str, model: str | None) -> None:
+  def __init__(self, *, provider: str, model: str | None, session_factory: Any) -> None:
     self._provider = provider
     self._model_name = model
+    self._session_factory = session_factory
 
-  async def check_response(self, *, text: str, criteria: dict[str, Any]) -> WritingCheckResult:
+  async def check_response(self, *, text: str, widget_id: int | None = None, criteria: dict[str, Any] | None = None) -> WritingCheckResult:
+    ai_prompt = None
+    wordlist = None
+
+    if widget_id:
+      async with self._session_factory() as session:
+        result = await session.execute(select(SubjectiveInputWidget.ai_prompt, SubjectiveInputWidget.wordlist).where(SubjectiveInputWidget.id == widget_id))
+        row = result.first()
+        if row:
+          ai_prompt = row.ai_prompt
+          wordlist = row.wordlist
+
+      if not ai_prompt:
+        return WritingCheckResult(ok=False, issues=["Widget not found"], feedback="The checking criteria could not be found.", logs=[f"Widget {widget_id} not found"], usage=[], total_cost=0.0)
+    elif criteria:
+      # Legacy fallback
+      ai_prompt = json.dumps(criteria, indent=2)
+    else:
+      return WritingCheckResult(ok=False, issues=["Invalid Request"], feedback="No criteria provided.", logs=["Missing criteria or widget_id"], usage=[], total_cost=0.0)
+
     model = get_model_for_mode(self._provider, self._model_name)
 
-    prompt = self._render_prompt(text, criteria)
+    prompt = self._render_prompt(text, ai_prompt, wordlist)
 
     # We always use structured output for JSON agents.
     schema = {"type": "object", "properties": {"ok": {"type": "boolean"}, "issues": {"type": "array", "items": {"type": "string"}}, "feedback": {"type": "string"}}, "required": ["ok", "issues", "feedback"]}
@@ -77,13 +99,20 @@ class WritingCheckOrchestrator:
 
     return total
 
-  def _render_prompt(self, text: str, criteria: dict[str, Any]) -> str:
-    return f"""
-Evaluate the following user response based on the provided criteria.
+  def _render_prompt(self, text: str, ai_prompt: str, wordlist: str | None = None) -> str:
+    prompt = f"""
+Evaluate the following user response based on the provided instructions.
 
-CRITERIA:
-{json.dumps(criteria, indent=2)}
+INSTRUCTIONS:
+{ai_prompt}
+"""
+    if wordlist:
+      prompt += f"""
+WORDLIST (Optional terms to usage):
+{wordlist}
+"""
 
+    prompt += f"""
 USER RESPONSE:
 {text}
 
@@ -94,3 +123,4 @@ Return a structured evaluation in JSON format:
   "feedback": "constructive feedback for the user"
 }}
 """
+    return prompt

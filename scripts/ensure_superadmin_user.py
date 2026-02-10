@@ -6,6 +6,7 @@ import asyncio
 import logging
 import uuid
 
+import firebase_admin
 from app.core.database import get_session_factory
 from app.core.firebase import build_rbac_claims, initialize_firebase, set_custom_claims
 from app.schema.quotas import SubscriptionTier
@@ -28,6 +29,11 @@ async def ensure_superadmin_user(*, email: str = SUPERADMIN_EMAIL) -> None:
   """Reconcile the superadmin account against Firebase and Postgres state."""
   # Initialize Firebase Admin SDK before issuing identity lookups.
   initialize_firebase()
+
+  # Skip bootstrap if Firebase is not configured (e.g. in CI or limited environments).
+  if not firebase_admin._apps:
+    logger.warning("Firebase not initialized; skipping superadmin bootstrap.")
+    return
 
   # Resolve the canonical Firebase user by email and fail-fast if missing.
   # Use a timeout to ensure startup does not hang indefinitely on network issues.

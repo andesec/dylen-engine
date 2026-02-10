@@ -17,6 +17,7 @@ from app.schema.quotas import QuotaPeriod
 from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, get_quota_snapshot, release_quota_reservation, reserve_quota
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
+from app.storage.lessons_repo import SubjectiveInputWidgetRecord
 from app.telemetry.context import llm_call_context
 
 
@@ -93,6 +94,20 @@ def _extract_error_location(error_message: str) -> tuple[str | None, str | None,
   if item_match:
     item_index = int(item_match.group(1))
   return normalized_path, section_scope, subsection_index, item_index
+
+
+def _collect_subjective_input_widget_records(section_struct: Any, section_id: int) -> tuple[list[SubjectiveInputWidgetRecord], list[tuple[Any, int]]]:
+  """Collect subjective widgets from supported item payloads and track index mapping for id backfill."""
+  subjective_records: list[SubjectiveInputWidgetRecord] = []
+  pending_updates: list[tuple[Any, int]] = []
+  for sub in section_struct.subsections:
+    for item in sub.items:
+      for widget_type, widget_payload in (("freeText", item.freeText), ("inputLine", item.inputLine)):
+        if widget_payload and widget_payload.ai_prompt:
+          record = SubjectiveInputWidgetRecord(id=None, section_id=section_id, widget_type=widget_type, ai_prompt=widget_payload.ai_prompt, wordlist=widget_payload.wordlist_csv)
+          subjective_records.append(record)
+          pending_updates.append((widget_payload, len(subjective_records) - 1))
+  return subjective_records, pending_updates
 
 
 def _normalize_allowed_widgets(widget_names: list[str] | None) -> list[str] | None:
@@ -336,6 +351,15 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           error_records.append(SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=index, error_message=message, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index))
         await repo.create_section_errors(error_records)
       else:
+        # Persist subjective input widgets if structured output is available.
+        if section_struct is not None:
+          subjective_records, pending_updates = _collect_subjective_input_widget_records(section_struct=section_struct, section_id=created_section.section_id)
+          if subjective_records:
+            created_widgets = await repo.create_subjective_input_widgets(subjective_records)
+            for widget_payload, index in pending_updates:
+              if index < len(created_widgets):
+                widget_payload.id = created_widgets[index].id
+
         try:
           shorthand_content = _build_shorthand_content(section_struct=section_struct, section_json=section_json, section_number=section_index, logger=logger)
           await repo.update_section_shorthand(created_section.section_id, shorthand_content)
