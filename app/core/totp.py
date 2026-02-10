@@ -12,8 +12,8 @@ from starlette.concurrency import run_in_threadpool
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-RATE_LIMIT_attempts = 3
-RATE_LIMIT_COOLDOWN_SECONDS = 300  # 5 minutes
+RATE_LIMIT_attempts = settings.totp_rate_limit_attempts
+RATE_LIMIT_COOLDOWN_SECONDS = settings.totp_rate_limit_cooldown_seconds
 
 
 def get_fernet() -> Fernet:
