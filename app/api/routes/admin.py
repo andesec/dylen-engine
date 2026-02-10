@@ -292,7 +292,7 @@ async def setup_admin_totp(request: Request, current_user: User = Depends(get_cu
 
   # Generate otpauth URL
   # otpauth://totp/Dylen:{email}?secret={secret}&issuer=Dylen
-  otpauth_url = pyotp.totp.TOTP(secret).provisioning_uri(name=current_user.email, issuer_name="Dylen")
+  otpauth_url = pyotp.totp.TOTP(secret).provisioning_uri(name=current_user.email, issuer_name=settings.app_id)
 
   return TOTPSetupResponse(secret=secret, otpauth_url=otpauth_url)
 
