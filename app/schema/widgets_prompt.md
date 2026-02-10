@@ -133,7 +133,7 @@ Recommendation:
 ### `freeText` (Free Text Editor - Multiline)
 
 ```json
-{ "freeText": {"prompt": "What do you mean by Clarity?.", "seed_locked": "In my view,", "lang": "en", "wordlist_csv": "clarity,structure,example,reason,summary"} }
+{ "freeText": {"prompt": "What do you mean by Clarity?.", "seed_locked": "In my view,", "lang": "en", "wordlist_csv": "clarity,structure,example,reason,summary", "ai_prompt": "Score based on clarity, structure, and usage of provided words."} }
 ```
 
 Schema:
@@ -141,6 +141,7 @@ Schema:
 2. `seed_locked` (string, optional): non-removable prefix.
 3. `lang` (string, optional): language key. Default: `en`.
 4. `wordlist_csv` (string, optional): comma-separated terms as one string.
+5. `ai_prompt` (string, optional): Prompt used to proofread/score the input.
 
 Notes:
 - Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
@@ -158,13 +159,14 @@ Where to use:
 ### `inputLine` (Single Line Input)
 
 ```json
-{ "inputLine": {"prompt": "Prompt text", "lang": "en", "wordlist_csv": "term1,term2,term3"} }
+{ "inputLine": {"prompt": "Prompt text", "lang": "en", "wordlist_csv": "term1,term2,term3", "ai_prompt": "Check if the answer matches the term."} }
 ```
 
 Schema:
 1. `prompt` (string): label/prompt for the input.
 2. `lang` (string, optional): language code. Default: `en`.
 3. `wordlist_csv` (string, optional): comma-separated terms for checking.
+4. `ai_prompt` (string, optional): Prompt used to proofread/score the input.
 
 Notes:
 - Single-line input only.

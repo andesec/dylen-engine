@@ -8,8 +8,8 @@ from typing import Any
 from sqlalchemy import func, select
 
 from app.core.database import get_session_factory
-from app.schema.lessons import Lesson, Section, SectionError
-from app.storage.lessons_repo import LessonRecord, LessonsRepository, SectionErrorRecord, SectionRecord
+from app.schema.lessons import Lesson, Section, SectionError, SubjectiveInputWidget
+from app.storage.lessons_repo import LessonRecord, LessonsRepository, SectionErrorRecord, SectionRecord, SubjectiveInputWidgetRecord
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,18 @@ class PostgresLessonsRepository(LessonsRepository):
         session.add(section)
         await session.flush()
         created_records.append(SectionRecord(section_id=section.section_id, lesson_id=section.lesson_id, title=section.title, order_index=section.order_index, status=section.status, content=section.content, content_shorthand=section.content_shorthand))
+      await session.commit()
+      return created_records
+
+  async def create_subjective_input_widgets(self, records: list[SubjectiveInputWidgetRecord]) -> list[SubjectiveInputWidgetRecord]:
+    """Persist subjective input widget records."""
+    async with self._session_factory() as session:
+      created_records: list[SubjectiveInputWidgetRecord] = []
+      for r in records:
+        widget = SubjectiveInputWidget(section_id=r.section_id, widget_type=r.widget_type, ai_prompt=r.ai_prompt, wordlist=r.wordlist)
+        session.add(widget)
+        await session.flush()
+        created_records.append(SubjectiveInputWidgetRecord(id=widget.id, section_id=widget.section_id, widget_type=widget.widget_type, ai_prompt=widget.ai_prompt, wordlist=widget.wordlist, created_at=str(widget.created_at)))
       await session.commit()
       return created_records
 

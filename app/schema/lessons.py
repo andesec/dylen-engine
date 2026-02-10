@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import ARRAY, ForeignKey, Integer, String, Text
+import datetime
+
+from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -60,3 +62,14 @@ class SectionError(Base):
   item_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
   section: Mapped[Section] = relationship("Section", back_populates="errors")
+
+
+class SubjectiveInputWidget(Base):
+  __tablename__ = "subjective_input_widgets"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  section_id: Mapped[int] = mapped_column(ForeignKey("sections.section_id", ondelete="CASCADE"), nullable=False, index=True)
+  widget_type: Mapped[str] = mapped_column(String, nullable=False)
+  ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+  wordlist: Mapped[str | None] = mapped_column(Text, nullable=True)
+  created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
