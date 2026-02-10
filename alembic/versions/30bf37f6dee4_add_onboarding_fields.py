@@ -2,7 +2,7 @@
 
 Revision ID: 30bf37f6dee4
 Revises: merge_heads_20260130
-Create Date: 2026-02-01 12:19:56.672083
+Create Date: 2026-02-04 00:00:00.000000
 
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "30bf37f6dee4"
-down_revision: str | Sequence[str] | None = "merge_heads_20260130"
+down_revision: str | Sequence[str] | None = "3a941f60baac"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

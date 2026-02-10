@@ -258,7 +258,6 @@ class WritingCheckRequest(BaseModel):
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
   widget_id: StrictInt | None = Field(default=None, description="The ID of the subjective input widget being checked.")
   criteria: dict[str, Any] | None = Field(default=None, description="Legacy evaluation criteria (deprecated).")
-  idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
   model_config = ConfigDict(extra="forbid")
 
   @model_validator(mode="after")

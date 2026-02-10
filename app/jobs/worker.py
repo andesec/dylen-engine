@@ -23,7 +23,7 @@ from app.ai.pipeline.contracts import GenerationRequest, JobContext, PlanSection
 from app.ai.router import get_model_for_mode
 from app.ai.utils.cost import calculate_total_cost
 from app.ai.utils.progress import SectionProgressUpdate
-from app.api.models import GenerateLessonRequest, WritingCheckRequest
+from app.api.models import GenerateLessonRequest
 from app.config import Settings
 from app.core.database import get_session_factory
 from app.jobs.dispatch import JobProcessorHandler, JobProcessorRegistry
@@ -38,7 +38,7 @@ from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
 from app.services.maintenance import archive_old_lessons
 from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
-from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, get_quota_snapshot, release_quota_reservation, reserve_quota
+from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.section_shorthand import build_section_shorthand_content
@@ -50,7 +50,6 @@ from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord
 from app.utils.compression import compress_html
 from app.utils.ids import generate_lesson_id
-from app.writing.orchestrator import WritingCheckOrchestrator
 
 
 class JobProcessor:
@@ -81,7 +80,6 @@ class JobProcessor:
       "coach": _MethodHandler(self._process_coach_job),
       "illustration": _MethodHandler(self._process_illustration_job),
       "maintenance": _MethodHandler(self._process_maintenance_job),
-      "writing": _MethodHandler(self._process_writing_check),
     }
     return JobProcessorRegistry(handlers)
 
@@ -89,15 +87,9 @@ class JobProcessor:
     """Execute a single queued job, routing by type."""
     if job.status != "queued":
       return job
-    wrapped_request = job.request.get("payload")
     target_agent = str(job.target_agent or "").strip()
     if target_agent == "lesson":
       target_agent = "planner"
-    if target_agent == "" and (
-      ("text" in job.request and ("widget_id" in job.request or "criteria" in job.request))
-      or (isinstance(wrapped_request, dict) and "text" in wrapped_request and ("widget_id" in wrapped_request or "criteria" in wrapped_request))
-    ):
-      target_agent = "writing"
     if target_agent == "":
       await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=list(job.logs or []) + ["Missing target_agent on queued job."])
       return None
@@ -1026,74 +1018,6 @@ class JobProcessor:
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
       await _notify_job_failed(settings=self._settings, job=job)
-      return None
-
-  async def _process_writing_check(self, job: JobRecord) -> JobRecord | None:
-    """Execute a background writing task evaluation."""
-    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="check", initial_logs=["Writing check acknowledged."])
-    await tracker.set_phase(phase="evaluating", subphase="ai_check")
-    reservation_active = False
-    reservation_user_id: uuid.UUID | None = None
-    reservation_limit = 0
-    session_factory = get_session_factory()
-
-    try:
-      # Validate and hydrate the request so inputs remain strict.
-      cleaned_request = _strip_internal_request_fields(job.request)
-      request_model = WritingCheckRequest.model_validate(cleaned_request)
-      # Resolve writing defaults from runtime config when possible.
-      runtime_config: dict[str, Any] = {}
-      if session_factory is not None and job.user_id:
-        try:
-          parsed_user_id = uuid.UUID(str(job.user_id))
-        except ValueError:
-          parsed_user_id = None
-        if parsed_user_id is not None:
-          async with session_factory() as session:
-            user = await get_user_by_id(session, parsed_user_id)
-            if user is not None:
-              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
-              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
-              reservation_user_id = parsed_user_id
-              reservation_limit = int(runtime_config.get("limits.writing_checks_per_month") or 0)
-              if reservation_limit <= 0:
-                raise QuotaExceededError("writing.check quota disabled")
-              snapshot = await get_quota_snapshot(session, user_id=user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, limit=reservation_limit)
-              if snapshot.remaining <= 0:
-                raise QuotaExceededError("writing.check quota exceeded")
-              await reserve_quota(session, user_id=user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(job.job_id), metadata={"job_id": str(job.job_id)})
-              reservation_active = True
-
-      provider = str(runtime_config.get("ai.writing.provider") or self._settings.writing_provider)
-      model_name = str(runtime_config.get("ai.writing.model") or self._settings.writing_model or "")
-      orchestrator = WritingCheckOrchestrator(provider=provider, model=model_name or None, session_factory=session_factory)
-      result = await orchestrator.check_response(text=request_model.text, widget_id=request_model.widget_id, criteria=request_model.criteria)
-
-      tracker.extend_logs(result.logs)
-      cost_summary = _summarize_cost(result.usage, result.total_cost)
-      await tracker.set_cost(cost_summary)
-      if session_factory is not None and reservation_active and reservation_user_id is not None:
-        async with session_factory() as session:
-          await commit_quota_reservation(session, user_id=reservation_user_id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(job.job_id), metadata={"job_id": str(job.job_id)})
-      completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-      result_json = {"ok": result.ok, "issues": result.issues, "feedback": result.feedback}
-      payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
-      updated = await self._jobs_repo.update_job(job.job_id, **payload)
-      return updated
-    except JobCanceledError:
-      return await self._jobs_repo.get_job(job.job_id)
-
-    except Exception as exc:
-      self._logger.error("Writing check processing failed", exc_info=True)
-      if reservation_active and reservation_user_id is not None and session_factory is not None:
-        try:
-          async with session_factory() as session:
-            await release_quota_reservation(
-              session, user_id=reservation_user_id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(job.job_id), metadata={"job_id": str(job.job_id), "reason": "writing_failed"}
-            )
-        except Exception:  # noqa: BLE001
-          self._logger.error("Writing check failed to release quota reservation.", exc_info=True)
-      await tracker.fail(phase="failed", message=f"Writing check failed: {exc}")
       return None
 
   async def process_queue(self, limit: int = 5) -> list[JobRecord]:
