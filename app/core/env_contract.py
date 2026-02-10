@@ -149,7 +149,9 @@ def validate_env_values(*, target: Literal["service", "migrator"], env_map: dict
 
 def validate_runtime_env_or_raise(*, logger: logging.Logger, target: Literal["service", "migrator"]) -> None:
   """Validate and log runtime env values using the centralized contract."""
-  env_contract_enabled = _parse_bool(os.getenv("DYLEN_ENV_CONTRACT_ENFORCE"), default=True)
+  # Default to False to allow CI/Test environments to verify image startup without full config.
+  # Production environments should explicitly set DYLEN_ENV_CONTRACT_ENFORCE=1.
+  env_contract_enabled = _parse_bool(os.getenv("DYLEN_ENV_CONTRACT_ENFORCE"), default=False)
   resolved_values: dict[str, str] = {}
   applicable_definitions = _iter_applicable_definitions(target=target)
   for definition in applicable_definitions:

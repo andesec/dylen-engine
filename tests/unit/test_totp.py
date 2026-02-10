@@ -1,9 +1,11 @@
 import datetime
-import pytest
 from unittest.mock import MagicMock, patch
+
 import pyotp
+import pytest
+from app.core.totp import RATE_LIMIT_attempts, decrypt_secret, encrypt_secret, verify_totp_code
 from cryptography.fernet import Fernet
-from app.core.totp import verify_totp_code, encrypt_secret, decrypt_secret, RATE_LIMIT_attempts
+
 
 @pytest.fixture
 def mock_settings():

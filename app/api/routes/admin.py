@@ -4,7 +4,6 @@ import uuid
 from typing import Literal, TypeVar
 
 import pyotp
-from app.core.totp import disable_totp, is_totp_enabled, setup_totp, verify_totp_code, verify_totp_setup
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
@@ -15,6 +14,7 @@ from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.firebase import build_rbac_claims, set_custom_claims
 from app.core.security import get_current_active_user, get_current_admin_user, require_permission, require_role_level, verify_admin_totp
+from app.core.totp import disable_totp, is_totp_enabled, setup_totp, verify_totp_code, verify_totp_setup
 from app.jobs.models import JobRecord, JobStatus
 from app.notifications.factory import build_notification_service
 from app.schema.quotas import SubscriptionTier, UserTierOverride

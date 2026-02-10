@@ -1,6 +1,5 @@
 import datetime
 import logging
-from typing import Optional
 
 import pyotp
 from app.config import get_settings
