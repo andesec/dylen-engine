@@ -94,7 +94,7 @@ class UserQuotaBucket(Base):
   period_start: Mapped[Date] = mapped_column(Date, nullable=False)
   used: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
   reserved: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
-  updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+  updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class UserQuotaReservation(Base):

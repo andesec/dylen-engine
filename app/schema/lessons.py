@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import ARRAY, ForeignKey, Integer, String, Text
+from sqlalchemy import ARRAY, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,7 +14,7 @@ class Lesson(Base):
   user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
   topic: Mapped[str] = mapped_column(String, nullable=False)
   title: Mapped[str] = mapped_column(String, nullable=False)
-  created_at: Mapped[str] = mapped_column(String, nullable=False)  # Stored as text in legacy
+  created_at: Mapped[str] = mapped_column(String, nullable=False, server_default=text("""to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"""))  # Stored as text in legacy
   schema_version: Mapped[str] = mapped_column(String, nullable=False)
   prompt_version: Mapped[str] = mapped_column(String, nullable=False)
   provider_a: Mapped[str] = mapped_column(String, nullable=False)

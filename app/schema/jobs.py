@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Double, Integer, String, UniqueConstraint
+from sqlalchemy import Double, Integer, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,8 +42,8 @@ class Job(Base):
   artifacts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
   validation: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
   cost: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-  created_at: Mapped[str] = mapped_column(String, nullable=False)
-  updated_at: Mapped[str] = mapped_column(String, nullable=False)
+  created_at: Mapped[str] = mapped_column(String, nullable=False, server_default=text("""to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"""))
+  updated_at: Mapped[str] = mapped_column(String, nullable=False, server_default=text("""to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"""))
   completed_at: Mapped[str | None] = mapped_column(String, nullable=True)
   ttl: Mapped[int | None] = mapped_column(Integer, nullable=True)
   idempotency_key: Mapped[str] = mapped_column(String, nullable=False, index=True)
