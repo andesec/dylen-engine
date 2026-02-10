@@ -21,7 +21,6 @@ dependencies = [
     "asyncpg>=0.30.0",
     "alembic>=1.14.3",
     "python-multipart>=0.0.20",
-
     "tavily-python>=0.5.0",
     "google-cloud-tasks>=2.18.0",
     "brotli>=1.0.9",
@@ -29,6 +28,8 @@ dependencies = [
     "pyzipper>=0.3.6",
     "mirascope[google]>=2.2.0",
     "pywebpush>=2.0.3",
+    "pyotp>=2.9.0",
+    "cryptography>=46.0.3",
 ]
 
 [project.optional-dependencies]

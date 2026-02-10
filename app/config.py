@@ -90,6 +90,7 @@ class Settings:
   research_search_max_results: int
   task_secret: str | None
   cloud_run_invoker_service_account: str | None
+  totp_encryption_key: str | None
 
 
 @dataclass(frozen=True)
@@ -297,6 +298,7 @@ def get_settings() -> Settings:
     research_search_max_results=int(os.getenv("DYLEN_RESEARCH_SEARCH_MAX_RESULTS", "5")),
     task_secret=_optional_str(os.getenv("DYLEN_TASK_SECRET")),
     cloud_run_invoker_service_account=_optional_str(os.getenv("DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT")),
+    totp_encryption_key=_optional_str(os.getenv("DYLEN_TOTP_ENCRYPTION_KEY")),
   )
 
 
