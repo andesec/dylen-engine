@@ -92,10 +92,7 @@ def _verify_totp_sync(admin_uid: str, token: str, ip_address: str) -> bool:
       logger.warning(f"Invalid TOTP code for {admin_uid} from IP {ip_address}")
       # Increment failed attempts
       new_failed_attempts = failed_attempts + 1
-      transaction.update(doc_ref, {
-        "totp_failed_attempts": new_failed_attempts,
-        "totp_last_failed_at": datetime.datetime.now(datetime.UTC).isoformat()
-      })
+      transaction.update(doc_ref, {"totp_failed_attempts": new_failed_attempts, "totp_last_failed_at": datetime.datetime.now(datetime.UTC).isoformat()})
       return False
 
     # Replay protection
@@ -105,12 +102,7 @@ def _verify_totp_sync(admin_uid: str, token: str, ip_address: str) -> bool:
       return False
 
     # Success: Reset failed attempts and update last_used_otp
-    transaction.update(doc_ref, {
-      "last_used_otp": token,
-      "last_used_otp_timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
-      "totp_failed_attempts": 0,
-      "totp_last_failed_at": None
-    })
+    transaction.update(doc_ref, {"last_used_otp": token, "last_used_otp_timestamp": datetime.datetime.now(datetime.UTC).isoformat(), "totp_failed_attempts": 0, "totp_last_failed_at": None})
     return True
 
   try:
@@ -143,14 +135,10 @@ def _setup_totp_sync(admin_uid: str) -> str | None:
   encrypted_secret = encrypt_secret(secret)
 
   # Set secret but verify first before enabling
-  doc_ref.set({
-      "totp_secret_encrypted": encrypted_secret,
-      "totp_enabled": False,
-      "totp_failed_attempts": 0,
-      "last_used_otp": None
-  }, merge=True)
+  doc_ref.set({"totp_secret_encrypted": encrypted_secret, "totp_enabled": False, "totp_failed_attempts": 0, "last_used_otp": None}, merge=True)
 
   return secret
+
 
 async def setup_totp(admin_uid: str) -> str | None:
   return await run_in_threadpool(_setup_totp_sync, admin_uid)
@@ -166,27 +154,29 @@ def _verify_setup_sync(admin_uid: str, token: str) -> bool:
   snapshot = doc_ref.get()
 
   if not snapshot.exists:
-      return False
+    return False
 
   data = snapshot.to_dict()
   encrypted_secret = data.get("totp_secret_encrypted")
   if not encrypted_secret:
-      return False
+    return False
 
   try:
-      secret = decrypt_secret(encrypted_secret)
+    secret = decrypt_secret(encrypted_secret)
   except Exception:
-      return False
+    return False
 
   totp = pyotp.TOTP(secret)
   if totp.verify(token, valid_window=1):
-      doc_ref.update({"totp_enabled": True})
-      return True
+    doc_ref.update({"totp_enabled": True})
+    return True
 
   return False
 
+
 async def verify_totp_setup(admin_uid: str, token: str) -> bool:
   return await run_in_threadpool(_verify_setup_sync, admin_uid, token)
+
 
 def _disable_totp_sync(admin_uid: str) -> bool:
   db: FirestoreClient | None = get_firestore_client()
@@ -197,8 +187,10 @@ def _disable_totp_sync(admin_uid: str) -> bool:
   doc_ref.update({"totp_enabled": False, "totp_secret_encrypted": firestore.DELETE_FIELD})
   return True
 
+
 async def disable_totp(admin_uid: str) -> bool:
   return await run_in_threadpool(_disable_totp_sync, admin_uid)
+
 
 def _is_enabled_sync(admin_uid: str) -> bool:
   db: FirestoreClient | None = get_firestore_client()
@@ -209,10 +201,11 @@ def _is_enabled_sync(admin_uid: str) -> bool:
   snapshot = doc_ref.get()
 
   if not snapshot.exists:
-      return False
+    return False
 
   data = snapshot.to_dict()
   return data.get("totp_enabled", False)
+
 
 async def is_totp_enabled(admin_uid: str) -> bool:
   return await run_in_threadpool(_is_enabled_sync, admin_uid)
