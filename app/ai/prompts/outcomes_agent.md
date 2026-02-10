@@ -9,7 +9,8 @@ Analyze the `Topic` and `Details`.
   ```json
   {
     "ok": false,
-    "error": "The Topic is either invalid or not allowed on this platform.",
+    "error": "TOPIC_NOT_ALLOWED",
+    "message": "This topic is not allowed because sexual-content lessons are restricted on this platform.",
     "blocked_category": "sexual", // or "political", "military", "invalid_input"
     "outcomes": []
   }

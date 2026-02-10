@@ -32,7 +32,7 @@ def create_selective_widget_item(widget_names: list[str]) -> type[msgspec.Struct
   Create a WidgetItem class that only includes specified widgets.
 
   Args:
-      widget_names: List of widget names to include (e.g., ['markdown', 'flip', 'mcqs'])
+      widget_names: List of widget names to include (e.g., ['markdown', 'flipcards', 'mcqs'])
 
   Returns:
       A new msgspec.Struct class with only the specified widget fields
@@ -121,7 +121,7 @@ def create_selective_section(widget_names: list[str]) -> type[msgspec.Struct]:
       >>>
       >>> # For section builder (6 specific widgets)
       >>> SectionBuilderSection = create_selective_section([
-      ...     'markdown', 'flip', 'tr', 'fillblank', 'table', 'mcqs'
+      ...     'markdown', 'flipcards', 'tr', 'fillblank', 'table', 'mcqs'
       ... ])
   """
   subsection_cls = create_selective_subsection(widget_names)
@@ -168,7 +168,7 @@ def get_outcomes_section() -> type[msgspec.Struct]:
 
 def get_section_builder_section() -> type[msgspec.Struct]:
   """Get Section class for section builder agent (6 core widgets)."""
-  return create_selective_section(["markdown", "flip", "tr", "fillblank", "table", "mcqs"])
+  return create_selective_section(["markdown", "flipcards", "tr", "fillblank", "table", "mcqs"])
 
 
 def get_full_section() -> type[msgspec.Struct]:

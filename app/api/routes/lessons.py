@@ -10,7 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.pipeline.contracts import GenerationRequest
 from app.api.deps_concurrency import check_concurrency_limit
-from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonJobResponse, LessonOutlineResponse, LessonRecordResponse, OrchestrationFailureResponse, SectionOutline, SectionSummary
+from app.api.models import (
+  GenerateLessonRequest,
+  GenerateLessonResponse,
+  JobCreateRequest,
+  JobCreateResponse,
+  LessonCatalogResponse,
+  LessonJobResponse,
+  LessonOutlineResponse,
+  LessonRecordResponse,
+  OrchestrationFailureResponse,
+  SectionOutline,
+  SectionSummary,
+)
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
@@ -148,6 +160,8 @@ async def generate_lesson(  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LessonJobResponse:
   """Generate a lesson from a topic using the asynchronous pipeline."""
+  if not request.idempotency_key:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="idempotency_key is required.")
   # Enforce lesson concurrency after request validation to fail malformed bodies before DB-heavy checks.
   await check_concurrency_limit("lesson", current_user, db_session)
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
@@ -234,6 +248,7 @@ async def generate_lesson(  # noqa: B008
   job_record = JobRecord(
     job_id=job_id,
     user_id=str(current_user.id),
+    job_kind="lesson",
     request=request_payload,
     status="queued",
     target_agent="lesson",  # Mark as lesson job
@@ -245,11 +260,11 @@ async def generate_lesson(  # noqa: B008
     completed_section_indexes=[],
     retry_count=0,
     # Enforce strict retry limit to keep quota accounting deterministic.
-    max_retries=1,
+    max_retries=0,
     logs=job_logs,
     progress=0.0,
     ttl=job_ttl,
-    idempotency_key=request.idempotency_key,
+    idempotency_key=request.idempotency_key or f"lesson-generate:{job_id}",
   )
   await jobs_repo.create_job(job_record)
 
@@ -337,4 +352,7 @@ async def create_lesson_job(  # noqa: B008
   _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
   # Enforce lesson concurrency after request validation to fail malformed bodies before DB-heavy checks.
   await check_concurrency_limit("lesson", current_user, db_session)
-  return await create_job(request, settings, background_tasks, db_session, user_id=str(current_user.id), target_agent="lesson")
+  if not request.idempotency_key:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="idempotency_key is required.")
+  create_payload = JobCreateRequest(job_kind="lesson", target_agent="planner", idempotency_key=request.idempotency_key, payload=request.model_dump(mode="python", by_alias=True))
+  return await create_job(create_payload, settings, background_tasks, db_session, user_id=str(current_user.id))

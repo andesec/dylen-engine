@@ -67,6 +67,7 @@ class AIModel(ABC):
 
   name: str
   supports_structured_output: bool = False
+  last_usage: dict[str, int] | None = None
 
   @abstractmethod
   async def generate(self, prompt: str) -> ModelResponse:

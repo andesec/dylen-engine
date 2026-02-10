@@ -49,7 +49,7 @@ def get_widget_dependencies(widget_names: list[str]) -> set[type]:
   Get all payload types needed for the specified widgets.
 
   Args:
-      widget_names: List of widget names (e.g., ['markdown', 'flip', 'mcqs'])
+      widget_names: List of widget names (e.g., ['markdown', 'flipcards', 'mcqs'])
 
   Returns:
       Set of payload class types needed
@@ -184,7 +184,7 @@ def build_schema_for_context(context: str, widget_names: list[str] | None = None
       Complete Gemini API config with response_mime_type and response_json_schema
   """
   # Default widget sets for common contexts
-  context_widgets = {"outcomes": ["markdown", "mcqs"], "section_builder": ["markdown", "flip", "tr", "fillblank", "table", "mcqs"], "full": get_widget_shorthand_names()}
+  context_widgets = {"outcomes": ["markdown", "mcqs"], "section_builder": ["markdown", "flipcards", "tr", "fillblank", "table", "mcqs"], "full": get_widget_shorthand_names()}
 
   if widget_names is None:
     if context not in context_widgets:

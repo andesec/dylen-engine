@@ -443,11 +443,91 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "JobCreateRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for creating a background job.",
+        "properties": {
+          "idempotency_key": {
+            "description": "Client-generated key used to deduplicate submissions.",
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "job_kind": {
+            "enum": [
+              "lesson",
+              "research",
+              "youtube",
+              "maintenance",
+              "writing",
+              "system"
+            ],
+            "title": "Job Kind",
+            "type": "string"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional lesson identifier bound to this job.",
+            "title": "Lesson Id"
+          },
+          "parent_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional parent job id for child job creation.",
+            "title": "Parent Job Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "Agent-specific payload.",
+            "title": "Payload",
+            "type": "object"
+          },
+          "section_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional section row id bound to this job.",
+            "title": "Section Id"
+          },
+          "target_agent": {
+            "minLength": 1,
+            "title": "Target Agent",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_kind",
+          "target_agent",
+          "idempotency_key"
+        ],
+        "title": "JobCreateRequest",
+        "type": "object"
+      },
       "JobCreateResponse": {
         "description": "Response payload for job creation.",
         "properties": {
           "expected_sections": {
-            "description": "Total number of sections expected for the lesson job (0 for non-lesson jobs).",
+            "default": 0,
+            "description": "Total number of sections expected for lesson jobs.",
             "minimum": 0.0,
             "title": "Expected Sections",
             "type": "integer"
@@ -458,8 +538,7 @@
           }
         },
         "required": [
-          "job_id",
-          "expected_sections"
+          "job_id"
         ],
         "title": "JobCreateResponse",
         "type": "object"
@@ -611,6 +690,29 @@
             "title": "Job Id",
             "type": "string"
           },
+          "job_kind": {
+            "enum": [
+              "lesson",
+              "research",
+              "youtube",
+              "maintenance",
+              "writing",
+              "system"
+            ],
+            "title": "Job Kind",
+            "type": "string"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Id"
+          },
           "logs": {
             "items": {
               "type": "string"
@@ -628,6 +730,17 @@
               }
             ],
             "title": "Max Retries"
+          },
+          "parent_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Job Id"
           },
           "phase": {
             "anyOf": [
@@ -718,6 +831,17 @@
             ],
             "title": "Retry Sections"
           },
+          "section_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Id"
+          },
           "status": {
             "enum": [
               "queued",
@@ -804,6 +928,7 @@
         "required": [
           "job_id",
           "user_id",
+          "job_kind",
           "request",
           "status",
           "created_at",
@@ -1034,7 +1159,8 @@
         "description": "Response payload for async lesson generation.",
         "properties": {
           "expected_sections": {
-            "description": "Total number of sections expected for the lesson job (0 for non-lesson jobs).",
+            "default": 0,
+            "description": "Total number of sections expected for lesson jobs.",
             "minimum": 0.0,
             "title": "Expected Sections",
             "type": "integer"
@@ -1050,7 +1176,6 @@
         },
         "required": [
           "job_id",
-          "expected_sections",
           "lesson_id"
         ],
         "title": "LessonJobResponse",
@@ -1455,6 +1580,42 @@
         "title": "MaintenanceJobResponse",
         "type": "object"
       },
+      "ModeFlagsRecord": {
+        "properties": {
+          "coach_mode_enabled": {
+            "title": "Coach Mode Enabled",
+            "type": "boolean"
+          },
+          "tutor_mode_enabled": {
+            "title": "Tutor Mode Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "coach_mode_enabled",
+          "tutor_mode_enabled"
+        ],
+        "title": "ModeFlagsRecord",
+        "type": "object"
+      },
+      "ModeFlagsUpdateRequest": {
+        "properties": {
+          "coach_mode_enabled": {
+            "title": "Coach Mode Enabled",
+            "type": "boolean"
+          },
+          "tutor_mode_enabled": {
+            "title": "Tutor Mode Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "coach_mode_enabled",
+          "tutor_mode_enabled"
+        ],
+        "title": "ModeFlagsUpdateRequest",
+        "type": "object"
+      },
       "OnboardingProfileRecord": {
         "properties": {
           "accepted_privacy_at": {
@@ -1772,6 +1933,20 @@
             ],
             "description": "Simple error code when the topic is blocked.",
             "title": "Error"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable reason shown to end users when the topic is blocked.",
+            "title": "Message"
           },
           "ok": {
             "description": "True when the topic is allowed and outcomes were generated.",
@@ -2454,8 +2629,15 @@
             },
             "title": "Quotas",
             "type": "array"
+          },
+          "tier_name": {
+            "title": "Tier Name",
+            "type": "string"
           }
         },
+        "required": [
+          "tier_name"
+        ],
         "title": "QuotaSummaryResponse",
         "type": "object"
       },
@@ -4239,6 +4421,78 @@
           }
         ],
         "summary": "Get Effective Flags",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/feature-flags/modes": {
+      "get": {
+        "description": "Return global coach/tutor mode flag defaults.",
+        "operationId": "get_mode_flags_admin_feature_flags_modes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeFlagsRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Mode Flags",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Enable or disable global coach/tutor mode flags.",
+        "operationId": "set_mode_flags_admin_feature_flags_modes_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeFlagsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeFlagsRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Mode Flags",
         "tags": [
           "admin"
         ]
@@ -6088,7 +6342,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenerateLessonRequest"
+                "$ref": "#/components/schemas/JobCreateRequest"
               }
             }
           },

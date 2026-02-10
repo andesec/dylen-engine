@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 OUTCOME_TEXT_MIN_LENGTH = 3
 OUTCOME_TEXT_MAX_LENGTH = 180
+BLOCKED_REASON_BY_CATEGORY: dict[str, str] = {
+  "sexual": "This topic is not allowed because sexual-content lessons are restricted on this platform.",
+  "political": "This topic is not allowed because political advocacy lessons are restricted on this platform.",
+  "military": "This topic is not allowed because military or warfare lessons are restricted on this platform.",
+  "invalid_input": "This topic was blocked because the input appears invalid or unclear. Please rephrase and try again.",
+}
 
 OutcomeText = StrictStr
 
@@ -59,10 +65,57 @@ class OutcomesAgentResponse(BaseModel):
 
   ok: bool = Field(description="True when the topic is allowed and outcomes were generated.")
   error: Literal["TOPIC_NOT_ALLOWED"] | None = Field(default=None, description="Simple error code when the topic is blocked.")
+  message: StrictStr | None = Field(default=None, min_length=1, max_length=240, description="Human-readable reason shown to end users when the topic is blocked.")
   blocked_category: Literal["sexual", "political", "military", "invalid_input"] | None = Field(default=None, description="High-level category used when blocking a topic.")
   outcomes: list[OutcomeText] = Field(default_factory=list, min_length=0, max_length=8, description="A small list of straightforward learning outcomes.")
 
   model_config = ConfigDict(extra="forbid")
+
+  @model_validator(mode="before")
+  @classmethod
+  def normalize_blocked_payload(cls, data: Any) -> Any:
+    """Normalize blocked responses into a strict API-safe contract.
+
+    How/Why:
+      - Providers occasionally return descriptive safety text instead of a strict error enum.
+      - Canonicalizing blocked payloads keeps endpoint behavior stable and avoids avoidable 500s.
+    """
+    # Only normalize object payloads because pydantic handles non-object input errors itself.
+    if not isinstance(data, dict):
+      return data
+    normalized = dict(data)
+    # Normalize the deny path to match the strict literal schema expected by downstream clients.
+    if normalized.get("ok") is False:
+      error = normalized.get("error")
+      message = normalized.get("message")
+      # Convert prior provider text errors into a user-facing message without losing strict error coding.
+      if not isinstance(message, str) or message.strip() == "":
+        if isinstance(error, str) and error.strip() != "" and error.strip() != "TOPIC_NOT_ALLOWED":
+          normalized["message"] = error.strip()
+      if isinstance(error, str) and error.strip() != "TOPIC_NOT_ALLOWED":
+        normalized["error"] = "TOPIC_NOT_ALLOWED"
+      # Normalize blocked category casing and fallback missing/unknown values to invalid_input.
+      blocked_category = normalized.get("blocked_category")
+      if isinstance(blocked_category, str):
+        lowered = blocked_category.strip().lower()
+        if lowered in {"sexual", "political", "military", "invalid_input"}:
+          normalized["blocked_category"] = lowered
+        else:
+          normalized["blocked_category"] = "invalid_input"
+      elif blocked_category is None:
+        normalized["blocked_category"] = "invalid_input"
+      # Ensure blocked responses always carry a clear end-user message.
+      if not isinstance(normalized.get("message"), str) or str(normalized.get("message")).strip() == "":
+        category = str(normalized.get("blocked_category") or "invalid_input")
+        normalized["message"] = BLOCKED_REASON_BY_CATEGORY.get(category, BLOCKED_REASON_BY_CATEGORY["invalid_input"])
+      # Drop any accidental outcomes to preserve blocked response semantics.
+      outcomes = normalized.get("outcomes")
+      if isinstance(outcomes, list) and outcomes:
+        normalized["outcomes"] = []
+    # Strip stray message text from success payloads to preserve consistent response shape.
+    if normalized.get("ok") is True and normalized.get("message") is not None:
+      normalized["message"] = None
+    return normalized
 
   @model_validator(mode="after")
   def validate_outcome_shape(self) -> OutcomesAgentResponse:
@@ -70,6 +123,8 @@ class OutcomesAgentResponse(BaseModel):
     if not self.ok:
       if not self.error:
         raise ValueError("error is required when ok is false.")
+      if not self.message:
+        raise ValueError("message is required when ok is false.")
       if self.outcomes:
         raise ValueError("outcomes must be empty when ok is false.")
       if self.blocked_category is None:
@@ -77,6 +132,8 @@ class OutcomesAgentResponse(BaseModel):
     else:
       if self.error is not None:
         raise ValueError("error must be null when ok is true.")
+      if self.message is not None:
+        raise ValueError("message must be null when ok is true.")
       if self.blocked_category is not None:
         raise ValueError("blocked_category must be null when ok is true.")
       if not self.outcomes:

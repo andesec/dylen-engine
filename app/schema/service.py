@@ -120,7 +120,7 @@ class SchemaService:
       ComparePayload,
       FensterPayload,
       FillBlankPayload,
-      FlipPayload,
+      FlipCardsPayload,
       FreeTextPayload,
       InputLinePayload,
       InteractiveTerminalPayload,
@@ -136,7 +136,7 @@ class SchemaService:
 
     type_to_model = {
       "tr": TranslationPayload,
-      "flip": FlipPayload,
+      "flipcards": FlipCardsPayload,
       "fillblank": FillBlankPayload,
       "swipecards": SwipeCardsPayload,
       "freeText": FreeTextPayload,

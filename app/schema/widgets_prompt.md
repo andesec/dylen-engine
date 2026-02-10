@@ -34,15 +34,18 @@ Rules:
 
 ---
 
-### `flip` (Flipcard: prompt -> reveal)
+### `flipcards` (Flipcards: prompt -> reveal)
 
 ```json
-{ "flip": {"front": "Front text (prompt)", "back": "Back text (reveal)", "front_hint": "Optional front hint", "back_hint": "Optional back hint"} }
+{ "flipcards": {"cards": [{"front": "Front text (prompt)", "back": "Back text (reveal)", "front_example": "Optional front example (important for vocabulary lessons)", "back_example": "Optional back example (important for vocabulary lessons)"}]} }
 ```
 
 Constraints:
-- `front` and `back` are required strings.
-- Keep the front text to 120 characters or fewer and the back text to 160 characters or fewer so the card stays legible.
+- `cards` is an array of flipcard objects.
+- Each card requires `front` and `back` strings.
+- `front_example` and `back_example` are optional. They are important for vocabulary lessons, but optional otherwise.
+- There is no minimum or maximum card count.
+- Keep the front text to 120 characters or fewer and the back text to 160 characters or fewer so each card stays legible.
 
 ---
 

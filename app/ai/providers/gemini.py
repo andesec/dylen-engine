@@ -57,6 +57,7 @@ class GeminiModel(AIModel):
 
     if response.usage_metadata:
       usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+    self.last_usage = usage
     return SimpleModelResponse(content=response_text, usage=usage)
 
   async def generate_structured(self, prompt: str, schema) -> StructuredModelResponse:
@@ -86,6 +87,7 @@ class GeminiModel(AIModel):
     usage = None
     if response.usage_metadata:
       usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+    self.last_usage = usage
 
     # Parse the JSON response
     # Parse the model response with a lenient fallback to reduce retry churn.
@@ -133,6 +135,7 @@ class GeminiModel(AIModel):
       usage = None
       if response.usage_metadata:
         usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+      self.last_usage = usage
       return SimpleModelResponse(content=response.text, usage=usage)
     except Exception as e:
       raise RuntimeError(f"Gemini generation with files failed: {e}") from e
@@ -169,6 +172,7 @@ class GeminiModel(AIModel):
 
     try:
       response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt)
+      self.last_usage = _extract_usage_from_response(response)
       image_bytes = _extract_image_bytes_from_response(response)
       if image_bytes is None:
         raise RuntimeError("Gemini image generation returned no inline image bytes.")
@@ -294,3 +298,11 @@ def _extract_image_bytes_from_response(response: Any) -> bytes | None:
       except Exception:  # noqa: BLE001
         continue
   return None
+
+
+def _extract_usage_from_response(response: Any) -> dict[str, int] | None:
+  """Extract normalized token usage from Gemini responses when available."""
+  usage_metadata = getattr(response, "usage_metadata", None)
+  if usage_metadata is None:
+    return None
+  return {"prompt_tokens": int(getattr(usage_metadata, "prompt_token_count", 0) or 0), "completion_tokens": int(getattr(usage_metadata, "candidates_token_count", 0) or 0), "total_tokens": int(getattr(usage_metadata, "total_token_count", 0) or 0)}

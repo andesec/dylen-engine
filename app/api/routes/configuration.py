@@ -16,7 +16,7 @@ from app.core.security import require_permission
 from app.schema.quotas import SubscriptionTier
 from app.schema.runtime_config import RuntimeConfigScope
 from app.schema.sql import RoleLevel, User
-from app.services.feature_flags import create_feature_flag, get_feature_flag_by_key, list_feature_flags, resolve_effective_feature_flags, set_org_feature_flag, set_tier_feature_flag
+from app.services.feature_flags import create_feature_flag, get_feature_flag_by_key, list_feature_flags, resolve_effective_feature_flags, set_feature_flag_default_enabled, set_org_feature_flag, set_tier_feature_flag
 from app.services.rbac import get_role_by_id
 from app.services.runtime_config import get_runtime_config_definition, list_runtime_config_definitions, list_runtime_config_values, resolve_effective_runtime_config, upsert_runtime_config_value
 from app.services.users import get_user_subscription_tier
@@ -29,6 +29,8 @@ OptStr = str | None
 CONFIG_READ_DEP = Depends(require_permission("config:read"))
 FLAGS_READ_DEP = Depends(require_permission("flags:read"))
 DB_DEP = Depends(get_db)
+COACH_MODE_FLAG_KEY = "feature.coach.mode"
+TUTOR_MODE_FLAG_KEY = "feature.tutor.mode"
 
 
 class RuntimeConfigDefinitionRecord(BaseModel):
@@ -66,6 +68,16 @@ class FeatureFlagOverrideRequest(BaseModel):
   enabled: bool
   org_id: str | None = None
   tier_name: str | None = None
+
+
+class ModeFlagsRecord(BaseModel):
+  coach_mode_enabled: bool
+  tutor_mode_enabled: bool
+
+
+class ModeFlagsUpdateRequest(BaseModel):
+  coach_mode_enabled: bool
+  tutor_mode_enabled: bool
 
 
 def _definition_to_record(definition: Any) -> RuntimeConfigDefinitionRecord:
@@ -276,3 +288,27 @@ async def get_effective_flags(org_id: str | None = Query(None), tier_name: str |
 
   effective = await resolve_effective_feature_flags(db, org_id=target_org_id, subscription_tier_id=tier_id, user_id=None)
   return {"tier": tier_name, "org_id": str(target_org_id) if target_org_id else None, "flags": effective}
+
+
+@router.get("/feature-flags/modes", response_model=ModeFlagsRecord)
+async def get_mode_flags(current_user: User = FLAGS_READ_DEP, db: AsyncSession = Depends(get_db)) -> ModeFlagsRecord:  # noqa: B008
+  """Return global coach/tutor mode flag defaults."""
+  # Enforce global role so tenant users cannot inspect global toggle state.
+  await _require_global_role(db, current_user)
+  coach_flag = await get_feature_flag_by_key(db, key=COACH_MODE_FLAG_KEY)
+  tutor_flag = await get_feature_flag_by_key(db, key=TUTOR_MODE_FLAG_KEY)
+  if coach_flag is None or tutor_flag is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mode flags not found")
+  return ModeFlagsRecord(coach_mode_enabled=bool(coach_flag.default_enabled), tutor_mode_enabled=bool(tutor_flag.default_enabled))
+
+
+@router.put("/feature-flags/modes", response_model=ModeFlagsRecord, dependencies=[Depends(require_permission("flags:write_global"))])
+async def set_mode_flags(request: ModeFlagsUpdateRequest, current_user: User = Depends(require_permission("flags:write_global")), db: AsyncSession = Depends(get_db)) -> ModeFlagsRecord:  # noqa: B008
+  """Enable or disable global coach/tutor mode flags."""
+  # Require global role to keep global feature toggles restricted to global admins.
+  await _require_global_role(db, current_user)
+  coach_flag = await set_feature_flag_default_enabled(db, key=COACH_MODE_FLAG_KEY, enabled=request.coach_mode_enabled)
+  tutor_flag = await set_feature_flag_default_enabled(db, key=TUTOR_MODE_FLAG_KEY, enabled=request.tutor_mode_enabled)
+  if coach_flag is None or tutor_flag is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mode flags not found")
+  return ModeFlagsRecord(coach_mode_enabled=bool(coach_flag.default_enabled), tutor_mode_enabled=bool(tutor_flag.default_enabled))

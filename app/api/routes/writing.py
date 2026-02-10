@@ -13,7 +13,7 @@ from app.jobs.models import JobRecord
 from app.schema.quotas import QuotaPeriod
 from app.schema.sql import User
 from app.services.audit import log_llm_interaction
-from app.services.quota_buckets import QuotaExceededError, consume_quota, get_quota_snapshot, refund_quota
+from app.services.quota_buckets import get_quota_snapshot
 from app.services.request_validation import _validate_writing_request
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.tasks.factory import get_task_enqueuer
@@ -74,20 +74,17 @@ async def create_writing_check(  # noqa: B008
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "writing.check"})
 
   _validate_writing_request(request)
+  if not request.idempotency_key:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="idempotency_key is required.")
   repo = _get_jobs_repo(settings)
 
   job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
 
-  # Reserve quota before enqueueing work so invalid requests fail fast under concurrency.
-  try:
-    await consume_quota(db_session, user_id=current_user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=writing_checks_per_month, metadata={"job_id": job_id})
-  except QuotaExceededError:
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "writing.check"}) from None
-
   record = JobRecord(
     job_id=job_id,
     user_id=str(current_user.id),
+    job_kind="writing",
     request=request.model_dump(mode="python"),
     status="queued",
     target_agent="writing",
@@ -96,32 +93,23 @@ async def create_writing_check(  # noqa: B008
     completed_sections=0,
     completed_section_indexes=[],
     retry_count=0,
-    max_retries=settings.job_max_retries,
+    max_retries=0,
     retry_sections=None,
     retry_agents=None,
     created_at=timestamp,
     updated_at=timestamp,
     ttl=_compute_job_ttl(settings),
+    idempotency_key=request.idempotency_key,
   )
   try:
     await repo.create_job(record)
   except Exception as exc:  # noqa: BLE001
-    # Compensate quota reservation when the job record cannot be persisted.
-    try:
-      await refund_quota(db_session, user_id=current_user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=writing_checks_per_month, metadata={"job_id": job_id, "reason": "job_create_failed"})
-    except Exception:  # noqa: BLE001
-      pass
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create writing check job.") from exc
 
   enqueuer = get_task_enqueuer(settings)
   try:
     await enqueuer.enqueue(job_id, {})
   except Exception as exc:  # noqa: BLE001
-    # Compensate quota reservation when the request fails before any work is queued.
-    try:
-      await refund_quota(db_session, user_id=current_user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=writing_checks_per_month, metadata={"job_id": job_id, "reason": "enqueue_failed"})
-    except Exception:  # noqa: BLE001
-      pass
     try:
       await repo.update_job(job_id, status="error", phase="error", logs=["Enqueue failed: TASK_ENQUEUE_FAILED"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
     except Exception:  # noqa: BLE001

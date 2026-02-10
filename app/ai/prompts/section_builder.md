@@ -58,3 +58,5 @@ Return ONLY valid JSON matching the `Section` schema.
 - `illustration.keywords` must contain exactly 4 concise keywords.
 - Keep `illustration.caption` short and learner-friendly.
 - Make `illustration.ai_prompt` explicit enough for image generation.
+- `illustration.ai_prompt` must request a vector-style visual (flat shapes, crisp lines, non-photorealistic output).
+- Keep the visual direction professional and educational in tone.

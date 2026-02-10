@@ -8,29 +8,33 @@ from __future__ import annotations
 # {
 #     "Creative Skills": {
 #         "conceptual": ["p", "ul", "table"],
-#         "theoretical": ["p", "table", "compare", "flip"],
+#         "theoretical": ["p", "table", "compare", "flipcards"],
 #         "practical": ["freeText", "inputLine", "checklist", "mcqs"],
-#         "all": ["p", "ul", "table", "compare", "flip", "freeText", "inputLine", "checklist", "mcqs"],
+#         "all": ["p", "ul", "table", "compare", "flipcards", "freeText", "inputLine", "checklist", "mcqs"],
 #     }
 # }
 
 CORE = ["markdown", "asciiDiagram", "mcqs"]
 
 WIDGET_PREFERENCES: dict[str, dict[str, list[str]]] = {
-  "Knowledge & Understanding": {"conceptual": CORE + ["table", "compare", "flip"], "theoretical": CORE + ["table", "compare", "flip", "fillblank"], "practical": CORE + ["fillblank", "flip", "swipecards"]},
+  "Knowledge & Understanding": {"conceptual": CORE + ["table", "compare", "flipcards"], "theoretical": CORE + ["table", "compare", "flipcards", "fillblank"], "practical": CORE + ["fillblank", "flipcards", "swipecards"]},
   "Skill Building": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare"], "practical": CORE + ["stepFlow", "checklist", "inputLine"]},
-  "Critical Thinking": {"conceptual": CORE + ["compare", "table"], "theoretical": CORE + ["compare", "table", "flip", "stepFlow"], "practical": CORE + ["compare", "table", "swipecards", "stepFlow", "freeText", "fillblank"]},
-  "Planning and Productivity": {"conceptual": CORE + ["table", "compare"], "theoretical": CORE + ["table", "compare", "flip"], "practical": CORE + ["stepFlow", "checklist", "table", "inputLine", "freeText"]},
-  "Growth Mindset": {"conceptual": CORE + ["compare"], "theoretical": CORE + ["compare", "table", "flip"], "practical": CORE + ["flip", "freeText", "inputLine", "swipecards"]},
-  "Communication Skills": {"conceptual": CORE + ["compare"], "theoretical": CORE + ["compare", "table", "flip"], "practical": CORE + ["compare", "swipecards", "freeText", "inputLine", "stepFlow"]},
+  "Critical Thinking": {"conceptual": CORE + ["compare", "table"], "theoretical": CORE + ["compare", "table", "flipcards", "stepFlow"], "practical": CORE + ["compare", "table", "swipecards", "stepFlow", "freeText", "fillblank"]},
+  "Planning and Productivity": {"conceptual": CORE + ["table", "compare"], "theoretical": CORE + ["table", "compare", "flipcards"], "practical": CORE + ["stepFlow", "checklist", "table", "inputLine", "freeText"]},
+  "Growth Mindset": {"conceptual": CORE + ["compare"], "theoretical": CORE + ["compare", "table", "flipcards"], "practical": CORE + ["flipcards", "freeText", "inputLine", "swipecards"]},
+  "Communication Skills": {"conceptual": CORE + ["compare"], "theoretical": CORE + ["compare", "table", "flipcards"], "practical": CORE + ["compare", "swipecards", "freeText", "inputLine", "stepFlow"]},
   "Movement and Fitness": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare"], "practical": CORE + ["checklist", "stepFlow", "freeText", "inputLine"]},
-  "Creative Skills": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare", "flip", "fillblank"], "practical": CORE + ["freeText", "inputLine", "checklist", "swipecards"]},
+  "Creative Skills": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare", "flipcards", "fillblank"], "practical": CORE + ["freeText", "inputLine", "checklist", "swipecards"]},
   "Web Dev and Coding": {
     "conceptual": CORE + ["table", "compare", "checklist", "terminalDemo", "codeEditor"],
     "theoretical": CORE + ["table", "compare", "asciiDiagram", "terminalDemo", "codeEditor"],
     "practical": CORE + ["stepFlow", "checklist", "codeEditor", "interactiveTerminal", "terminalDemo", "swipecards"],
   },
-  "Language Practice": {"conceptual": CORE + ["tr", "flip", "fillblank", "inputLine"], "theoretical": CORE + ["tr", "table", "compare", "fillblank", "flip"], "practical": CORE + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText"]},
+  "Language Practice": {
+    "conceptual": CORE + ["tr", "flipcards", "fillblank", "inputLine"],
+    "theoretical": CORE + ["tr", "table", "compare", "fillblank", "flipcards"],
+    "practical": CORE + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText"],
+  },
 }
 
 

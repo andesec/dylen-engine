@@ -116,6 +116,7 @@ async def finalize_llm_call(*, call_id: int | None, response_payload: str | None
     prompt_tokens = _coerce_int(usage.get("prompt_tokens"))
     completion_tokens = _coerce_int(usage.get("completion_tokens"))
     total_tokens = _coerce_int(usage.get("total_tokens"))
+    prompt_tokens, completion_tokens, total_tokens = _normalize_token_usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens)
 
   # Scrub PII from response before storage.
   safe_response = _scrub_pii(response_payload)
@@ -208,6 +209,23 @@ def _coerce_int(value: Any) -> int | None:
     return int(value)
 
   return None
+
+
+def _normalize_token_usage(*, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None) -> tuple[int | None, int | None, int | None]:
+  """Keep total token math consistent across providers and request types."""
+  # When both prompt and completion tokens exist, total should be their sum.
+  if prompt_tokens is not None and completion_tokens is not None:
+    return prompt_tokens, completion_tokens, prompt_tokens + completion_tokens
+
+  # Preserve provider total-only reports when split counts are unavailable.
+  if total_tokens is not None:
+    return prompt_tokens, completion_tokens, total_tokens
+
+  # Backfill total from whichever split counters are present.
+  if prompt_tokens is not None or completion_tokens is not None:
+    return prompt_tokens, completion_tokens, int(prompt_tokens or 0) + int(completion_tokens or 0)
+
+  return None, None, None
 
 
 def serialize_request(prompt: str, schema: dict[str, Any] | None) -> str:

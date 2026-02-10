@@ -45,7 +45,7 @@ SectionBuilderSection = get_section_builder_section()
     - An introductory markdown explanation
     - 1-3 subsections with interactive widgets
     
-    Available widgets: markdown, flip cards, translations, fill-in-blanks, tables, quizzes
+    Available widgets: markdown, flipcards, translations, fill-in-blanks, tables, quizzes
     
     Topic: {topic}
     Difficulty: {difficulty}
@@ -61,7 +61,7 @@ def generate_custom_section(topic: str, widget_types: list[str]):
 
   Args:
       topic: Topic to generate content for
-      widget_types: List of widget names to allow (e.g., ['markdown', 'flip', 'table'])
+      widget_types: List of widget names to allow (e.g., ['markdown', 'flipcards', 'table'])
   """
   # Create a custom Section class with only specified widgets
   custom_section = create_selective_section(widget_types)

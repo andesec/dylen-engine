@@ -40,6 +40,7 @@ async def discover(
   tracking_job = JobRecord(
     job_id=tracking_job_id,
     user_id=str(current_user.id),
+    job_kind="research",
     request=request.model_dump(mode="python"),
     status="processing",
     target_agent="research",
@@ -54,6 +55,7 @@ async def discover(
     logs=[],
     progress=0.0,
     ttl=job_ttl,
+    idempotency_key=f"research-discover:{tracking_job_id}",
   )
   await jobs_repo.create_job(tracking_job)
 
@@ -85,6 +87,7 @@ async def synthesize(
   tracking_job = JobRecord(
     job_id=tracking_job_id,
     user_id=str(current_user.id),
+    job_kind="research",
     request=request.model_dump(mode="python"),
     status="processing",
     target_agent="research",
@@ -99,6 +102,7 @@ async def synthesize(
     logs=[],
     progress=0.0,
     ttl=job_ttl,
+    idempotency_key=f"research-synthesize:{tracking_job_id}",
   )
   await jobs_repo.create_job(tracking_job)
 

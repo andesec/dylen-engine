@@ -14,8 +14,12 @@ from app.schema.quotas import QuotaPeriod
 from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, release_quota_reservation, reserve_quota
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
+from app.telemetry.context import llm_call_context
 
 logger = logging.getLogger(__name__)
+_ILLUSTRATION_STYLE_REQUIREMENTS = (
+  "Output requirements: vector-style illustration only, clean flat shapes, crisp edges, professional educational tone, factual classroom-safe content, no logos, no watermarks, no photorealism, and avoid text-heavy layouts."
+)
 
 
 class IllustrationAgent(BaseAgent[dict[str, Any], dict[str, Any]]):
@@ -64,7 +68,11 @@ class IllustrationAgent(BaseAgent[dict[str, Any], dict[str, Any]]):
       reservation_active = True
 
       caption, ai_prompt, keywords = _resolve_illustration_metadata(section_data=section_data, topic=topic, section_title=section_title, markdown_text=markdown_text)
-      raw_image = await self._model.generate_image(ai_prompt)
+      purpose = "generate_illustration"
+      call_index = "1/1"
+      with llm_call_context(agent=self.name, lesson_topic=topic or None, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
+        raw_image = await self._model.generate_image(ai_prompt)
+      self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=getattr(self._model, "last_usage", None))
       webp_image = _convert_to_webp(raw_image)
 
       async with session_factory() as session:
@@ -111,19 +119,25 @@ def _resolve_illustration_metadata(*, section_data: dict[str, Any], topic: str, 
     ai_prompt = str(illustration_data.get("ai_prompt") or "").strip()
     keywords = _normalize_keywords(illustration_data.get("keywords"))
     if caption and ai_prompt and keywords is not None:
-      return caption, ai_prompt, keywords
+      return caption, _enforce_illustration_prompt_style(ai_prompt), keywords
 
   # Build deterministic fallback metadata when builder output is missing/invalid.
   fallback_caption = f"{section_title} visual summary"
   focus_line = markdown_text[:700] if markdown_text else f"Illustrate the key concept of {section_title}."
   fallback_prompt = (
-    f"Create a clean educational illustration for the lesson topic '{topic}'. "
+    f"Create a clean vector-style educational illustration for the lesson topic '{topic}'. "
     f"Section title: '{section_title}'. "
     f"Use this guidance from section markdown: {focus_line}. "
     "Style: informative, simple layout, minimal clutter, no logos, no watermarks, no text-heavy poster."
   )
   fallback_keywords = _build_keywords(topic=topic, section_title=section_title, markdown_text=markdown_text)
-  return fallback_caption, fallback_prompt, fallback_keywords
+  return fallback_caption, _enforce_illustration_prompt_style(fallback_prompt), fallback_keywords
+
+
+def _enforce_illustration_prompt_style(ai_prompt: str) -> str:
+  """Append non-negotiable style constraints so generation stays education-first and vector-like."""
+  prompt = ai_prompt.strip().rstrip(".")
+  return f"{prompt}. {_ILLUSTRATION_STYLE_REQUIREMENTS}"
 
 
 def _build_keywords(*, topic: str, section_title: str, markdown_text: str) -> list[str]:

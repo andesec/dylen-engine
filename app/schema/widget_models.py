@@ -62,23 +62,30 @@ class IllustrationPayload(msgspec.Struct):
     return [self.id, self.caption or ""]
 
 
-class FlipPayload(msgspec.Struct):
+class FlipCardPayload(msgspec.Struct):
   front: Annotated[str, msgspec.Meta(description="Front prompt text (max 80 chars)")]
   back: Annotated[str, msgspec.Meta(description="Back reveal text (max 100 chars)")]
-  front_hint: str | None = None
-  back_hint: str | None = None
+  front_example: Annotated[str | None, msgspec.Meta(description="Optional front example. Important for vocabulary lessons, optional otherwise.")] = None
+  back_example: Annotated[str | None, msgspec.Meta(description="Optional back example. Important for vocabulary lessons, optional otherwise.")] = None
 
   def __post_init__(self):
-    _warn_len_out_of_range(field_name="flip.front", value=self.front, max_length=80)
-    _warn_len_out_of_range(field_name="flip.back", value=self.back, max_length=100)
+    _warn_len_out_of_range(field_name="flipcards.card.front", value=self.front, max_length=80)
+    _warn_len_out_of_range(field_name="flipcards.card.back", value=self.back, max_length=100)
 
   def output(self) -> list[str]:
     res = [self.front, self.back]
-    if self.front_hint:
-      res.append(self.front_hint)
-    if self.back_hint:
-      res.append(self.back_hint)
+    if self.front_example:
+      res.append(self.front_example)
+    if self.back_example:
+      res.append(self.back_example)
     return res
+
+
+class FlipCardsPayload(msgspec.Struct):
+  cards: Annotated[list[FlipCardPayload], msgspec.Meta(description="Array of flipcards.")]
+
+  def output(self) -> list[list[str]]:
+    return [card.output() for card in self.cards]
 
 
 class TranslationPayload(msgspec.Struct):
@@ -361,7 +368,7 @@ class WidgetItem(msgspec.Struct):
   """Container for any widget type (Mutually Exclusive)."""
 
   markdown: MarkdownPayload | None = None
-  flip: FlipPayload | None = None
+  flipcards: FlipCardsPayload | None = None
   tr: TranslationPayload | None = None
   fillblank: FillBlankPayload | None = None
   table: TablePayload | None = None
@@ -384,7 +391,7 @@ class WidgetItem(msgspec.Struct):
     set_fields = 0
     if self.markdown is not None:
       set_fields += 1
-    if self.flip is not None:
+    if self.flipcards is not None:
       set_fields += 1
     if self.tr is not None:
       set_fields += 1
@@ -426,8 +433,8 @@ class WidgetItem(msgspec.Struct):
     """Return the full shorthand object/array for the active widget."""
     if self.markdown:
       return {"markdown": self.markdown.output()}
-    if self.flip:
-      return {"flip": self.flip.output()}
+    if self.flipcards:
+      return {"flipcards": self.flipcards.output()}
     if self.tr:
       return {"tr": self.tr.output()}
     if self.fillblank:
@@ -476,10 +483,13 @@ def _extract_payload_from_optional(annotation: Any) -> type[msgspec.Struct]:
 WIDGET_ITEM_FIELD_NAMES = list(WidgetItem.__annotations__)
 WIDGET_ITEM_TYPE_HINTS = get_type_hints(WidgetItem, globalns=globals(), localns=locals())
 WIDGET_PAYLOAD_BY_FIELD = {field_name: _extract_payload_from_optional(WIDGET_ITEM_TYPE_HINTS[field_name]) for field_name in WIDGET_ITEM_FIELD_NAMES}
+WIDGET_ALIASES = {"flip": "flipcards"}
 
 
 def resolve_widget_field_name(widget_name: str) -> str:
   """Resolve supported widget key to canonical WidgetItem field name."""
+  if widget_name in WIDGET_ALIASES:
+    return WIDGET_ALIASES[widget_name]
   if widget_name in WIDGET_PAYLOAD_BY_FIELD:
     return widget_name
   raise ValueError(f"Unknown widget: {widget_name}")

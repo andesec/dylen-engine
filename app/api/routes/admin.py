@@ -732,6 +732,7 @@ async def trigger_archive_lessons(background_tasks: BackgroundTasks, current_use
   record = JobRecord(
     job_id=job_id,
     user_id=str(current_user.id),
+    job_kind="maintenance",
     request={"action": "archive_old_lessons", "_meta": {"user_id": str(current_user.id)}},
     status="queued",
     target_agent="maintenance",
@@ -746,6 +747,7 @@ async def trigger_archive_lessons(background_tasks: BackgroundTasks, current_use
     logs=["Maintenance job queued by admin."],
     progress=0.0,
     ttl=int(time.time()) + 3600,
+    idempotency_key=f"maintenance:{job_id}",
   )
   repo = get_jobs_repo()
   await repo.create_job(record)

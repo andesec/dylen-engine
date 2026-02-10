@@ -242,11 +242,27 @@ class WritingCheckRequest(BaseModel):
   model_config = ConfigDict(extra="forbid")
 
 
+JobKind = Literal["lesson", "research", "youtube", "maintenance", "writing", "system"]
+
+
+class JobCreateRequest(BaseModel):
+  """Request payload for creating a background job."""
+
+  job_kind: JobKind
+  target_agent: StrictStr = Field(min_length=1)
+  idempotency_key: StrictStr = Field(min_length=1, description="Client-generated key used to deduplicate submissions.")
+  payload: dict[str, Any] = Field(default_factory=dict, description="Agent-specific payload.")
+  lesson_id: StrictStr | None = Field(default=None, description="Optional lesson identifier bound to this job.")
+  section_id: StrictInt | None = Field(default=None, ge=1, description="Optional section row id bound to this job.")
+  parent_job_id: StrictStr | None = Field(default=None, description="Optional parent job id for child job creation.")
+  model_config = ConfigDict(extra="forbid")
+
+
 class JobCreateResponse(BaseModel):
   """Response payload for job creation."""
 
   job_id: StrictStr
-  expected_sections: StrictInt = Field(ge=0, description="Total number of sections expected for the lesson job (0 for non-lesson jobs).")
+  expected_sections: StrictInt = Field(default=0, ge=0, description="Total number of sections expected for lesson jobs.")
 
 
 class LessonJobResponse(JobCreateResponse):

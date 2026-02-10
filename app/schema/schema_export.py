@@ -271,7 +271,7 @@ def get_widget_schema(widget_name: str) -> dict[str, Any]:
   Get JSON schema for a specific widget payload.
 
   Args:
-      widget_name: Widget name (e.g., 'markdown', 'flip', 'mcqs')
+      widget_name: Widget name (e.g., 'markdown', 'flipcards', 'mcqs')
 
   Returns:
       JSON Schema for the widget payload
@@ -282,7 +282,7 @@ def get_widget_schema(widget_name: str) -> dict[str, Any]:
     CodeEditorPayload,
     FensterPayload,
     FillBlankPayload,
-    FlipPayload,
+    FlipCardsPayload,
     FreeTextPayload,
     InputLinePayload,
     InteractiveTerminalPayload,
@@ -297,7 +297,7 @@ def get_widget_schema(widget_name: str) -> dict[str, Any]:
 
   widget_map = {
     "markdown": MarkdownPayload,
-    "flip": FlipPayload,
+    "flipcards": FlipCardsPayload,
     "tr": TranslationPayload,
     "fillblank": FillBlankPayload,
     "freeText": FreeTextPayload,

@@ -24,6 +24,15 @@ This object is embedded within a Section's `widget` field and maps to a persiste
 *   **Exponential Backoff:** Implementation of retries (1s, 2s, 4s, 8s, 16s) for the image generation call within the job to ensure the section is not returned without its visual component.
 *   **Graceful Failure:** If image generation fails after all retries, the section is still saved, but the status is set to `failed`. The UI should be designed to handle missing images gracefully (e.g., showing a topic-relevant placeholder).
 
+## 5. Prompt Policy (Required)
+The Illustration Agent must enforce the following on every generation prompt:
+*   **Vector-first visual style:** Request clean vector-style output (flat shapes, crisp edges, non-photorealistic look).
+*   **Tone:** Professional and educational.
+*   **Safety/cleanliness:** No logos, no watermarks, and avoid text-heavy poster layouts.
+
+Example prompt suffix:
+`Output requirements: vector-style illustration only, clean flat shapes, crisp edges, professional educational tone, factual classroom-safe content, no logos, no watermarks, no photorealism, and avoid text-heavy layouts.`
+
 ```python
 # Pseudo-code Implementation
 async def create_section_with_illustration(topic_data):

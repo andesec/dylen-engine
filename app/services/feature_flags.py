@@ -51,6 +51,21 @@ async def create_feature_flag(session: AsyncSession, *, key: str, description: s
   return flag
 
 
+async def set_feature_flag_default_enabled(session: AsyncSession, *, key: str, enabled: bool) -> FeatureFlag | None:
+  """Update a feature flag global default enablement value by key."""
+  # Normalize lookup key to guarantee deterministic matching.
+  normalized = validate_flag_key(key)
+  result = await session.execute(select(FeatureFlag).where(FeatureFlag.key == normalized))
+  flag = result.scalar_one_or_none()
+  if flag is None:
+    return None
+  # Persist the updated default so global evaluation reflects the toggle.
+  flag.default_enabled = enabled
+  await session.commit()
+  await session.refresh(flag)
+  return flag
+
+
 async def set_tier_feature_flag(session: AsyncSession, *, subscription_tier_id: int, feature_flag_id: uuid.UUID, enabled: bool) -> None:
   """Upsert a subscription-tier feature flag override."""
   # Persist tier defaults so new users inherit the intended capabilities.
