@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,17 @@ def _safe_int(value: Any) -> int | None:
   """Convert a value to int when possible."""
   if value is None:
     return None
+
+
+def _as_datetime(value: Any) -> Any:
+  """Convert ISO timestamp strings into datetime values for asyncpg bindings."""
+  if isinstance(value, str):
+    normalized = value.replace("Z", "+00:00")
+    try:
+      return datetime.fromisoformat(normalized)
+    except ValueError:
+      return value
+  return value
   try:
     return int(value)
   except (TypeError, ValueError):
@@ -255,14 +267,14 @@ async def _upsert_users(connection: AsyncConnection, users_rows: list[dict[str, 
           "secondary_language": row.get("secondary_language"),
           "onboarding_completed": bool(row.get("onboarding_completed", False)),
           "is_discarded": bool(row.get("is_discarded", False)),
-          "discarded_at": row.get("discarded_at"),
+          "discarded_at": _as_datetime(row.get("discarded_at")),
           "discarded_by": row.get("discarded_by"),
-          "accepted_terms_at": row.get("accepted_terms_at"),
-          "accepted_privacy_at": row.get("accepted_privacy_at"),
+          "accepted_terms_at": _as_datetime(row.get("accepted_terms_at")),
+          "accepted_privacy_at": _as_datetime(row.get("accepted_privacy_at")),
           "terms_version": row.get("terms_version"),
           "privacy_version": row.get("privacy_version"),
-          "created_at": row.get("created_at"),
-          "updated_at": row.get("updated_at"),
+          "created_at": _as_datetime(row.get("created_at")),
+          "updated_at": _as_datetime(row.get("updated_at")),
         },
       )
       mapping[source_user_id] = source_user_id
@@ -332,14 +344,14 @@ async def _upsert_users(connection: AsyncConnection, users_rows: list[dict[str, 
         "secondary_language": row.get("secondary_language"),
         "onboarding_completed": bool(row.get("onboarding_completed", False)),
         "is_discarded": bool(row.get("is_discarded", False)),
-        "discarded_at": row.get("discarded_at"),
+        "discarded_at": _as_datetime(row.get("discarded_at")),
         "discarded_by": row.get("discarded_by"),
-        "accepted_terms_at": row.get("accepted_terms_at"),
-        "accepted_privacy_at": row.get("accepted_privacy_at"),
+        "accepted_terms_at": _as_datetime(row.get("accepted_terms_at")),
+        "accepted_privacy_at": _as_datetime(row.get("accepted_privacy_at")),
         "terms_version": row.get("terms_version"),
         "privacy_version": row.get("privacy_version"),
-        "created_at": row.get("created_at"),
-        "updated_at": row.get("updated_at"),
+        "created_at": _as_datetime(row.get("created_at")),
+        "updated_at": _as_datetime(row.get("updated_at")),
       },
     )
     mapping[source_user_id] = target_user_id
@@ -543,7 +555,7 @@ async def _upsert_subjective_widgets(connection: AsyncConnection, widget_rows: l
           )
           """
         ),
-        {"section_id": target_section_id, "widget_type": row["widget_type"], "ai_prompt": row["ai_prompt"], "wordlist": row.get("wordlist"), "created_at": row["created_at"]},
+        {"section_id": target_section_id, "widget_type": row["widget_type"], "ai_prompt": row["ai_prompt"], "wordlist": row.get("wordlist"), "created_at": _as_datetime(row["created_at"])},
       )
       continue
     await connection.execute(
@@ -558,7 +570,7 @@ async def _upsert_subjective_widgets(connection: AsyncConnection, widget_rows: l
         WHERE id = :id
         """
       ),
-      {"id": existing_id, "widget_type": row["widget_type"], "ai_prompt": row["ai_prompt"], "wordlist": row.get("wordlist"), "created_at": row["created_at"]},
+      {"id": existing_id, "widget_type": row["widget_type"], "ai_prompt": row["ai_prompt"], "wordlist": row.get("wordlist"), "created_at": _as_datetime(row["created_at"])},
     )
 
 
@@ -606,8 +618,8 @@ async def _upsert_illustrations(connection: AsyncConnection, illustration_rows: 
           "status": row["status"],
           "is_archived": bool(row.get("is_archived", False)),
           "regenerate": bool(row.get("regenerate", False)),
-          "created_at": row["created_at"],
-          "updated_at": row["updated_at"],
+          "created_at": _as_datetime(row["created_at"]),
+          "updated_at": _as_datetime(row["updated_at"]),
         },
       )
       target_id = int(inserted.scalar_one())
@@ -639,8 +651,8 @@ async def _upsert_illustrations(connection: AsyncConnection, illustration_rows: 
           "status": row["status"],
           "is_archived": bool(row.get("is_archived", False)),
           "regenerate": bool(row.get("regenerate", False)),
-          "created_at": row["created_at"],
-          "updated_at": row["updated_at"],
+          "created_at": _as_datetime(row["created_at"]),
+          "updated_at": _as_datetime(row["updated_at"]),
         },
       )
     mapping[source_id] = target_id
@@ -677,10 +689,10 @@ async def _upsert_section_illustrations(connection: AsyncConnection, section_ill
           VALUES (:section_id, :illustration_id, :created_at)
           """
         ),
-        {"section_id": target_section_id, "illustration_id": target_illustration_id, "created_at": row["created_at"]},
+        {"section_id": target_section_id, "illustration_id": target_illustration_id, "created_at": _as_datetime(row["created_at"])},
       )
       continue
-    await connection.execute(text("UPDATE section_illustrations SET created_at = :created_at WHERE id = :id"), {"id": existing_id, "created_at": row["created_at"]})
+    await connection.execute(text("UPDATE section_illustrations SET created_at = :created_at WHERE id = :id"), {"id": existing_id, "created_at": _as_datetime(row["created_at"])})
 
 
 async def _upsert_fenster_widgets(connection: AsyncConnection, fenster_rows: list[dict[str, Any]], *, sidecar_dir: Path, strict: bool) -> None:
@@ -704,7 +716,7 @@ async def _upsert_fenster_widgets(connection: AsyncConnection, fenster_rows: lis
           created_at = EXCLUDED.created_at
         """
       ),
-      {"fenster_id": row["fenster_id"], "type": row["type"], "content": content_bytes, "url": row.get("url"), "created_at": row["created_at"]},
+      {"fenster_id": row["fenster_id"], "type": row["type"], "content": content_bytes, "url": row.get("url"), "created_at": _as_datetime(row["created_at"])},
     )
 
 
@@ -747,7 +759,7 @@ async def _upsert_tutor_audios(connection: AsyncConnection, tutor_rows: list[dic
           RETURNING id
           """
         ),
-        {"job_id": row["job_id"], "section_number": row["section_number"], "subsection_index": row["subsection_index"], "text_content": row.get("text_content"), "audio_data": audio_bytes, "created_at": row["created_at"]},
+        {"job_id": row["job_id"], "section_number": row["section_number"], "subsection_index": row["subsection_index"], "text_content": row.get("text_content"), "audio_data": audio_bytes, "created_at": _as_datetime(row["created_at"])},
       )
       target_id = int(inserted.scalar_one())
       mapping[source_id] = target_id
@@ -764,7 +776,7 @@ async def _upsert_tutor_audios(connection: AsyncConnection, tutor_rows: list[dic
         WHERE id = :id
         """
       ),
-      {"id": target_id, "text_content": row.get("text_content"), "audio_data": audio_bytes, "created_at": row["created_at"]},
+      {"id": target_id, "text_content": row.get("text_content"), "audio_data": audio_bytes, "created_at": _as_datetime(row["created_at"])},
     )
     mapping[source_id] = target_id
   return mapping
