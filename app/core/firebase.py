@@ -5,7 +5,8 @@ from typing import Any
 import firebase_admin
 from app.config import get_settings
 from app.schema.sql import RoleLevel, UserStatus
-from firebase_admin import auth, credentials
+from firebase_admin import auth, credentials, firestore
+from google.cloud.firestore import Client as FirestoreClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,18 @@ def initialize_firebase() -> None:
     logger.info("Firebase Admin SDK initialized successfully.")
   except Exception as e:
     logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
+
+
+def get_firestore_client() -> FirestoreClient | None:
+  """Returns a Firestore client instance. Lazily initializes if needed."""
+  if not firebase_admin._apps:
+    initialize_firebase()
+
+  try:
+    return firestore.client()
+  except Exception as e:
+    logger.error(f"Failed to get Firestore client: {e}")
+    return None
 
 
 def verify_id_token(id_token: str) -> dict[str, Any] | None:

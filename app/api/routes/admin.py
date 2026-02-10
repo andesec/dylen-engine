@@ -3,7 +3,9 @@ import time
 import uuid
 from typing import Literal, TypeVar
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+import pyotp
+from app.core.totp import disable_totp, is_totp_enabled, setup_totp, verify_totp_code, verify_totp_setup
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.firebase import build_rbac_claims, set_custom_claims
-from app.core.security import get_current_active_user, get_current_admin_user, require_permission, require_role_level
+from app.core.security import get_current_active_user, get_current_admin_user, require_permission, require_role_level, verify_admin_totp
 from app.jobs.models import JobRecord, JobStatus
 from app.notifications.factory import build_notification_service
 from app.schema.quotas import SubscriptionTier, UserTierOverride
@@ -260,6 +262,57 @@ class SectionShorthandBackfillResponse(BaseModel):
   failed: dict[int, str]
 
 
+class TOTPSetupResponse(BaseModel):
+  secret: str
+  otpauth_url: str
+
+
+class TOTPVerifyRequest(BaseModel):
+  token: str
+
+
+@router.post("/me/totp/setup", response_model=TOTPSetupResponse)
+async def setup_admin_totp(request: Request, current_user: User = Depends(get_current_admin_user)) -> TOTPSetupResponse:
+  """Generate a new TOTP secret for the current admin."""
+  # Prevent unrestricted re-enrollment (Security)
+  enabled = await is_totp_enabled(current_user.firebase_uid)
+  if enabled:
+    otp = request.headers.get("X-Admin-OTP")
+    if not otp:
+      raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="TOTP already enabled. Verification required to reset.")
+
+    ip = request.client.host if request.client else "unknown"
+    valid = await verify_totp_code(current_user.firebase_uid, otp, ip)
+    if not valid:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid TOTP code")
+
+  secret = await setup_totp(current_user.firebase_uid)
+  if not secret:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate TOTP secret")
+
+  # Generate otpauth URL
+  # otpauth://totp/Dylen:{email}?secret={secret}&issuer=Dylen
+  otpauth_url = pyotp.totp.TOTP(secret).provisioning_uri(name=current_user.email, issuer_name="Dylen")
+
+  return TOTPSetupResponse(secret=secret, otpauth_url=otpauth_url)
+
+
+@router.post("/me/totp/verify", status_code=status.HTTP_204_NO_CONTENT)
+async def verify_admin_totp_setup(request: TOTPVerifyRequest, current_user: User = Depends(get_current_admin_user)) -> None:
+  """Verify and enable TOTP for the current admin."""
+  is_valid = await verify_totp_setup(current_user.firebase_uid, request.token)
+  if not is_valid:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid TOTP code")
+
+
+@router.delete("/me/totp", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(verify_admin_totp)])
+async def disable_admin_totp(current_user: User = Depends(get_current_admin_user)) -> None:
+  """Disable TOTP for the current admin."""
+  success = await disable_totp(current_user.firebase_uid)
+  if not success:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to disable TOTP")
+
+
 async def _update_firebase_claims(db_session: AsyncSession, user: User, role: Role, *, permissions: list[str] | None = None) -> None:
   """Helper to sync user RBAC claims to Firebase."""
   tier_name = await get_user_tier_name(db_session, user.id)
@@ -339,7 +392,7 @@ def _serialize_onboarding_profile(user: User) -> OnboardingProfileRecord:
   )
 
 
-@router.post("/roles", response_model=RoleRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_create"))])
+@router.post("/roles", response_model=RoleRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_create")), Depends(verify_admin_totp)])
 async def create_role(request: RoleCreateRequest, db_session: AsyncSession = Depends(get_db)) -> RoleRecord:  # noqa: B008
   """Create a new role for RBAC management."""
   # Persist a new role for administrative configuration.
@@ -347,7 +400,7 @@ async def create_role(request: RoleCreateRequest, db_session: AsyncSession = Dep
   return RoleRecord(id=str(role.id), name=role.name, level=role.level, description=role.description)
 
 
-@router.put("/roles/{role_id}/permissions", response_model=RolePermissionsResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_permissions_update"))])
+@router.put("/roles/{role_id}/permissions", response_model=RolePermissionsResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_permissions_update")), Depends(verify_admin_totp)])
 async def update_role_permissions(role_id: str, request: RolePermissionsUpdateRequest, db_session: AsyncSession = Depends(get_db)) -> RolePermissionsResponse:  # noqa: B008
   """Assign permissions to a role in bulk."""
   # Parse the target role id for validation.
@@ -424,7 +477,7 @@ async def list_user_accounts(
   return PaginatedResponse(items=records, total=total, limit=limit, offset=(page - 1) * limit)
 
 
-@router.patch("/users/{user_id}/discard", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:discard"))])
+@router.patch("/users/{user_id}/discard", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:discard")), Depends(verify_admin_totp)])
 async def discard_user_account(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Soft-delete a user so they are hidden from active flows."""
   try:
@@ -442,7 +495,7 @@ async def discard_user_account(user_id: str, db_session: AsyncSession = Depends(
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/restore", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:restore"))])
+@router.patch("/users/{user_id}/restore", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:restore")), Depends(verify_admin_totp)])
 async def restore_user_account(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Restore a discarded user."""
   try:
@@ -477,7 +530,7 @@ async def get_user_onboarding_profile(user_id: str, db_session: AsyncSession = D
   return _serialize_onboarding_profile(user)
 
 
-@router.patch("/users/{user_id}/status", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
+@router.patch("/users/{user_id}/status", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def update_user_account_status(user_id: str, request: UserStatusUpdateRequest, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Update a user's approval status and refresh RBAC claims."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -513,7 +566,7 @@ async def update_user_account_status(user_id: str, request: UserStatusUpdateRequ
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/role", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
+@router.patch("/users/{user_id}/role", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Update a user's role assignment and refresh RBAC claims."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -554,7 +607,7 @@ async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest,
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/role-by-name", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
+@router.patch("/users/{user_id}/role-by-name", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def update_user_account_role_by_name(user_id: str, request: UserRoleNameUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Promote or demote a user by assigning a role using its canonical name."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -582,7 +635,7 @@ async def update_user_account_role_by_name(user_id: str, request: UserRoleNameUp
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/enabled", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
+@router.patch("/users/{user_id}/enabled", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def update_user_enabled_state(user_id: str, request: UserEnabledUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Enable or disable a user account explicitly for admin workflows."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -612,7 +665,7 @@ async def update_user_enabled_state(user_id: str, request: UserEnabledUpdateRequ
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/tier", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
+@router.patch("/users/{user_id}/tier", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def update_user_account_tier(user_id: str, request: UserTierUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Update a user's subscription tier and refresh RBAC claims."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -643,7 +696,7 @@ async def update_user_account_tier(user_id: str, request: UserTierUpdateRequest,
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/tiers/{tier_name}", response_model=TierRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("config:write_tier"))])
+@router.patch("/tiers/{tier_name}", response_model=TierRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("config:write_tier")), Depends(verify_admin_totp)])
 async def update_subscription_tier(tier_name: str, request: TierUpdateRequest, db_session: AsyncSession = Depends(get_db)) -> TierRecord:  # noqa: B008
   """Update subscription tier quotas and limits for admin plan management."""
   # Dependency require_role_level(RoleLevel.GLOBAL) enforces GLOBAL role level.
@@ -669,7 +722,7 @@ async def update_subscription_tier(tier_name: str, request: TierUpdateRequest, d
   return _serialize_tier(tier)
 
 
-@router.put("/users/{user_id}/promo", response_model=UserPromoResponse, dependencies=[Depends(require_permission("user_data:edit"))])
+@router.put("/users/{user_id}/promo", response_model=UserPromoResponse, dependencies=[Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def upsert_user_promo(user_id: str, request: UserPromoUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserPromoResponse:  # noqa: B008
   """Upsert promo tier/quota/feature overrides for a user."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -762,7 +815,7 @@ async def upsert_user_promo(user_id: str, request: UserPromoUpdateRequest, db_se
   )
 
 
-@router.delete("/users/{user_id}/promo", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("user_data:edit"))])
+@router.delete("/users/{user_id}/promo", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def delete_user_promo(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> None:  # noqa: B008
   """Delete active promo overrides for a user."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -784,7 +837,7 @@ async def delete_user_promo(user_id: str, db_session: AsyncSession = Depends(get
   await delete_user_feature_flag_overrides(db_session, user_id=user.id)
 
 
-@router.post("/maintenance/archive-lessons", response_model=MaintenanceJobResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:maintenance_archive_lessons"))])
+@router.post("/maintenance/archive-lessons", response_model=MaintenanceJobResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:maintenance_archive_lessons")), Depends(verify_admin_totp)])
 async def trigger_archive_lessons(background_tasks: BackgroundTasks, current_user: User = Depends(get_current_active_user), settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db)) -> MaintenanceJobResponse:  # noqa: B008
   """Trigger a maintenance job to archive old lessons based on tier retention limits."""
   job_id = generate_job_id()
@@ -815,7 +868,7 @@ async def trigger_archive_lessons(background_tasks: BackgroundTasks, current_use
   return MaintenanceJobResponse(job_id=job_id)
 
 
-@router.patch("/users/{user_id}/approve", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user), Depends(require_permission("user_data:edit"))])
+@router.patch("/users/{user_id}/approve", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user), Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Approve a user account and notify the user."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -849,7 +902,7 @@ async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db),
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/reject", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user), Depends(require_permission("user_data:edit"))])
+@router.patch("/users/{user_id}/reject", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user), Depends(require_permission("user_data:edit")), Depends(verify_admin_totp)])
 async def reject_user(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Reject a user account after onboarding review."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -873,7 +926,7 @@ async def reject_user(user_id: str, db_session: AsyncSession = Depends(get_db), 
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("user_data:delete_permanent"))])
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("user_data:delete_permanent")), Depends(verify_admin_totp)])
 async def delete_user_account(user_id: str, db_session: AsyncSession = Depends(get_db)) -> None:  # noqa: B008
   """Delete a user account permanently (GDPR erasure)."""
   try:
@@ -942,7 +995,7 @@ async def list_llm_calls(
   return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
-@router.post("/sections/backfill-shorthand", response_model=SectionShorthandBackfillResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read"))])
+@router.post("/sections/backfill-shorthand", response_model=SectionShorthandBackfillResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read")), Depends(verify_admin_totp)])
 async def backfill_sections_shorthand(request: SectionShorthandBackfillRequest) -> SectionShorthandBackfillResponse:
   """Backfill section shorthand content from stored raw section JSON."""
   result = await backfill_section_shorthand(request.section_ids)

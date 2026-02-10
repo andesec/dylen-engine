@@ -6,11 +6,12 @@ from typing import Annotated, Any
 
 from app.core.database import get_db
 from app.core.firebase import verify_id_token
+from app.core.totp import verify_totp_code
 from app.schema.sql import RoleLevel, User, UserStatus
 from app.services.feature_flags import FEATURE_REASON_MISCONFIGURED, resolve_feature_flag_decision
 from app.services.rbac import get_or_create_default_member_role, get_role_by_id, role_has_permission
 from app.services.users import create_user, get_user_by_firebase_uid, get_user_subscription_tier, get_user_tier_name, resolve_auth_method, update_user_provider
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from firebase_admin import auth  # noqa: F401
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -144,6 +145,29 @@ async def get_current_admin_user(current_user: User = Depends(get_current_active
   has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug="user_data:view")
   if not has_permission:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+
+  return current_user
+
+
+async def verify_admin_totp(request: Request, current_user: User = Depends(get_current_admin_user)) -> User:
+  """
+  Verify TOTP code for state-changing admin requests.
+  Applies Step-up authentication for all non-GET admin operations.
+  """
+  # Skip TOTP check for read-only operations.
+  if request.method == "GET":
+    return current_user
+
+  otp = request.headers.get("X-Admin-OTP")
+  if not otp:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-Admin-OTP header")
+
+  ip_address = request.client.host if request.client else "unknown"
+
+  # Enforce TOTP validation against Firestore state.
+  is_valid = await verify_totp_code(current_user.firebase_uid, otp, ip_address)
+  if not is_valid:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired TOTP code")
 
   return current_user
 
