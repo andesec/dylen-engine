@@ -121,7 +121,9 @@ class UserRecord(BaseModel):
   email: str
   status: UserStatus
   role_id: str
+  role_name: str | None  # Enriched: role name from roles table
   org_id: str | None
+  org_name: str | None  # Enriched: organization name from organizations table
 
 
 class OnboardingProfileRecord(BaseModel):
@@ -382,22 +384,39 @@ async def update_role_permissions(role_id: str, request: RolePermissionsUpdateRe
 
 
 @router.get("/users", response_model=PaginatedResponse[UserRecord])
-async def list_user_accounts(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), current_user: User = Depends(get_current_admin_user), db_session: AsyncSession = Depends(get_db)) -> PaginatedResponse[UserRecord]:  # noqa: B008
+async def list_user_accounts(
+  page: int = Query(1, ge=1),
+  limit: int = Query(20, ge=1, le=100),
+  email: str | None = Query(None),
+  status: UserStatus | None = Query(None),
+  role_id: str | None = Query(None),
+  sort_by: str = Query("id"),
+  sort_order: str = Query("desc"),
+  current_user: User = Depends(get_current_admin_user),
+  db_session: AsyncSession = Depends(get_db),
+) -> PaginatedResponse[UserRecord]:  # noqa: B008
   """List users with tenant scoping for org admins."""
   # Determine tenant scoping based on the requesting user's role.
   role = await check_tenant_permissions(db_session, current_user)
 
   # Apply org filtering for tenant-scoped admins.
   org_filter = None
-  org_filter = None
   if role.level == RoleLevel.TENANT:
     org_filter = current_user.org_id
 
-  # Load users with pagination and tenant scoping applied.
-  users, total = await list_users(db_session, org_id=org_filter, limit=limit, offset=offset)
-  # Format records for response payloads.
-  records = [UserRecord(id=str(user.id), email=user.email, status=user.status, role_id=str(user.role_id), org_id=str(user.org_id) if user.org_id else None) for user in users]
-  return PaginatedResponse(items=records, total=total, limit=limit, offset=offset)
+  # Parse role_id if provided
+  parsed_role_id = None
+  if role_id:
+    try:
+      parsed_role_id = uuid.UUID(role_id)
+    except ValueError:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role_id format.") from None
+
+  # Load users with pagination, filtering, and sorting applied.
+  users_with_enrichment, total = await list_users(db_session, org_id=org_filter, page=page, limit=limit, email=email, status=status, role_id=parsed_role_id, sort_by=sort_by, sort_order=sort_order)
+  # Format records for response payloads with enriched data.
+  records = [UserRecord(id=str(user.id), email=user.email, status=user.status, role_id=str(user.role_id), role_name=role_name, org_id=str(user.org_id) if user.org_id else None, org_name=org_name) for user, role_name, org_name in users_with_enrichment]
+  return PaginatedResponse(items=records, total=total, limit=limit, offset=(page - 1) * limit)
 
 
 @router.get("/users/{user_id}/onboarding", response_model=OnboardingProfileRecord)
@@ -827,36 +846,59 @@ async def delete_user_account(user_id: str, db_session: AsyncSession = Depends(g
 
 
 @router.get("/jobs", response_model=PaginatedResponse[JobRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
-async def list_jobs(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), status: JobStatus | None = None, job_id: str | None = None) -> PaginatedResponse[JobRecord]:
-  """List jobs for admins with pagination to control load and exposure."""
+async def list_jobs(
+  page: int = Query(1, ge=1),
+  limit: int = Query(20, ge=1, le=100),
+  status: JobStatus | None = None,
+  job_id: str | None = None,
+  job_kind: str | None = None,
+  user_id: str | None = None,
+  target_agent: str | None = None,
+  sort_by: str = Query("created_at"),
+  sort_order: str = Query("desc"),
+) -> PaginatedResponse[JobRecord]:
+  """List jobs for admins with pagination, filtering, and sorting to control load and exposure."""
   # Resolve the repository here to keep handler orchestration focused.
   repo = get_jobs_repo()
   # Fetch results and totals together for consistent pagination output.
-  items, total = await repo.list_jobs(limit=limit, offset=offset, status=status, job_id=job_id)
+  items, total = await repo.list_jobs(page=page, limit=limit, status=status, job_id=job_id, job_kind=job_kind, user_id=user_id, target_agent=target_agent, sort_by=sort_by, sort_order=sort_order)
   # Return a typed pagination envelope that callers can rely on.
-  return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
+  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
 @router.get("/lessons", response_model=PaginatedResponse[LessonRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
-async def list_lessons(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), topic: str | None = None, status: str | None = None) -> PaginatedResponse[LessonRecord]:
-  """List lessons with pagination to keep responses bounded and predictable."""
+async def list_lessons(
+  page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), topic: str | None = None, status: str | None = None, user_id: str | None = None, is_archived: bool | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")
+) -> PaginatedResponse[LessonRecord]:
+  """List lessons with pagination, filtering, and sorting to keep responses bounded and predictable."""
   # Resolve the repository here to keep handler orchestration focused.
   repo = get_lessons_repo()
   # Fetch results and totals together for consistent pagination output.
-  items, total = await repo.list_lessons(limit=limit, offset=offset, topic=topic, status=status)
+  items, total = await repo.list_lessons(page=page, limit=limit, topic=topic, status=status, user_id=user_id, is_archived=is_archived, sort_by=sort_by, sort_order=sort_order)
   # Return a typed pagination envelope that callers can rely on.
-  return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
+  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
 @router.get("/llm-calls", response_model=PaginatedResponse[LlmAuditRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
-async def list_llm_calls(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), job_id: str | None = None, agent: str | None = None, status: str | None = None) -> PaginatedResponse[LlmAuditRecord]:
-  """List LLM audit records with pagination to keep admin views efficient."""
+async def list_llm_calls(
+  page: int = Query(1, ge=1),
+  limit: int = Query(20, ge=1, le=100),
+  job_id: str | None = None,
+  agent: str | None = None,
+  status: str | None = None,
+  provider: str | None = None,
+  model: str | None = None,
+  request_type: str | None = None,
+  sort_by: str = Query("started_at"),
+  sort_order: str = Query("desc"),
+) -> PaginatedResponse[LlmAuditRecord]:
+  """List LLM audit records with pagination, filtering, and sorting to keep admin views efficient."""
   # Resolve the repository here to keep handler orchestration focused.
   repo = get_audit_repo()
   # Fetch results and totals together for consistent pagination output.
-  items, total = await repo.list_records(limit=limit, offset=offset, job_id=job_id, agent=agent, status=status)
+  items, total = await repo.list_records(page=page, limit=limit, job_id=job_id, agent=agent, status=status, provider=provider, model=model, request_type=request_type, sort_by=sort_by, sort_order=sort_order)
   # Return a typed pagination envelope that callers can rely on.
-  return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
+  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
 @router.post("/sections/backfill-shorthand", response_model=SectionShorthandBackfillResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
@@ -864,3 +906,148 @@ async def backfill_sections_shorthand(request: SectionShorthandBackfillRequest) 
   """Backfill section shorthand content from stored raw section JSON."""
   result = await backfill_section_shorthand(request.section_ids)
   return SectionShorthandBackfillResponse(updated_section_ids=result.updated_section_ids, missing_section_ids=result.missing_section_ids, failed=result.failed)
+
+
+# Individual User Endpoint
+class UserDetailResponse(BaseModel):
+  """Complete user details for admin view."""
+
+  id: str
+  firebase_uid: str
+  email: str
+  full_name: str | None
+  provider: str | None
+  role_id: str
+  role_name: str | None
+  org_id: str | None
+  org_name: str | None
+  status: UserStatus
+  auth_method: str
+  profession: str | None
+  city: str | None
+  country: str | None
+  age: int | None
+  photo_url: str | None
+  gender: str | None
+  gender_other: str | None
+  occupation: str | None
+  topics_of_interest: list[str] | None
+  intended_use: str | None
+  intended_use_other: str | None
+  primary_language: str | None
+  secondary_language: str | None
+  onboarding_completed: bool
+  accepted_terms_at: str | None
+  accepted_privacy_at: str | None
+  terms_version: str | None
+  privacy_version: str | None
+  created_at: str
+  updated_at: str
+
+
+@router.get("/users/{user_id}/details", response_model=UserDetailResponse)
+async def get_user_details(user_id: str, current_user: User = Depends(get_current_admin_user), db_session: AsyncSession = Depends(get_db)) -> UserDetailResponse:  # noqa: B008
+  """Get complete user details for admin view."""
+  # Validate user id inputs early to avoid leaking query behavior.
+  try:
+    parsed_user_id = uuid.UUID(user_id)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id.") from exc
+
+  # Load the user record with role and org details
+  stmt = select(User, Role.name, Role.id).outerjoin(Role, Role.id == User.role_id).where(User.id == parsed_user_id)
+  result = await db_session.execute(stmt)
+  row = result.one_or_none()
+
+  if row is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+  user, role_name, _ = row
+
+  # Check tenant permissions
+  await check_tenant_permissions(db_session, current_user, target_org_id=user.org_id)
+
+  # Get org name if applicable
+  org_name = None
+  if user.org_id:
+    from app.schema.sql import Organization
+
+    org_stmt = select(Organization.name).where(Organization.id == user.org_id)
+    org_result = await db_session.execute(org_stmt)
+    org_name = org_result.scalar_one_or_none()
+
+  return UserDetailResponse(
+    id=str(user.id),
+    firebase_uid=user.firebase_uid,
+    email=user.email,
+    full_name=user.full_name,
+    provider=user.provider,
+    role_id=str(user.role_id),
+    role_name=role_name,
+    org_id=str(user.org_id) if user.org_id else None,
+    org_name=org_name,
+    status=user.status,
+    auth_method=user.auth_method.value,
+    profession=user.profession,
+    city=user.city,
+    country=user.country,
+    age=user.age,
+    photo_url=user.photo_url,
+    gender=user.gender,
+    gender_other=user.gender_other,
+    occupation=user.occupation,
+    topics_of_interest=user.topics_of_interest,
+    intended_use=user.intended_use,
+    intended_use_other=user.intended_use_other,
+    primary_language=user.primary_language,
+    secondary_language=user.secondary_language,
+    onboarding_completed=user.onboarding_completed,
+    accepted_terms_at=user.accepted_terms_at.isoformat() if user.accepted_terms_at else None,
+    accepted_privacy_at=user.accepted_privacy_at.isoformat() if user.accepted_privacy_at else None,
+    terms_version=user.terms_version,
+    privacy_version=user.privacy_version,
+    created_at=user.created_at.isoformat(),
+    updated_at=user.updated_at.isoformat(),
+  )
+
+
+# Fenster Widgets Endpoint
+@router.get("/fenster", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+async def list_fenster_widgets(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), fenster_id: str | None = None, widget_type: str | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")):
+  """List fenster widgets with pagination, filtering, and sorting."""
+  from app.storage.postgres_fenster_repo import PostgresFensterRepository
+
+  repo = PostgresFensterRepository()
+  items, total = await repo.list_fenster(page=page, limit=limit, fenster_id=fenster_id, widget_type=widget_type, sort_by=sort_by, sort_order=sort_order)
+  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
+
+
+# Illustrations Endpoint
+@router.get("/illustrations", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+async def list_illustrations(
+  page: int = Query(1, ge=1),
+  limit: int = Query(20, ge=1, le=100),
+  status: str | None = None,
+  is_archived: bool | None = None,
+  mime_type: str | None = None,
+  section_id: int | None = None,
+  sort_by: str = Query("created_at"),
+  sort_order: str = Query("desc"),
+):
+  """List illustrations with pagination, filtering, and sorting."""
+  from app.storage.postgres_illustrations_repo import PostgresIllustrationsRepository
+
+  repo = PostgresIllustrationsRepository()
+  items, total = await repo.list_illustrations(page=page, limit=limit, status=status, is_archived=is_archived, mime_type=mime_type, section_id=section_id, sort_by=sort_by, sort_order=sort_order)
+  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
+
+
+# Coach Audios Endpoint
+@router.get("/coach-audios", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+async def list_coach_audios(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), job_id: str | None = None, section_number: int | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")):
+  """List coach audios with pagination, filtering, and sorting."""
+  from app.storage.postgres_coach_audio_repo import PostgresCoachAudioRepository
+
+  repo = PostgresCoachAudioRepository()
+  items, total = await repo.list_coach_audios(page=page, limit=limit, job_id=job_id, section_number=section_number, sort_by=sort_by, sort_order=sort_order)
+  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)

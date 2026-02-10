@@ -54,13 +54,19 @@ _MAX_LIMIT = 100
 
 @router.get("", response_model=list[LessonRecordResponse])
 async def list_lessons(
-  settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_active_user), page: Annotated[int, Query(ge=1)] = _DEFAULT_PAGE, limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = _DEFAULT_LIMIT
+  settings: Settings = Depends(get_settings),
+  current_user: User = Depends(get_current_active_user),
+  page: Annotated[int, Query(ge=1)] = _DEFAULT_PAGE,
+  limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = _DEFAULT_LIMIT,
+  status: str | None = None,
+  topic: str | None = None,
+  sort_by: str = Query("created_at"),
+  sort_order: str = Query("desc"),
 ) -> list[LessonRecordResponse]:
-  """List lessons for the current user with pagination."""
+  """List lessons for the current user with pagination, filtering, and sorting."""
   repo = _get_repo(settings)
 
-  offset = (page - 1) * limit
-  lessons, _total = await repo.list_lessons(limit=limit, offset=offset, user_id=str(current_user.id))
+  lessons, _total = await repo.list_lessons(page=page, limit=limit, user_id=str(current_user.id), status=status, topic=topic, sort_by=sort_by, sort_order=sort_order)
 
   response = []
   for record in lessons:

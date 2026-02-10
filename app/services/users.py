@@ -11,7 +11,7 @@ import logging
 import uuid
 
 from app.schema.quotas import SubscriptionTier, UserUsageMetrics
-from app.schema.sql import AuthMethod, User, UserStatus
+from app.schema.sql import AuthMethod, Role, User, UserStatus
 from app.schema.users import OnboardingRequest
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -227,26 +227,71 @@ async def complete_user_onboarding(session: AsyncSession, *, user: User, data: O
   return user
 
 
-async def list_users(session: AsyncSession, *, org_id: uuid.UUID | None, limit: int, offset: int) -> tuple[list[User], int]:
-  """List users with optional org scoping to support admin experiences."""
+async def list_users(
+  session: AsyncSession, *, org_id: uuid.UUID | None, page: int = 1, limit: int = 20, email: str | None = None, status: UserStatus | None = None, role_id: uuid.UUID | None = None, sort_by: str = "id", sort_order: str = "desc"
+) -> tuple[list[tuple[User, str | None, str | None]], int]:
+  """List users with optional org scoping, filtering, and sorting to support admin experiences.
+
+  Returns tuples of (User, role_name, org_name) for enriched API responses.
+  """
+  # Calculate offset from page
+  offset = (page - 1) * limit
+
+  # Build base query with joins for enriched data
+  from app.schema.sql import Organization
+
+  stmt = select(User, Role.name, Organization.name).outerjoin(Role, Role.id == User.role_id).outerjoin(Organization, Organization.id == User.org_id)
+
   # Build base query scoped by tenant when required.
-  stmt = select(User)
   if org_id:
     stmt = stmt.where(User.org_id == org_id)
+
+  # Apply additional filters
+  if email:
+    stmt = stmt.where(User.email == email)
+  if status:
+    stmt = stmt.where(User.status == status)
+  if role_id:
+    stmt = stmt.where(User.role_id == role_id)
+
+  # Apply sorting
+  sort_column = User.id  # default
+  if sort_by == "id":
+    sort_column = User.id
+  elif sort_by == "email":
+    sort_column = User.email
+  elif sort_by == "status":
+    sort_column = User.status
+  elif sort_by == "created_at":
+    sort_column = User.created_at
+
+  if sort_order.lower() == "asc":
+    stmt = stmt.order_by(sort_column.asc())
+  else:
+    stmt = stmt.order_by(sort_column.desc())
 
   # Apply pagination in the database for predictable performance.
   stmt = stmt.limit(limit).offset(offset)
   result = await session.execute(stmt)
-  users = list(result.scalars().all())
+  rows = result.all()
+
+  # Extract users with enriched data
+  users_with_enrichment = [(row[0], row[1], row[2]) for row in rows]
 
   # Compute total using the same filter for pagination metadata.
   count_stmt = select(func.count(User.id))
   if org_id:
     count_stmt = count_stmt.where(User.org_id == org_id)
+  if email:
+    count_stmt = count_stmt.where(User.email == email)
+  if status:
+    count_stmt = count_stmt.where(User.status == status)
+  if role_id:
+    count_stmt = count_stmt.where(User.role_id == role_id)
 
   count_result = await session.execute(count_stmt)
   total = int(count_result.scalar_one())
-  return users, total
+  return users_with_enrichment, total
 
 
 async def delete_user(session: AsyncSession, user_id: uuid.UUID) -> bool:

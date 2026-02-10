@@ -7,7 +7,7 @@ import os
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -31,11 +31,13 @@ from app.jobs.dispatch import process_job as dispatch_process_job
 from app.jobs.models import JobRecord
 from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
 from app.notifications.factory import build_notification_service
+from app.schema.data_transfer import DataTransferRun
 from app.schema.fenster import FensterWidget, FensterWidgetType
 from app.schema.illustrations import Illustration, SectionIllustration
 from app.schema.lessons import Section
 from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
+from app.services.data_transfer_bundle import execute_export_run, execute_hydrate_run
 from app.services.maintenance import archive_old_lessons
 from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
 from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
@@ -341,25 +343,79 @@ class JobProcessor:
       await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
       return None
     action = action.strip().lower()
-    if action != "archive_old_lessons":
-      await tracker.fail(phase="failed", message="Unsupported maintenance action.")
-      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
-      return None
     session_factory = get_session_factory()
     if session_factory is None:
       await tracker.fail(phase="failed", message="Database is not initialized.")
       await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
       return None
     try:
-      async with session_factory() as session:
-        archived_count = await archive_old_lessons(session, settings=self._settings)
-      tracker.add_logs(f"Archived {archived_count} lesson(s).")
+      if action == "archive_old_lessons":
+        async with session_factory() as session:
+          archived_count = await archive_old_lessons(session, settings=self._settings)
+        tracker.add_logs(f"Archived {archived_count} lesson(s).")
+        result_json: dict[str, Any] = {"action": action, "archived_count": archived_count}
+      elif action in {"data_export", "data_hydrate"}:
+        raw_run_id = request_payload.get("run_id")
+        if not isinstance(raw_run_id, str) or raw_run_id.strip() == "":
+          raise RuntimeError("Data transfer maintenance action requires run_id.")
+        try:
+          run_uuid = uuid.UUID(raw_run_id)
+        except ValueError as exc:
+          raise RuntimeError("Data transfer maintenance action received invalid run_id.") from exc
+
+        async with session_factory() as session:
+          run = (await session.execute(select(DataTransferRun).where(DataTransferRun.id == run_uuid))).scalar_one_or_none()
+          if run is None:
+            raise RuntimeError(f"Data transfer run not found: {raw_run_id}")
+          if str(run.job_id) != str(job.job_id):
+            raise RuntimeError("Data transfer run/job mismatch.")
+          if action == "data_export":
+            export_result = await execute_export_run(session=session, settings=self._settings, run=run)
+            run.status = "done"
+            run.completed_at = datetime.now(UTC)
+            run.error_message = None
+            run.artifacts_json = export_result["artifacts_json"]
+            run.result_json = {"artifact_count": export_result["artifact_count"], "run_type": "export"}
+            session.add(run)
+            await session.commit()
+            tracker.add_logs(f"Export artifacts generated: {export_result['artifact_count']}.")
+            result_json = {"action": action, "run_id": str(run.id), "artifact_count": export_result["artifact_count"]}
+          else:
+            hydrate_result = await execute_hydrate_run(session=session, settings=self._settings, run=run)
+            run.status = "done"
+            run.completed_at = datetime.now(UTC)
+            run.error_message = None
+            run.result_json = hydrate_result
+            session.add(run)
+            await session.commit()
+            tracker.add_logs("Hydrate completed successfully.")
+            result_json = {"action": action, "run_id": str(run.id), **hydrate_result}
+      else:
+        await tracker.fail(phase="failed", message="Unsupported maintenance action.")
+        await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+        return None
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-      payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": {"action": action, "archived_count": archived_count}, "completed_at": completed_at}
+      payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": result_json, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **payload)
       return updated
     except Exception as exc:  # noqa: BLE001
       self._logger.error("Maintenance job failed", exc_info=True)
+      if action in {"data_export", "data_hydrate"}:
+        raw_run_id = request_payload.get("run_id")
+        if isinstance(raw_run_id, str):
+          try:
+            run_uuid = uuid.UUID(raw_run_id)
+          except ValueError:
+            run_uuid = None
+          if run_uuid is not None:
+            async with session_factory() as session:
+              run = (await session.execute(select(DataTransferRun).where(DataTransferRun.id == run_uuid))).scalar_one_or_none()
+              if run is not None:
+                run.status = "error"
+                run.completed_at = datetime.now(UTC)
+                run.error_message = str(exc)
+                session.add(run)
+                await session.commit()
       await tracker.fail(phase="failed", message=f"Maintenance job failed: {exc}")
       await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
       return None

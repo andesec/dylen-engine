@@ -47,6 +47,10 @@ class Settings:
   illustration_provider: str
   illustration_model: str | None
   illustration_bucket: str
+  export_bucket: str | None
+  export_object_prefix: str
+  export_signed_url_ttl_seconds: int
+  export_max_zip_bytes: int | None
   gcs_storage_host: str | None
   youtube_provider: str
   youtube_model: str | None
@@ -186,6 +190,10 @@ def get_settings() -> Settings:
   push_vapid_public_key = _optional_str(os.getenv("DYLEN_PUSH_VAPID_PUBLIC_KEY"))
   push_vapid_private_key = _optional_str(os.getenv("DYLEN_PUSH_VAPID_PRIVATE_KEY"))
   push_vapid_sub = _optional_str(os.getenv("DYLEN_PUSH_VAPID_SUB"))
+  export_signed_url_ttl_seconds = int(os.getenv("DYLEN_EXPORT_SIGNED_URL_TTL_SECONDS", "900"))
+  if export_signed_url_ttl_seconds <= 0:
+    raise ValueError("DYLEN_EXPORT_SIGNED_URL_TTL_SECONDS must be a positive integer.")
+  export_max_zip_bytes = _parse_optional_int(os.getenv("DYLEN_EXPORT_MAX_ZIP_BYTES"))
 
   # Validate notification settings only when notifications are enabled.
   if email_notifications_enabled:
@@ -246,6 +254,10 @@ def get_settings() -> Settings:
     illustration_provider=os.getenv("DYLEN_ILLUSTRATION_PROVIDER") or os.getenv("DYLEN_VISUALIZER_PROVIDER", "gemini"),
     illustration_model=os.getenv("DYLEN_ILLUSTRATION_MODEL") or os.getenv("DYLEN_VISUALIZER_MODEL", "gemini-2.5-flash-image"),
     illustration_bucket=os.getenv("DYLEN_ILLUSTRATION_BUCKET", "dylen-illustrations"),
+    export_bucket=_optional_str(os.getenv("DYLEN_EXPORT_BUCKET")),
+    export_object_prefix=(os.getenv("DYLEN_EXPORT_OBJECT_PREFIX") or "data-transfer").strip(),
+    export_signed_url_ttl_seconds=export_signed_url_ttl_seconds,
+    export_max_zip_bytes=export_max_zip_bytes,
     gcs_storage_host=_optional_str(os.getenv("GCS_STORAGE_HOST")),
     youtube_provider=os.getenv("DYLEN_YOUTUBE_PROVIDER", "gemini"),
     youtube_model=os.getenv("DYLEN_YOUTUBE_MODEL", "gemini-2.0-flash"),

@@ -6,6 +6,7 @@ from __future__ import annotations
 # Keeping this list centralized prevents migrations/drift checks from silently missing tables.
 import app.schema.audit  # noqa: F401
 import app.schema.coach  # noqa: F401
+import app.schema.data_transfer  # noqa: F401
 import app.schema.email_delivery_logs  # noqa: F401
 import app.schema.feature_flags  # noqa: F401
 import app.schema.fenster  # noqa: F401

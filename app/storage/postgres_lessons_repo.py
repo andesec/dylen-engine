@@ -201,11 +201,16 @@ class PostgresLessonsRepository(LessonsRepository):
       session.add(lesson)
       await session.commit()
 
-  async def list_lessons(self, limit: int, offset: int, topic: str | None = None, status: str | None = None, user_id: str | None = None) -> tuple[list[LessonRecord], int]:
-    """Return a paginated list of lessons with optional filters, and total count."""
+  async def list_lessons(
+    self, page: int = 1, limit: int = 20, topic: str | None = None, status: str | None = None, user_id: str | None = None, is_archived: bool | None = None, sort_by: str = "created_at", sort_order: str = "desc"
+  ) -> tuple[list[LessonRecord], int]:
+    """Return a paginated list of lessons with optional filters, sorting, and total count."""
     async with self._session_factory() as session:
-      # Build query
-      stmt = select(Lesson).order_by(Lesson.created_at.desc()).limit(limit).offset(offset)
+      # Calculate offset from page
+      offset = (page - 1) * limit
+
+      # Build base query
+      stmt = select(Lesson).limit(limit).offset(offset)
       count_stmt = select(func.count()).select_from(Lesson)
 
       # Apply filters
@@ -216,12 +221,32 @@ class PostgresLessonsRepository(LessonsRepository):
         conditions.append(Lesson.status == status)
       if user_id:
         conditions.append(Lesson.user_id == user_id)
+      if is_archived is not None:
+        conditions.append(Lesson.is_archived == is_archived)
 
       if conditions:
         stmt = stmt.where(*conditions)
         count_stmt = count_stmt.where(*conditions)
 
-      # Execute
+      # Apply sorting
+      sort_column = Lesson.created_at  # default
+      if sort_by == "lesson_id":
+        sort_column = Lesson.lesson_id
+      elif sort_by == "created_at":
+        sort_column = Lesson.created_at
+      elif sort_by == "topic":
+        sort_column = Lesson.topic
+      elif sort_by == "title":
+        sort_column = Lesson.title
+      elif sort_by == "status":
+        sort_column = Lesson.status
+
+      if sort_order.lower() == "asc":
+        stmt = stmt.order_by(sort_column.asc())
+      else:
+        stmt = stmt.order_by(sort_column.desc())
+
+      # Execute queries
       total = await session.scalar(count_stmt)
       result = await session.execute(stmt)
       lessons = result.scalars().all()

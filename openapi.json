@@ -3693,6 +3693,326 @@
         "title": "TierUpdateRequest",
         "type": "object"
       },
+      "UserDetailResponse": {
+        "description": "Complete user details for admin view.",
+        "properties": {
+          "accepted_privacy_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Privacy At"
+          },
+          "accepted_terms_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Terms At"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "auth_method": {
+            "title": "Auth Method",
+            "type": "string"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "firebase_uid": {
+            "title": "Firebase Uid",
+            "type": "string"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "gender_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender Other"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "intended_use": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intended Use"
+          },
+          "intended_use_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intended Use Other"
+          },
+          "occupation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occupation"
+          },
+          "onboarding_completed": {
+            "title": "Onboarding Completed",
+            "type": "boolean"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "org_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Name"
+          },
+          "photo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photo Url"
+          },
+          "primary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Language"
+          },
+          "privacy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Privacy Version"
+          },
+          "profession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profession"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "role_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Name"
+          },
+          "secondary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Language"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "terms_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms Version"
+          },
+          "topics_of_interest": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topics Of Interest"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "firebase_uid",
+          "email",
+          "full_name",
+          "provider",
+          "role_id",
+          "role_name",
+          "org_id",
+          "org_name",
+          "status",
+          "auth_method",
+          "profession",
+          "city",
+          "country",
+          "age",
+          "photo_url",
+          "gender",
+          "gender_other",
+          "occupation",
+          "topics_of_interest",
+          "intended_use",
+          "intended_use_other",
+          "primary_language",
+          "secondary_language",
+          "onboarding_completed",
+          "accepted_terms_at",
+          "accepted_privacy_at",
+          "terms_version",
+          "privacy_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "UserDetailResponse",
+        "type": "object"
+      },
       "UserEnabledUpdateRequest": {
         "properties": {
           "enabled": {
@@ -3851,9 +4171,31 @@
             ],
             "title": "Org Id"
           },
+          "org_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Name"
+          },
           "role_id": {
             "title": "Role Id",
             "type": "string"
+          },
+          "role_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Name"
           },
           "status": {
             "$ref": "#/components/schemas/UserStatus"
@@ -3864,7 +4206,9 @@
           "email",
           "status",
           "role_id",
-          "org_id"
+          "role_name",
+          "org_id",
+          "org_name"
         ],
         "title": "UserRecord",
         "type": "object"
@@ -3990,35 +4334,89 @@
         "description": "Request payload for response evaluation.",
         "properties": {
           "criteria": {
-            "additionalProperties": true,
-            "description": "The evaluation criteria from the lesson.",
-            "title": "Criteria",
-            "type": "object"
-          },
-          "idempotency_key": {
             "anyOf": [
               {
-                "type": "string"
+                "additionalProperties": true,
+                "type": "object"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Optional client-generated UUID to prevent duplicate processing of the same request.",
-            "title": "Idempotency Key"
+            "description": "Legacy evaluation criteria (deprecated).",
+            "title": "Criteria"
           },
           "text": {
             "description": "The user-written response to check (max 300 words).",
             "minLength": 1,
             "title": "Text",
             "type": "string"
+          },
+          "widget_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ID of the subjective input widget being checked.",
+            "title": "Widget Id"
           }
         },
         "required": [
-          "text",
-          "criteria"
+          "text"
         ],
         "title": "WritingCheckRequest",
+        "type": "object"
+      },
+      "WritingCheckResult": {
+        "properties": {
+          "feedback": {
+            "title": "Feedback",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "total_cost": {
+            "title": "Total Cost",
+            "type": "number"
+          },
+          "usage": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Usage",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "issues",
+          "feedback",
+          "logs",
+          "usage",
+          "total_cost"
+        ],
+        "title": "WritingCheckResult",
         "type": "object"
       }
     },
@@ -4035,6 +4433,118 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/admin/coach-audios": {
+      "get": {
+        "description": "List coach audios with pagination, filtering, and sorting.",
+        "operationId": "list_coach_audios_admin_coach_audios_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "section_number",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section Number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Coach Audios",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/config/definitions": {
       "get": {
         "description": "List supported runtime configuration keys for admin UIs.",
@@ -4272,6 +4782,194 @@
           }
         ],
         "summary": "Set Config Value",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/exports": {
+      "post": {
+        "description": "Queue one export run and return run/job identifiers.",
+        "operationId": "create_export_run_admin_data_transfer_exports_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Export Run",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/exports/{run_id}": {
+      "get": {
+        "description": "Return one export run status and metadata.",
+        "operationId": "get_export_run_admin_data_transfer_exports__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Export Run",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/exports/{run_id}/download-links": {
+      "post": {
+        "description": "Return signed artifact download URLs for a completed export run.",
+        "operationId": "get_export_download_links_admin_data_transfer_exports__run_id__download_links_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Export Download Links",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/hydrates": {
+      "post": {
+        "description": "Queue one hydrate run from a source export run id.",
+        "operationId": "create_hydrate_run_admin_data_transfer_hydrates_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Hydrate Run",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/hydrates/{run_id}": {
+      "get": {
+        "description": "Return one hydrate run status and metadata.",
+        "operationId": "get_hydrate_run_admin_data_transfer_hydrates__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Hydrate Run",
         "tags": [
           "admin"
         ]
@@ -4549,11 +5247,22 @@
         ]
       }
     },
-    "/admin/jobs": {
+    "/admin/fenster": {
       "get": {
-        "description": "List jobs for admins with pagination to control load and exposure.",
-        "operationId": "list_jobs_admin_jobs_get",
+        "description": "List fenster widgets with pagination, filtering, and sorting.",
+        "operationId": "list_fenster_widgets_admin_fenster_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "limit",
@@ -4568,12 +5277,257 @@
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "fenster_id",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fenster Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "widget_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Widget Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Fenster Widgets",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/illustrations": {
+      "get": {
+        "description": "List illustrations with pagination, filtering, and sorting.",
+        "operationId": "list_illustrations_admin_illustrations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Archived"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mime_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mime Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "section_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Illustrations",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/jobs": {
+      "get": {
+        "description": "List jobs for admins with pagination, filtering, and sorting to control load and exposure.",
+        "operationId": "list_jobs_admin_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
               "type": "integer"
             }
           },
@@ -4615,6 +5569,74 @@
               ],
               "title": "Job Id"
             }
+          },
+          {
+            "in": "query",
+            "name": "job_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Agent"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4652,9 +5674,20 @@
     },
     "/admin/lessons": {
       "get": {
-        "description": "List lessons with pagination to keep responses bounded and predictable.",
+        "description": "List lessons with pagination, filtering, and sorting to keep responses bounded and predictable.",
         "operationId": "list_lessons_admin_lessons_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "limit",
@@ -4664,17 +5697,6 @@
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
               "type": "integer"
             }
           },
@@ -4708,6 +5730,58 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Archived"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
             }
           }
         ],
@@ -4746,9 +5820,20 @@
     },
     "/admin/llm-calls": {
       "get": {
-        "description": "List LLM audit records with pagination to keep admin views efficient.",
+        "description": "List LLM audit records with pagination, filtering, and sorting to keep admin views efficient.",
         "operationId": "list_llm_calls_admin_llm_calls_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "limit",
@@ -4758,17 +5843,6 @@
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
               "type": "integer"
             }
           },
@@ -4818,6 +5892,74 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "in": "query",
+            "name": "request_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "started_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
             }
           }
         ],
@@ -5098,6 +6240,17 @@
         "parameters": [
           {
             "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -5110,13 +6263,70 @@
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "email",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Email"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/UserStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "id",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
             }
           }
         ],
@@ -5237,6 +6447,54 @@
           }
         ],
         "summary": "Approve User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/details": {
+      "get": {
+        "description": "Get complete user details for admin view.",
+        "operationId": "get_user_details_admin_users__user_id__details_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get User Details",
         "tags": [
           "admin"
         ]
@@ -6073,7 +7331,7 @@
     },
     "/internal/tasks/process-job": {
       "post": {
-        "description": "Handler for Cloud Tasks (and local simulation).\nExecutes the job synchronously so the task queue knows when it's done.",
+        "description": "Handler for Cloud Tasks (and local simulation).\nAccepts the task quickly and processes the job in the background to avoid client disconnects/timeouts.",
         "operationId": "process_job_task_internal_tasks_process_job_post",
         "parameters": [
           {
@@ -6537,7 +7795,7 @@
     },
     "/v1/lessons": {
       "get": {
-        "description": "List lessons for the current user with pagination.",
+        "description": "List lessons for the current user with pagination, filtering, and sorting.",
         "operationId": "list_lessons_v1_lessons_get",
         "parameters": [
           {
@@ -6561,6 +7819,58 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
             }
           }
         ],
@@ -7205,7 +8515,7 @@
     },
     "/v1/writing/check": {
       "post": {
-        "description": "Create a background job to check a writing task response.",
+        "description": "Synchronously check a writing task response.",
         "operationId": "create_writing_check_v1_writing_check_post",
         "requestBody": {
           "content": {
@@ -7218,11 +8528,11 @@
           "required": true
         },
         "responses": {
-          "202": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JobCreateResponse"
+                  "$ref": "#/components/schemas/WritingCheckResult"
                 }
               }
             },

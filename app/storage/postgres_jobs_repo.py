@@ -235,22 +235,54 @@ class PostgresJobsRepository(JobsRepository):
       rows = result.scalars().all()
       return [self._model_to_record(row) for row in rows]
 
-  async def list_jobs(self, limit: int, offset: int, status: str | None = None, job_id: str | None = None) -> tuple[list[JobRecord], int]:
-    """Return a paginated list of jobs with filters and total count."""
+  async def list_jobs(
+    self, page: int = 1, limit: int = 20, status: str | None = None, job_id: str | None = None, job_kind: str | None = None, user_id: str | None = None, target_agent: str | None = None, sort_by: str = "created_at", sort_order: str = "desc"
+  ) -> tuple[list[JobRecord], int]:
+    """Return a paginated list of jobs with filters, sorting, and total count."""
     async with self._session_factory() as session:
-      stmt = select(Job).order_by(Job.created_at.desc()).limit(limit).offset(offset)
+      # Calculate offset from page
+      offset = (page - 1) * limit
+
+      # Build base query
+      stmt = select(Job).limit(limit).offset(offset)
       count_stmt = select(func.count()).select_from(Job)
 
+      # Apply filters
       conditions = []
       if status:
         conditions.append(Job.status == status)
       if job_id:
         conditions.append(Job.job_id == job_id)
+      if job_kind:
+        conditions.append(Job.job_kind == job_kind)
+      if user_id:
+        conditions.append(Job.user_id == user_id)
+      if target_agent:
+        conditions.append(Job.target_agent == target_agent)
 
       if conditions:
         stmt = stmt.where(*conditions)
         count_stmt = count_stmt.where(*conditions)
 
+      # Apply sorting
+      sort_column = Job.created_at  # default
+      if sort_by == "job_id":
+        sort_column = Job.job_id
+      elif sort_by == "created_at":
+        sort_column = Job.created_at
+      elif sort_by == "updated_at":
+        sort_column = Job.updated_at
+      elif sort_by == "status":
+        sort_column = Job.status
+      elif sort_by == "job_kind":
+        sort_column = Job.job_kind
+
+      if sort_order.lower() == "asc":
+        stmt = stmt.order_by(sort_column.asc())
+      else:
+        stmt = stmt.order_by(sort_column.desc())
+
+      # Execute queries
       total = await session.scalar(count_stmt)
       result = await session.execute(stmt)
       jobs = result.scalars().all()
