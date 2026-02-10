@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from app.ai.agents.research import ResearchAgent
 from app.api.deps_concurrency import verify_concurrency
 from app.config import Settings, get_settings
-from app.core.security import get_current_active_user, require_feature_flag
+from app.core.security import get_current_active_user, require_feature_flag, require_permission
 from app.jobs.models import JobRecord
 from app.schema.research import ResearchDiscoveryRequest, ResearchDiscoveryResponse, ResearchSynthesisRequest, ResearchSynthesisResponse
 from app.schema.sql import User
@@ -23,7 +23,7 @@ def get_research_agent() -> ResearchAgent:
   return ResearchAgent()
 
 
-@router.post("/discover", response_model=ResearchDiscoveryResponse, dependencies=[Depends(require_feature_flag("feature.research")), Depends(verify_concurrency("research"))])
+@router.post("/discover", response_model=ResearchDiscoveryResponse, dependencies=[Depends(require_permission("research:use")), Depends(require_feature_flag("feature.research")), Depends(verify_concurrency("research"))])
 async def discover(
   request: ResearchDiscoveryRequest, agent: Annotated[ResearchAgent, Depends(get_research_agent)], current_user: Annotated[User, Depends(get_current_active_user)], settings: Annotated[Settings, Depends(get_settings)]
 ) -> ResearchDiscoveryResponse:
@@ -70,7 +70,7 @@ async def discover(
     raise
 
 
-@router.post("/synthesize", response_model=ResearchSynthesisResponse, dependencies=[Depends(require_feature_flag("feature.research")), Depends(verify_concurrency("research"))])
+@router.post("/synthesize", response_model=ResearchSynthesisResponse, dependencies=[Depends(require_permission("research:use")), Depends(require_feature_flag("feature.research")), Depends(verify_concurrency("research"))])
 async def synthesize(
   request: ResearchSynthesisRequest, agent: Annotated[ResearchAgent, Depends(get_research_agent)], current_user: Annotated[User, Depends(get_current_active_user)], settings: Annotated[Settings, Depends(get_settings)]
 ) -> ResearchSynthesisResponse:

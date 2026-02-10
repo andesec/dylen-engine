@@ -50,6 +50,10 @@ _PERMISSION_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
   ("push:subscribe_own", "Subscribe Push", "Create own push subscription."),
   ("push:unsubscribe_own", "Unsubscribe Push", "Delete own push subscription."),
   ("tutor:audio_view_own", "View Own Tutor Audio", "Access own tutor audio results."),
+  ("research:use", "Use Research", "Run research discovery and synthesis."),
+  ("writing:check", "Run Writing Check", "Run writing feedback checks."),
+  ("ocr:extract", "Extract OCR Text", "Extract text from uploaded images."),
+  ("fenster:view", "View Fenster Widget", "Read and render fenster widgets."),
   ("admin:jobs_read", "Read Admin Jobs", "Read administrative job listings."),
   ("admin:lessons_read", "Read Admin Lessons", "Read administrative lesson listings."),
   ("admin:llm_calls_read", "Read Admin LLM Calls", "Read administrative LLM audit listings."),
@@ -111,6 +115,10 @@ _ROLE_PERMISSION_DEFAULTS: dict[str, set[str]] = {
     "push:subscribe_own",
     "push:unsubscribe_own",
     "tutor:audio_view_own",
+    "research:use",
+    "writing:check",
+    "ocr:extract",
+    "fenster:view",
     "user:self_read",
     "user:quota_read",
     "user:features_read",
@@ -142,6 +150,10 @@ _ROLE_PERMISSION_DEFAULTS: dict[str, set[str]] = {
     "push:subscribe_own",
     "push:unsubscribe_own",
     "tutor:audio_view_own",
+    "research:use",
+    "writing:check",
+    "ocr:extract",
+    "fenster:view",
     "user:self_read",
     "user:quota_read",
     "user:features_read",
@@ -173,6 +185,10 @@ _ROLE_PERMISSION_DEFAULTS: dict[str, set[str]] = {
     "push:subscribe_own",
     "push:unsubscribe_own",
     "tutor:audio_view_own",
+    "research:use",
+    "writing:check",
+    "ocr:extract",
+    "fenster:view",
     "user:self_read",
     "user:quota_read",
     "user:features_read",
@@ -194,6 +210,10 @@ _ROLE_PERMISSION_DEFAULTS: dict[str, set[str]] = {
     "push:subscribe_own",
     "push:unsubscribe_own",
     "tutor:audio_view_own",
+    "research:use",
+    "writing:check",
+    "ocr:extract",
+    "fenster:view",
     "user:self_read",
     "user:quota_read",
     "user:features_read",
@@ -314,6 +334,73 @@ async def seed(connection: AsyncConnection) -> None:
   permission_ids = {str(row[1]): row[0] for row in permissions_result.fetchall()}
   feature_permission_slugs = {slug for slug in permission_ids.keys() if slug.startswith("feature_") and slug.endswith(":use")}
 
+  # Backfill strict permission-feature flags so every permission can be feature-gated.
+  if feature_flags_ready:
+    for slug in sorted(permission_ids.keys()):
+      perm_key = f"perm.{slug}"
+      await connection.execute(
+        text(
+          """
+          INSERT INTO feature_flags (id, key, description, default_enabled)
+          VALUES (:id, :key, :description, :default_enabled)
+          ON CONFLICT (key) DO UPDATE
+          SET description = EXCLUDED.description,
+              default_enabled = EXCLUDED.default_enabled
+          """
+        ),
+        {"id": uuid.uuid4(), "key": perm_key, "description": f"Enable permission `{slug}`.", "default_enabled": True},
+      )
+
+    # Keep strict chain deterministic by ensuring tier rows exist for all flags.
+    if await _ensure_columns(connection, table_name="subscription_tiers", columns=["id", "name"]) and await _ensure_columns(connection, table_name="subscription_tier_feature_flags", columns=["subscription_tier_id", "feature_flag_id", "enabled"]):
+      await connection.execute(
+        text(
+          """
+          INSERT INTO subscription_tier_feature_flags (subscription_tier_id, feature_flag_id, enabled)
+          SELECT st.id, ff.id, CASE WHEN ff.key LIKE 'perm.%' THEN TRUE ELSE FALSE END
+          FROM subscription_tiers st
+          CROSS JOIN feature_flags ff
+          ON CONFLICT (subscription_tier_id, feature_flag_id) DO NOTHING
+          """
+        )
+      )
+      await connection.execute(
+        text(
+          """
+          UPDATE subscription_tier_feature_flags stff
+          SET enabled = TRUE
+          FROM feature_flags ff
+          WHERE stff.feature_flag_id = ff.id
+            AND ff.key LIKE 'perm.%'
+          """
+        )
+      )
+
+    # Keep strict tenant chain deterministic by ensuring org rows exist.
+    if await _ensure_columns(connection, table_name="organizations", columns=["id"]) and await _ensure_columns(connection, table_name="organization_feature_flags", columns=["org_id", "feature_flag_id", "enabled"]):
+      await connection.execute(
+        text(
+          """
+          INSERT INTO organization_feature_flags (org_id, feature_flag_id, enabled)
+          SELECT org.id, ff.id, CASE WHEN ff.key LIKE 'perm.%' THEN TRUE ELSE FALSE END
+          FROM organizations org
+          CROSS JOIN feature_flags ff
+          ON CONFLICT (org_id, feature_flag_id) DO NOTHING
+          """
+        )
+      )
+      await connection.execute(
+        text(
+          """
+          UPDATE organization_feature_flags off
+          SET enabled = TRUE
+          FROM feature_flags ff
+          WHERE off.feature_flag_id = ff.id
+            AND ff.key LIKE 'perm.%'
+          """
+        )
+      )
+
   insert_role_permission_statement = text(
     """
     INSERT INTO role_permissions (role_id, permission_id)
@@ -349,3 +436,8 @@ async def seed(connection: AsyncConnection) -> None:
       ),
       {"role_id": super_admin_role_id},
     )
+
+  # Classify seeded tiers so strict tenant-chain routing can branch deterministically.
+  if await _column_exists(connection, table_name="subscription_tiers", column_name="is_tenant_tier"):
+    # Keep all tiers non-tenant until tenant-specific tiers are explicitly introduced.
+    await connection.execute(text("UPDATE subscription_tiers SET is_tenant_tier = FALSE"))

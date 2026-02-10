@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.orchestrator import OrchestrationError
-from app.api.routes import admin, auth, configuration, data_transfer, fenster, jobs, lessons, media, notifications, onboarding, purgatory, push, research, resources, sections, tasks, tutor, users, worker, writing
+from app.api.routes import admin, auth, configuration, data_transfer, fenster, jobs, lessons, media, notifications, onboarding, purgatory, push, quotas, research, resources, sections, tasks, tutor, users, worker, writing
 from app.config import get_settings
 from app.core.exceptions import global_exception_handler, http_exception_handler, orchestration_exception_handler, request_validation_exception_handler
 from app.core.json import DecimalJSONResponse
@@ -16,7 +16,7 @@ settings = get_settings()
 
 app = FastAPI(default_response_class=DecimalJSONResponse, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
-app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "OPTIONS"], allow_headers=["content-type", "authorization"], expose_headers=["content-length"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allow_headers=["content-type", "authorization"], expose_headers=["content-length"])
 
 
 # Add exception handlers
@@ -38,6 +38,7 @@ async def health_check() -> dict[str, str]:
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/user", tags=["users"])
+app.include_router(quotas.router, prefix="/api", tags=["quotas"])
 app.include_router(onboarding.router, prefix="/api", tags=["onboarding"])
 app.include_router(purgatory.router, prefix="/api", tags=["purgatory"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])

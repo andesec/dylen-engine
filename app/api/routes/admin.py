@@ -643,7 +643,7 @@ async def update_user_account_tier(user_id: str, request: UserTierUpdateRequest,
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/tiers/{tier_name}", response_model=TierRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.patch("/tiers/{tier_name}", response_model=TierRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("config:write_tier"))])
 async def update_subscription_tier(tier_name: str, request: TierUpdateRequest, db_session: AsyncSession = Depends(get_db)) -> TierRecord:  # noqa: B008
   """Update subscription tier quotas and limits for admin plan management."""
   # Dependency require_role_level(RoleLevel.GLOBAL) enforces GLOBAL role level.

@@ -17,6 +17,7 @@ class SubscriptionTier(Base):
 
   id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
   name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+  is_tenant_tier: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
   max_file_upload_kb: Mapped[int | None] = mapped_column(Integer, nullable=True)
   highest_lesson_depth: Mapped[str | None] = mapped_column(Enum("highlights", "detailed", "training", name="lesson_depth"), nullable=True)
   max_sections_per_lesson: Mapped[int | None] = mapped_column(Integer, nullable=True)

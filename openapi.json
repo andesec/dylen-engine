@@ -5086,7 +5086,7 @@
     },
     "/admin/feature-flags/override": {
       "put": {
-        "description": "Set a tier or tenant override for a feature flag.",
+        "description": "Set a global, tier, or tenant override for a feature flag.",
         "operationId": "set_flag_override_admin_feature_flags_override_put",
         "requestBody": {
           "content": {
@@ -7279,6 +7279,56 @@
         "summary": "Get Purgatory Status",
         "tags": [
           "purgatory"
+        ]
+      }
+    },
+    "/api/quota/{resource}": {
+      "get": {
+        "description": "Return a single quota resource payload for the authenticated user.",
+        "operationId": "get_quota_resource_by_key_api_quota__resource__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "title": "Resource",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Quota Resource By Key Api Quota  Resource  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Quota Resource By Key",
+        "tags": [
+          "quotas"
         ]
       }
     },

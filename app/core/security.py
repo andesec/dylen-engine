@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Annotated, Any
 
 from app.core.database import get_db
 from app.core.firebase import verify_id_token
 from app.schema.sql import RoleLevel, User, UserStatus
-from app.services.feature_flags import get_feature_flag_by_key, is_feature_enabled
+from app.services.feature_flags import FEATURE_REASON_MISCONFIGURED, resolve_feature_flag_decision
 from app.services.rbac import get_or_create_default_member_role, get_role_by_id, role_has_permission
 from app.services.users import create_user, get_user_by_firebase_uid, get_user_subscription_tier, get_user_tier_name, resolve_auth_method, update_user_provider
 from fastapi import Depends, HTTPException, status
@@ -17,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 security_scheme = HTTPBearer()
 _FEATURE_PERMISSION_SANITIZE_RE = re.compile(r"[^a-z0-9_]+")
+logger = logging.getLogger(__name__)
 
 
 def _feature_flag_to_permission_slug(flag_key: str) -> str:
@@ -156,14 +158,28 @@ def require_permission(permission_slug: str):  # noqa: ANN001
     if not has_permission:
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
-    # Support feature-flagging permissions without changing RBAC role tables.
+    # Enforce strict deny-by-default permission flags for every gated function.
     permission_flag_key = f"perm.{permission_slug}"
-    flag = await get_feature_flag_by_key(db, key=permission_flag_key)
-    if flag is not None:
-      tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
-      enabled = await is_feature_enabled(db, key=permission_flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
-      if not enabled:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission disabled")
+    tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
+    decision = await resolve_feature_flag_decision(db, key=permission_flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
+    if not decision.enabled:
+      # Log strict decision context so production denials can be diagnosed without exposing internals to clients.
+      logger.warning(
+        "Permission feature gate denied user_id=%s permission=%s flag=%s reason_code=%s tier_id=%s org_id=%s tier_record_exists=%s tenant_record_exists=%s promo_record_exists=%s",
+        current_user.id,
+        permission_slug,
+        permission_flag_key,
+        decision.reason_code,
+        tier_id,
+        current_user.org_id,
+        decision.tier_record_exists,
+        decision.tenant_record_exists,
+        decision.promo_record_exists,
+      )
+      detail: dict[str, str] = {"error": "FEATURE_UNAVAILABLE", "message": "Feature is not available. Please contact your administrator."}
+      if decision.reason_code == FEATURE_REASON_MISCONFIGURED:
+        detail["reason_code"] = FEATURE_REASON_MISCONFIGURED
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
     return current_user
 
@@ -179,11 +195,27 @@ def require_feature_flag(flag_key: str):  # noqa: ANN001
     has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug=permission_slug)
     if not has_permission:
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
-    # Enforce secure defaults by treating missing flags as disabled.
+
+    # Enforce secure defaults through strict scope-chain resolution.
     tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
-    enabled = await is_feature_enabled(db, key=flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
-    if not enabled:
-      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "FEATURE_DISABLED", "flag": flag_key})
+    decision = await resolve_feature_flag_decision(db, key=flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
+    if not decision.enabled:
+      # Log strict decision context so production denials can be diagnosed without exposing internals to clients.
+      logger.warning(
+        "Feature gate denied user_id=%s flag=%s reason_code=%s tier_id=%s org_id=%s tier_record_exists=%s tenant_record_exists=%s promo_record_exists=%s",
+        current_user.id,
+        flag_key,
+        decision.reason_code,
+        tier_id,
+        current_user.org_id,
+        decision.tier_record_exists,
+        decision.tenant_record_exists,
+        decision.promo_record_exists,
+      )
+      detail: dict[str, str] = {"error": "FEATURE_UNAVAILABLE", "message": "Feature is not available. Please contact your administrator."}
+      if decision.reason_code == FEATURE_REASON_MISCONFIGURED:
+        detail["reason_code"] = FEATURE_REASON_MISCONFIGURED
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
     return current_user
 
   return _dependency

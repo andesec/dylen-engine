@@ -115,6 +115,37 @@ def build_quota_summary(quota: ResolvedQuota) -> list[QuotaSummaryEntry]:
   return summaries
 
 
+def get_quota_resource(quota: ResolvedQuota, *, resource: str) -> dict[str, int | str | bool | None]:
+  """Return a single quota resource payload keyed by resource name."""
+  # Normalize input keys so route handlers can map user input deterministically.
+  target = (resource or "").strip().lower()
+  if target == "":
+    return {}
+
+  # Resolve base quota resources that come from tier/override columns.
+  base_map: dict[str, tuple[int | None, int | None]] = {
+    "file_uploads": (quota.total_file_uploads, quota.remaining_file_uploads),
+    "image_uploads": (quota.total_image_uploads, quota.remaining_image_uploads),
+    "sections": (quota.total_sections, quota.remaining_sections),
+    "research": (quota.total_research, quota.remaining_research),
+  }
+  if target in base_map:
+    total, available = base_map[target]
+    if total is None or total <= 0:
+      return {}
+    return {"resource": target, "total": total, "available": available, "tracked": True}
+
+  # Resolve bucket-based resources from the computed quota entries.
+  for entry in quota.quota_entries:
+    if entry.key != target:
+      continue
+    if entry.limit <= 0:
+      return {}
+    return {"resource": entry.key, "label": entry.label, "period": entry.period, "total": entry.limit, "used": entry.used, "available": entry.remaining, "tracked": entry.tracked, "enabled": entry.available}
+
+  return {}
+
+
 async def get_active_override(session: AsyncSession, user_id: uuid.UUID) -> UserTierOverride | None:
   """Return an active override for the user if present."""
   # Restrict override selection to the active window to avoid stale promos.

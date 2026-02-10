@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 from alembic import command
 from alembic.config import Config
+from app.core.env_contract import validate_runtime_env_or_raise
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -167,6 +168,8 @@ async def _run_migrations() -> None:
   """Run migrations with guardrails but WITHOUT advisory locks."""
   # Configure base logging for CLI usage.
   logging.basicConfig(level=logging.INFO)
+  # Enforce migrator env contracts before any DB connection is attempted.
+  validate_runtime_env_or_raise(logger=logger, target="migrator")
   # Read the database DSN from the environment for safety.
   raw_dsn = (os.getenv("DYLEN_PG_DSN") or "").strip()
   if not raw_dsn:

@@ -7,7 +7,7 @@ from app.api.deps_concurrency import verify_concurrency
 from app.api.models import WritingCheckRequest
 from app.config import Settings, get_settings
 from app.core.database import get_db
-from app.core.security import get_current_active_user, require_feature_flag
+from app.core.security import get_current_active_user, require_feature_flag, require_permission
 from app.schema.quotas import QuotaPeriod
 from app.schema.sql import User
 from app.services.audit import log_llm_interaction
@@ -41,7 +41,7 @@ def _writing_request_metrics(request: WritingCheckRequest) -> Mapping[str, int]:
   return metrics
 
 
-@router.post("/check", response_model=WritingCheckResult, status_code=status.HTTP_200_OK, dependencies=[Depends(require_feature_flag("feature.writing")), Depends(verify_concurrency("writing"))])
+@router.post("/check", response_model=WritingCheckResult, status_code=status.HTTP_200_OK, dependencies=[Depends(require_permission("writing:check")), Depends(require_feature_flag("feature.writing")), Depends(verify_concurrency("writing"))])
 async def create_writing_check(  # noqa: B008
   request: WritingCheckRequest,
   settings: Settings = Depends(get_settings),  # noqa: B008

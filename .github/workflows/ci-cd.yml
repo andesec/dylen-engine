@@ -56,7 +56,7 @@ jobs:
         run: make lint
 
       - name: Ruff Format
-        run: make format .
+        run: make format-check
 
       # - name: Mypy
       #   run: make typecheck
@@ -69,7 +69,7 @@ jobs:
           FIREBASE_PROJECT_ID: test-project
           GCP_PROJECT_ID: test-project
           GCP_LOCATION: us-central1
-        run: #make test
+        run: make test
 
   # Security Scanning Jobs
   security-sca:
@@ -102,7 +102,6 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: make security-sca
-        continue-on-error: true
 
   security-sast-bandit:
     name: Security - SAST (Bandit)
@@ -129,7 +128,6 @@ jobs:
 
       - name: Run Bandit scan
         run: make security-sast-bandit
-        continue-on-error: true
 
       - name: Upload Bandit reports
         uses: actions/upload-artifact@v4
@@ -166,7 +164,6 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: make security-sast-semgrep
-        continue-on-error: true
 
       - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -196,7 +193,6 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: make security-container
-        continue-on-error: true
 
   security-dast:
     name: Security - DAST (OWASP ZAP)
@@ -210,7 +206,6 @@ jobs:
 
       - name: Run DAST scan
         run: make security-dast
-        continue-on-error: true
 
       - name: Upload ZAP reports
         uses: actions/upload-artifact@v4
@@ -307,7 +302,7 @@ jobs:
     name: Deploy to GCP Cloud Run
     runs-on: ubuntu-latest
     needs: [validate, security-sca, security-sast-bandit, security-sast-semgrep, security-container, security-legacy, verify-docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: false
     permissions:
       contents: read
       id-token: write

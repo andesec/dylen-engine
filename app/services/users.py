@@ -158,6 +158,11 @@ async def create_user(
   await session.commit()
   await session.refresh(user)
   await ensure_usage_row(session, user.id)
+  # Provision strict tenant flag rows when users are created inside an organization.
+  if org_id is not None:
+    from app.services.feature_flags import ensure_org_feature_flag_rows
+
+    await ensure_org_feature_flag_rows(session, org_id=org_id)
   return user
 
 

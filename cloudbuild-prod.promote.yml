@@ -1,24 +1,21 @@
-# cloudbuild-stage.migrate.yml
-# Single command pipeline:
-# 0) sanity checks + ensure AR repo + required secrets preflight
-# 1) build
-# 2) push
-# 3) create/update migrations job + execute
-# 4) deploy service
-# 5) print effective env for both job + service
+# cloudbuild-prod.promote.yml
+# Promotion pipeline:
+# 0) preflight checks
+# 1) copy stage digest to prod registry and tag
+# 2) resolve prod digest and run migrations job
+# 3) deploy prod service pinned to digest
+# 4) print effective env for job + service
 
 substitutions:
   _REGION: "us-central1"
-  _AR_REPO: "dylen-stage"
+  _AR_REPO: "dylen-prod"
   _IMAGE: "app"
-  _TAG: "stage"
-
-  _SERVICE: "dylen-engine-stage"
-  _MIGRATE_JOB: "dylen-engine-stage-migrate"
-
-  _RUN_SA: "sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com"
-  _CLOUDSQL_INSTANCE: "dylen-stage-485900:us-central1:dylen-stage"
-
+  _SERVICE: "dylen-engine-prod"
+  _MIGRATE_JOB: "dylen-engine-prod-migrate"
+  _RUN_SA: "sa-dylen-prod@dylen-prod.iam.gserviceaccount.com"
+  _CLOUDSQL_INSTANCE: "dylen-prod:us-central1:dylen-prod"
+  _SOURCE_IMAGE_REF: ""
+  _RELEASE_TAG: ""
   _SECRET_DYLEN_ENV: "DYLEN_ENV"
   _SECRET_DYLEN_ALLOWED_ORIGINS: "DYLEN_ALLOWED_ORIGINS"
   _SECRET_DYLEN_PG_DSN: "DYLEN_PG_DSN"
@@ -30,86 +27,55 @@ substitutions:
   _SECRET_OPENROUTER_API_KEY: "OPENROUTER_API_KEY"
 
 steps:
-  # Step 0: sanity checks + ensure AR repo + required secrets preflight
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
       - "-ceu"
       - |
         gcloud config set run/region "${_REGION}"
-
-        gcloud artifacts repositories describe "${_AR_REPO}" --location "${_REGION}" >/dev/null 2>&1 || \
-          gcloud artifacts repositories create "${_AR_REPO}" --location "${_REGION}" --repository-format docker
-
-        required_secrets=(
-          "${_SECRET_DYLEN_ENV}"
-          "${_SECRET_DYLEN_ALLOWED_ORIGINS}"
-          "${_SECRET_DYLEN_PG_DSN}"
-          "${_SECRET_GCP_PROJECT_ID}"
-          "${_SECRET_GCP_LOCATION}"
-          "${_SECRET_FIREBASE_PROJECT_ID}"
-          "${_SECRET_DYLEN_ILLUSTRATION_BUCKET}"
-          "${_SECRET_GEMINI_API_KEY}"
-          "${_SECRET_OPENROUTER_API_KEY}"
-        )
-
-        for secret_name in "${required_secrets[@]}"; do
-          gcloud secrets describe "${secret_name}" >/dev/null 2>&1 || { echo "Missing required Secret Manager secret: ${secret_name}"; exit 3; }
+        [ -n "${_SOURCE_IMAGE_REF}" ] || { echo "_SOURCE_IMAGE_REF must be set"; exit 2; }
+        [ -n "${_RELEASE_TAG}" ] || { echo "_RELEASE_TAG must be set"; exit 2; }
+        echo "${_RELEASE_TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "_RELEASE_TAG must match vX.Y.Z"; exit 2; }
+        for secret_name in \
+          "${_SECRET_DYLEN_ENV}" \
+          "${_SECRET_DYLEN_ALLOWED_ORIGINS}" \
+          "${_SECRET_DYLEN_PG_DSN}" \
+          "${_SECRET_GCP_PROJECT_ID}" \
+          "${_SECRET_GCP_LOCATION}" \
+          "${_SECRET_FIREBASE_PROJECT_ID}" \
+          "${_SECRET_DYLEN_ILLUSTRATION_BUCKET}" \
+          "${_SECRET_GEMINI_API_KEY}" \
+          "${_SECRET_OPENROUTER_API_KEY}"; do
+          gcloud secrets describe "${secret_name}" >/dev/null 2>&1 || { echo "Missing required secret: ${secret_name}"; exit 3; }
         done
 
-  # Step 1: build
-  - name: "gcr.io/cloud-builders/docker"
-    env:
-      - "DOCKER_BUILDKIT=1"
-    args:
-      [
-        "build",
-        "--target", "production",
-        "--cache-from", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:buildcache",
-        "--build-arg", "BUILDKIT_INLINE_CACHE=1",
-        "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}",
-        "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:buildcache",
-        "."
-      ]
-
-  # Step 2: push
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "push",
-        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
-      ]
-
-  # Step 3: resolve digest and retag stage-current
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
       - "-ceu"
       - |
-        TAGGED_IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
-        IMAGE_DIGEST=""
+        TARGET_REPO="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}"
+        gcloud artifacts docker images copy "${_SOURCE_IMAGE_REF}" --destination="$${TARGET_REPO}:prod-current"
+        gcloud artifacts docker images copy "${_SOURCE_IMAGE_REF}" --destination="$${TARGET_REPO}:release-${_RELEASE_TAG}"
+        DIGEST=""
         for attempt in $(seq 1 12); do
-          IMAGE_DIGEST="$(gcloud artifacts docker images describe "$${TAGGED_IMAGE}" --format='value(image_summary.digest)' 2>/dev/null || true)"
-          if [ -n "$${IMAGE_DIGEST}" ]; then
+          DIGEST="$(gcloud artifacts docker images describe "$${TARGET_REPO}:prod-current" --format='value(image_summary.digest)' 2>/dev/null || true)"
+          if [ -n "$${DIGEST}" ]; then
             break
           fi
-          echo "Digest not available yet (attempt $${attempt}/12); retrying in 5s..."
+          echo "Prod digest not available yet (attempt $${attempt}/12); retrying in 5s..."
           sleep 5
         done
-        [ -n "$${IMAGE_DIGEST}" ] || { echo "Failed to resolve image digest for $${TAGGED_IMAGE}"; exit 4; }
-        IMAGE_REF="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}@$${IMAGE_DIGEST}"
-        gcloud artifacts docker tags add "$${IMAGE_REF}" "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:stage-current"
-        printf '%s' "$${IMAGE_REF}" > /workspace/image_ref.txt
-        echo "Resolved stage image ref: $${IMAGE_REF}"
+        [ -n "$${DIGEST}" ] || { echo "Failed to resolve prod digest"; exit 4; }
+        printf '%s' "$${TARGET_REPO}@$${DIGEST}" > /workspace/prod_image_ref.txt
+        echo "Promoted image ref: $$(cat /workspace/prod_image_ref.txt)"
 
-  # Step 4: create/update migrations job + execute
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
       - "-ceu"
       - |
-        IMAGE="$$(cat /workspace/image_ref.txt)"
-
+        IMAGE="$$(cat /workspace/prod_image_ref.txt)"
         if ! gcloud run jobs describe "${_MIGRATE_JOB}" --region "${_REGION}" >/dev/null 2>&1; then
           gcloud run jobs create "${_MIGRATE_JOB}" \
             --region "${_REGION}" \
@@ -131,17 +97,14 @@ steps:
             --command "python" \
             --args "scripts/migrate_with_lock.py"
         fi
-
         gcloud run jobs execute "${_MIGRATE_JOB}" --region "${_REGION}" --wait
 
-  # Step 5: deploy service
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
       - "-ceu"
       - |
-        IMAGE="$$(cat /workspace/image_ref.txt)"
-
+        IMAGE="$$(cat /workspace/prod_image_ref.txt)"
         gcloud run deploy "${_SERVICE}" \
           --region "${_REGION}" \
           --image "$${IMAGE}" \
@@ -152,17 +115,12 @@ steps:
           --port 8002 \
           --allow-unauthenticated
 
-  # Step 6: verify effective env
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
       - "-ceu"
       - |
-        echo "=== SERVICE ENV (effective) ==="
+        echo "=== PROD SERVICE ENV (effective) ==="
         gcloud run services describe "${_SERVICE}" --region "${_REGION}" --format="yaml(spec.template.spec.containers[0].env)"
-
-        echo "=== JOB ENV (effective) ==="
+        echo "=== PROD JOB ENV (effective) ==="
         gcloud run jobs describe "${_MIGRATE_JOB}" --region "${_REGION}" --format="yaml(spec.template.template.containers[0].env)"
-
-images:
-  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"

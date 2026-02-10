@@ -8,13 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import require_feature_flag, require_tier
+from app.core.security import require_feature_flag, require_permission, require_tier
 from app.schema.fenster import FensterWidget, FensterWidgetType
 
 router = APIRouter()
 
 
-@router.get("/{widget_id}", dependencies=[Depends(require_tier(["Plus", "Pro"])), Depends(require_feature_flag("feature.fenster"))])
+@router.get("/{widget_id}", dependencies=[Depends(require_permission("fenster:view")), Depends(require_tier(["Plus", "Pro"])), Depends(require_feature_flag("feature.fenster"))])
 async def get_fenster_widget(widget_id: str, db: AsyncSession = Depends(get_db)) -> Response:
   """
   Retrieve a Fenster widget by ID.

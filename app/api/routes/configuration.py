@@ -245,10 +245,23 @@ async def create_flag(request: FeatureFlagCreateRequest, current_user: User = De
 
 @router.put("/feature-flags/override", status_code=status.HTTP_200_OK)
 async def set_flag_override(request: FeatureFlagOverrideRequest, current_user: User = FLAGS_READ_DEP, db: AsyncSession = Depends(get_db)) -> dict[str, str]:  # noqa: B008
-  """Set a tier or tenant override for a feature flag."""
+  """Set a global, tier, or tenant override for a feature flag."""
   flag = await get_feature_flag_by_key(db, key=request.key)
   if flag is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feature flag not found")
+
+  # Keep the endpoint unambiguous so callers cannot send conflicting scopes.
+  if request.tier_name and request.org_id:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide only one override scope")
+
+  # Treat empty scope as a global default toggle for system-level feature governance.
+  if not request.tier_name and not request.org_id:
+    _ = await require_permission("flags:write_global")(current_user=current_user, db=db)  # type: ignore[misc]
+    await _require_global_role(db, current_user)
+    updated = await set_feature_flag_default_enabled(db, key=flag.key, enabled=request.enabled)
+    if updated is None:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feature flag not found")
+    return {"status": "ok"}
 
   if request.tier_name:
     _ = await require_permission("flags:write_tier")(current_user=current_user, db=db)  # type: ignore[misc]
@@ -264,7 +277,7 @@ async def set_flag_override(request: FeatureFlagOverrideRequest, current_user: U
     await set_org_feature_flag(db, org_id=parsed_org_id, feature_flag_id=flag.id, enabled=request.enabled)
     return {"status": "ok"}
 
-  raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Either org_id or tier_name is required")
+  raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid override scope")
 
 
 @router.get("/feature-flags/effective")
