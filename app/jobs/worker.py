@@ -927,17 +927,16 @@ class JobProcessor:
       # extracted_plan removed (unused)
 
       latency_ms = int((time.monotonic() - start_time) * 1000)
-
-      # Determine final title
-      final_title = request_payload.get("topic")
-      if existing_lesson and existing_lesson.title:
-        final_title = existing_lesson.title
+      # Ensure persistence never fails on missing title fields by using an existing title first.
+      title = existing_lesson.title if existing_lesson and existing_lesson.title else None
+      if not isinstance(title, str) or not title.strip():
+        title = request_payload.get("topic") or request_model.topic
 
       final_lesson_record = LessonRecord(
         lesson_id=lesson_id,
         user_id=str(job.user_id) if job.user_id else None,
         topic=request_model.topic,
-        title=final_title,
+        title=title,
         created_at=existing_lesson.created_at if existing_lesson else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         schema_version=request_model.schema_version or self._settings.schema_version,
         prompt_version=self._settings.prompt_version,
@@ -965,7 +964,7 @@ class JobProcessor:
       # Re-fetch sections to report accurate count
       final_sections = await repo.list_sections(lesson_id)
 
-      summary = {"lesson_id": lesson_id, "title": final_title, "total_sections": len(final_sections), "generated_count": len(final_sections), "sections": [{"section_id": s.section_id, "title": s.title} for s in final_sections]}
+      summary = {"lesson_id": lesson_id, "title": title, "total_sections": len(final_sections), "generated_count": len(final_sections), "sections": [{"section_id": s.section_id, "title": s.title} for s in final_sections]}
 
       payload = {
         "status": "done",

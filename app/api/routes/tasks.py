@@ -4,7 +4,7 @@ import logging
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
@@ -19,10 +19,10 @@ class TaskPayload(BaseModel):
 
 
 @router.post("/process-job", status_code=status.HTTP_200_OK)
-async def process_job_task(payload: TaskPayload, settings: Annotated[Settings, Depends(get_settings)], authorization: str | None = Header(default=None)) -> dict[str, str]:
+async def process_job_task(payload: TaskPayload, background_tasks: BackgroundTasks, settings: Annotated[Settings, Depends(get_settings)], authorization: str | None = Header(default=None)) -> dict[str, str]:
   """
   Handler for Cloud Tasks (and local simulation).
-  Executes the job synchronously so the task queue knows when it's done.
+  Accepts the task quickly and processes the job in the background to avoid client disconnects/timeouts.
   """
   # Secure-by-default: internal task endpoints must be authenticated to avoid arbitrary job execution.
   if not settings.task_secret:
@@ -33,11 +33,6 @@ async def process_job_task(payload: TaskPayload, settings: Annotated[Settings, D
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid task secret.")
 
   logger.info("Received task for job %s", payload.job_id)
-
-  result = await process_job_sync(payload.job_id, settings)
-
-  if result is None or result.status == "error":
-    # Even if HTTP 200 (to satisfy Cloud Tasks), return truthful status in body
-    return {"status": "error"}
-
-  return {"status": "ok"}
+  # Run processing asynchronously so task dispatchers (local-http, Cloud Tasks) can get a fast 2xx response.
+  background_tasks.add_task(process_job_sync, payload.job_id, settings)
+  return {"status": "accepted"}

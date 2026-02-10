@@ -49,9 +49,9 @@ class LocalHttpEnqueuer(TaskEnqueuer):
 
     try:
       async with self._build_client(self.settings.base_url) as client:
-        # The local task endpoint runs work synchronously, so allow a long deadline for parity with Cloud Tasks.
         logger.info(f"Dispatching task locally to {url}")
-        response = await client.post(url, json={"job_id": job_id}, headers=self._task_headers(), timeout=1800.0)
+        # The local task endpoint only needs to acknowledge receipt, not finish processing inline.
+        response = await client.post(url, json={"job_id": job_id}, headers=self._task_headers(), timeout=5.0)
         response.raise_for_status()
 
     except httpx.HTTPStatusError as e:
