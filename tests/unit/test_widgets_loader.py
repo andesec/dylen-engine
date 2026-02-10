@@ -11,12 +11,15 @@ def test_load_widget_registry() -> None:
   registry = load_widget_registry(widgets_path)
 
   # Verify known widgets are loaded
-  assert registry.is_known("p")
+  assert registry.is_known("markdown")
   assert registry.is_known("flip")
   assert registry.is_known("mcqs")
   assert registry.is_known("table")
   assert registry.is_known("interactiveTerminal")
   assert registry.is_known("terminalDemo")
+  assert not registry.is_known("p")
+  assert not registry.is_known("ul")
+  assert not registry.is_known("ol")
 
   # Verify unknown widgets return False
   assert not registry.is_known("unknown_widget")
@@ -30,9 +33,9 @@ def test_widget_definition_fields() -> None:
   # Check that shorthand widgets are correctly identified
   flip_def = registry.get_definition("flip")
   assert flip_def is not None
-  assert flip_def.is_shorthand
+  assert not flip_def.is_shorthand
 
-  # Check that we extracted shorthand positions for some widgets
+  # Check that we extracted fields for some widgets
   free_text_def = registry.get_definition("freeText")
-  if free_text_def and free_text_def.is_shorthand:
-    assert len(free_text_def.shorthand_positions) > 0
+  assert free_text_def is not None
+  assert any(f.name == "prompt" for f in free_text_def.fields)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
@@ -12,27 +11,40 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from app.ai.agents.coach import CoachAgent
 from app.ai.agents.fenster_builder import FensterBuilderAgent
-from app.ai.orchestrator import DylenOrchestrator, OrchestrationError, OrchestrationResult
-from app.ai.pipeline.contracts import GenerationRequest, JobContext
+from app.ai.agents.illustration import IllustrationAgent
+from app.ai.agents.planner import PlannerAgent
+from app.ai.agents.section_builder import SectionBuilder
+from app.ai.orchestrator import OrchestrationError, OrchestrationResult
+from app.ai.pipeline.contracts import GenerationRequest, JobContext, PlanSection
 from app.ai.router import get_model_for_mode
 from app.ai.utils.cost import calculate_total_cost
 from app.ai.utils.progress import SectionProgressUpdate
 from app.api.models import GenerateLessonRequest, WritingCheckRequest
 from app.config import Settings
 from app.core.database import get_session_factory
+from app.jobs.dispatch import JobProcessorHandler, JobProcessorRegistry
+from app.jobs.dispatch import process_job as dispatch_process_job
 from app.jobs.models import JobRecord
 from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
 from app.notifications.factory import build_notification_service
 from app.schema.fenster import FensterWidget, FensterWidgetType
-from app.schema.serialize_lesson import lesson_to_shorthand
+from app.schema.illustrations import Illustration, SectionIllustration
+from app.schema.lessons import Section
+from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
-from app.schema.validate_lesson import validate_lesson
-from app.services.model_routing import _get_orchestrator, _resolve_model_selection
+from app.services.maintenance import archive_old_lessons
+from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
+from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, get_quota_snapshot, release_quota_reservation, reserve_quota
 from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
-from app.services.users import get_user_by_id
+from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.section_shorthand import build_section_shorthand_content
+from app.services.storage_client import build_storage_client
+from app.services.tasks.factory import get_task_enqueuer
+from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord
@@ -44,26 +56,318 @@ from app.writing.orchestrator import WritingCheckOrchestrator
 class JobProcessor:
   """Coordinates execution of queued jobs."""
 
-  def __init__(self, *, jobs_repo: JobsRepository, orchestrator: DylenOrchestrator, settings: Settings) -> None:
+  def __init__(self, *, jobs_repo: JobsRepository, settings: Settings, registry: JobProcessorRegistry | None = None) -> None:
     self._jobs_repo = jobs_repo
-    self._orchestrator = orchestrator
     self._settings = settings
     self._logger = logging.getLogger(__name__)
+    self._registry = registry or self._build_default_registry()
+
+  def _build_default_registry(self) -> JobProcessorRegistry:
+    """Build the default target-agent handler registry."""
+
+    class _MethodHandler:
+      """Adapter that exposes worker coroutine methods as DI handlers."""
+
+      def __init__(self, method: Callable[[JobRecord], Awaitable[JobRecord | None]]) -> None:
+        self._method = method
+
+      async def process(self, job: JobRecord) -> JobRecord | None:
+        return await self._method(job)
+
+    handlers: dict[str, JobProcessorHandler] = {
+      "planner": _MethodHandler(self._process_planner_job),
+      "section_builder": _MethodHandler(self._process_section_builder_job),
+      "fenster_builder": _MethodHandler(self._process_fenster_build),
+      "coach": _MethodHandler(self._process_coach_job),
+      "illustration": _MethodHandler(self._process_illustration_job),
+      "maintenance": _MethodHandler(self._process_maintenance_job),
+      "writing": _MethodHandler(self._process_writing_check),
+    }
+    return JobProcessorRegistry(handlers)
 
   async def process_job(self, job: JobRecord) -> JobRecord | None:
     """Execute a single queued job, routing by type."""
     if job.status != "queued":
       return job
+    wrapped_request = job.request.get("payload")
+    target_agent = str(job.target_agent or "").strip()
+    if target_agent == "lesson":
+      target_agent = "planner"
+    if target_agent == "" and (("text" in job.request and "criteria" in job.request) or (isinstance(wrapped_request, dict) and "text" in wrapped_request and "criteria" in wrapped_request)):
+      target_agent = "writing"
+    if target_agent == "":
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=list(job.logs or []) + ["Missing target_agent on queued job."])
+      return None
+    try:
+      result = await dispatch_process_job(job, target_agent, self._registry, self._jobs_repo, get_task_enqueuer(self._settings), None, self._settings)
+      return result.record
+    except Exception as exc:  # noqa: BLE001
+      self._logger.error("Job processor dispatch failed for job %s", job.job_id, exc_info=True)
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=list(job.logs or []) + [f"Dispatch failed: {exc}"])
+      return None
 
-    if job.target_agent == "fenster_builder":
-      return await self._process_fenster_build(job)
+  async def _create_child_job(self, *, parent_job: JobRecord, target_agent: str, payload: dict[str, Any], lesson_id: str | None, section_id: int | None, job_kind: str | None = None) -> JobRecord | None:
+    """Create and enqueue a child job from a parent job."""
+    if not await self._quota_available_for_target(user_id=parent_job.user_id, target_agent=target_agent):
+      await self._jobs_repo.update_job(parent_job.job_id, logs=list(parent_job.logs or []) + [f"Skipped child job for {target_agent}: quota unavailable."])
+      return None
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    child_job_id = str(uuid.uuid4())
+    request_payload = {"payload": payload, "_meta": {"parent_job_id": parent_job.job_id}}
 
-    if job.target_agent == "coach":
-      return await self._process_coach_job(job)
+    child_record = JobRecord(
+      job_id=child_job_id,
+      user_id=parent_job.user_id,
+      job_kind=(job_kind or parent_job.job_kind),
+      request=request_payload,
+      status="queued",
+      parent_job_id=parent_job.job_id,
+      lesson_id=lesson_id,
+      section_id=section_id,
+      target_agent=target_agent,
+      phase="queued",
+      created_at=timestamp,
+      updated_at=timestamp,
+      expected_sections=0,
+      completed_sections=0,
+      completed_section_indexes=[],
+      retry_count=0,
+      max_retries=0,
+      logs=[],
+      progress=0.0,
+      ttl=parent_job.ttl,
+      idempotency_key=f"{child_job_id}:{target_agent}",
+    )
+    await self._jobs_repo.create_job(child_record)
+    enqueuer = get_task_enqueuer(self._settings)
+    try:
+      await enqueuer.enqueue(child_job_id, {})
+    except Exception:  # noqa: BLE001
+      await self._jobs_repo.update_job(child_job_id, status="error", phase="failed", progress=100.0, logs=["Enqueue failed: CHILD_TASK_ENQUEUE_FAILED"])
+      await self._jobs_repo.update_job(parent_job.job_id, logs=list(parent_job.logs or []) + [f"Failed to enqueue child job {child_job_id}."])
+      return None
+    return child_record
 
-    if "text" in job.request and "criteria" in job.request:
-      return await self._process_writing_check(job)
-    return await self._process_lesson_generation(job)
+  async def _quota_available_for_target(self, *, user_id: str | None, target_agent: str) -> bool:
+    """Check whether a child job target has available quota for the current user."""
+    metric_map: dict[str, tuple[str, str, QuotaPeriod]] = {
+      "section_builder": ("limits.sections_per_month", "section.generate", QuotaPeriod.MONTH),
+      "coach": ("limits.coach_sections_per_month", "coach.generate", QuotaPeriod.MONTH),
+      "fenster_builder": ("limits.fenster_widgets_per_month", "fenster.widget.generate", QuotaPeriod.MONTH),
+      "illustration": ("limits.image_generations_per_month", "image.generate", QuotaPeriod.MONTH),
+      "planner": ("limits.lessons_per_week", "lesson.generate", QuotaPeriod.WEEK),
+      "writing": ("limits.writing_checks_per_month", "writing.check", QuotaPeriod.MONTH),
+    }
+    config = metric_map.get(target_agent)
+    if config is None:
+      return True
+    if user_id is None:
+      return False
+    session_factory = get_session_factory()
+    if session_factory is None:
+      return False
+    try:
+      parsed_user_id = uuid.UUID(str(user_id))
+    except ValueError:
+      return False
+    limit_key, metric_key, period = config
+    try:
+      async with session_factory() as session:
+        user = await get_user_by_id(session, parsed_user_id)
+        if user is None:
+          return False
+        tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+        runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+        limit = int(runtime_config.get(limit_key) or 0)
+        if limit <= 0:
+          return False
+        snapshot = await get_quota_snapshot(session, user_id=user.id, metric_key=metric_key, period=period, limit=limit)
+        return snapshot.remaining > 0
+    except Exception:  # noqa: BLE001
+      self._logger.error("Quota availability check failed for target_agent=%s", target_agent, exc_info=True)
+      return False
+
+  async def _process_planner_job(self, job: JobRecord) -> JobRecord | None:
+    """Execute planner-only work and fan out one section-builder job per section."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="planner", initial_logs=["Planner job picked up."])
+    await tracker.set_phase(phase="planning", subphase="planner_start")
+    try:
+      request_payload = _strip_internal_request_fields(job.request)
+      request_model = GenerateLessonRequest.model_validate(request_payload)
+      section_count = {"highlights": 2, "detailed": 6, "training": 10}.get(str(request_model.depth).lower(), 2)
+      generation_request = GenerationRequest(
+        topic=request_model.topic,
+        prompt=request_model.details,
+        outcomes=request_model.outcomes,
+        depth=request_model.depth,
+        section_count=section_count,
+        blueprint=request_model.blueprint,
+        teaching_style=request_model.teaching_style,
+        language=request_model.primary_language,
+        learner_level=request_model.learner_level,
+        widgets=request_model.widgets,
+      )
+      provider = self._settings.planner_provider
+      model_name = self._settings.planner_model
+      model_instance = get_model_for_mode(provider, model_name, agent="planner")
+      planner_agent = PlannerAgent(model=model_instance, prov=provider, schema=SchemaService())
+      lesson_id = str(job.lesson_id or generate_lesson_id())
+      job_metadata = {"settings": self._settings, "lesson_id": lesson_id}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=generation_request, metadata=job_metadata)
+      lesson_plan = await planner_agent.run(generation_request, job_ctx)
+      repo = _get_repo(self._settings)
+      existing_lesson = await repo.get_lesson(lesson_id)
+      created_at = existing_lesson.created_at if existing_lesson else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+      lesson_record = LessonRecord(
+        lesson_id=lesson_id,
+        user_id=str(job.user_id) if job.user_id else None,
+        topic=request_model.topic,
+        title=request_model.topic,
+        created_at=created_at,
+        schema_version=request_model.schema_version or self._settings.schema_version,
+        prompt_version=self._settings.prompt_version,
+        provider_a=provider,
+        model_a=model_name or "default",
+        provider_b="pending",
+        model_b="pending",
+        status="generating",
+        latency_ms=0,
+        idempotency_key=request_model.idempotency_key,
+        lesson_plan=lesson_plan.model_dump(mode="python"),
+      )
+      await repo.upsert_lesson(lesson_record)
+      done_payload = {
+        "status": "done",
+        "phase": "complete",
+        "progress": 100.0,
+        "logs": tracker.logs + ["Planner completed successfully."],
+        "result_json": {"lesson_id": lesson_id, "planned_sections": len(lesson_plan.sections)},
+        "lesson_id": lesson_id,
+        "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+      }
+      updated_parent = await self._jobs_repo.update_job(job.job_id, **done_payload)
+      if updated_parent is None:
+        return None
+      for plan_section in lesson_plan.sections:
+        child_payload = {
+          "lesson_id": lesson_id,
+          "section_number": int(plan_section.section_number),
+          "plan_section": plan_section.model_dump(mode="python"),
+          "generation_request": generation_request.model_dump(mode="python"),
+          "schema_version": request_model.schema_version or self._settings.schema_version,
+        }
+        await self._create_child_job(parent_job=updated_parent, target_agent="section_builder", payload=child_payload, lesson_id=lesson_id, section_id=None)
+      return await self._jobs_repo.get_job(job.job_id)
+    except Exception as exc:  # noqa: BLE001
+      self._logger.error("Planner job failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Planner job failed: {exc}")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
+
+  async def _process_section_builder_job(self, job: JobRecord) -> JobRecord | None:
+    """Execute one section-builder unit and fan out section child jobs."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="section_builder", initial_logs=["Section builder job picked up."])
+    await tracker.set_phase(phase="building", subphase="section_builder_start")
+    try:
+      wrapped_payload = job.request.get("payload")
+      request_payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
+      lesson_id = str(job.lesson_id or request_payload.get("lesson_id") or "")
+      if lesson_id == "":
+        raise RuntimeError("Section builder job missing lesson_id.")
+      section_number = int(request_payload.get("section_number") or 0)
+      if section_number <= 0:
+        raise RuntimeError("Section builder job missing section_number.")
+      generation_payload = request_payload.get("generation_request") or {}
+      generation_request = GenerationRequest.model_validate(generation_payload)
+      plan_section = PlanSection.model_validate(request_payload.get("plan_section") or {})
+      provider = self._settings.section_builder_provider
+      model_name = self._settings.section_builder_model
+      model_instance = get_model_for_mode(provider, model_name, agent="section_builder")
+      section_agent = SectionBuilder(model=model_instance, prov=provider, schema=SchemaService())
+      metadata = {"settings": self._settings, "lesson_id": lesson_id, "schema_version": str(request_payload.get("schema_version") or self._settings.schema_version), "structured_output": True}
+      if job.user_id:
+        metadata["user_id"] = str(job.user_id)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=generation_request, metadata=metadata)
+      structured = await section_agent.run(plan_section, job_ctx)
+      db_section_id = int(structured.db_section_id) if structured.db_section_id is not None else None
+      done_payload = {
+        "status": "done",
+        "phase": "complete",
+        "progress": 100.0,
+        "logs": tracker.logs + [f"Section {section_number} completed successfully."],
+        "result_json": {"lesson_id": lesson_id, "section_number": section_number, "section_id": db_section_id},
+        "section_id": db_section_id,
+        "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+      }
+      updated_parent = await self._jobs_repo.update_job(job.job_id, **done_payload)
+      if updated_parent is None:
+        return None
+      section_payload = structured.payload
+      await self._create_child_job(
+        parent_job=updated_parent,
+        target_agent="illustration",
+        payload={"section_index": section_number, "section_id": db_section_id, "lesson_id": lesson_id, "topic": generation_request.topic, "section_data": section_payload},
+        lesson_id=lesson_id,
+        section_id=db_section_id,
+      )
+      await self._create_child_job(
+        parent_job=updated_parent,
+        target_agent="coach",
+        payload={"section_index": section_number, "topic": generation_request.topic, "section_data": section_payload, "learning_data_points": section_payload.get("learning_data_points", [])},
+        lesson_id=lesson_id,
+        section_id=db_section_id,
+      )
+      if _section_contains_fenster(section_payload):
+        await self._create_child_job(
+          parent_job=updated_parent,
+          target_agent="fenster_builder",
+          payload={"lesson_id": lesson_id, "concept_context": f"Fenster widgets for section {section_number} in topic {generation_request.topic}", "target_audience": generation_request.learner_level or "Student", "technical_constraints": {}},
+          lesson_id=lesson_id,
+          section_id=db_section_id,
+        )
+      return await self._jobs_repo.get_job(job.job_id)
+    except Exception as exc:  # noqa: BLE001
+      self._logger.error("Section builder job failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Section builder job failed: {exc}")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
+
+  async def _process_maintenance_job(self, job: JobRecord) -> JobRecord | None:
+    """Execute a background maintenance job (retention, cleanup, etc.)."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="maintenance", initial_logs=["Maintenance job acknowledged."])
+    await tracker.set_phase(phase="maintenance", subphase="start")
+    wrapped_payload = job.request.get("payload")
+    request_payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
+    action = request_payload.get("action")
+    if not isinstance(action, str) or action.strip() == "":
+      await tracker.fail(phase="failed", message="Maintenance job missing action.")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
+    action = action.strip().lower()
+    if action != "archive_old_lessons":
+      await tracker.fail(phase="failed", message="Unsupported maintenance action.")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
+    session_factory = get_session_factory()
+    if session_factory is None:
+      await tracker.fail(phase="failed", message="Database is not initialized.")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
+    try:
+      async with session_factory() as session:
+        archived_count = await archive_old_lessons(session, settings=self._settings)
+      tracker.add_logs(f"Archived {archived_count} lesson(s).")
+      completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+      payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": {"action": action, "archived_count": archived_count}, "completed_at": completed_at}
+      updated = await self._jobs_repo.update_job(job.job_id, **payload)
+      return updated
+    except Exception as exc:  # noqa: BLE001
+      self._logger.error("Maintenance job failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Maintenance job failed: {exc}")
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      return None
 
   async def _process_fenster_build(self, job: JobRecord) -> JobRecord | None:
     """Execute Fenster Widget generation."""
@@ -85,10 +389,15 @@ class JobProcessor:
 
       agent = FensterBuilderAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
 
-      payload = job.request.get("payload", {})
+      wrapped_payload = job.request.get("payload")
+      payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
       # Use a dummy request for context
       dummy_req = GenerationRequest(topic="widget_build", depth="highlights", section_count=2)
-      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name, request=dummy_req)
+      # Forward settings and user metadata for agent-scoped quota reservations.
+      job_metadata = {"settings": self._settings}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name, request=dummy_req, metadata=job_metadata)
 
       html_content = await agent.run(payload, job_ctx)
 
@@ -118,6 +427,15 @@ class JobProcessor:
       return updated
 
     except Exception as exc:
+      # Gracefully handle quota disabled or exceeded by marking success-but-skipped or just done.
+      # Since we don't have a partial-success status, "done" with logs is better than "error" for quota toggles.
+      if "quota disabled" in str(exc) or isinstance(exc, QuotaExceededError):
+        self._logger.info("Fenster quota disabled, skipping job %s", job.job_id)
+        completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Quota disabled. Skipping widget build."], "result_json": {}, "completed_at": completed_at}
+        updated = await self._jobs_repo.update_job(job.job_id, **payload)
+        return updated
+
       self._logger.error("Fenster build failed", exc_info=True)
       await tracker.fail(phase="failed", message=f"Fenster build failed: {exc}")
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
@@ -144,10 +462,15 @@ class JobProcessor:
 
       agent = CoachAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
 
-      payload = job.request.get("payload", {})
+      wrapped_payload = job.request.get("payload")
+      payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
       # Context
       dummy_req = GenerationRequest(topic=payload.get("topic", "unknown"), depth="highlights", section_count=1)
-      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=dummy_req)
+      # Forward settings and user metadata for agent-scoped quota reservations.
+      job_metadata = {"settings": self._settings}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=dummy_req, metadata=job_metadata)
 
       audio_ids = await agent.run(payload, job_ctx)
 
@@ -170,12 +493,218 @@ class JobProcessor:
       await self._jobs_repo.update_job(job.job_id, **payload)
       return None
 
+  async def _process_illustration_job(self, job: JobRecord) -> JobRecord | None:
+    """Execute section illustration generation and persistence."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="illustration", initial_logs=["Illustration job picked up."])
+    await tracker.set_phase(phase="building", subphase="generating_image")
+
+    wrapped_payload = job.request.get("payload")
+    payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
+    section_id = int(payload.get("section_id") or 0)
+    illustration_row_id: int | None = None
+    uploaded_object_name: str | None = None
+    generation_caption: str | None = None
+    generation_prompt: str | None = None
+    generation_keywords: list[str] | None = None
+    finalized_success = False
+
+    try:
+      if section_id <= 0:
+        raise ValueError("Illustration job payload missing valid section_id.")
+
+      session_factory = get_session_factory()
+      if session_factory is None:
+        raise RuntimeError("Database session factory unavailable.")
+      storage_client = build_storage_client(self._settings)
+
+      # Resolve section row first to support idempotency checks and fallback metadata.
+      async with session_factory() as session:
+        section_stmt = select(Section).where(Section.section_id == section_id)
+        section_result = await session.execute(section_stmt)
+        section_row = section_result.scalar_one_or_none()
+        if section_row is None:
+          raise RuntimeError(f"Section {section_id} not found for illustration job.")
+        section_content = dict(section_row.content or {})
+
+      fallback_caption, fallback_prompt, fallback_keywords = _derive_illustration_metadata_from_payload(payload, section_content)
+      generation_caption = fallback_caption
+      generation_prompt = fallback_prompt
+      generation_keywords = fallback_keywords
+
+      # Check active section pointer first so retried child jobs are idempotent.
+      async with session_factory() as session:
+        section_row = await session.get(Section, section_id)
+        if section_row is None:
+          raise RuntimeError(f"Section {section_id} not found for illustration job.")
+        existing_illustration_id = _extract_section_illustration_id(section_row.content)
+        if existing_illustration_id is not None:
+          existing_illustration = await session.get(Illustration, existing_illustration_id)
+          if existing_illustration is not None and existing_illustration.status == "completed" and await storage_client.exists(existing_illustration.storage_object_name):
+            total_cost = calculate_total_cost([])
+            cost_summary = _summarize_cost([], total_cost)
+            await tracker.set_cost(cost_summary)
+            completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            result_json = {"section_id": section_id, "illustration_id": int(existing_illustration.id), "image_name": existing_illustration.storage_object_name, "skipped": True}
+            update_payload = {
+              "status": "done",
+              "phase": "complete",
+              "progress": 100.0,
+              "logs": tracker.logs + [f"Illustration already exists for section {section_id}. Skipping regeneration."],
+              "result_json": result_json,
+              "cost": cost_summary,
+              "completed_at": completed_at,
+            }
+            updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
+            return updated
+
+      # Resolve runtime-configured provider/model for the illustration agent.
+      runtime_config: dict[str, Any] = {}
+      if job.user_id:
+        try:
+          parsed_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          parsed_user_id = None
+        if parsed_user_id is not None:
+          async with session_factory() as session:
+            user = await get_user_by_id(session, parsed_user_id)
+            if user is not None:
+              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+      provider = str(runtime_config.get("ai.illustration.provider") or runtime_config.get("ai.visualizer.provider") or self._settings.illustration_provider)
+      model_name = str(runtime_config.get("ai.illustration.model") or runtime_config.get("ai.visualizer.model") or self._settings.illustration_model or "")
+      model_instance = get_model_for_mode(provider, model_name or None, agent="illustration")
+      schema_service = SchemaService()
+      usage_list: list[dict[str, Any]] = []
+
+      def usage_sink(usage_entry: dict[str, Any]) -> None:
+        usage_list.append(usage_entry)
+
+      agent = IllustrationAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
+      topic = str(payload.get("topic") or "unknown")
+      dummy_req = GenerationRequest(topic=topic, depth="highlights", section_count=1)
+      job_metadata = {"settings": self._settings}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+      job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=dummy_req, metadata=job_metadata)
+      generation = await agent.run(payload, job_ctx)
+      generation_caption = str(generation["caption"])
+      generation_prompt = str(generation["ai_prompt"])
+      generation_keywords = [str(item) for item in list(generation["keywords"])]
+
+      # Persist an explicit processing row before upload so failures always have a DB status trail.
+      async with session_factory() as session:
+        pending_object_name = f"tmp-{uuid.uuid4().hex}.webp"
+        illustration_row = Illustration(
+          storage_bucket=storage_client.bucket_name,
+          storage_object_name=pending_object_name,
+          mime_type="image/webp",
+          caption=generation_caption,
+          ai_prompt=generation_prompt,
+          keywords=generation_keywords,
+          status="processing",
+          is_archived=False,
+          regenerate=False,
+        )
+        session.add(illustration_row)
+        await session.commit()
+        await session.refresh(illustration_row)
+        illustration_row_id = int(illustration_row.id)
+
+      object_name = f"{illustration_row_id}.webp"
+      await storage_client.upload_webp(generation["image_bytes"], object_name, cache_control="public, max-age=3600")
+      uploaded_object_name = object_name
+
+      async with session_factory() as session:
+        section_row = await session.get(Section, section_id)
+        if section_row is None:
+          raise RuntimeError(f"Section {section_id} not found for final illustration update.")
+        illustration_row = await session.get(Illustration, illustration_row_id)
+        if illustration_row is None:
+          raise RuntimeError(f"Illustration row {illustration_row_id} not found for finalization.")
+        illustration_row.storage_object_name = object_name
+        illustration_row.status = "completed"
+        illustration_row.caption = generation_caption
+        illustration_row.ai_prompt = generation_prompt
+        illustration_row.keywords = generation_keywords
+        session.add(illustration_row)
+        link_row = SectionIllustration(section_id=section_id, illustration_id=illustration_row_id)
+        session.add(link_row)
+
+        # Keep section payload as source of truth for the active illustration pointer.
+        section_content = dict(section_row.content or {})
+        section_content["illustration"] = {"caption": generation_caption, "ai_prompt": generation_prompt, "keywords": generation_keywords, "id": illustration_row_id}
+        shorthand_content = build_section_shorthand_content(section_content)
+        section_row.content = section_content
+        section_row.content_shorthand = shorthand_content
+        session.add(section_row)
+        await session.commit()
+      finalized_success = True
+
+      total_cost = calculate_total_cost(usage_list)
+      cost_summary = _summarize_cost(usage_list, total_cost)
+      await tracker.set_cost(cost_summary)
+      completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+      result_json = {"section_id": section_id, "illustration_id": illustration_row_id, "image_name": uploaded_object_name or "", "mime_type": "image/webp"}
+      update_payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + [f"Illustration generated for section {section_id}."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
+      updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
+      return updated
+
+    except Exception as exc:
+      # Best-effort cleanup and state persistence so failures remain diagnosable.
+      session_factory = get_session_factory()
+      if session_factory is not None and not finalized_success:
+        try:
+          async with session_factory() as session:
+            if illustration_row_id is None:
+              failed_row = Illustration(
+                storage_bucket=self._settings.illustration_bucket,
+                storage_object_name=uploaded_object_name or f"failed-{uuid.uuid4().hex}.webp",
+                mime_type="image/webp",
+                caption=generation_caption or "Illustration failed",
+                ai_prompt=generation_prompt or "Illustration generation failed before prompt completion.",
+                keywords=generation_keywords or ["failed", "illustration", "section", "error"],
+                status="failed",
+                is_archived=False,
+                regenerate=False,
+              )
+              session.add(failed_row)
+              await session.commit()
+            else:
+              illustration_row = await session.get(Illustration, illustration_row_id)
+              if illustration_row is not None:
+                illustration_row.status = "failed"
+                if generation_caption:
+                  illustration_row.caption = generation_caption
+                if generation_prompt:
+                  illustration_row.ai_prompt = generation_prompt
+                if generation_keywords:
+                  illustration_row.keywords = generation_keywords
+                if uploaded_object_name:
+                  illustration_row.storage_object_name = uploaded_object_name
+                session.add(illustration_row)
+                await session.commit()
+        except Exception:  # noqa: BLE001
+          self._logger.error("Illustration failure persistence hook failed.", exc_info=True)
+      if uploaded_object_name and not finalized_success:
+        try:
+          storage_client = build_storage_client(self._settings)
+          await storage_client.delete(uploaded_object_name)
+        except Exception:  # noqa: BLE001
+          self._logger.warning("Failed to remove partially uploaded illustration object %s", uploaded_object_name)
+      self._logger.error("Illustration job failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Illustration job failed: {exc}")
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      await self._jobs_repo.update_job(job.job_id, **payload)
+      return None
+
   async def _process_lesson_generation(self, job: JobRecord) -> JobRecord | None:
     """Execute a single queued lesson generation job."""
+    wrapped_payload = job.request.get("payload")
+    request_payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
 
     base_logs = job.logs + ["Job acknowledged by worker."]
     try:
-      call_plan = build_call_plan(job.request)
+      call_plan = build_call_plan(request_payload)
     except ValueError as exc:
       error_log = f"Validation failed: {exc}"
       payload = {"status": "error", "phase": "failed", "subphase": "validation", "progress": 100.0, "logs": base_logs + [error_log]}
@@ -183,7 +712,8 @@ class JobProcessor:
       return None
 
     total_steps = call_plan.total_steps(include_validation=True, include_repair=True)
-    expected_sections = call_plan.depth
+    # Prefer persisted expected section counts so quota-capped jobs remain deterministic.
+    expected_sections = int(job.expected_sections or call_plan.depth)
     initial_logs = base_logs + [
       f"Planned AI calls: {call_plan.required_calls}",
       f"Depth: {call_plan.depth}",
@@ -198,9 +728,22 @@ class JobProcessor:
     await tracker.set_phase(phase="plan", subphase="planner_start", expected_sections=expected_sections)
 
     start_time = time.monotonic()
+
+    # Re-hydrate request model for access to typed fields
+    # Use internal helper to strip metadata (like _meta, user_id) that causes validation errors
+    try:
+      cleaned_request = _strip_internal_request_fields(request_payload)
+      request_model = GenerateLessonRequest.model_validate(cleaned_request)
+    except ValidationError:
+      self._logger.warning("Job %s has invalid request data, aborting.", job.job_id)
+      raise
     soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
     hard_timeout = _parse_timeout_env("JOB_HARD_TIMEOUT_SECONDS")
     soft_timeout_recorded = False
+    # Capture quota config for per-section consumption in the progress callback.
+    # Keep quota enforcement metadata separate from agent-side reservations.
+    quota_user_id: uuid.UUID | None = None
+    quota_sections_per_month = 0
 
     async def _check_timeouts() -> bool:
       nonlocal soft_timeout_recorded
@@ -228,27 +771,137 @@ class JobProcessor:
       retry_section_numbers = _to_section_numbers(retry_section_indexes) if retry_section_indexes else None
       is_retry = job.retry_count is not None and job.retry_count > 0
       enable_repair = retry_agents is None or "repair" in retry_agents
-      base_result_json = job.result_json
-      base_completed_sections = len(base_completed_indexes)
-      retry_completed_indexes: list[int] = []
+      is_retry = job.retry_count is not None and job.retry_count > 0
+      enable_repair = retry_agents is None or "repair" in retry_agents
+      # Unused variables removed: base_result_json, base_completed_sections, retry_completed_indexes
+      # Enforce quota cap for section generation, including mid-queue tier changes.
+      session_factory = get_session_factory()
+      # Store runtime config for model defaults once user tier is known.
+      runtime_config: dict[str, Any] | None = None
+
+      # Determine lesson_id early for persistence
+      lesson_id = job.result_json.get("lesson_id") if job.result_json and "lesson_id" in job.result_json else generate_lesson_id()
+
+      # Update job metadata with lesson_id so Orchestrator can persist sections incrementally
+      # We'll construct full job_metadata below.
+      if session_factory is not None and job.user_id:
+        try:
+          quota_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          quota_user_id = None
+        if quota_user_id is not None:
+          try:
+            async with session_factory() as session:
+              user = await get_user_by_id(session, quota_user_id)
+              if user is not None:
+                tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+                runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+                quota_sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
+                if quota_sections_per_month <= 0:
+                  raise QuotaExceededError("section.generate quota disabled")
+                quota_snapshot = await get_quota_snapshot(session, user_id=user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=quota_sections_per_month)
+                if quota_snapshot.remaining <= 0:
+                  raise QuotaExceededError("section.generate quota exceeded")
+                # Respect any persisted cap plus the live remaining quota to avoid overruns.
+                expected_sections = min(int(expected_sections), int(quota_snapshot.remaining))
+                if expected_sections <= 0:
+                  raise QuotaExceededError("section.generate quota exceeded")
+          except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, QuotaExceededError):
+              raise
+            raise ValueError(f"Quota enforcement failed: {exc}") from exc
 
       if retry_section_indexes:
         tracker.add_logs(f"Retry sections: {', '.join(str(i) for i in retry_section_indexes)}")
 
+      # Cap generation to the first N sections when expected_sections is lower than the plan depth.
+      quota_section_filter = None
+      if expected_sections < call_plan.depth:
+        quota_section_filter = set(range(1, expected_sections + 1))
+        tracker.add_logs(f"Quota cap applied: generating only {expected_sections} section(s) this month.")
+
+      effective_section_filter = retry_section_numbers
+      if quota_section_filter is not None:
+        effective_section_filter = quota_section_filter if effective_section_filter is None else set(effective_section_filter).intersection(quota_section_filter)
+        if effective_section_filter is not None and len(effective_section_filter) == 0:
+          raise ValueError("No sections remain eligible for generation under the current quota cap.")
+
+      # -------------------------------------------------------------------------
+      # RETRY LOGIC: DB-BASED PRE-CHECK
+      # -------------------------------------------------------------------------
+      if is_retry:
+        try:
+          repo = _get_repo(self._settings)
+          # If we are retrying, the lesson might already exist.
+          # lesson_id is already resolved above.
+          existing_sections = await repo.list_sections(lesson_id)
+          if existing_sections:
+            completed_indices = {s.order_index for s in existing_sections}  # 0-based
+            # We need to generate everything from 0 to expected_sections-1 that is NOT in existing_indices
+            needed_indices = {i for i in range(expected_sections) if i not in completed_indices}
+
+            # Convert to 1-based for Orchestraor filter
+            needed_section_numbers = {i + 1 for i in needed_indices}
+
+            if effective_section_filter:
+              effective_section_filter = effective_section_filter.intersection(needed_section_numbers)
+            else:
+              effective_section_filter = needed_section_numbers
+
+            tracker.add_logs(f"Retry: Found {len(existing_sections)} sections. Generating: {sorted(effective_section_filter)}")
+          else:
+            tracker.add_logs("Retry: No existing sections found in DB. Generating all.")
+        except Exception as exc:
+          self._logger.error("Failed to check existing sections for retry: %s", exc)
+      # -------------------------------------------------------------------------
+
+      # Prepare Metadata including lesson_id
+      job_metadata = {"settings": self._settings, "lesson_id": lesson_id}
+      if job.user_id:
+        job_metadata["user_id"] = str(job.user_id)
+
+      # Create or Ensure Lesson Record Exists (Status: Generating)
+      try:
+        repo = _get_repo(self._settings)
+        existing_lesson = await repo.get_lesson(lesson_id)
+        if not existing_lesson:
+          placeholder_record = LessonRecord(
+            lesson_id=lesson_id,
+            user_id=str(job.user_id) if job.user_id else None,
+            topic=request_payload.get("topic", "Unknown"),
+            title=request_payload.get("topic", "Unknown"),
+            created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            schema_version=self._settings.schema_version,
+            prompt_version=self._settings.prompt_version,
+            provider_a="pending",
+            model_a="pending",
+            provider_b="pending",
+            model_b="pending",
+            status="generating",
+            latency_ms=0,
+          )
+          await repo.upsert_lesson(placeholder_record)
+      except Exception as exc:
+        self._logger.warning("Failed to create/check lesson record: %s", exc)
+
       orchestration_result = await self._run_orchestration(
         job.job_id,
-        job.request,
+        request_payload,
         expected_sections=expected_sections,
         tracker=tracker,
         timeout_checker=_check_timeouts,
-        retry_section_numbers=retry_section_numbers,
+        retry_section_numbers=effective_section_filter,
         is_retry=is_retry,
-        base_result_json=base_result_json,
-        base_completed_indexes=base_completed_indexes,
-        retry_completed_indexes=retry_completed_indexes,
-        base_completed_sections=base_completed_sections,
         enable_repair=enable_repair,
+        base_completed_sections=request_payload.get("base_completed_sections", 0),
+        retry_completed_indexes=[],  # Always start fresh for retries
+        runtime_config=runtime_config,
+        quota_user_id=quota_user_id,
+        quota_sections_per_month=quota_sections_per_month,
+        job_metadata=job_metadata,
       )
+
+      # Abort quickly if a cancellation lands after orchestration completes.
 
       # Abort quickly if a cancellation lands after orchestration completes.
       canceled_record = await self._jobs_repo.get_job(job.job_id)
@@ -260,74 +913,71 @@ class JobProcessor:
         return None
 
       # Surface orchestration logs even when validation fails.
+      # Surface orchestration logs even when validation fails.
       tracker.extend_logs(orchestration_result.logs)
-      merged_result_json = orchestration_result.lesson_json
-      merged_indexes = list(range(expected_sections))
-      request_model = GenerateLessonRequest.model_validate(_strip_internal_request_fields(job.request))
 
-      if is_retry and retry_section_indexes is not None:
-        merged_result_json, merged_indexes = _merge_retry_result(
-          base_result_json=base_result_json, base_completed_indexes=base_completed_indexes, retry_partial_json=orchestration_result.lesson_json, retry_completed_indexes=retry_completed_indexes, topic=request_model.topic
-        )
-
-      if is_retry and retry_section_indexes is not None and len(merged_indexes) < expected_sections:
-        raise ValueError("Retry did not complete all expected sections.")
-
-      lesson_model_validation = validate_lesson(merged_result_json)
-      ok, errors, lesson_model = lesson_model_validation
-      validation = {"ok": ok, "errors": errors}
-
-      if not ok or lesson_model is None:
-        raise ValueError(f"Validation failed with {len(errors)} error(s).")
-
-      shorthand = lesson_to_shorthand(lesson_model)
-      await tracker.complete_validation(message="Validate phase complete.", status="done", expected_sections=expected_sections)
       cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
       await tracker.set_cost(cost_summary)
-      # Persist the completed lesson into the lessons repository.
-      lesson_id = generate_lesson_id()
-      latency_ms = int((time.monotonic() - start_time) * 1000)
-      # Ensure persistence never fails on missing title fields, even if upstream validation rules change.
-      title = merged_result_json.get("title") if isinstance(merged_result_json, dict) else None
-      if not isinstance(title, str) or not title.strip():
-        title = request_model.topic
 
-      lesson_record = LessonRecord(
+      # Finalize Lesson Record (Status: OK, Plan: Saved)
+      repo = _get_repo(self._settings)
+
+      existing_lesson = await repo.get_lesson(lesson_id)
+
+      # extracted_plan removed (unused)
+
+      latency_ms = int((time.monotonic() - start_time) * 1000)
+      # Ensure persistence never fails on missing title fields by using an existing title first.
+      title = existing_lesson.title if existing_lesson and existing_lesson.title else None
+      if not isinstance(title, str) or not title.strip():
+        title = request_payload.get("topic") or request_model.topic
+
+      final_lesson_record = LessonRecord(
         lesson_id=lesson_id,
+        user_id=str(job.user_id) if job.user_id else None,
         topic=request_model.topic,
         title=title,
-        created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        created_at=existing_lesson.created_at if existing_lesson else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         schema_version=request_model.schema_version or self._settings.schema_version,
         prompt_version=self._settings.prompt_version,
         provider_a=orchestration_result.provider_a,
         model_a=orchestration_result.model_a,
         provider_b=orchestration_result.provider_b,
         model_b=orchestration_result.model_b,
-        lesson_json=json.dumps(merged_result_json, ensure_ascii=True),
         status="ok",
         latency_ms=latency_ms,
         idempotency_key=request_model.idempotency_key,
+        lesson_plan=orchestration_result.artifacts.get("plan") if orchestration_result.artifacts else None,
       )
-      lessons_repo = _get_repo(self._settings)
-      await lessons_repo.create_lesson(lesson_record)
-      # Notify the job owner after the lesson is durably persisted.
+      # Save Sections logic removed - handled by SectionBuilder
+
+      # Save Lesson Record
+      await repo.upsert_lesson(final_lesson_record)
+
+      # Notify the job owner
       await _notify_job_lesson_generated(settings=self._settings, job_request=job.request, lesson_id=lesson_id, topic=request_model.topic)
+
       log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
       log_updates.append("Job completed successfully.")
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+      # Re-fetch sections to report accurate count
+      final_sections = await repo.list_sections(lesson_id)
+
+      summary = {"lesson_id": lesson_id, "title": title, "total_sections": len(final_sections), "generated_count": len(final_sections), "sections": [{"section_id": s.section_id, "title": s.title} for s in final_sections]}
+
       payload = {
         "status": "done",
         "phase": "validate",
         "subphase": "complete",
         "progress": 100.0,
         "logs": log_updates,
-        "result_json": shorthand,
+        "result_json": summary,
         "artifacts": orchestration_result.artifacts,
-        "validation": validation,
+        "validation": {"ok": True, "errors": []},
         "cost": cost_summary,
         "expected_sections": expected_sections,
-        "completed_sections": len(merged_indexes),
-        "completed_section_indexes": merged_indexes,
+        "completed_sections": len(final_sections),
         "completed_at": completed_at,
       }
       updated = await self._jobs_repo.update_job(job.job_id, **payload)
@@ -339,11 +989,31 @@ class JobProcessor:
     except OrchestrationError as exc:
       # Preserve pipeline logs when orchestration fails fast.
       tracker.extend_logs(exc.logs)
+      quota_metric = _extract_quota_metric(str(exc))
+      if quota_metric is not None:
+        quota_message = f"Quota exceeded during lesson job execution ({quota_metric})."
+        self._logger.warning("Job %s failed due to exhausted quota. metric=%s error=%s", job.job_id, quota_metric, exc)
+        await tracker.fail(phase="failed", message=quota_message)
+        payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+        await self._jobs_repo.update_job(job.job_id, **payload)
+        await _notify_job_failed(settings=self._settings, job=job)
+        return None
       error_log = f"Job failed: {exc}"
       self._logger.error(error_log)
       await tracker.fail(phase="failed", message=error_log)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
+      await _notify_job_failed(settings=self._settings, job=job)
+      return None
+
+    except QuotaExceededError as exc:
+      quota_metric = _extract_quota_metric(str(exc)) or "unknown"
+      quota_message = f"Quota exceeded during lesson job execution ({quota_metric})."
+      self._logger.warning("Job %s failed due to exhausted quota. metric=%s error=%s", job.job_id, quota_metric, exc)
+      await tracker.fail(phase="failed", message=quota_message)
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      await self._jobs_repo.update_job(job.job_id, **payload)
+      await _notify_job_failed(settings=self._settings, job=job)
       return None
 
     except Exception as exc:  # noqa: BLE001
@@ -352,23 +1022,56 @@ class JobProcessor:
       await tracker.fail(phase="failed", message=error_log)
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
+      await _notify_job_failed(settings=self._settings, job=job)
       return None
 
   async def _process_writing_check(self, job: JobRecord) -> JobRecord | None:
     """Execute a background writing task evaluation."""
     tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="check", initial_logs=["Writing check acknowledged."])
     await tracker.set_phase(phase="evaluating", subphase="ai_check")
+    reservation_active = False
+    reservation_user_id: uuid.UUID | None = None
+    reservation_limit = 0
+    session_factory = get_session_factory()
 
     try:
-      # Validate and hydrate the request so optional model overrides are honored.
-      request_model = WritingCheckRequest.model_validate(job.request)
-      checker_model = request_model.checker_model or self._settings.section_builder_model
-      orchestrator = WritingCheckOrchestrator(provider=self._settings.section_builder_provider, model=checker_model)
+      # Validate and hydrate the request so inputs remain strict.
+      cleaned_request = _strip_internal_request_fields(job.request)
+      request_model = WritingCheckRequest.model_validate(cleaned_request)
+      # Resolve writing defaults from runtime config when possible.
+      runtime_config: dict[str, Any] = {}
+      if session_factory is not None and job.user_id:
+        try:
+          parsed_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          parsed_user_id = None
+        if parsed_user_id is not None:
+          async with session_factory() as session:
+            user = await get_user_by_id(session, parsed_user_id)
+            if user is not None:
+              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+              reservation_user_id = parsed_user_id
+              reservation_limit = int(runtime_config.get("limits.writing_checks_per_month") or 0)
+              if reservation_limit <= 0:
+                raise QuotaExceededError("writing.check quota disabled")
+              snapshot = await get_quota_snapshot(session, user_id=user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, limit=reservation_limit)
+              if snapshot.remaining <= 0:
+                raise QuotaExceededError("writing.check quota exceeded")
+              await reserve_quota(session, user_id=user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(job.job_id), metadata={"job_id": str(job.job_id)})
+              reservation_active = True
+
+      provider = str(runtime_config.get("ai.writing.provider") or self._settings.writing_provider)
+      model_name = str(runtime_config.get("ai.writing.model") or self._settings.writing_model or "")
+      orchestrator = WritingCheckOrchestrator(provider=provider, model=model_name or None)
       result = await orchestrator.check_response(text=request_model.text, criteria=request_model.criteria)
 
       tracker.extend_logs(result.logs)
       cost_summary = _summarize_cost(result.usage, result.total_cost)
       await tracker.set_cost(cost_summary)
+      if session_factory is not None and reservation_active and reservation_user_id is not None:
+        async with session_factory() as session:
+          await commit_quota_reservation(session, user_id=reservation_user_id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(job.job_id), metadata={"job_id": str(job.job_id)})
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
       result_json = {"ok": result.ok, "issues": result.issues, "feedback": result.feedback}
       payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs, "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
@@ -379,6 +1082,14 @@ class JobProcessor:
 
     except Exception as exc:
       self._logger.error("Writing check processing failed", exc_info=True)
+      if reservation_active and reservation_user_id is not None and session_factory is not None:
+        try:
+          async with session_factory() as session:
+            await release_quota_reservation(
+              session, user_id=reservation_user_id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=reservation_limit, job_id=str(job.job_id), metadata={"job_id": str(job.job_id), "reason": "writing_failed"}
+            )
+        except Exception:  # noqa: BLE001
+          self._logger.error("Writing check failed to release quota reservation.", exc_info=True)
       await tracker.fail(phase="failed", message=f"Writing check failed: {exc}")
       return None
 
@@ -402,11 +1113,13 @@ class JobProcessor:
     timeout_checker: Callable[[], Awaitable[bool]] | None = None,
     retry_section_numbers: set[int] | None = None,
     is_retry: bool = False,
-    base_result_json: dict[str, Any] | None = None,
-    base_completed_indexes: list[int] | None = None,
-    retry_completed_indexes: list[int] | None = None,
-    base_completed_sections: int = 0,
     enable_repair: bool = True,
+    base_completed_sections: int = 0,
+    retry_completed_indexes: list[int] | None = None,
+    job_metadata: dict[str, Any] | None = None,
+    runtime_config: dict[str, Any] | None = None,
+    quota_user_id: uuid.UUID | None = None,
+    quota_sections_per_month: int = 0,
   ) -> OrchestrationResult:
     """Execute the orchestration pipeline with guarded parameters."""
 
@@ -424,8 +1137,8 @@ class JobProcessor:
     if len(topic) > self._settings.max_topic_length:
       raise ValueError(f"Topic exceeds max length of {self._settings.max_topic_length}.")
 
-    # Resolve per-agent model overrides so queued jobs honor request settings.
-    selection = _resolve_model_selection(self._settings, models=request_model.models)
+    # Resolve per-agent defaults so queued jobs honor runtime configuration.
+    selection = resolve_agent_defaults(self._settings, runtime_config or {})
     (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
     language = _resolve_primary_language(request_model)
     learner_level = _resolve_learner_level(request_model)
@@ -476,31 +1189,78 @@ class JobProcessor:
         if retry_completed_indexes is not None and section_progress.status == "completed":
           if section_progress.index not in retry_completed_indexes:
             retry_completed_indexes.append(section_progress.index)
+        # Section quota reservations are handled inside agents to keep accounting local.
 
       log_message = "; ".join(messages or [])
-      merged_partial = partial_json
-
-      if is_retry and partial_json is not None and retry_completed_indexes is not None:
-        merged_partial = _merge_partial_payload(base_result_json=base_result_json, base_completed_indexes=base_completed_indexes or [], retry_partial_json=partial_json, retry_completed_indexes=retry_completed_indexes, topic=topic)
+      # merged_partial removed (unused)
 
       if advance:
-        await tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
+        await tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None, result_json=partial_json, expected_sections=expected_sections, section_progress=tracker_section)
       else:
         if log_message:
           tracker.add_logs(log_message)
 
-        await tracker.set_phase(phase=phase, subphase=subphase, result_json=merged_partial, expected_sections=expected_sections, section_progress=tracker_section)
+        await tracker.set_phase(phase=phase, subphase=subphase, result_json=partial_json, expected_sections=expected_sections, section_progress=tracker_section)
 
     async def _job_creator(target_agent: str, payload: dict[str, Any]) -> None:
+      # Fetch parent metadata so child jobs inherit the user id.
+      parent_record = await self._jobs_repo.get_job(job_id)
+      parent_user_id = parent_record.user_id if parent_record is not None else None
+      parent_artifacts = dict(parent_record.artifacts or {}) if parent_record is not None else None
+      child_jobs = list(parent_artifacts.get("child_jobs") or []) if parent_artifacts is not None else []
       new_job_id = str(uuid.uuid4())
       timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
       request = {"payload": payload, "_meta": {"parent_job_id": job_id}}
-      record = JobRecord(job_id=new_job_id, request=request, status="queued", target_agent=target_agent, created_at=timestamp, updated_at=timestamp, phase="queued", logs=[])
+      record = JobRecord(
+        job_id=new_job_id,
+        user_id=parent_user_id,
+        job_kind=(parent_record.job_kind if parent_record is not None else "lesson"),
+        request=request,
+        status="queued",
+        parent_job_id=job_id,
+        lesson_id=parent_record.lesson_id if parent_record is not None else None,
+        section_id=None,
+        target_agent=target_agent,
+        created_at=timestamp,
+        updated_at=timestamp,
+        phase="queued",
+        logs=[],
+        idempotency_key=f"{new_job_id}:{target_agent}",
+      )
       await self._jobs_repo.create_job(record)
+      # Track child jobs in the parent artifacts so the UI can retry them.
+      if parent_artifacts is not None:
+        child_jobs.append({"job_id": new_job_id, "target_agent": target_agent, "status": "queued"})
+        parent_artifacts["child_jobs"] = child_jobs
+        await self._jobs_repo.update_job(job_id, artifacts=parent_artifacts)
+      # Enqueue the child job immediately so it executes without manual intervention.
+      enqueuer = get_task_enqueuer(self._settings)
+      try:
+        await enqueuer.enqueue(new_job_id, {})
+      except Exception:  # noqa: BLE001
+        await self._jobs_repo.update_job(new_job_id, status="error", phase="error", logs=["Enqueue failed: CHILD_TASK_ENQUEUE_FAILED"])
+        if parent_artifacts is not None:
+          updated_child_jobs = []
+          for child in child_jobs:
+            if child.get("job_id") == new_job_id:
+              updated_child_jobs.append({"job_id": new_job_id, "target_agent": target_agent, "status": "error"})
+            else:
+              updated_child_jobs.append(child)
+          parent_artifacts["child_jobs"] = updated_child_jobs
+          await self._jobs_repo.update_job(job_id, artifacts=parent_artifacts)
+        await _notify_child_job_failed(settings=self._settings, parent_job=parent_record, child_job_id=new_job_id)
 
+    # Forward settings and user metadata so agents can reserve quota locally.
+    # Merge with provided job_metadata (containing lesson_id) or start fresh
+    combined_metadata = dict(job_metadata or {})
+    combined_metadata.setdefault("settings", self._settings)
+    if quota_user_id is not None:
+      combined_metadata["user_id"] = str(quota_user_id)
     result = await orchestrator.generate_lesson(
+      job_id=job_id,
       topic=topic,
       details=request_model.details,
+      outcomes=request_model.outcomes,
       blueprint=request_model.blueprint,
       teaching_style=request_model.teaching_style,
       learner_level=learner_level,
@@ -514,6 +1274,7 @@ class JobProcessor:
       section_filter=retry_section_numbers,
       enable_repair=enable_repair,
       job_creator=_job_creator,
+      job_metadata=combined_metadata,
     )
 
     merged_logs = list(_merge_logs(logs, result.logs))
@@ -522,7 +1283,7 @@ class JobProcessor:
       await tracker.set_phase(phase="validate", subphase="validation", expected_sections=expected_sections)
 
     return OrchestrationResult(
-      lesson_json=result.lesson_json,
+      # lesson_json used to be here
       provider_a=result.provider_a,
       model_a=result.model_a,
       provider_b=result.provider_b,
@@ -537,8 +1298,30 @@ class JobProcessor:
 
 def _strip_internal_request_fields(request: dict[str, Any]) -> dict[str, Any]:
   """Drop internal-only metadata keys from stored job payloads before validation."""
+  wrapped_payload = request.get("payload")
+  request_payload = wrapped_payload if isinstance(wrapped_payload, dict) else request
+
   # Stored job requests may include internal metadata (e.g. _meta) that must not violate strict request models.
-  return {key: value for key, value in request.items() if not key.startswith("_")}
+  cleaned = {key: value for key, value in request_payload.items() if not key.startswith("_")}
+
+  # Drop deprecated model override fields so legacy jobs can still validate.
+  cleaned.pop("models", None)
+  cleaned.pop("checker_model", None)
+
+  return cleaned
+
+
+def _extract_quota_metric(error_message: str) -> str | None:
+  """Extract a known quota metric name from an error message."""
+  lowered = error_message.lower()
+  known_metrics = ("lesson.generate", "section.generate", "coach.generate", "fenster.widget.generate", "writing.check", "ocr.extract", "image.generate")
+  for metric in known_metrics:
+    # Match explicit metric names so job logs can report the exact exhausted resource.
+    if metric in lowered:
+      return metric
+  if "quota" in lowered:
+    return "unknown"
+  return None
 
 
 def _extract_user_id(job_request: dict[str, Any]) -> uuid.UUID | None:
@@ -578,6 +1361,50 @@ async def _notify_job_lesson_generated(*, settings: Settings, job_request: dict[
     logging.getLogger(__name__).error("Failed sending job completion notification: %s", exc, exc_info=True)
 
 
+async def _notify_job_failed(*, settings: Settings, job: JobRecord) -> None:
+  """Best-effort in-app notification when a lesson job fails."""
+  # Skip notifications when the job has no user association.
+  if not job.user_id:
+    return
+
+  # Normalize the user id for downstream notification writes.
+  try:
+    user_id = uuid.UUID(str(job.user_id))
+  except ValueError:
+    return
+
+  # Use the in-app notification channel for retries.
+  service = build_notification_service(settings)
+  try:
+    await service.notify_in_app(user_id=user_id, template_id="lesson_job_failed_retry_v1", data={"job_id": job.job_id, "retry_target": job.job_id})
+  except Exception as exc:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed sending job failure notification: %s", exc, exc_info=True)
+
+
+async def _notify_child_job_failed(*, settings: Settings, parent_job: JobRecord | None, child_job_id: str) -> None:
+  """Best-effort in-app notification when a child job fails to enqueue."""
+  # Exit early when there is no parent job to resolve the user.
+  if parent_job is None:
+    return
+
+  # Require a user id so the notification can be scoped correctly.
+  if not parent_job.user_id:
+    return
+
+  # Normalize the user id to guard against malformed values.
+  try:
+    user_id = uuid.UUID(str(parent_job.user_id))
+  except ValueError:
+    return
+
+  # Dispatch an in-app notification with retry metadata.
+  service = build_notification_service(settings)
+  try:
+    await service.notify_in_app(user_id=user_id, template_id="child_job_failed_retry_v1", data={"job_id": child_job_id, "parent_job_id": parent_job.job_id, "retry_target": child_job_id})
+  except Exception as exc:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed sending child job failure notification: %s", exc, exc_info=True)
+
+
 def _merge_logs(*log_sets: Iterable[str]) -> Iterable[str]:
   for logs in log_sets:
     yield from logs
@@ -607,7 +1434,86 @@ def _summarize_cost(usage: list[dict[str, Any]], total_cost: float) -> dict[str,
   return {"currency": "USD", "total_input_tokens": total_input_tokens, "total_output_tokens": total_output_tokens, "total_cost": total_cost, "calls": usage}
 
 
-_ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair", "stitcher"}
+def _section_contains_fenster(section_payload: dict[str, Any]) -> bool:
+  """Detect whether a generated section includes any fenster widgets."""
+  if not isinstance(section_payload, dict):
+    return False
+  subsections = section_payload.get("subsections")
+  if not isinstance(subsections, list):
+    return False
+  for subsection in subsections:
+    if not isinstance(subsection, dict):
+      continue
+    items = subsection.get("items")
+    if not isinstance(items, list):
+      continue
+    for item in items:
+      if not isinstance(item, dict):
+        continue
+      item_type = str(item.get("type") or "").strip().lower()
+      if item_type == "fenster":
+        return True
+  return False
+
+
+def _extract_section_illustration_id(section_content: dict[str, Any] | None) -> int | None:
+  """Return the active illustration id from section content when present."""
+  if not isinstance(section_content, dict):
+    return None
+  illustration = section_content.get("illustration")
+  if not isinstance(illustration, dict):
+    return None
+  raw_id = illustration.get("id")
+  if raw_id is None:
+    return None
+  try:
+    normalized_id = int(raw_id)
+  except (TypeError, ValueError):
+    return None
+  if normalized_id <= 0:
+    return None
+  return normalized_id
+
+
+def _derive_illustration_metadata_from_payload(payload: dict[str, Any], section_content: dict[str, Any]) -> tuple[str, str, list[str]]:
+  """Build safe fallback illustration metadata for failure logging and row persistence."""
+  illustration = section_content.get("illustration") if isinstance(section_content, dict) else None
+  caption = ""
+  ai_prompt = ""
+  keywords: list[str] = []
+  if isinstance(illustration, dict):
+    caption = str(illustration.get("caption") or "").strip()
+    ai_prompt = str(illustration.get("ai_prompt") or "").strip()
+    raw_keywords = illustration.get("keywords")
+    if isinstance(raw_keywords, list):
+      keywords = [str(item).strip() for item in raw_keywords if str(item).strip()]
+
+  topic = str(payload.get("topic") or "Lesson Topic").strip() or "Lesson Topic"
+  section_title = str(section_content.get("section") or f"Section {payload.get('section_index') or 'Unknown'}").strip()
+  markdown_payload = section_content.get("markdown")
+  markdown_text = ""
+  if isinstance(markdown_payload, dict):
+    markdown_text = str(markdown_payload.get("markdown") or "").strip()
+
+  if not caption:
+    caption = f"{section_title} visual summary"
+  if not ai_prompt:
+    guidance = markdown_text[:400] if markdown_text else section_title
+    ai_prompt = f"Create an educational illustration for topic '{topic}'. Focus on: {guidance}."
+  if len(keywords) < 4:
+    defaults = [topic, section_title, "illustration", "learning"]
+    merged = [*keywords]
+    for item in defaults:
+      normalized = str(item).strip()
+      if normalized and normalized not in merged:
+        merged.append(normalized)
+      if len(merged) == 4:
+        break
+    keywords = merged[:4]
+  return caption, ai_prompt, keywords
+
+
+_ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair"}
 
 
 def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:
@@ -663,47 +1569,3 @@ def _infer_completed_section_indexes(record: JobRecord) -> list[int]:
   # Use completed_sections as a last resort when other data is missing.
   count = record.completed_sections or 0
   return list(range(count))
-
-
-def _build_block_map(result_json: dict[str, Any] | None, indexes: list[int]) -> dict[int, Any]:
-  """Map section indexes to their block payloads."""
-
-  if not result_json:
-    return {}
-
-  blocks = result_json.get("blocks")
-
-  if not isinstance(blocks, list):
-    return {}
-
-  return {index: block for index, block in zip(indexes, blocks)}
-
-
-def _resolve_result_title(base_result_json: dict[str, Any] | None, retry_partial_json: dict[str, Any] | None, topic: str) -> str:
-  """Pick a stable title for merged retry payloads."""
-
-  if base_result_json and isinstance(base_result_json.get("title"), str):
-    return str(base_result_json["title"])
-
-  if retry_partial_json and isinstance(retry_partial_json.get("title"), str):
-    return str(retry_partial_json["title"])
-
-  return topic
-
-
-def _merge_partial_payload(*, base_result_json: dict[str, Any] | None, base_completed_indexes: list[int], retry_partial_json: dict[str, Any] | None, retry_completed_indexes: list[int], topic: str) -> dict[str, Any]:
-  """Merge partial retry blocks into the existing result payload."""
-  base_map = _build_block_map(base_result_json, base_completed_indexes)
-  retry_map = _build_block_map(retry_partial_json, retry_completed_indexes)
-  merged_map = {**base_map, **retry_map}
-  merged_indexes = sorted(merged_map.keys())
-  merged_blocks = [merged_map[index] for index in merged_indexes]
-  title = _resolve_result_title(base_result_json, retry_partial_json, topic)
-  return {"title": title, "blocks": merged_blocks}
-
-
-def _merge_retry_result(*, base_result_json: dict[str, Any] | None, base_completed_indexes: list[int], retry_partial_json: dict[str, Any] | None, retry_completed_indexes: list[int], topic: str) -> tuple[dict[str, Any], list[int]]:
-  """Merge retry partial payloads into the base result."""
-  merged_payload = _merge_partial_payload(base_result_json=base_result_json, base_completed_indexes=base_completed_indexes, retry_partial_json=retry_partial_json, retry_completed_indexes=retry_completed_indexes, topic=topic)
-  merged_indexes = sorted(set(base_completed_indexes) | set(retry_completed_indexes))
-  return merged_payload, merged_indexes

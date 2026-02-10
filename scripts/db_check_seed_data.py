@@ -18,7 +18,7 @@ def _normalize_async_dsn(dsn: str) -> str:
 
 async def _check_subscription_tiers(*, dsn: str) -> list[str]:
   """Validate required subscription tiers exist so quota logic never 500s."""
-  required = ["Free", "Plus", "Pro"]
+  required = ["Free", "Starter", "Plus", "Pro"]
   engine = create_async_engine(dsn)
   try:
     async with engine.connect() as connection:
@@ -51,7 +51,7 @@ def main() -> None:
     print("ERROR: Required subscription_tiers rows are missing:")
     for name in missing:
       print(f"- {name}")
-    print("Remediation: run migrations (alembic upgrade head) to apply seed migrations.")
+    print("Remediation: run migrations (alembic upgrade head) and seed scripts (python scripts/run_seed_scripts.py).")
     sys.exit(1)
 
   print("OK: Seed-data check passed.")

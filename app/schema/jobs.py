@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Double, Integer, String
+from sqlalchemy import Double, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -8,12 +8,17 @@ from app.core.database import Base
 
 
 class Job(Base):
-  __tablename__ = "dylen_jobs"
+  __tablename__ = "jobs"
+  __table_args__ = (UniqueConstraint("user_id", "job_kind", "idempotency_key", name="ux_jobs_user_kind_idempotency"),)
 
   job_id: Mapped[str] = mapped_column(String, primary_key=True)
   user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+  job_kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
   request: Mapped[dict] = mapped_column(JSONB, nullable=False)
   status: Mapped[str] = mapped_column(String, nullable=False)
+  parent_job_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+  lesson_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+  section_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
   target_agent: Mapped[str | None] = mapped_column(String, nullable=True)
   phase: Mapped[str] = mapped_column(String, nullable=False)
   subphase: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -41,4 +46,4 @@ class Job(Base):
   updated_at: Mapped[str] = mapped_column(String, nullable=False)
   completed_at: Mapped[str | None] = mapped_column(String, nullable=True)
   ttl: Mapped[int | None] = mapped_column(Integer, nullable=True)
-  idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+  idempotency_key: Mapped[str] = mapped_column(String, nullable=False, index=True)

@@ -45,6 +45,15 @@ class InMemoryJobsRepo:
   async def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
     return None
 
+  async def find_by_user_kind_idempotency_key(self, *, user_id: str | None, job_kind: str, idempotency_key: str) -> JobRecord | None:
+    return None
+
+  async def list_child_jobs(self, *, parent_job_id: str, include_done: bool = False) -> list[JobRecord]:
+    children = [record for record in self._jobs.values() if record.parent_job_id == parent_job_id]
+    if include_done:
+      return children
+    return [record for record in children if record.status != "done"]
+
 
 @pytest.mark.anyio
 async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,19 +89,33 @@ async def test_job_status_streams_partial_results(monkeypatch: pytest.MonkeyPatc
 
   client = TestClient(app)
   headers = {}
-  payload = {"topic": "Streaming Test", "depth": "highlights"}
+  payload = {"job_kind": "lesson", "target_agent": "planner", "idempotency_key": "streaming-key", "payload": {"topic": "Streaming Test", "details": "test", "blueprint": "skillbuilding", "teaching_style": ["conceptual"], "depth": "highlights"}}
   create_resp = client.post("/v1/jobs", json=payload, headers=headers)
   assert create_resp.status_code == 200
   job_id = create_resp.json()["job_id"]
   assert create_resp.json()["expected_sections"] == 2
 
-  # Simulate the worker streaming partial results over time.
-  await repo.update_job(job_id, status="running", result_json={"title": "Streaming Test", "blocks": []}, completed_sections=0, expected_sections=2, current_section_index=0, current_section_status="generating")
+  # Simulate worker status updates and child fan-out over time.
+  await repo.update_job(job_id, status="running")
   status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
   assert status_resp.status_code == 200
-  assert status_resp.json()["result"]["blocks"] == []
+  assert status_resp.json()["status"] == "running"
 
-  await repo.update_job(job_id, status="running", result_json={"title": "Streaming Test", "blocks": [{"section": "Intro", "items": []}]}, completed_sections=1, expected_sections=2, current_section_index=1, current_section_status="generating")
+  await repo.create_job(
+    JobRecord(
+      job_id="child-1",
+      user_id="test-user-id",
+      job_kind="lesson",
+      request={},
+      status="queued",
+      created_at="2024-01-01T00:00:00Z",
+      updated_at="2024-01-01T00:00:00Z",
+      parent_job_id=job_id,
+      target_agent="section_builder",
+      phase="queued",
+      idempotency_key="child-1-key",
+    )
+  )
   status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
   assert status_resp.status_code == 200
-  assert len(status_resp.json()["result"]["blocks"]) == 1
+  assert len(status_resp.json()["child_jobs"]) == 1

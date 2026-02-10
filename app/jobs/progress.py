@@ -72,9 +72,9 @@ def _coerce_depth(raw_depth: Any) -> int:
   try:
     depth = int(raw_depth)
   except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-    raise ValueError("Depth must be Highlights, Detailed, Training, or an integer between 2 and 10.") from exc
-  if depth < 2:
-    raise ValueError("Depth must be at least 2.")
+    raise ValueError("Depth must be Highlights, Detailed, Training, or an integer between 1 and 10.") from exc
+  if depth < 1:
+    raise ValueError("Depth must be at least 1.")
   if depth > 10:
     raise ValueError("Depth exceeds the maximum of 10.")
   return depth

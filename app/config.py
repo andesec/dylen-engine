@@ -23,17 +23,33 @@ class Settings:
   allowed_origins: tuple[str, ...]
   debug: bool
   max_topic_length: int
+  max_markdown_chars: int
   job_max_retries: int
   log_max_bytes: int
   log_backup_count: int
+  log_http_4xx: bool
+  log_http_bodies: bool
+  log_http_body_bytes: int
   section_builder_provider: str
   section_builder_model: str | None
   planner_provider: str
   planner_model: str | None
+  outcomes_provider: str
+  outcomes_model: str | None
   repair_provider: str
   repair_model: str | None
   fenster_provider: str
   fenster_model: str | None
+  writing_provider: str
+  writing_model: str | None
+  tutor_provider: str
+  tutor_model: str | None
+  illustration_provider: str
+  illustration_model: str | None
+  illustration_bucket: str
+  gcs_storage_host: str | None
+  youtube_provider: str
+  youtube_model: str | None
   fenster_technical_constraints: dict[str, Any] = field(hash=False)
   research_model: str | None
   prompt_version: str
@@ -57,6 +73,10 @@ class Settings:
   mailersend_api_key: str | None
   mailersend_timeout_seconds: int
   mailersend_base_url: str
+  push_notifications_enabled: bool
+  push_vapid_public_key: str | None
+  push_vapid_private_key: str | None
+  push_vapid_sub: str | None
   tavily_api_key: str | None
   cloud_tasks_queue_path: str | None
   task_service_provider: str
@@ -65,6 +85,18 @@ class Settings:
   research_router_model: str
   research_search_max_results: int
   task_secret: str | None
+  cloud_run_invoker_service_account: str | None
+
+
+@dataclass(frozen=True)
+class DatabaseSettings:
+  """Typed settings for database connectivity and table naming."""
+
+  debug: bool
+  pg_dsn: str | None
+  pg_connect_timeout: int
+  pg_lessons_table: str
+  pg_jobs_table: str
 
 
 def _parse_origins(raw: str | None) -> tuple[str, ...]:
@@ -117,6 +149,10 @@ def get_settings() -> Settings:
   if max_topic_length <= 0:
     raise ValueError("DYLEN_MAX_TOPIC_LENGTH must be a positive integer.")
 
+  max_markdown_chars = int(os.getenv("DYLEN_MAX_MARKDOWN_CHARS", "1500"))
+  if max_markdown_chars <= 0:
+    raise ValueError("DYLEN_MAX_MARKDOWN_CHARS must be a positive integer.")
+
   # Clamp retry attempts to avoid runaway costs on failed jobs.
   job_max_retries = int(os.getenv("DYLEN_JOB_MAX_RETRIES", "1"))
 
@@ -131,6 +167,14 @@ def get_settings() -> Settings:
   if log_backup_count < 0:
     raise ValueError("DYLEN_LOG_BACKUP_COUNT must be zero or a positive integer.")
 
+  # Allow opt-in logging of 4xx HTTPExceptions for diagnostics.
+  log_http_4xx = _parse_bool(os.getenv("DYLEN_LOG_HTTP_4XX"))
+  # Allow opt-in logging of HTTP request/response bodies with a size cap.
+  log_http_bodies = _parse_bool(os.getenv("DYLEN_LOG_HTTP_BODIES"))
+  log_http_body_bytes = int(os.getenv("DYLEN_LOG_HTTP_BODY_BYTES", "2048"))
+  if log_http_body_bytes <= 0:
+    raise ValueError("DYLEN_LOG_HTTP_BODY_BYTES must be a positive integer.")
+
   email_notifications_enabled = _parse_bool(os.getenv("DYLEN_EMAIL_NOTIFICATIONS_ENABLED"))
   email_from_address = _optional_str(os.getenv("DYLEN_EMAIL_FROM_ADDRESS"))
   email_from_name = _optional_str(os.getenv("DYLEN_EMAIL_FROM_NAME"))
@@ -138,6 +182,10 @@ def get_settings() -> Settings:
   mailersend_api_key = _optional_str(os.getenv("DYLEN_MAILERSEND_API_KEY"))
   mailersend_timeout_seconds = int(os.getenv("DYLEN_MAILERSEND_TIMEOUT_SECONDS", "10"))
   mailersend_base_url = (os.getenv("DYLEN_MAILERSEND_BASE_URL") or "https://api.mailersend.com/v1").strip()
+  push_notifications_enabled = _parse_bool(os.getenv("DYLEN_PUSH_NOTIFICATIONS_ENABLED"))
+  push_vapid_public_key = _optional_str(os.getenv("DYLEN_PUSH_VAPID_PUBLIC_KEY"))
+  push_vapid_private_key = _optional_str(os.getenv("DYLEN_PUSH_VAPID_PRIVATE_KEY"))
+  push_vapid_sub = _optional_str(os.getenv("DYLEN_PUSH_VAPID_SUB"))
 
   # Validate notification settings only when notifications are enabled.
   if email_notifications_enabled:
@@ -153,6 +201,20 @@ def get_settings() -> Settings:
     if mailersend_timeout_seconds <= 0:
       raise ValueError("DYLEN_MAILERSEND_TIMEOUT_SECONDS must be a positive integer.")
 
+  # Validate push configuration only when push notifications are enabled.
+  if push_notifications_enabled:
+    if not push_vapid_public_key:
+      raise ValueError("DYLEN_PUSH_VAPID_PUBLIC_KEY must be set when push notifications are enabled.")
+
+    if not push_vapid_private_key:
+      raise ValueError("DYLEN_PUSH_VAPID_PRIVATE_KEY must be set when push notifications are enabled.")
+
+    if not push_vapid_sub:
+      raise ValueError("DYLEN_PUSH_VAPID_SUB must be set when push notifications are enabled.")
+
+    if not (push_vapid_sub.startswith("mailto:") or push_vapid_sub.startswith("https://")):
+      raise ValueError("DYLEN_PUSH_VAPID_SUB must start with 'mailto:' or 'https://'.")
+
   return Settings(
     app_id=app_id,
     environment=environment,
@@ -160,17 +222,33 @@ def get_settings() -> Settings:
     allowed_origins=_parse_origins(os.getenv("DYLEN_ALLOWED_ORIGINS")),
     debug=debug,
     max_topic_length=max_topic_length,
+    max_markdown_chars=max_markdown_chars,
     job_max_retries=job_max_retries,
     log_max_bytes=log_max_bytes,
     log_backup_count=log_backup_count,
+    log_http_4xx=log_http_4xx,
+    log_http_bodies=log_http_bodies,
+    log_http_body_bytes=log_http_body_bytes,
     section_builder_provider=os.getenv("DYLEN_SECTION_BUILDER_PROVIDER", "gemini"),
     section_builder_model=os.getenv("DYLEN_SECTION_BUILDER_MODEL", "gemini-2.5-pro"),
-    planner_provider=os.getenv("DYLEN_PLANNER_PROVIDER", "openrouter"),
-    planner_model=os.getenv("DYLEN_PLANNER_MODEL", "openai/gpt-oss-120b:free"),
+    planner_provider=os.getenv("DYLEN_PLANNER_PROVIDER", "gemini"),
+    planner_model=os.getenv("DYLEN_PLANNER_MODEL", "gemini-2.5-pro"),
+    outcomes_provider=os.getenv("DYLEN_OUTCOMES_PROVIDER", "gemini"),
+    outcomes_model=os.getenv("DYLEN_OUTCOMES_MODEL", "gemini-2.5-flash"),
     repair_provider=os.getenv("DYLEN_REPAIR_PROVIDER", "gemini"),
-    repair_model=os.getenv("DYLEN_REPAIR_MODEL", "google/gemma-3-27b-it:free"),
+    repair_model=os.getenv("DYLEN_REPAIR_MODEL", "gemini-2.5-flash"),
     fenster_provider=os.getenv("DYLEN_FENSTER_PROVIDER", "gemini"),
-    fenster_model=os.getenv("DYLEN_FENSTER_MODEL", "gemini-2.0-flash-exp"),
+    fenster_model=os.getenv("DYLEN_FENSTER_MODEL", "gemini-2.5-flash"),
+    writing_provider=os.getenv("DYLEN_WRITING_PROVIDER", "gemini"),
+    writing_model=os.getenv("DYLEN_WRITING_MODEL", "gemini-2.5-flash"),
+    tutor_provider=os.getenv("DYLEN_TUTOR_PROVIDER", "gemini"),
+    tutor_model=os.getenv("DYLEN_TUTOR_MODEL", "gemini-2.5-flash"),
+    illustration_provider=os.getenv("DYLEN_ILLUSTRATION_PROVIDER") or os.getenv("DYLEN_VISUALIZER_PROVIDER", "gemini"),
+    illustration_model=os.getenv("DYLEN_ILLUSTRATION_MODEL") or os.getenv("DYLEN_VISUALIZER_MODEL", "gemini-2.5-flash-image"),
+    illustration_bucket=os.getenv("DYLEN_ILLUSTRATION_BUCKET", "dylen-illustrations"),
+    gcs_storage_host=_optional_str(os.getenv("GCS_STORAGE_HOST")),
+    youtube_provider=os.getenv("DYLEN_YOUTUBE_PROVIDER", "gemini"),
+    youtube_model=os.getenv("DYLEN_YOUTUBE_MODEL", "gemini-2.0-flash"),
     fenster_technical_constraints=_parse_json_dict(os.getenv("DYLEN_FENSTER_TECHNICAL_CONSTRAINTS"), {"max_tokens": 4000, "allowed_libs": ["alpine", "tailwind"]}),
     research_model=os.getenv("DYLEN_RESEARCH_MODEL", "gemini-1.5-pro"),
     prompt_version=os.getenv("DYLEN_PROMPT_VERSION", "v1"),
@@ -179,8 +257,8 @@ def get_settings() -> Settings:
     jobs_ttl_seconds=_parse_optional_int(os.getenv("DYLEN_JOBS_TTL_SECONDS")),
     pg_dsn=os.getenv("DYLEN_PG_DSN") or os.getenv("DATABASE_URL"),
     pg_connect_timeout=int(os.getenv("DYLEN_PG_CONNECT_TIMEOUT", "5")),
-    pg_lessons_table=os.getenv("DYLEN_PG_LESSONS_TABLE", "dylen_lessons"),
-    pg_jobs_table=os.getenv("DYLEN_PG_JOBS_TABLE", "dylen_jobs"),
+    pg_lessons_table=os.getenv("DYLEN_PG_LESSONS_TABLE", "lessons"),
+    pg_jobs_table=os.getenv("DYLEN_PG_JOBS_TABLE", "jobs"),
     llm_audit_enabled=_parse_bool(os.getenv("DYLEN_LLM_AUDIT_ENABLED")),
     cache_lesson_catalog=_parse_bool(os.getenv("DYLEN_CACHE_LESSON_CATALOG")),
     gcp_project_id=os.getenv("GCP_PROJECT_ID"),
@@ -194,6 +272,10 @@ def get_settings() -> Settings:
     mailersend_api_key=mailersend_api_key,
     mailersend_timeout_seconds=mailersend_timeout_seconds,
     mailersend_base_url=mailersend_base_url,
+    push_notifications_enabled=push_notifications_enabled,
+    push_vapid_public_key=push_vapid_public_key,
+    push_vapid_private_key=push_vapid_private_key,
+    push_vapid_sub=push_vapid_sub,
     tavily_api_key=_optional_str(os.getenv("TAVILY_API_KEY")),
     cloud_tasks_queue_path=_optional_str(os.getenv("DYLEN_CLOUD_TASKS_QUEUE_PATH")),
     task_service_provider=os.getenv("DYLEN_TASK_SERVICE_PROVIDER", "local-http").lower(),
@@ -202,7 +284,20 @@ def get_settings() -> Settings:
     research_router_model=os.getenv("DYLEN_RESEARCH_ROUTER_MODEL", "gemini-1.5-flash"),
     research_search_max_results=int(os.getenv("DYLEN_RESEARCH_SEARCH_MAX_RESULTS", "5")),
     task_secret=_optional_str(os.getenv("DYLEN_TASK_SECRET")),
+    cloud_run_invoker_service_account=_optional_str(os.getenv("DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT")),
   )
+
+
+@lru_cache(maxsize=1)
+def get_database_settings() -> DatabaseSettings:
+  """Load database settings without requiring web-runtime configuration like CORS."""
+  # Keep database configuration isolated so migrations and offline scripts don't require unrelated env vars.
+  debug = _parse_bool(os.getenv("DYLEN_DEBUG"))
+  pg_connect_timeout = int(os.getenv("DYLEN_PG_CONNECT_TIMEOUT", "5"))
+  if pg_connect_timeout <= 0:
+    raise ValueError("DYLEN_PG_CONNECT_TIMEOUT must be a positive integer.")
+
+  return DatabaseSettings(debug=debug, pg_dsn=os.getenv("DYLEN_PG_DSN"), pg_connect_timeout=pg_connect_timeout, pg_lessons_table=os.getenv("DYLEN_PG_LESSONS_TABLE", "lessons"), pg_jobs_table=os.getenv("DYLEN_PG_JOBS_TABLE", "jobs"))
 
 
 def _optional_str(raw: str | None) -> str | None:

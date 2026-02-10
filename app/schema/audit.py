@@ -11,7 +11,7 @@ from app.core.database import Base
 class LlmCallAudit(Base):
   __tablename__ = "llm_call_audit"
 
-  id: Mapped[str] = mapped_column(String, primary_key=True)
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=True)
   timestamp_request: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
   timestamp_response: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

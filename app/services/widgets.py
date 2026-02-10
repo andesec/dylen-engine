@@ -23,6 +23,10 @@ def _widget_id_map() -> dict[str, str]:
   for widget_name in registry.available_types():
     normalized = _normalize_option_id(widget_name)
     mapping[normalized] = widget_name
+  # Keep fenster selectable even when prompt docs lag behind schema support.
+  mapping.setdefault("fenster", "fenster")
+  # Ensure markdown remains addressable for mandatory backend injection.
+  mapping.setdefault("markdown", "markdown")
 
   return mapping
 

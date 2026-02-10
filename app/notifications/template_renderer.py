@@ -66,6 +66,9 @@ def render_push_content(*, template_id: str, placeholders: dict[str, Any]) -> tu
   body = _render_text(_load_template_file(template.push_filename), placeholders=placeholders, escape_html=False)
 
   data = {k: placeholders[k] for k in template.navigation_keys if k in placeholders}
+  url = _build_push_url(template_id=template_id, placeholders=placeholders)
+  if url is not None:
+    data["url"] = url
 
   return title, body, data
 
@@ -104,3 +107,14 @@ def _get_template(template_id: str) -> NotificationTemplate:
   if template is None:
     raise ValueError(f"Unknown notification template: {template_id}")
   return template
+
+
+def _build_push_url(*, template_id: str, placeholders: dict[str, Any]) -> str | None:
+  """Build a frontend navigation URL for known notification templates."""
+  # Keep URL mapping explicit so only approved paths are sent to clients.
+  if template_id == "lesson_generated_v1":
+    lesson_id = placeholders.get("lesson_id")
+    if lesson_id:
+      return f"/lessons/{lesson_id}"
+
+  return None

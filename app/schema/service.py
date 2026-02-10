@@ -1,20 +1,20 @@
-"""Schema loading, sanitization, and validation helpers."""
-
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+import msgspec
 
-from app.schema.lesson_models import LessonDocument, SectionBlock
+from app.schema.section_normalizer import normalize_lesson_section_keys
+from app.schema.widget_models import LessonDocument, Section
 
 DEFAULT_WIDGETS_PATH = Path(__file__).with_name("widgets_prompt.md")
 SchemaDict = dict[str, Any]
 SectionPayload = dict[str, Any]
 SectionValidationResult = tuple[bool, list[str], SectionPayload | None]
-VisitedRefs = set[str] | None
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -43,155 +43,65 @@ class SchemaService:
 
   def lesson_schema(self) -> dict[str, Any]:
     """Return the lesson JSON schema."""
-    json_schema: dict[str, Any] = LessonDocument.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
-    return json_schema
+    return msgspec.json.schema(LessonDocument)
 
   def section_schema(self) -> dict[str, Any]:
     """Return the section JSON schema."""
-    json_schema: dict[str, Any] = SectionBlock.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
-    return json_schema
+    return msgspec.json.schema(Section)
 
   def subset_section_schema(self, allowed_widgets: list[str]) -> dict[str, Any]:
     """
     Return a section schema restricted to a specific list of widgets.
-
-    Args:
-        allowed_widgets: List of allowed widget keys (e.g. ['p', 'mcqs']).
     """
     # Start with the full schema
     schema = self.section_schema()
+    defs = schema.get("$defs", {}) or schema.get("definitions", {})
 
-    # 1. Inspect definitions to identify the main Widget union.
-    # We navigate from SectionBlock -> items -> items to find the widget definition.
-    defs = schema.get("$defs", {})
-    widget_def = None
+    # Find the WidgetItem definition
+    # In msgspec schemas, definitions are usually keyed by class name
+    widget_item_def = defs.get("WidgetItem")
 
-    # Path: SectionBlock -> items (list) -> items (schema for array elements)
-    props = schema.get("properties", {})
-    items_prop = props.get("items", {})
-    inner_items = items_prop.get("items", {})
+    if widget_item_def and "properties" in widget_item_def:
+      # Filter properties to only include allowed widgets
+      current_props = widget_item_def["properties"]
+      filtered_props = {k: v for k, v in current_props.items() if k in allowed_widgets}
 
-    if "$ref" in inner_items:
-      ref_name = inner_items["$ref"].split("/")[-1]
-      widget_def = defs.get(ref_name)
-    elif "anyOf" in inner_items:
-      widget_def = inner_items
-
-    if not widget_def or "anyOf" not in widget_def:
-      # Fallback if structure isn't as expected: return full schema
-      return schema
-
-    # 2. Filter the anyOf list
-    original_options = widget_def["anyOf"]
-    filtered_options = []
-
-    # Always include the string type if "p" (paragraph) is in allowed_widgets,
-    # because the "p" shorthand is a plain string.
-    include_paragraph = "p" in allowed_widgets
-
-    for option in original_options:
-      # Check simple type (string = paragraph shorthand)
-      if option.get("type") == "string":
-        if include_paragraph:
-          filtered_options.append(option)
-        continue
-
-      # Check referenced definitions (object widgets)
-      ref = option.get("$ref")
-      if not ref:
-        # Unknown shape, decided to exclude or keep?
-        # Safest to exclude if we are restricting, but let's keep if unsure?
-        # No, strict restriction is better.
-        continue
-
-      # Ref format: #/$defs/ChecklistWidget
-      def_name = ref.split("/")[-1]
-      model_def = defs.get(def_name)
-
-      if not model_def:
-        continue
-
-      # Identify widget type by its properties.
-      # Most widgets have a single key like "checklist", "mcqs", "p" (explicit).
-      properties = model_def.get("properties", {})
-
-      # Check if any of the property keys match our allowed list
-      match = False
-      for prop_key in properties.keys():
-        if prop_key in allowed_widgets:
-          match = True
-          break
-
-      if match:
-        filtered_options.append(option)
-
-    # 3. Update the schema with filtered options
-    if filtered_options:
-      widget_def["anyOf"] = filtered_options
-
-      # 4. Prune unused definitions to prevent context leakage
-      reachable = set()
-      # Initialize stack with the filtered options to find initial refs
-      stack = list(filtered_options)
-
-      while stack:
-        item = stack.pop()
-        if isinstance(item, dict):
-          for k, v in item.items():
-            if k == "$ref" and isinstance(v, str):
-              # Extract definition name from reference (e.g. "#/$defs/MyWidget")
-              ref_name = v.split("/")[-1]
-              if ref_name not in reachable and ref_name in defs:
-                reachable.add(ref_name)
-                # Add the definition itself to stack to find nested refs
-                stack.append(defs[ref_name])
-            elif isinstance(v, (dict, list)):
-              stack.append(v)
-        elif isinstance(item, list):
-          stack.extend(item)
-
-      # Apply pruning
-      if "$defs" in schema:
-        schema["$defs"] = {k: v for k, v in defs.items() if k in reachable}
-    else:
-      # If nothing matches, we shouldn't return an unusable schema.
-      pass
+      # Update the definition in place
+      widget_item_def["properties"] = filtered_props
 
     return schema
 
   def sanitize_schema(self, schema: dict[str, Any], provider_name: str) -> dict[str, Any]:
-    """Sanitize schema for provider-specific structured output requirements."""
-    if provider_name.lower() == "gemini":
-      return _sanitize_schema_for_gemini(schema, root_schema=schema)
-    if provider_name.lower() == "vertexai":
-      return _sanitize_schema_for_vertex(schema, root_schema=schema)
-    return schema
+    """
+    Sanitize schema for provider-specific structured output requirements.
+
+    This uses a hybrid approach:
+    - Widgets are defined at the root ($defs).
+    - Structural elements (Section, Subsection, WidgetItem) are inlined.
+    - Constraints are stripped.
+    """
+    return _simplify_schema(schema)
 
   def validate_lesson_payload(self, payload: Any) -> ValidationResult:
     """Validate a lesson payload and return structured issues."""
-    parse_method = getattr(LessonDocument, "model_validate", None) or getattr(LessonDocument, "parse_obj", None)
-    if parse_method is None:
-      raise RuntimeError("LessonDocument does not expose a validation entrypoint.")
-
-    issues: list[ValidationIssue] = []
     try:
-      lesson_model = parse_method(payload)
-    except ValidationError as exc:
-      for err in exc.errors():
-        issues.append(_issue_from_pydantic_error(err))
+      normalized_payload = normalize_lesson_section_keys(payload)
+      lesson_model = msgspec.convert(normalized_payload, type=LessonDocument)
+      return ValidationResult(ok=True, issues=[], model=lesson_model)
+    except msgspec.ValidationError as exc:
+      issues = [_issue_from_msgspec_error(exc)]
       return ValidationResult(ok=False, issues=issues, model=None)
-
-    # Note: Previously we checked against widgets_loader, but now Pydantic validation is sufficient
-    # as the models strictly define the allowed structures.
-
-    model = lesson_model if not issues else None
-    return ValidationResult(ok=not issues, issues=issues, model=model)
 
   def validate_section_payload(self, section_json: SectionPayload, *, topic: str, section_index: int) -> SectionValidationResult:
     """Validate a single section by wrapping it as a lesson payload."""
     wrap = self._wrap_section_for_validation
     payload = wrap(section_json, topic=topic, section_index=section_index)
     result = self.validate_lesson_payload(payload)
+    if not result.ok and _is_overlong_only_issues(result.issues):
+      messages = _issues_to_messages(result.issues)
+      for message in messages:
+        logger.warning("Over-limit content accepted during section validation: %s", message)
+      return True, messages, section_json
     if not result.ok or result.model is None or not result.model.blocks:
       return False, _issues_to_messages(result.issues), None
     return True, _issues_to_messages(result.issues), section_json
@@ -199,70 +109,56 @@ class SchemaService:
   def widget_schemas_for_types(self, widget_types: list[str]) -> dict[str, Any]:
     """
     Return widget JSON schemas keyed by widget type label.
-    Deprecated: With shorthand, types are keys in the JSON, not separate discriminators.
-    However, we can return the schema for the specific Pydantic model corresponding to the key.
     """
     schemas: dict[str, Any] = {}
 
-    # Map shorthand keys to Pydantic models in lesson_models.py
-    # We need to import them dynamically or have a mapping.
-    # Since this function might be used by prompts, we need to decide if we still support it.
-    # If the prompts need the schema for "tr", we return TranslationWidget.model_json_schema()
-
-    from app.schema.lesson_models import (
-      AsciiDiagramWidget,
-      ChecklistWidget,
-      CodeEditorWidget,
-      CompareWidget,
-      ErrorWidget,
-      FillBlankWidget,
-      FlipWidget,
-      FreeTextWidget,
-      InputLineWidget,
-      InteractiveTerminalWidget,
-      MCQsWidget,
-      OrderedListWidget,
-      ParagraphWidget,
-      StepFlowWidget,
-      SuccessWidget,
-      SwipeCardsWidget,
-      TableWidget,
-      TerminalDemoWidget,
-      TranslationWidget,
-      TreeViewWidget,
-      UnorderedListWidget,
-      WarnWidget,
+    # Import here to avoid circular deps if any
+    from app.schema.widget_models import (
+      AsciiDiagramPayload,
+      ChecklistPayload,
+      CodeEditorPayload,
+      ComparePayload,
+      FensterPayload,
+      FillBlankPayload,
+      FlipCardsPayload,
+      FreeTextPayload,
+      InputLinePayload,
+      InteractiveTerminalPayload,
+      MarkdownPayload,
+      MCQsInner,
+      StepFlowPayload,
+      SwipeCardsPayload,
+      TablePayload,
+      TerminalDemoPayload,
+      TranslationPayload,
+      TreeViewPayload,
     )
 
-    TYPE_TO_MODEL = {  # noqa: N806
-      "tr": TranslationWidget,
-      "flip": FlipWidget,
-      "fillblank": FillBlankWidget,
-      "swipecards": SwipeCardsWidget,
-      "freeText": FreeTextWidget,
-      "inputLine": InputLineWidget,
-      "stepFlow": StepFlowWidget,
-      "asciiDiagram": AsciiDiagramWidget,
-      "checklist": ChecklistWidget,
-      "interactiveTerminal": InteractiveTerminalWidget,
-      "terminalDemo": TerminalDemoWidget,
-      "codeEditor": CodeEditorWidget,
-      "treeview": TreeViewWidget,
-      "mcqs": MCQsWidget,
-      "ul": UnorderedListWidget,
-      "ol": OrderedListWidget,
-      "table": TableWidget,
-      "compare": CompareWidget,
-      "p": ParagraphWidget,
-      "warn": WarnWidget,
-      "err": ErrorWidget,
-      "success": SuccessWidget,
+    type_to_model = {
+      "tr": TranslationPayload,
+      "flipcards": FlipCardsPayload,
+      "fillblank": FillBlankPayload,
+      "swipecards": SwipeCardsPayload,
+      "freeText": FreeTextPayload,
+      "inputLine": InputLinePayload,
+      "stepFlow": StepFlowPayload,
+      "asciiDiagram": AsciiDiagramPayload,
+      "checklist": ChecklistPayload,
+      "interactiveTerminal": InteractiveTerminalPayload,
+      "terminalDemo": TerminalDemoPayload,
+      "codeEditor": CodeEditorPayload,
+      "treeview": TreeViewPayload,
+      "mcqs": MCQsInner,
+      "table": TablePayload,
+      "compare": ComparePayload,
+      "markdown": MarkdownPayload,
+      "fenster": FensterPayload,
     }
 
     for widget_type in dict.fromkeys(widget_types):
-      model = TYPE_TO_MODEL.get(widget_type)
+      model = type_to_model.get(widget_type)
       if model:
-        schemas[widget_type] = model.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
+        schemas[widget_type] = msgspec.json.schema(model)
 
     return schemas
 
@@ -271,159 +167,153 @@ class SchemaService:
     return {"title": f"{topic} - Section {section_index}", "blocks": [section_json]}
 
 
-def _issue_from_pydantic_error(err: dict[str, Any]) -> ValidationIssue:
-  path = ".".join(str(part) for part in err.get("loc", []))
-  message = str(err.get("msg", "Invalid payload."))
-  return ValidationIssue(path=path or "payload", message=message, code=err.get("type"))
+def _issue_from_msgspec_error(err: msgspec.ValidationError) -> ValidationIssue:
+  return ValidationIssue(path="payload", message=str(err), code="validation_error")
 
 
 def _issues_to_messages(issues: list[ValidationIssue]) -> list[str]:
   return [f"{issue.path}: {issue.message}" for issue in issues]
 
 
-def _sanitize_schema_for_gemini(schema: Any, root_schema: SchemaDict | None = None, visited: VisitedRefs = None) -> Any:
+def _is_overlong_only_issues(issues: list[ValidationIssue]) -> bool:
+  """Allow non-blocking validation when failures are only max-length/max-items violations."""
+  if not issues:
+    return False
+  return all(_is_overlong_issue(issue.message) for issue in issues)
+
+
+def _is_overlong_issue(message: str) -> bool:
+  """Detect msgspec errors that are strictly about upper length bounds."""
+  lowered = message.lower()
+  if "length <=" not in lowered:
+    return False
+  return "expected `str`" in lowered or "expected `array`" in lowered
+
+
+def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
   """
-  Sanitize a JSON Schema for Gemini structured output.
-
-  This strips unsupported keys, resolves $refs, and avoids empty properties.
+  Flatten and simplify the schema while preserving $defs.
+  - Keeps $defs at the root.
+  - Keeps structural elements (Section, Subsection, etc.) as refs.
+  - Recursively cleans all nodes and removes strict size bounds.
   """
-  if visited is None:
-    visited = set()
+  defs = schema.get("$defs", {}) or schema.get("definitions", {})
 
-  if schema is None:
-    return {"type": "object", "properties": {}}
+  def _with_nullable_type(option: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert a cleaned option schema into a nullable type schema when possible."""
+    option_type = option.get("type")
+    if isinstance(option_type, str):
+      nullable_option = option.copy()
+      nullable_option["type"] = [option_type, "null"]
+      return nullable_option
+    if isinstance(option_type, list):
+      nullable_option = option.copy()
+      if "null" not in option_type:
+        nullable_option["type"] = [*option_type, "null"]
+      return nullable_option
+    return None
 
-  if isinstance(schema, str):
-    return {"type": "object", "properties": {}}
+  def _simplify_union(key: str, options: list[Any], node: dict[str, Any]) -> dict[str, Any]:
+    """Simplify anyOf/oneOf while preserving nullable unions required by structured output."""
+    cleaned_options = [_clean_node(option) for option in options]
+    non_null_options = [option for option in cleaned_options if not (isinstance(option, dict) and option.get("type") == "null")]
+    has_null_option = len(non_null_options) != len(cleaned_options)
 
-  if isinstance(schema, (int, float, bool)):
-    return schema
+    # Optional[T] should remain nullable after simplification; convert to type union when possible.
+    if has_null_option and len(non_null_options) == 1 and isinstance(non_null_options[0], dict):
+      nullable_option = _with_nullable_type(non_null_options[0])
+      if nullable_option is not None:
+        return nullable_option
 
-  if isinstance(schema, list):
-    out: list[Any] = []
-    for item in schema:
-      if isinstance(item, dict):
-        out.append(_sanitize_schema_for_gemini(item, root_schema, visited))
-    return out
+    # Collapse single-option unions for cleaner schemas when null is not involved.
+    if not has_null_option and len(cleaned_options) == 1 and isinstance(cleaned_options[0], dict):
+      return cleaned_options[0]
 
-  if not isinstance(schema, dict):
-    return {"type": "object", "properties": {}}
+    union_node = node.copy()
+    union_node[key] = cleaned_options
+    union_node.pop("type", None)
+    return union_node
 
-  if "$ref" in schema:
-    ref_path = schema["$ref"]
-    if ref_path in visited:
-      return {"type": "object", "properties": {}}
-    if root_schema:
-      defs = root_schema.get("$defs") or root_schema.get("definitions")
-      if defs and isinstance(defs, dict):
-        parts = ref_path.split("/")
-        if len(parts) >= 3:
-          def_name = parts[-1]
-          if def_name in defs:
-            new_visited = visited.copy()
-            new_visited.add(ref_path)
-            return _sanitize_schema_for_gemini(defs[def_name], root_schema, new_visited)
-    return {"type": "object", "properties": {}}
+  def _clean_node(node: Any) -> Any:
+    if not isinstance(node, dict):
+      return node
 
-  allowed_keys: set[str] = {"type", "properties", "items", "anyOf", "oneOf", "allOf", "enum", "format", "minimum", "maximum", "minItems", "maxItems", "minLength", "maxLength", "pattern", "required"}
+    # Handle $ref - convert to standard #/$defs/ format
+    if "$ref" in node:
+      ref_key = node["$ref"].split("/")[-1]
+      return {"$ref": f"#/$defs/{ref_key}"}
 
-  sanitized: dict[str, Any] = {k: v for k, v in schema.items() if k in allowed_keys}
+    # Simplify anyOf/oneOf (handle Optional)
+    for key in ("anyOf", "oneOf"):
+      if key in node:
+        options = node[key]
+        if isinstance(options, list):
+          return _simplify_union(key, options, node)
 
-  if "properties" in sanitized:
-    props = sanitized.get("properties")
-    if isinstance(props, dict):
-      sanitized["properties"] = {key: _sanitize_schema_for_gemini(value, root_schema, visited) for key, value in props.items()}
-    elif not props:
-      sanitized["properties"] = {}
+    # Process children
+    new_node = node.copy()
 
-  if "items" in sanitized:
-    sanitized["items"] = _sanitize_schema_for_gemini(sanitized["items"], root_schema, visited)
+    # Strip metadata and state-space-heavy bounds for Gemini compatibility.
+    keys_to_remove = ("$defs", "definitions", "title", "$schema", "minItems", "maxItems", "minLength", "maxLength", "additional_properties")
+    for k in keys_to_remove:
+      new_node.pop(k, None)
 
-  for key in ("anyOf", "oneOf", "allOf"):
-    if key in sanitized and isinstance(sanitized[key], list):
-      sanitized[key] = [_sanitize_schema_for_gemini(item, root_schema, visited) for item in sanitized[key]]
+    if "properties" in new_node:
+      new_node["properties"] = {k: _clean_node(v) for k, v in new_node["properties"].items()}
+    elif new_node.get("type") == "object":
+      # Gemini likes to know the object can have any properties if not specified
+      new_node["additionalProperties"] = True
 
-  return sanitized
+    if "items" in new_node:
+      new_node["items"] = _clean_node(new_node["items"])
+    elif "prefixItems" in new_node:
+      new_node["prefixItems"] = [_clean_node(item) for item in new_node["prefixItems"]]
+      # If prefixItems is used (Tuples), Gemini often requires items: false or items: {}
+      if "items" not in new_node:
+        new_node["items"] = False
+    elif new_node.get("type") == "array":
+      # Gemini requires "items" for array types
+      new_node["items"] = {}
+
+    # Fix for Gemini: enum must have type: string
+    if "enum" in new_node and "type" not in new_node:
+      new_node["type"] = "string"
+
+    return new_node
+
+  # Process the root
+  cleaned_root = _clean_node(schema)
+
+  # Process all definitions
+  final_defs = {}
+  for name, definition in defs.items():
+    final_defs[name] = _clean_node(definition)
+
+  if final_defs:
+    cleaned_root["$defs"] = final_defs
+
+  _enforce_widget_item_schema_requirements(cleaned_root)
+  return cleaned_root
 
 
-def _sanitize_schema_for_vertex(schema: Any, root_schema: SchemaDict | None = None, visited: VisitedRefs = None) -> Any:
-  """
-  Sanitize a JSON Schema for Vertex AI structured output.
+def _enforce_widget_item_schema_requirements(schema: dict[str, Any]) -> None:
+  """Require at least one known widget key and block unknown widget keys."""
+  defs = schema.get("$defs")
+  if not isinstance(defs, dict):
+    return
 
-  This includes specific flattening logic for anyOf unions to avoid SDK crashes.
-  """
-  if visited is None:
-    visited = set()
+  widget_item_schema = defs.get("WidgetItem")
+  if not isinstance(widget_item_schema, dict):
+    return
 
-  if schema is None:
-    return {"type": "object", "properties": {}}
+  properties = widget_item_schema.get("properties")
+  if not isinstance(properties, dict) or not properties:
+    return
 
-  if isinstance(schema, str):
-    return {"type": "object", "properties": {}}
-
-  if isinstance(schema, (int, float, bool)):
-    return schema
-
-  if isinstance(schema, list):
-    out: list[Any] = []
-    for item in schema:
-      if isinstance(item, dict):
-        out.append(_sanitize_schema_for_vertex(item, root_schema, visited))
-    return out
-
-  if not isinstance(schema, dict):
-    return {"type": "object", "properties": {}}
-
-  if "$ref" in schema:
-    ref_path = schema["$ref"]
-    if ref_path in visited:
-      return {"type": "object", "properties": {}}
-    if root_schema:
-      defs = root_schema.get("$defs") or root_schema.get("definitions")
-      if defs and isinstance(defs, dict):
-        parts = ref_path.split("/")
-        if len(parts) >= 3:
-          def_name = parts[-1]
-          if def_name in defs:
-            new_visited = visited.copy()
-            new_visited.add(ref_path)
-            return _sanitize_schema_for_vertex(defs[def_name], root_schema, new_visited)
-    return {"type": "object", "properties": {}}
-
-  # Flatten anyOf/oneOf if they contain objects
-  if "anyOf" in schema or "oneOf" in schema:
-    options = schema.get("anyOf") or schema.get("oneOf")
-    if isinstance(options, list):
-      merged_props = {}
-      for opt in options:
-        sanitized_opt = _sanitize_schema_for_vertex(opt, root_schema, visited)
-        if isinstance(sanitized_opt, dict) and sanitized_opt.get("type") == "object":
-          props = sanitized_opt.get("properties", {})
-          merged_props.update(props)
-
-      if merged_props:
-        return {
-          "type": "object",
-          "properties": merged_props,
-          "required": [],  # All optional in the flattened super-object
-        }
-
-  allowed_keys: set[str] = {"type", "properties", "items", "anyOf", "oneOf", "allOf", "enum", "format", "minimum", "maximum", "minItems", "maxItems", "minLength", "maxLength", "pattern", "required"}
-
-  sanitized: dict[str, Any] = {k: v for k, v in schema.items() if k in allowed_keys}
-
-  if "properties" in sanitized:
-    props = sanitized.get("properties")
-    if isinstance(props, dict):
-      sanitized["properties"] = {key: _sanitize_schema_for_vertex(value, root_schema, visited) for key, value in props.items()}
-    elif not props:
-      sanitized["properties"] = {}
-
-  if "items" in sanitized:
-    sanitized["items"] = _sanitize_schema_for_vertex(sanitized["items"], root_schema, visited)
-
-  for key in ("anyOf", "oneOf", "allOf"):
-    if key in sanitized and isinstance(sanitized[key], list):
-      sanitized[key] = [_sanitize_schema_for_vertex(item, root_schema, visited) for item in sanitized[key]]
-
-  return sanitized
+  property_names = [str(name) for name in properties.keys()]
+  # `anyOf` with per-key required clauses enforces at least one widget key.
+  widget_item_schema["anyOf"] = [{"required": [name]} for name in property_names]
+  widget_item_schema.pop("oneOf", None)
+  widget_item_schema["additionalProperties"] = False
+  # `required` remains empty; selection is enforced by `anyOf`.
+  widget_item_schema["required"] = []

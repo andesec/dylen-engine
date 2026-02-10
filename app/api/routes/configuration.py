@@ -16,16 +16,21 @@ from app.core.security import require_permission
 from app.schema.quotas import SubscriptionTier
 from app.schema.runtime_config import RuntimeConfigScope
 from app.schema.sql import RoleLevel, User
-from app.services.feature_flags import create_feature_flag, get_feature_flag_by_key, list_feature_flags, resolve_effective_feature_flags, set_org_feature_flag, set_tier_feature_flag
+from app.services.feature_flags import create_feature_flag, get_feature_flag_by_key, list_feature_flags, resolve_effective_feature_flags, set_feature_flag_default_enabled, set_org_feature_flag, set_tier_feature_flag
 from app.services.rbac import get_role_by_id
 from app.services.runtime_config import get_runtime_config_definition, list_runtime_config_definitions, list_runtime_config_values, resolve_effective_runtime_config, upsert_runtime_config_value
 from app.services.users import get_user_subscription_tier
 
 router = APIRouter()
 
-ConfigScopeLiteral = Literal["GLOBAL", "TIER", "TENANT"]
+ConfigScopeLiteral = Literal["GLOBAL", "TIER", "TENANT", "USER"]
+ConfigValues = dict[str, Any]
+OptStr = str | None
 CONFIG_READ_DEP = Depends(require_permission("config:read"))
 FLAGS_READ_DEP = Depends(require_permission("flags:read"))
+DB_DEP = Depends(get_db)
+COACH_MODE_FLAG_KEY = "feature.coach.mode"
+TUTOR_MODE_FLAG_KEY = "feature.tutor.mode"
 
 
 class RuntimeConfigDefinitionRecord(BaseModel):
@@ -42,6 +47,7 @@ class RuntimeConfigSetRequest(BaseModel):
   value: Any
   org_id: str | None = None
   tier_name: str | None = None
+  user_id: str | None = None
 
 
 class FeatureFlagRecord(BaseModel):
@@ -64,11 +70,29 @@ class FeatureFlagOverrideRequest(BaseModel):
   tier_name: str | None = None
 
 
+class ModeFlagsRecord(BaseModel):
+  coach_mode_enabled: bool
+  tutor_mode_enabled: bool
+
+
+class ModeFlagsUpdateRequest(BaseModel):
+  coach_mode_enabled: bool
+  tutor_mode_enabled: bool
+
+
 def _definition_to_record(definition: Any) -> RuntimeConfigDefinitionRecord:
   """Map a runtime config definition into a stable response payload."""
   # Convert scope enums to strings so the client can render without schema coupling.
   scopes = [scope.value for scope in sorted(definition.allowed_scopes, key=lambda s: s.value)]
   return RuntimeConfigDefinitionRecord(key=definition.key, value_type=definition.value_type, description=definition.description, allowed_scopes=scopes, super_admin_only=definition.super_admin_only)
+
+
+async def _require_super_admin_role(db: AsyncSession, user: User) -> None:
+  """Enforce the Super Admin role name when accessing internal-only config values."""
+  # Keep internal repair toggles inaccessible to tenant/global admins by default.
+  role = await get_role_by_id(db, user.role_id)
+  if role is None or role.name != "Super Admin":
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
 
 async def _require_global_role(db: AsyncSession, user: User) -> None:
@@ -117,23 +141,30 @@ async def list_config_definitions(_current_user: User = CONFIG_READ_DEP) -> list
 
 
 @router.get("/config/values")
-async def get_config_values(scope: ConfigScopeLiteral = Query("GLOBAL"), org_id: str | None = Query(None), tier_name: str | None = Query(None), current_user: User = CONFIG_READ_DEP, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+async def get_config_values(scope: ConfigScopeLiteral = Query("GLOBAL"), org_id: OptStr = Query(None), tier_name: OptStr = Query(None), user_id: OptStr = Query(None), current_user: User = CONFIG_READ_DEP, db: AsyncSession = DB_DEP) -> ConfigValues:
   """List explicitly set values for the requested config scope."""
   if scope == "GLOBAL":
     await _require_global_role(db, current_user)
-    return await list_runtime_config_values(db, scope=RuntimeConfigScope.GLOBAL, org_id=None, subscription_tier_id=None)
+    return await list_runtime_config_values(db, scope=RuntimeConfigScope.GLOBAL, org_id=None, subscription_tier_id=None, user_id=None)
   if scope == "TIER":
     await _require_global_role(db, current_user)
     if not tier_name:
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tier_name is required for TIER scope")
     tier_id = await _resolve_tier_id(db, tier_name)
-    return await list_runtime_config_values(db, scope=RuntimeConfigScope.TIER, org_id=None, subscription_tier_id=tier_id)
+    return await list_runtime_config_values(db, scope=RuntimeConfigScope.TIER, org_id=None, subscription_tier_id=tier_id, user_id=None)
   if scope == "TENANT":
     if not org_id:
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_id is required for TENANT scope")
     parsed_org_id = uuid.UUID(org_id)
     await _require_tenant_scope(db, current_user, parsed_org_id)
-    return await list_runtime_config_values(db, scope=RuntimeConfigScope.TENANT, org_id=parsed_org_id, subscription_tier_id=None)
+    return await list_runtime_config_values(db, scope=RuntimeConfigScope.TENANT, org_id=parsed_org_id, subscription_tier_id=None, user_id=None)
+  if scope == "USER":
+    await _require_global_role(db, current_user)
+    await _require_super_admin_role(db, current_user)
+    if not user_id:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id is required for USER scope")
+    parsed_user_id = uuid.UUID(user_id)
+    return await list_runtime_config_values(db, scope=RuntimeConfigScope.USER, org_id=None, subscription_tier_id=None, user_id=parsed_user_id)
   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid scope")
 
 
@@ -152,7 +183,7 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
   if request.scope == "GLOBAL":
     await _require_global_role(db, current_user)
     _ = await require_permission("config:write_global")(current_user=current_user, db=db)  # type: ignore[misc]
-    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.GLOBAL, value=request.value, org_id=None, subscription_tier_id=None)
+    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.GLOBAL, value=request.value, org_id=None, subscription_tier_id=None, user_id=None)
     return {"status": "ok"}
 
   if request.scope == "TIER":
@@ -161,7 +192,7 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
     if not request.tier_name:
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tier_name is required for TIER scope")
     tier_id = await _resolve_tier_id(db, request.tier_name)
-    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TIER, value=request.value, org_id=None, subscription_tier_id=tier_id)
+    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TIER, value=request.value, org_id=None, subscription_tier_id=tier_id, user_id=None)
     return {"status": "ok"}
 
   if request.scope == "TENANT":
@@ -170,7 +201,16 @@ async def set_config_value(request: RuntimeConfigSetRequest, current_user: User 
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_id is required for TENANT scope")
     parsed_org_id = uuid.UUID(request.org_id)
     await _require_tenant_scope(db, current_user, parsed_org_id)
-    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TENANT, value=request.value, org_id=parsed_org_id, subscription_tier_id=None)
+    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.TENANT, value=request.value, org_id=parsed_org_id, subscription_tier_id=None, user_id=None)
+    return {"status": "ok"}
+
+  if request.scope == "USER":
+    await _require_global_role(db, current_user)
+    _ = await require_permission("config:write_global")(current_user=current_user, db=db)  # type: ignore[misc]
+    if not request.user_id:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id is required for USER scope")
+    parsed_user_id = uuid.UUID(request.user_id)
+    await upsert_runtime_config_value(db, key=definition.key, scope=RuntimeConfigScope.USER, value=request.value, org_id=None, subscription_tier_id=None, user_id=parsed_user_id)
     return {"status": "ok"}
 
   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid scope")
@@ -187,7 +227,7 @@ async def get_effective_config(org_id: str | None = Query(None), current_user: U
     parsed = uuid.UUID(org_id)
     await _require_global_role(db, current_user)
     target_org_id = parsed
-  effective = await resolve_effective_runtime_config(db, settings=settings, org_id=target_org_id, subscription_tier_id=tier_id)
+  effective = await resolve_effective_runtime_config(db, settings=settings, org_id=target_org_id, subscription_tier_id=tier_id, user_id=None)
   return {"tier": tier_name, "org_id": str(target_org_id) if target_org_id else None, "config": effective}
 
 
@@ -246,5 +286,29 @@ async def get_effective_flags(org_id: str | None = Query(None), tier_name: str |
     await _require_tenant_scope(db, current_user, parsed)
     target_org_id = parsed
 
-  effective = await resolve_effective_feature_flags(db, org_id=target_org_id, subscription_tier_id=tier_id)
+  effective = await resolve_effective_feature_flags(db, org_id=target_org_id, subscription_tier_id=tier_id, user_id=None)
   return {"tier": tier_name, "org_id": str(target_org_id) if target_org_id else None, "flags": effective}
+
+
+@router.get("/feature-flags/modes", response_model=ModeFlagsRecord)
+async def get_mode_flags(current_user: User = FLAGS_READ_DEP, db: AsyncSession = Depends(get_db)) -> ModeFlagsRecord:  # noqa: B008
+  """Return global coach/tutor mode flag defaults."""
+  # Enforce global role so tenant users cannot inspect global toggle state.
+  await _require_global_role(db, current_user)
+  coach_flag = await get_feature_flag_by_key(db, key=COACH_MODE_FLAG_KEY)
+  tutor_flag = await get_feature_flag_by_key(db, key=TUTOR_MODE_FLAG_KEY)
+  if coach_flag is None or tutor_flag is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mode flags not found")
+  return ModeFlagsRecord(coach_mode_enabled=bool(coach_flag.default_enabled), tutor_mode_enabled=bool(tutor_flag.default_enabled))
+
+
+@router.put("/feature-flags/modes", response_model=ModeFlagsRecord, dependencies=[Depends(require_permission("flags:write_global"))])
+async def set_mode_flags(request: ModeFlagsUpdateRequest, current_user: User = Depends(require_permission("flags:write_global")), db: AsyncSession = Depends(get_db)) -> ModeFlagsRecord:  # noqa: B008
+  """Enable or disable global coach/tutor mode flags."""
+  # Require global role to keep global feature toggles restricted to global admins.
+  await _require_global_role(db, current_user)
+  coach_flag = await set_feature_flag_default_enabled(db, key=COACH_MODE_FLAG_KEY, enabled=request.coach_mode_enabled)
+  tutor_flag = await set_feature_flag_default_enabled(db, key=TUTOR_MODE_FLAG_KEY, enabled=request.tutor_mode_enabled)
+  if coach_flag is None or tutor_flag is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mode flags not found")
+  return ModeFlagsRecord(coach_mode_enabled=bool(coach_flag.default_enabled), tutor_mode_enabled=bool(tutor_flag.default_enabled))

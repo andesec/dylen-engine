@@ -46,20 +46,20 @@ Configure Alembic autogenerate with stricter comparisons:
 
 ## 2. Branching & Merge Strategy (Foolproof Rules)
 
-### 2.1 One Migration Per PR Rule
-- If a PR changes SQLAlchemy models in a way that affects schema, it must include **exactly one migration**.
-- If multiple independent schema changes are needed, create multiple PRs or explicitly justify multiple migrations.
+### 2.1 Linear Migration History Rule
+- If a PR changes SQLAlchemy models in a way that affects schema, it must include **at least one migration**.
+- Migrations must form a single linear chain (no merge revisions).
+- When multiple branches add migrations, order them by the **Create Date** header and edit `down_revision` to reflect that order.
 
 ### 2.2 Single Alembic Head Rule
 - `main` must always have **one** head.
 - Any PR that introduces multiple heads **must fail CI**.
 
-### 2.3 Rebase/Resolve Migration Conflicts Before Merge
+### 2.3 Resolve Migration Conflicts Before Merge
 When two branches add migrations:
 - Rebase the later branch onto the earlier.
-- If multiple heads appear, create a **merge revision** only if truly necessary (prefer rebase).
-
-**Default:** Rebase migrations; avoid merge revisions.
+- Edit `down_revision` so the chain follows **Create Date** ordering.
+- Merge revisions are not allowed; CI will fail if a tuple/list `down_revision` is present.
 
 ---
 
@@ -203,7 +203,7 @@ Implementation notes:
 **Requirement:**
 - Output must contain exactly one head.
 - If multiple heads, CI fails with instructions:
-  - rebase migrations or create merge revision (only if approved)
+  - rebase migrations and edit `down_revision` to restore a linear chain (merge revisions are not allowed)
 
 ---
 
@@ -321,6 +321,7 @@ If you choose Option B, document exceptions for lossy migrations.
 
 A PR that modifies models and includes migrations is mergeable only if:
 - [ ] Exactly one Alembic head on branch
+- [ ] Linear chain ordered by Create Date (no merge revisions)
 - [ ] Migration lint passes
 - [ ] Fresh DB upgrade to head passes
 - [ ] Upgrade-from-snapshot passes
@@ -337,7 +338,7 @@ Production deploy is allowed only if:
 ## 11. Implementation Notes (Recommended Defaults)
 
 - Prefer **small, frequent migrations**.
-- Prefer **rebase** over merge revisions.
+- Merge revisions are not allowed; **rebase** and order by Create Date instead.
 - Prefer **expand/contract** for any change that could break older code.
 - Treat autogenerate as an assistant, not an authority.
 

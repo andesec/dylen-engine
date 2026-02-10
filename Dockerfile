@@ -90,7 +90,7 @@ RUN uv pip install debugpy --python .venv && \
 
 EXPOSE 8002 5678
 
-CMD ["python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--log-to", "/tmp/debugpy", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--no-server-header"]
 
 # Default build target.
 # How/Why: Docker builds the last stage by default; keep production as the default so `docker build .` does not start debugpy.

@@ -3,10 +3,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator, model_validator
 
 from app.jobs.guardrails import MAX_ITEM_BYTES
 from app.jobs.models import JobStatus
+from app.schema.outcomes import OutcomeText
 from app.services.widgets import _normalize_option_id, _normalize_widget_ids
 
 MAX_REQUEST_BYTES = MAX_ITEM_BYTES // 2
@@ -53,39 +54,21 @@ class RepairerModel(str, Enum):
   GEMINI_25_FLASH = "gemini-2.5-flash"
 
 
-class ModelsConfig(BaseModel):
-  """Per-agent model selection overrides."""
-
-  section_builder_model: StrictStr | None = Field(
-    default=None,
-    validation_alias=AliasChoices("section_builder_model", "gatherer_model", "knowledge_model", "structurer_model"),
-    serialization_alias="section_builder_model",
-    description="Model used for the section builder agent (provider inferred when possible).",
-    examples=["xiaomi/mimo-v2-flash:free"],
-  )
-  planner_model: StrictStr | None = Field(default=None, description="Model used for the planner agent (provider inferred when possible).", examples=["openai/gpt-oss-120b:free"])
-  repairer_model: StrictStr | None = Field(default=None, description="Model used for repair validation and fixes (provider inferred when possible).", examples=["google/gemma-3-27b-it:free"])
-
-  model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
 class GenerateLessonRequest(BaseModel):
   """Request payload for lesson generation."""
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
   details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
-  blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] | None = Field(
-    default=None, description="Optional blueprint or learning outcome guidance for lesson planning."
+  outcomes: list[OutcomeText] | None = Field(default=None, min_length=1, max_length=8, description="Optional outcomes to guide the planner (3-8 items recommended).")
+  blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] = Field(
+    description="Required blueprint guidance for lesson planning."
   )
-  teaching_style: list[Literal["conceptual", "theoretical", "practical"]] | None = Field(default=None, description="Optional teaching style or pedagogy guidance for lesson planning.")
+  teaching_style: list[Literal["conceptual", "theoretical", "practical"]] = Field(min_length=1, max_length=3, description="Required teaching style guidance for lesson planning.")
   learner_level: StrictStr | None = Field(default=None, min_length=1, description="Optional learner level hint used for prompt guidance.")
   depth: Literal["highlights", "detailed", "training"] = Field(default="highlights", description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).")
   primary_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
-  widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=8, description="Optional list of allowed widgets (overrides defaults).")
+  widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=7, description="Optional list of allowed widgets (overrides defaults).")
   schema_version: StrictStr | None = Field(default=None, description="Optional schema version to pin the lesson output to.")
-  models: ModelsConfig | None = Field(
-    default=None, description="Optional per-agent model selection overrides.", examples=[{"section_builder_model": "xiaomi/mimo-v2-flash:free", "planner_model": "openai/gpt-oss-120b:free", "repairer_model": "google/gemma-3-27b-it:free"}]
-  )
   idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
   model_config = ConfigDict(extra="forbid")
 
@@ -104,9 +87,6 @@ class GenerateLessonRequest(BaseModel):
 
     teaching_style = data.get("teaching_style")
 
-    if isinstance(teaching_style, str):
-      teaching_style = [teaching_style]
-
     if isinstance(teaching_style, list):
       normalized_styles: list[str] = []
 
@@ -115,10 +95,6 @@ class GenerateLessonRequest(BaseModel):
         if not isinstance(style, str):
           raise ValueError("Teaching style entries must be strings.")
         normalized_styles.append(_normalize_option_id(style))
-
-      # Expand legacy "all" into the explicit style list.
-      if "all" in normalized_styles:
-        normalized_styles = ["conceptual", "theoretical", "practical"]
 
       data["teaching_style"] = normalized_styles
 
@@ -166,12 +142,26 @@ class GenerateLessonRequest(BaseModel):
 
     return data
 
-  @model_validator(mode="after")
-  def validate_depth_style_constraint(self) -> GenerateLessonRequest:
-    if self.depth == "highlights" and self.teaching_style:
-      if len(self.teaching_style) == 3:
-        raise ValueError("Cannot select all teaching styles when depth is 'highlights'.")
-    return self
+  @field_validator("teaching_style")
+  @classmethod
+  def validate_unique_teaching_styles(cls, teaching_style: list[str]) -> list[str]:
+    """Reject duplicate teaching style selections to keep request intent explicit."""
+    # Enforce uniqueness so downstream defaults do not receive ambiguous style arrays.
+    if len(set(teaching_style)) != len(teaching_style):
+      raise ValueError("Teaching style entries must be unique.")
+    return teaching_style
+
+  @field_validator("widgets")
+  @classmethod
+  def validate_unique_widgets(cls, widgets: list[str] | None) -> list[str] | None:
+    """Reject duplicate widget selections so each requested widget id is intentional."""
+    # Skip uniqueness checks when clients rely on server defaults.
+    if widgets is None:
+      return widgets
+    # Enforce uniqueness after normalization to avoid alias duplicates.
+    if len(set(widgets)) != len(widgets):
+      raise ValueError("Widget entries must be unique.")
+    return widgets
 
 
 class LessonMeta(BaseModel):
@@ -181,6 +171,14 @@ class LessonMeta(BaseModel):
   model_a: StrictStr
   provider_b: StrictStr
   model_b: StrictStr
+  latency_ms: StrictInt
+
+
+class LessonOutcomesMeta(BaseModel):
+  """Metadata about outcomes generation."""
+
+  provider: StrictStr
+  model: StrictStr
   latency_ms: StrictInt
 
 
@@ -201,6 +199,30 @@ class OrchestrationFailureResponse(BaseModel):
   logs: list[StrictStr]
 
 
+class SectionSummary(BaseModel):
+  """Summary of a lesson section."""
+
+  section_id: StrictInt
+  title: StrictStr
+  status: StrictStr
+
+
+class SectionOutline(BaseModel):
+  """Title of a section and its subsections."""
+
+  title: StrictStr
+  subsections: list[StrictStr]
+
+
+class LessonOutlineResponse(BaseModel):
+  """Lesson title, topic, and section outline."""
+
+  lesson_id: StrictStr
+  topic: StrictStr
+  title: StrictStr
+  sections: list[SectionOutline]
+
+
 class LessonRecordResponse(BaseModel):
   """Response payload for lesson retrieval."""
 
@@ -208,10 +230,7 @@ class LessonRecordResponse(BaseModel):
   topic: StrictStr
   title: StrictStr
   created_at: StrictStr
-  schema_version: StrictStr
-  prompt_version: StrictStr
-  lesson_json: dict[str, Any]
-  meta: LessonMeta
+  sections: list[SectionSummary]
 
 
 class OptionDetail(BaseModel):
@@ -222,14 +241,6 @@ class OptionDetail(BaseModel):
   tooltip: StrictStr
 
 
-class AgentModelOption(BaseModel):
-  """Valid model choices for a pipeline agent."""
-
-  agent: StrictStr
-  default: StrictStr | None
-  options: list[StrictStr]
-
-
 class LessonCatalogResponse(BaseModel):
   """Response payload for lesson option metadata."""
 
@@ -238,7 +249,6 @@ class LessonCatalogResponse(BaseModel):
   learner_levels: list[OptionDetail]
   depths: list[OptionDetail]
   widgets: list[OptionDetail]
-  agent_models: list[AgentModelOption]
   default_widgets: dict[str, dict[str, list[StrictStr]]]
 
 
@@ -247,8 +257,23 @@ class WritingCheckRequest(BaseModel):
 
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
   criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
-  checker_model: StrictStr | None = Field(default=None, description="Optional model override for writing evaluation (provider inferred when possible).", examples=["openai/gpt-oss-120b:free"])
   idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
+  model_config = ConfigDict(extra="forbid")
+
+
+JobKind = Literal["lesson", "research", "youtube", "maintenance", "writing", "system"]
+
+
+class JobCreateRequest(BaseModel):
+  """Request payload for creating a background job."""
+
+  job_kind: JobKind
+  target_agent: StrictStr = Field(min_length=1)
+  idempotency_key: StrictStr = Field(min_length=1, description="Client-generated key used to deduplicate submissions.")
+  payload: dict[str, Any] = Field(default_factory=dict, description="Agent-specific payload.")
+  lesson_id: StrictStr | None = Field(default=None, description="Optional lesson identifier bound to this job.")
+  section_id: StrictInt | None = Field(default=None, ge=1, description="Optional section row id bound to this job.")
+  parent_job_id: StrictStr | None = Field(default=None, description="Optional parent job id for child job creation.")
   model_config = ConfigDict(extra="forbid")
 
 
@@ -256,10 +281,16 @@ class JobCreateResponse(BaseModel):
   """Response payload for job creation."""
 
   job_id: StrictStr
-  expected_sections: StrictInt = Field(ge=0, description="Total number of sections expected for the lesson job (0 for non-lesson jobs).")
+  expected_sections: StrictInt = Field(default=0, ge=0, description="Total number of sections expected for lesson jobs.")
 
 
-RetryAgent = Literal["planner", "section_builder", "repair", "stitcher"]
+class LessonJobResponse(JobCreateResponse):
+  """Response payload for async lesson generation."""
+
+  lesson_id: StrictStr
+
+
+RetryAgent = Literal["planner", "section_builder", "repair"]
 
 
 class JobRetryRequest(BaseModel):
@@ -290,29 +321,19 @@ class CurrentSectionStatus(BaseModel):
   model_config = ConfigDict(extra="forbid")
 
 
-class JobStatusResponse(BaseModel):
-  """Status payload for an asynchronous job."""
+class ChildJobStatus(BaseModel):
+  """Status payload for a child job."""
 
   job_id: StrictStr
   status: JobStatus
-  phase: StrictStr | None = None
-  subphase: StrictStr | None = None
-  expected_sections: StrictInt | None = Field(default=None, ge=0, description="Total number of expected sections for lesson jobs.")
-  completed_sections: StrictInt | None = Field(default=None, ge=0, description="Number of lesson sections completed so far.")
-  completed_section_indexes: list[StrictInt] | None = Field(default=None, description="0-based section indexes that have been completed so far.")
-  current_section: CurrentSectionStatus | None = None
-  retry_count: StrictInt | None = Field(default=None, ge=0, description="Retry attempts already used for this job.")
-  max_retries: StrictInt | None = Field(default=None, ge=0, description="Maximum retry attempts allowed for this job.")
-  retry_sections: list[StrictInt] | None = Field(default=None, description="0-based section indexes targeted for retry, when applicable.")
-  retry_agents: list[StrictStr] | None = Field(default=None, description="Pipeline agents targeted for retry, when applicable.")
-  total_steps: StrictInt | None = Field(default=None, ge=1, description="Total number of progress steps when available.")
-  completed_steps: StrictInt | None = Field(default=None, ge=0, description="Completed progress steps when available.")
-  progress: StrictFloat | None = Field(default=None, ge=0.0, le=100.0, description="Progress percent (0-100) when available.")
-  logs: list[StrictStr] = Field(default_factory=list)
-  result: dict[str, Any] | None = None
-  validation: ValidationResponse | None = None
-  cost: dict[str, Any] | None = None
-  created_at: StrictStr
-  updated_at: StrictStr
-  completed_at: StrictStr | None = Field(default=None)
+  model_config = ConfigDict(extra="forbid")
+
+
+class JobStatusResponse(BaseModel):
+  """Status payload for a background job."""
+
+  job_id: StrictStr
+  status: JobStatus
+  child_jobs: list[ChildJobStatus] | None = None
+  lesson_id: StrictStr | None = None
   model_config = ConfigDict(populate_by_name=True)

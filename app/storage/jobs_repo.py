@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from app.jobs.models import JobRecord, JobStatus
+from app.jobs.models import JobKind, JobRecord, JobStatus
 
 
 class JobsRepository(Protocol):
@@ -20,6 +20,10 @@ class JobsRepository(Protocol):
     self,
     job_id: str,
     *,
+    job_kind: JobKind | None = None,
+    parent_job_id: str | None = None,
+    lesson_id: str | None = None,
+    section_id: int | None = None,
     status: JobStatus | None = None,
     phase: str | None = None,
     subphase: str | None = None,
@@ -53,6 +57,12 @@ class JobsRepository(Protocol):
 
   async def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
     """Return a job created with a given idempotency key, if present."""
+
+  async def find_by_user_kind_idempotency_key(self, *, user_id: str | None, job_kind: JobKind, idempotency_key: str) -> JobRecord | None:
+    """Return a job created with a given (user, kind, idempotency_key) tuple."""
+
+  async def list_child_jobs(self, *, parent_job_id: str, include_done: bool = False) -> list[JobRecord]:
+    """Return direct child jobs for a parent job."""
 
   async def list_jobs(self, limit: int, offset: int, status: str | None = None, job_id: str | None = None) -> tuple[list[JobRecord], int]:
     """Return a paginated list of jobs with optional filters, and total count."""

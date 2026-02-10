@@ -1,3 +1,4 @@
+import base64
 import logging
 import warnings
 from typing import Any, Final, cast
@@ -33,6 +34,7 @@ class VertexAIModel(AIModel):
       usage = None
       if response.usage_metadata:
         usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+      self.last_usage = usage
 
       return SimpleModelResponse(content=response.text, usage=usage)
     except Exception as e:
@@ -50,6 +52,7 @@ class VertexAIModel(AIModel):
       usage = None
       if response.usage_metadata:
         usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+      self.last_usage = usage
 
       # Parse the JSON response
       content = parse_json_with_fallback(response.text)
@@ -76,6 +79,38 @@ class VertexAIModel(AIModel):
       raise RuntimeError("No audio data received from Vertex AI.")
     except Exception as e:
       logger.error(f"Vertex AI speech generation failed: {e}")
+      raise
+
+  async def generate_image(self, prompt: str) -> bytes:
+    try:
+      response = await self._client.aio.models.generate_content(model=self.name, contents=prompt)
+      usage = None
+      if response.usage_metadata:
+        usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+      self.last_usage = usage
+      for candidate in list(getattr(response, "candidates", []) or []):
+        content = getattr(candidate, "content", None)
+        parts = list(getattr(content, "parts", []) or [])
+        for part in parts:
+          inline_data = getattr(part, "inline_data", None)
+          if inline_data is None:
+            continue
+          data = getattr(inline_data, "data", None)
+          if isinstance(data, bytes):
+            return data
+          if isinstance(data, str):
+            return base64.b64decode(data)
+      if response.parts:
+        for part in response.parts:
+          if part.inline_data and part.inline_data.data:
+            data = part.inline_data.data
+            if isinstance(data, bytes):
+              return data
+            if isinstance(data, str):
+              return base64.b64decode(data)
+      raise RuntimeError("No image data received from Vertex AI.")
+    except Exception as e:
+      logger.error(f"Vertex AI image generation failed: {e}")
       raise
 
 

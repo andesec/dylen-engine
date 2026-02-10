@@ -2,7 +2,8 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from app.schema.sql import User, UserStatus
+from app.schema.quotas import SubscriptionTier
+from app.schema.sql import Role, RoleLevel, User, UserStatus
 from httpx import AsyncClient
 
 
@@ -56,8 +57,8 @@ async def test_complete_onboarding(async_client: AsyncClient, db_session, mock_v
   db_session.execute.return_value = result_mock
 
   payload = {
-    "basic": {"age": 25, "gender": "Male", "city": "Test City", "country": "Test Country", "occupation": "Developer"},
-    "personalization": {"topics_of_interest": ["Coding", "AI"], "intended_use": "Learning"},
+    "basic": {"age": 25, "gender": "Male", "city": "Test City", "country": "Test Country"},
+    "personalization": {"occupation": "Developer", "topics_of_interest": ["Coding", "AI"], "intended_use": "Learning"},
     "legal": {"accepted_terms": True, "accepted_privacy": True, "terms_version": "1.0", "privacy_version": "1.0"},
   }
 
@@ -74,6 +75,35 @@ async def test_complete_onboarding(async_client: AsyncClient, db_session, mock_v
   assert user.occupation == "Developer"
   assert user.topics_of_interest == ["Coding", "AI"]
   assert user.accepted_terms_at is not None
+
+
+@pytest.mark.anyio
+async def test_complete_onboarding_provisions_user_when_missing(async_client: AsyncClient, db_session, mock_verify_id_token):
+  uid = str(uuid.uuid4())
+  mock_verify_id_token.return_value = {"uid": uid, "email": "test@example.com", "name": "Test User", "picture": "http://example.com/photo.jpg", "firebase": {"sign_in_provider": "google.com"}}
+  mock_role = Role(id=uuid.uuid4(), name="Org Member", level=RoleLevel.TENANT)
+  free_tier = SubscriptionTier(id=1, name="Free", max_file_upload_kb=1024)
+  result_mock = MagicMock()
+  result_mock.scalar_one_or_none.side_effect = [None, mock_role, free_tier]
+  result_mock.fetchall.return_value = []
+  db_session.execute.return_value = result_mock
+  db_session.get.return_value = MagicMock()
+  payload = {
+    "basic": {"age": 25, "gender": "Male", "city": "Test City", "country": "Test Country"},
+    "personalization": {"occupation": "Developer", "topics_of_interest": ["Coding", "AI"], "intended_use": "Learning"},
+    "legal": {"accepted_terms": True, "accepted_privacy": True, "terms_version": "1.0", "privacy_version": "1.0"},
+  }
+  response = await async_client.post("/api/onboarding/complete", json=payload, headers={"Authorization": "Bearer token"})
+  assert response.status_code == 200
+  data = response.json()
+  assert data["onboardingCompleted"] is True
+  assert data["status"] == "PENDING"
+  assert db_session.add.called
+  added_user = db_session.add.call_args_list[0][0][0]
+  assert isinstance(added_user, User)
+  assert added_user.firebase_uid == uid
+  assert added_user.email == "test@example.com"
+  assert added_user.photo_url == "http://example.com/photo.jpg"
 
 
 @pytest.mark.anyio
@@ -96,8 +126,8 @@ async def test_onboarding_idempotency(async_client: AsyncClient, db_session, moc
   db_session.execute.return_value = result_mock
 
   payload = {
-    "basic": {"age": 25, "gender": "Male", "city": "New City", "country": "New Country", "occupation": "New Job"},
-    "personalization": {"topics_of_interest": ["New"], "intended_use": "New"},
+    "basic": {"age": 25, "gender": "Male", "city": "New City", "country": "New Country"},
+    "personalization": {"occupation": "New Job", "topics_of_interest": ["New"], "intended_use": "New"},
     "legal": {"accepted_terms": True, "accepted_privacy": True, "terms_version": "2.0", "privacy_version": "2.0"},
   }
 
@@ -142,9 +172,8 @@ async def test_onboarding_validation_failure(async_client: AsyncClient, db_sessi
       "gender": "Male",
       "city": "Test City",
       "country": "Test Country",
-      "occupation": "Developer",
     },
-    "personalization": {"topics_of_interest": ["Coding"], "intended_use": "Learning"},
+    "personalization": {"occupation": "Developer", "topics_of_interest": ["Coding"], "intended_use": "Learning"},
     "legal": {"accepted_terms": True, "accepted_privacy": True, "terms_version": "1.0", "privacy_version": "1.0"},
   }
 

@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.models import GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse
+from app.api.models import JobCreateRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import get_current_active_user
@@ -16,7 +16,7 @@ logger = logging.getLogger("app.api.routes.jobs")
 
 @router.post("", response_model=JobCreateResponse)
 async def create_job(  # noqa: B008
-  request: GenerateLessonRequest,
+  request: JobCreateRequest,
   background_tasks: BackgroundTasks,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008

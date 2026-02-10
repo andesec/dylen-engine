@@ -43,10 +43,10 @@ class OpenRouterModel(AIModel):
     logger = logging.getLogger("app.ai.providers.openrouter")
 
     # Allow deterministic local tests without spending credits.
-    dummy = AIModel.load_dummy_response("GATHERER")
+    dummy = AIModel.load_dummy_response("SECTION_BUILDER")
     if dummy is not None:
       response = SimpleModelResponse(content=dummy, usage=None)
-      logger.info("OpenRouter GATHERER dummy response:\n%s", response.content)
+      logger.info("OpenRouter SECTION_BUILDER dummy response:\n%s", response.content)
       return response
 
     response = await self._client.chat.completions.create(model=self.name, messages=[{"role": "user", "content": prompt}])
@@ -68,7 +68,7 @@ class OpenRouterModel(AIModel):
       raise RuntimeError(f"Structured output is not supported for model '{self.name}'.")
 
     # Allow deterministic local tests without spending credits.
-    dummy = AIModel.load_dummy_response("STRUCTURER")
+    dummy = AIModel.load_dummy_response("SECTION_BUILDER")
     if dummy is not None:
       cleaned = AIModel.strip_json_fences(dummy)
       parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))
@@ -79,9 +79,8 @@ class OpenRouterModel(AIModel):
     # OpenRouter/OpenAI structured output requires a schema in response_format
     # for strict enforcement, or at least 'json_schema' type.
 
-    # Serialize schema for prompt injection (reinforcement)
-    schema_str = json.dumps(schema, indent=2)
-    system_msg = f"You are a helpful assistant that outputs valid JSON.\nYou MUST strictly output JSON adhering to this schema:\n```json\n{schema_str}\n```\nOutput valid JSON only, no markdown formatting."
+    # Keep system guidance generic to avoid schema injection into prompts.
+    system_msg = "You are a helpful assistant that outputs valid JSON. Output valid JSON only, no markdown formatting."
 
     response = await self._client.chat.completions.create(
       model=self.name,

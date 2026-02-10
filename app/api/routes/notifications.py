@@ -9,8 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db_session
 from app.core.security import get_current_user
-from app.notifications.template_renderer import render_push_content
-from app.schema.email_delivery_logs import EmailDeliveryLog
+from app.schema.notifications import InAppNotification
 from app.schema.sql import User
 
 router = APIRouter()
@@ -34,37 +33,21 @@ async def list_notifications(
   - **offset**: Number of notifications to skip (for pagination).
   - **created_after**: Only return notifications created after this timestamp (useful for polling).
   """
-  # Build the query
-  query = select(EmailDeliveryLog).where(EmailDeliveryLog.user_id == current_user.id)
+  # Build the query for in-app notifications.
+  query = select(InAppNotification).where(InAppNotification.user_id == current_user.id)
 
   if created_after:
-    query = query.where(EmailDeliveryLog.created_at > created_after)
+    query = query.where(InAppNotification.created_at > created_after)
 
-  # Apply ordering and pagination
-  query = query.order_by(desc(EmailDeliveryLog.created_at)).limit(limit).offset(offset)
+  # Apply ordering and pagination.
+  query = query.order_by(desc(InAppNotification.created_at)).limit(limit).offset(offset)
 
   result = await session.execute(query)
-  logs = result.scalars().all()
+  notifications = result.scalars().all()
 
-  notifications = []
-  for log in logs:
-    try:
-      # Render the push-style content for the frontend
-      title, body, data = render_push_content(template_id=log.template_id, placeholders=log.placeholders)
+  # Map persisted rows into API payloads.
+  payloads = []
+  for notification in notifications:
+    payloads.append({"id": str(notification.id), "created_at": notification.created_at, "template_id": notification.template_id, "title": notification.title, "body": notification.body, "data": notification.data_json, "read": bool(notification.read)})
 
-      notifications.append(
-        {
-          "id": str(log.id),
-          "created_at": log.created_at,
-          "template_id": log.template_id,
-          "title": title,
-          "body": body,
-          "data": data,
-          "read": False,  # TODO: Implement read status tracking
-        }
-      )
-    except ValueError:
-      # Skip notifications with unknown templates or missing data
-      continue
-
-  return notifications
+  return payloads

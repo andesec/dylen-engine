@@ -35,19 +35,73 @@ Recommendations:
 ```json
 {
   "section": "Section title",
-  "items": [ /* widgets */ ],
-  "subsections": [ /* optional nested sections */ ]
+  "markdown": ["Section intro markdown.", "left"],
+  "illustration": [42, "Optional runtime caption"],
+  "subsections": [
+    {
+      "section": "Subsection title",
+      "items": [
+        widgets
+      ]
+    }
+  ]
 }
 ```
 
 Constraints:
 - `section` must be a non-empty string.
-- `items` must be an array (can be empty, but avoid empty sections).
-- `subsections`, must be an array of section blocks with the same structure.
-- All widgets must be placed inside the `items` array, not alongside `section` or `subsections`.
+- `markdown` is required at section level.
+- `subsections` must be an array of subsection blocks.
+- Every subsection block includes `section` and `items`.
+- `illustration` is an image to depict the concept being discussed.
 
 Recommendation:
 - Prefer multiple shorter sections and subsections over one long section.
+
+---
+
+## Item Widgets (inside `items`)
+
+Each item is either:
+- an object with exactly one shorthand key, or
+- a full-form widget object with `type` (advanced escape hatch).
+
+Unless the object is a block (`section`) or uses `type`, it must use exactly one key.
+
+Note:
+- Dividers are auto-inserted between widgets when a section/subsection has multiple items.
+
+### `markdown` (MarkdownText)
+
+```json
+{ "markdown": ["A short explanation, definition, or narrative context."] }
+{ "markdown": ["**Warning:** Common pitfall / misconception."] }
+{ "markdown": ["**Success:** Checkpoint: how to know you understood it."] }
+{ "markdown": ["- Item 1\n- Item 2\n- Item 3"] }
+{ "markdown": ["1. Step 1\n2. Step 2\n3. Step 3"] }
+{ "markdown": ["Centered note.", "center"] }
+{ "markdown": ["Left aligned by default.", "left"] }
+```
+
+Rules:
+- Position 0 is markdown text (`md`).
+- Position 1 is optional alignment: `"left"` or `"center"`.
+
+---
+
+### `illustration` (Visual Widget)
+
+`illustration` uses compact shorthand: `[id, caption]`.
+
+```json
+"illustration": [42, "Visual summary caption"]
+```
+
+Rules:
+- Index `0` is `id` (integer or `null`).
+- Index `1` is caption string.
+- Frontend media URL is built as `/media/lessons/{lesson_id}/{illustration[0]}.webp`.
+- If `illustration[0]` is null/missing/empty/not an integer, frontend should skip rendering illustration.
 
 ---
 
@@ -60,67 +114,29 @@ Note: `mcqs` is the canonical widget for assessments. It must be placed inside `
   "section": "Quiz",
   "items": [
     {
-      "mcqs": {
-        "title": "Quiz Title",
-        "questions": [
-          {
-            "q": "Question?",
-            "c": ["Option A", "Option B", "Option C"],
-            "a": 1,
-            "e": "Explanation"
-          }
+      "mcqs": [
+        "Quiz Title",
+        [
+          ["Question?", ["Option A", "Option B", "Option C"], 1, "Explanation"]
         ]
-      }
+      ]
     }
   ]
 }
 ```
 
 Constraints:
-- `questions` must be a non-empty array.
-- Each question must include:
-  - `q` (string, non-empty)
-  - `c` (array, at least 2 choices)
-  - `a` (integer, 0-based index into `c`)
-  - `e` (string, non-empty explanation)
+- `mcqs` array index contract:
+  - `0`: quiz title (string)
+  - `1`: questions array
+- Each question is `[q, c, a, e]`:
+  - `q` question text string
+  - `c` choices array (3-4 choices recommended)
+  - `a` integer (0-based correct choice index)
+  - `e` explanation string
 
 Recommendation:
 - Place a quiz as the final block. Include at least 3 questions per section you taught.
-
----
-
-## Item Widgets (inside `items`)
-
-Each item is either:
-- a string (shorthand paragraph), or
-- an object with exactly one shorthand key, or
-- a full-form widget object with `type` (advanced escape hatch).
-
-Unless the object is a block (`section`) or uses `type`, it must use exactly one key.
-
-Note:
-- Dividers are auto-inserted between widgets when a section/subsection has multiple items.
-
-### `p` (Paragraph)
-
-```json
-{ "p": "A short explanation, definition, or narrative context." }
-```
-
-Notes:
-- A plain string is equivalent to `{ "p": "..." }`.
----
-
-### `warn` / `err` / `success` (Alert Boxes)
-
-```json
-{ "warn": "Common pitfall / misconception." }
-{ "err": "Critical mistake or anti-pattern." }
-{ "success": "Checkpoint: how to know you understood it." }
-```
-
-Recommendation:
-- Keep callouts short and action-oriented so they remain skimmable. Use for critical warnings or success checkpoints only.
 
 ---
 
@@ -159,21 +175,6 @@ Constraints (array order is required):
 2. Correct answer string (case-insensitive matching).
 3. Hint string (brief, helpful and precise).
 4. Explanation string (short and concrete).
-
----
-
-### `ul` / `ol` (Lists)
-
-```json
-{ "ul": ["Item 1", "Item 2", "Item 3"] }
-{ "ol": ["Step 1", "Step 2", "Step 3"] }
-```
-
-Constraints:
-- Value must be an array of strings.
-
-Recommendation:
-- Use `ol` when order matters; avoid embedding numbering in the strings.
 
 ---
 
@@ -409,7 +410,7 @@ Where to use:
 ```
 
 Schema (array positions):
-1. `code` (string|object): Code to display. Objects are JSON-stringified.
+1. `code` (string): Code to display.
 2. `language` (string): Language for syntax highlighting (e.g., `javascript`, `python`).
 3. `readOnly` (boolean, optional): If true, the editor is read-only. Default: false (editable).
 4. `highlightedLines` (array, optional): List of 1-based line numbers to highlight.
@@ -448,7 +449,7 @@ Notes:
    - Use `subsections` when nested structure is needed.
 
 2. Teach with a reliable loop
-   - Explanation (`p`) -> pitfall (`warn`) -> translation (`tr`) -> practice (`fillblank`) -> checkpoint (`mcqs`).
+   - Explain with `markdown` -> translate with `tr` -> practice with `fillblank` -> checkpoint with `mcqs`.
 
 3. End with assessment
    - Final block should be a quiz (`mcqs`) that targets the most important learning outcomes.
@@ -473,37 +474,68 @@ Notes:
   "blocks": [
     {
       "section": "What it is",
-      "items": [
-        { "p": "Define the concept in plain language." },
-        { "warn": "Common misunderstanding to avoid." }
-      ]
-    },
-    {
-      "section": "Examples",
-      "items": [
-        { "tr": ["EN: A concrete example", "DE: Bedeutung / Ubersetzung"] },
-        { "tr": ["EN: A second example", "DE: Zweite Ubersetzung"] }
-      ]
-    },
-    {
-      "section": "Practice",
-      "items": [
-        { "fillblank": ["Fill in: ___ is used when ...", "The concept", "Definition", "It matches the definition you learned."] }
-      ]
-    },
-    {
-      "section": "Check your understanding",
-      "items": [
+      "markdown": ["Define the concept in plain language.", "left"],
+      "illustration": [42, "Quick visual of the core idea"],
+      "subsections": [
         {
-          "mcqs": {
-            "title": "Check your understanding",
-            "questions": [
-              { "q": "What is the best description?", "c": ["A", "B", "C"], "a": 1, "e": "B matches the definition; A/C miss key parts." }
-            ]
-          }
+          "section": "Examples",
+          "items": [
+            { "tr": ["EN: A concrete example", "DE: Bedeutung / Ubersetzung"] },
+            { "fillblank": ["Fill in: ___ is used when ...", "The concept", "Definition", "It matches the definition you learned."] }
+          ]
+        },
+        {
+          "section": "Check your understanding",
+          "items": [
+            {
+              "mcqs": [
+                "Check your understanding",
+                [
+                  ["What is the best description?", ["A", "B", "C"], 1, "B matches the definition; A/C miss key parts."]
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section": "Wrap-up",
+      "markdown": ["Summarize key takeaways and next steps.", "left"],
+      "subsections": [
+        {
+          "section": "Practice",
+          "items": [
+            { "freeText": ["Explain the concept in your own words.", "In my view,", "en", "concept,clarity,example,summary"] }
+          ]
         }
       ]
     }
   ]
 }
 ```
+
+---
+
+## Section/Subsection Shape (Canonical Shorthand Output)
+
+```json
+{
+  "section": "Section title",
+  "markdown": ["Section intro", "left"],
+  "illustration": [42, "Optional caption"],
+  "subsections": [
+    {
+      "section": "Subsection title",
+      "items": [
+        { "markdown": ["Subsection content", "left"] }
+      ]
+    }
+  ]
+}
+```
+
+Where:
+- `section.markdown` carries markdown in shorthand output.
+- `section.illustration` is optional runtime metadata in this example shape.
+- `subsections` contains subsection objects with `section` and `items`.

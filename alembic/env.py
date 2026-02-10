@@ -6,7 +6,7 @@ from os.path import abspath, dirname
 from time import perf_counter
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -22,17 +22,8 @@ config = context.config
 if config.config_file_name is not None:
   fileConfig(config.config_file_name)
 
-import app.schema.audit  # noqa: E402, F401
-import app.schema.email_delivery_logs  # noqa: E402, F401
-import app.schema.feature_flags  # noqa: E402, F401
-import app.schema.fenster  # noqa: E402, F401
-import app.schema.jobs  # noqa: E402, F401
-import app.schema.lessons  # noqa: E402, F401
-import app.schema.quotas  # noqa: E402, F401
-import app.schema.runtime_config  # noqa: E402, F401
-
-# Must import models so they are attached to Base.metadata
-import app.schema.sql  # noqa: E402, F401
+# Must import ORM models so they are attached to Base.metadata.
+import app.schema.db_models  # noqa: E402, F401
 from app.core.database import DATABASE_URL, Base  # noqa: E402
 from app.core.migrations import build_migration_context_options  # noqa: E402
 
@@ -95,6 +86,8 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
   """Run migrations on the provided connection while logging revisions."""
+  # Enforce the public schema for migration transactions.
+  connection.execute(text("SET LOCAL search_path TO public"))
   # Apply shared strict comparison options for online migrations.
   options = _build_context_options()
   context.configure(connection=connection, **options)
@@ -127,6 +120,7 @@ async def run_async_migrations() -> None:
   # Run migrations using an async connection.
   async with connectable.connect() as connection:
     await connection.run_sync(do_run_migrations)
+    await connection.commit()
 
   # Dispose the engine so connections close cleanly.
   await connectable.dispose()
@@ -134,7 +128,12 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
   """Run migrations online using asyncio to match runtime execution."""
-  # Run migrations using an async engine to match runtime configuration.
+  # Prefer an externally-provided connection when the caller wants to hold locks or control the session.
+  connection = config.attributes.get("connection")
+  if isinstance(connection, Connection):
+    do_run_migrations(connection)
+    return
+  # Fall back to the default async engine so CLI usage keeps matching runtime configuration.
   asyncio.run(run_async_migrations())
 
 

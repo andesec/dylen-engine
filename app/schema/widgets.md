@@ -30,24 +30,49 @@ Recommendations:
 
 ## Block Types
 
+
 ### `section` (Primary Content Card)
 
 ```json
 {
   "section": "Section title",
-  "items": [ /* widgets */ ],
-  "subsections": [ /* optional nested sections */ ]
+  "markdown": { "markdown": ["Introductory text"] },
+  "subsections": [ /* 1-8 subsection blocks */ ]
 }
 ```
 
 Constraints:
 - `section` must be a non-empty string.
-- `items` must be an array (can be empty, but avoid empty sections).
-- `subsections`, must be an array of section blocks with the same structure.
-- All widgets must be placed inside the `items` array, not alongside `section` or `subsections`.
+- `markdown` must be a markdown widget (object).
+- `subsections` must be a non-empty array (1-8 items).
+- `subsection` blocks:
+  ```json
+  {
+    "subsection": "Subsection title",
+    "items": [ /* 1-5 widgets */ ]
+  }
+  ```
 
 Recommendation:
-- Prefer multiple shorter sections and subsections over one long section.
+- Use the markdown field for the section introduction/context.
+- Break down content into logical subsections.
+
+---
+
+### `fenster` (Interactive Widget Container)
+
+```json
+{ "fenster": ["widget_uuid", "inline_blob", "base64_content"] }
+```
+OR
+```json
+{ "fenster": ["widget_uuid", "cdn_url", "https://cdn.example.com/widget.html"] }
+```
+
+Constraints:
+- Position 0: `fenster_id` (UUID string).
+- Position 1: `type` ("inline_blob" or "cdn_url").
+- Position 2: Content (base64 string) or URL.
 
 ---
 
@@ -92,7 +117,6 @@ Recommendation:
 ## Item Widgets (inside `items`)
 
 Each item is either:
-- a string (shorthand paragraph), or
 - an object with exactly one shorthand key, or
 - a full-form widget object with `type` (advanced escape hatch).
 
@@ -101,38 +125,39 @@ Unless the object is a block (`section`) or uses `type`, it must use exactly one
 Note:
 - Dividers are auto-inserted between widgets when a section/subsection has multiple items.
 
-### `p` (Paragraph)
+### `markdown` (MarkdownText)
 
 ```json
-{ "p": "A short explanation, definition, or narrative context." }
+{ "markdown": ["A short explanation, definition, or narrative context."] }
+{ "markdown": ["**Warning:** Common pitfall / misconception."] }
+{ "markdown": ["**Success:** Checkpoint: how to know you understood it."] }
+{ "markdown": ["- Item 1\n- Item 2\n- Item 3"] }
+{ "markdown": ["1. Step 1\n2. Step 2\n3. Step 3"] }
+{ "markdown": ["Centered note.", "center"] }
+{ "markdown": ["Left aligned by default.", "left"] }
 ```
 
-Notes:
-- A plain string is equivalent to `{ "p": "..." }`.
----
-
-### `warn` / `err` / `success` (Alert Boxes)
-
-```json
-{ "warn": "Common pitfall / misconception." }
-{ "err": "Critical mistake or anti-pattern." }
-{ "success": "Checkpoint: how to know you understood it." }
-```
-
-Recommendation:
-- Keep callouts short and action-oriented so they remain skimmable. Use for critical warnings or success checkpoints only.
+Rules:
+- Position 0 is markdown text (`md`).
+- Position 1 is optional alignment: `"left"` or `"center"`.
 
 ---
 
-### `flip` (Flipcard: prompt -> reveal)
+### `flipcards` (Flipcards: prompt -> reveal)
 
 ```json
-{ "flip": ["Front text (prompt)", "Back text (reveal)", "Optional front hint", "Optional back hint"] }
+{ "flipcards": [["Front text (prompt)", "Back text (reveal)", "Optional front example (important for vocabulary lessons)", "Optional back example (important for vocabulary lessons)"], ["Another front", "Another back"]] }
 ```
 
 Constraints:
-- The first two entries (front/back) must be strings.
-- Keep the front text to 120 characters or fewer and the back text to 160 characters or fewer so the card stays legible.
+- Value must be an array of flipcards.
+- Each flipcard entry is an array where:
+1. Position 0: front text (required string).
+2. Position 1: back text (required string).
+3. Position 2: front example (optional string, important for vocabulary lessons).
+4. Position 3: back example (optional string, important for vocabulary lessons).
+- There is no minimum or maximum card count.
+- Keep the front text to 120 characters or fewer and the back text to 160 characters or fewer so each card stays legible.
 
 ---
 
@@ -159,21 +184,6 @@ Constraints (array order is required):
 2. Correct answer string (case-insensitive matching).
 3. Hint string (brief, helpful and precise).
 4. Explanation string (short and concrete).
-
----
-
-### `ul` / `ol` (Lists)
-
-```json
-{ "ul": ["Item 1", "Item 2", "Item 3"] }
-{ "ol": ["Step 1", "Step 2", "Step 3"] }
-```
-
-Constraints:
-- Value must be an array of strings.
-
-Recommendation:
-- Use `ol` when order matters; avoid embedding numbering in the strings.
 
 ---
 
@@ -448,7 +458,7 @@ Notes:
    - Use `subsections` when nested structure is needed.
 
 2. Teach with a reliable loop
-   - Explanation (`p`) -> pitfall (`warn`) -> translation (`tr`) -> practice (`fillblank`) -> checkpoint (`mcqs`).
+   - Explain with `markdown` -> translate with `tr` -> practice with `fillblank` -> checkpoint with `mcqs`.
 
 3. End with assessment
    - Final block should be a quiz (`mcqs`) that targets the most important learning outcomes.
@@ -474,8 +484,8 @@ Notes:
     {
       "section": "What it is",
       "items": [
-        { "p": "Define the concept in plain language." },
-        { "warn": "Common misunderstanding to avoid." }
+        { "markdown": ["Define the concept in plain language."] },
+        { "markdown": ["**Warning:** Common misunderstanding to avoid."] }
       ]
     },
     {

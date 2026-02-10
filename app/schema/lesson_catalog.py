@@ -81,6 +81,7 @@ _DEPTH_OPTIONS: list[dict[str, str]] = [
   {"id": "training", "label": "Training", "tooltip": "Ten sections with per-section practice and a comprehensive final exam."},
 ]
 
+# Agent model ordering used by router fallbacks (not exposed in catalog responses).
 _GATHERER_MODELS = ["gemini-2.5-pro", "xiaomi/mimo-v2-flash:free", "deepseek/deepseek-r1-0528:free", "meta-llama/llama-3.1-405b-instruct:free", "openai/gpt-oss-120b:free", "vertex-gemini-2.5-pro", "vertex-gemini-3.0-pro"]
 
 _STRUCTURER_MODELS = ["gemini-2.5-pro", "openai/gpt-oss-20b:free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemma-3-27b-it:free", "vertex-gemini-2.5-pro", "vertex-gemini-3.0-pro"]
@@ -88,6 +89,8 @@ _STRUCTURER_MODELS = ["gemini-2.5-pro", "openai/gpt-oss-20b:free", "meta-llama/l
 _PLANNER_MODELS = ["gemini-2.5-pro", "gemini-pro-latest", "openai/gpt-oss-120b:free", "xiaomi/mimo-v2-flash:free", "meta-llama/llama-3.1-405b-instruct:free", "deepseek/deepseek-r1-0528:free", "vertex-gemini-2.5-pro", "vertex-gemini-3.0-pro"]
 
 _REPAIRER_MODELS = ["openai/gpt-oss-20b:free", "google/gemma-3-27b-it:free", "deepseek/deepseek-r1-0528:free", "gemini-2.5-flash", "vertex-gemini-2.5-flash", "vertex-gemini-3.0-flash"]
+
+_OUTCOMES_MODELS = ["gemini-2.5-flash"]
 
 
 def _merge_widgets(groups: list[list[str]]) -> list[str]:
@@ -128,29 +131,24 @@ def _build_widget_tooltip(description: str, label: str) -> str:
   widget_key = label.strip()
   normalized = "".join(ch for ch in widget_key.lower() if ch.isalnum())
   tooltip_map = {
-    "p": "Tell a clear idea in a warm, human voice.",
-    "ul": "Snapshot the essentials in a fast, skimmable list.",
-    "ol": "Walk the learner through a precise sequence of steps.",
+    "markdown": "Explain and format content with Markdown (text, callouts, lists).",
     "table": "Lay out facts so patterns and comparisons pop.",
     "compare": "Contrast two sides so the difference is obvious.",
-    "asciidiagram": "Sketch a concept with simple text visuals.",
-    "flip": "Create flashcards that reward recall and surprise.",
-    "mcqs": "Challenge understanding with crisp multiple choice.",
+    "asciidiagram": "Sketch a concept with simple text characters.",
+    "flipcards": "Create flashcards that reward recall and surprise.",
+    "mcqs": "Challenge understanding with crisp multiple choice options.",
     "freetext": "Invite the learner to think and answer in their own words.",
     "inputline": "Collect short, focused answers without friction.",
     "fillblank": "Reinforce memory by completing missing pieces.",
     "swipecards": "Sort ideas into buckets to reveal structure.",
-    "stepflow": "Guide a journey with branching, guided steps.",
+    "stepflow": "Guide a journey with branching and guided steps.",
     "checklist": "Track progress with a satisfying, nested checklist.",
-    "info": "Spotlight a key insight the learner should pause on.",
-    "warn": "Flag pitfalls and risks before they bite.",
-    "success": "Celebrate a win or confirm the right move.",
-    "err": "Name a common mistake and steer back on track.",
     "tr": "Practice translation pairs with quick recall loops.",
-    "codeeditor": "Work through code with room to test and tweak.",
+    "codeeditor": "View and write highlighted and formatted code for understanding and practical.",
     "interactiveterminal": "Practice commands like a real terminal session.",
-    "terminaldemo": "Show a command sequence as a guided demo.",
+    "terminaldemo": "Shows a command sequence as a guided demo.",
     "treeview": "Map hierarchies and breakdowns at a glance.",
+    "fenster": "A custom made, topic-related interactive widget to demonstrate the concept.",
   }
 
   if normalized in tooltip_map:
@@ -194,15 +192,14 @@ def _build_teaching_style_options() -> list[dict[str, str]]:
 def _build_widget_options() -> list[dict[str, str]]:
   """Build widget option payloads with tooltip guidance."""
   options: list[dict[str, str]] = []
+  seen_widget_ids: set[str] = set()
   registry = load_widget_registry(DEFAULT_WIDGETS_PATH)
   label_map = {
-    "p": "Paragraph",
-    "ul": "Bullet List",
-    "ol": "Numbered List",
+    "markdown": "Markdown Text",
     "table": "Table",
     "compare": "Comparison Table",
     "asciidiagram": "ASCII Diagram",
-    "flip": "Flipcard",
+    "flipcards": "Flipcards",
     "mcqs": "Multiple Choice Question",
     "freetext": "Response Textbox",
     "inputline": "One liner Textbox",
@@ -210,26 +207,32 @@ def _build_widget_options() -> list[dict[str, str]]:
     "swipecards": "Swipe Widget",
     "stepflow": "Step by Step Flow",
     "checklist": "Checklist",
-    "warn": "Warning",
-    "success": "Success Callout",
-    "err": "Error Callout",
     "tr": "Translation Panel",
     "codeeditor": "Code Editor",
     "interactiveterminal": "Interactive Terminal",
     "terminaldemo": "Demo Terminal",
     "treeview": "Tree View",
+    "fenster": "Fenster Widget",
   }
 
   # Convert widget docs into concise tooltip strings.
   for widget_name in registry.available_types():
     # Normalize widget ids for client-friendly option keys.
     widget_id = "".join(ch for ch in widget_name.lower() if ch.isalnum())
+    # Hide markdown from client-selectable widgets because the backend injects it automatically.
+    if widget_id == "markdown":
+      continue
     # Map the normalized id to a friendly label when available.
     widget_label = label_map.get(widget_id, widget_name)
     # Extract a brief tooltip for each widget entry.
     description = registry.describe(widget_name)
     tooltip = _build_widget_tooltip(description, widget_name)
     options.append({"id": widget_id, "label": widget_label, "tooltip": tooltip})
+    seen_widget_ids.add(widget_id)
+
+  # Add fenster explicitly so catalog stays aligned with backend-supported selective schemas.
+  if "fenster" not in seen_widget_ids:
+    options.append({"id": "fenster", "label": label_map["fenster"], "tooltip": _build_widget_tooltip("Interactive Fenster widget container.", "fenster")})
 
   return options
 
@@ -247,30 +250,18 @@ def build_widget_defaults() -> dict[str, dict[str, list[str]]]:
     # Map explicit styles using lowercase option ids.
     for style_key in ("conceptual", "theoretical", "practical"):
       widgets = styles.get(style_key, [])
-      # Normalize widget ids so defaults align with option ids.
-      style_defaults[style_key] = ["".join(ch for ch in widget.lower() if ch.isalnum()) for widget in widgets]
+      # Keep catalog defaults aligned with client-selectable widgets.
+      style_defaults[style_key] = ["".join(ch for ch in widget.lower() if ch.isalnum()) for widget in widgets if "".join(ch for ch in widget.lower() if ch.isalnum()) != "markdown"]
 
     defaults[blueprint_id] = style_defaults
 
   return defaults
 
 
-def _build_agent_models(settings: Settings) -> list[dict[str, Any]]:
-  """Build agent model options including defaults."""
-  options: list[dict[str, Any]] = []
-
-  # Build each agent entry with default model values.
-  options.append({"agent": "section_builder", "default": settings.section_builder_model, "options": _GATHERER_MODELS})
-  options.append({"agent": "planner", "default": settings.planner_model, "options": _PLANNER_MODELS})
-  options.append({"agent": "repairer", "default": settings.repair_model, "options": _REPAIRER_MODELS})
-
-  # Keep a blank line after the loop for readability.
-
-  return options
-
-
 def build_lesson_catalog(settings: Settings) -> dict[str, Any]:
   """Return a static payload for lesson option metadata."""
+  # Retain settings arg for compatibility with existing call sites.
+  _ = settings
   # Build widget defaults so the UI can reflect blueprint/style defaults.
   widget_defaults = build_widget_defaults()
 
@@ -278,5 +269,4 @@ def build_lesson_catalog(settings: Settings) -> dict[str, Any]:
   blueprints = _build_blueprint_options()
   teaching_styles = _build_teaching_style_options()
   widgets = _build_widget_options()
-  agent_models = _build_agent_models(settings)
-  return {"blueprints": blueprints, "teaching_styles": teaching_styles, "learner_levels": list(_LEARNER_LEVELS), "depths": list(_DEPTH_OPTIONS), "widgets": widgets, "agent_models": agent_models, "default_widgets": widget_defaults}
+  return {"blueprints": blueprints, "teaching_styles": teaching_styles, "learner_levels": list(_LEARNER_LEVELS), "depths": list(_DEPTH_OPTIONS), "widgets": widgets, "default_widgets": widget_defaults}

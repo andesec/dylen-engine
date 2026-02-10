@@ -63,6 +63,33 @@ async def get_user_subscription_tier(session: AsyncSession, user_id: uuid.UUID) 
   return int(free_tier.id), str(free_tier.name)
 
 
+async def set_user_subscription_tier(session: AsyncSession, *, user_id: uuid.UUID, tier_name: str) -> tuple[int, str]:
+  """Update a user's subscription tier id by tier name and return the resolved tier.
+
+  How/Why:
+    - Tier upgrades/downgrades must take effect immediately for feature flags and runtime config resolution.
+    - Usage rows are the source of truth for tier selection in this service.
+  """
+  normalized = (tier_name or "").strip()
+  if normalized == "":
+    raise ValueError("tier_name is required.")
+  tier_stmt = select(SubscriptionTier).where(SubscriptionTier.name == normalized)
+  tier_result = await session.execute(tier_stmt)
+  tier = tier_result.scalar_one_or_none()
+  if tier is None:
+    raise ValueError("Unknown subscription tier.")
+  usage = await session.get(UserUsageMetrics, user_id)
+  if usage is None:
+    # Ensure the usage row exists so downstream quota and flag checks never 500.
+    await ensure_usage_row(session, user_id, tier_id=int(tier.id))
+    return int(tier.id), str(tier.name)
+  # Persist tier changes so future requests evaluate the correct per-tier defaults.
+  usage.subscription_tier_id = int(tier.id)
+  session.add(usage)
+  await session.commit()
+  return int(tier.id), str(tier.name)
+
+
 def resolve_auth_method(provider: str | None) -> AuthMethod:
   """Resolve auth method from provider so RBAC status stays consistent with Firebase sign-in."""
   # Map Firebase provider identifiers into the enum used by RBAC.
@@ -92,7 +119,23 @@ async def create_user(
 ) -> User:
   """Create a new user row and commit it so downstream flows can rely on it."""
   # Persist the DB record before returning so callers can use the generated id.
-  user = User(firebase_uid=firebase_uid, email=email, full_name=full_name, profession=profession, city=city, country=country, age=age, photo_url=photo_url, provider=provider, role_id=role_id, org_id=org_id, status=status, auth_method=auth_method)
+  user_create_kwargs = {
+    "id": uuid.uuid4(),
+    "firebase_uid": firebase_uid,
+    "email": email,
+    "full_name": full_name,
+    "profession": profession,
+    "city": city,
+    "country": country,
+    "age": age,
+    "photo_url": photo_url,
+    "provider": provider,
+    "role_id": role_id,
+    "org_id": org_id,
+    "status": status,
+    "auth_method": auth_method,
+  }
+  user = User(**user_create_kwargs)
   session.add(user)
   await session.commit()
   await session.refresh(user)
@@ -126,6 +169,13 @@ async def update_user_status(session: AsyncSession, *, user: User, status: UserS
   session.add(user)
   await session.commit()
   await session.refresh(user)
+
+  # Initialize quotas when a user is approved to ensure deterministic bucket availability.
+  if status == UserStatus.APPROVED:
+    from app.services.quota_buckets import initialize_user_quotas
+
+    await initialize_user_quotas(session, user.id)
+
   return user
 
 
@@ -154,12 +204,14 @@ async def complete_user_onboarding(session: AsyncSession, *, user: User, data: O
   user.gender_other = data.basic.gender_other
   user.city = data.basic.city
   user.country = data.basic.country
-  user.occupation = data.basic.occupation
+  user.occupation = data.personalization.occupation
 
   # JSONB field: assignment ensures change tracking
   user.topics_of_interest = data.personalization.topics_of_interest
   user.intended_use = data.personalization.intended_use
   user.intended_use_other = data.personalization.intended_use_other
+  user.primary_language = data.personalization.primary_language
+  user.secondary_language = data.personalization.secondary_language
 
   user.accepted_terms_at = datetime.datetime.now(datetime.UTC)
   user.accepted_privacy_at = datetime.datetime.now(datetime.UTC)
@@ -222,11 +274,25 @@ async def ensure_usage_row(session: AsyncSession, user_id: uuid.UUID, *, tier_id
       raise RuntimeError("Default 'Free' subscription tier not available.")
     tier_id = free_tier.id
 
-  # Use INSERT ... ON CONFLICT DO NOTHING for atomic consistency
-  stmt = insert(UserUsageMetrics).values(user_id=user_id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0, research_usage_count=0).on_conflict_do_nothing(index_elements=["user_id"])
+  # Use INSERT ... ON CONFLICT DO UPDATE to ensure the tier stays in sync
+  # with the intended state during bootstrap or script-driven updates.
+  stmt = (
+    insert(UserUsageMetrics)
+    .values(user_id=user_id, subscription_tier_id=tier_id, files_uploaded_count=0, images_uploaded_count=0, sections_generated_count=0, research_usage_count=0)
+    .on_conflict_do_update(index_elements=["user_id"], set_={"subscription_tier_id": tier_id})
+  )
 
   await session.execute(stmt)
   await session.commit()
 
   # Fetch the row, which is now guaranteed to exist (either inserted or already there)
-  return await session.get(UserUsageMetrics, user_id)
+  usage = await session.get(UserUsageMetrics, user_id)
+
+  # Also trigger quota initialization if the user is already approved.
+  user = await session.get(User, user_id)
+  if user and user.status == UserStatus.APPROVED:
+    from app.services.quota_buckets import initialize_user_quotas
+
+    await initialize_user_quotas(session, user_id)
+
+  return usage

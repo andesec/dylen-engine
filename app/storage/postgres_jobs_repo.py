@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.core.database import get_session_factory
 from app.jobs.guardrails import maybe_truncate_artifacts, maybe_truncate_result_json, sanitize_logs
-from app.jobs.models import JobRecord, JobStatus
+from app.jobs.models import JobKind, JobRecord, JobStatus
 from app.schema.jobs import Job
 from app.storage.jobs_repo import JobsRepository
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class PostgresJobsRepository(JobsRepository):
   """Persist jobs to Postgres using SQLAlchemy."""
 
-  def __init__(self, table_name: str = "dylen_jobs") -> None:
+  def __init__(self, table_name: str = "jobs") -> None:
     self._session_factory = get_session_factory()
     if self._session_factory is None:
       raise RuntimeError("Database not initialized")
@@ -34,8 +34,12 @@ class PostgresJobsRepository(JobsRepository):
       job = Job(
         job_id=record.job_id,
         user_id=record.user_id,
+        job_kind=record.job_kind,
         request=record.request,
         status=record.status,
+        parent_job_id=record.parent_job_id,
+        lesson_id=record.lesson_id,
+        section_id=record.section_id,
         target_agent=record.target_agent,
         phase=record.phase,
         subphase=record.subphase,
@@ -80,6 +84,10 @@ class PostgresJobsRepository(JobsRepository):
     self,
     job_id: str,
     *,
+    job_kind: JobKind | None = None,
+    parent_job_id: str | None = None,
+    lesson_id: str | None = None,
+    section_id: int | None = None,
     status: JobStatus | None = None,
     phase: str | None = None,
     subphase: str | None = None,
@@ -117,6 +125,14 @@ class PostgresJobsRepository(JobsRepository):
         return self._model_to_record(job)
 
       # Update fields if provided
+      if job_kind is not None:
+        job.job_kind = job_kind
+      if parent_job_id is not None:
+        job.parent_job_id = parent_job_id
+      if lesson_id is not None:
+        job.lesson_id = lesson_id
+      if section_id is not None:
+        job.section_id = section_id
       if status is not None:
         job.status = status
       if phase is not None:
@@ -199,6 +215,26 @@ class PostgresJobsRepository(JobsRepository):
         return None
       return self._model_to_record(job)
 
+  async def find_by_user_kind_idempotency_key(self, *, user_id: str | None, job_kind: JobKind, idempotency_key: str) -> JobRecord | None:
+    """Find a job matching a given (user, kind, idempotency_key) tuple."""
+    async with self._session_factory() as session:
+      stmt = select(Job).where(Job.user_id == user_id, Job.job_kind == job_kind, Job.idempotency_key == idempotency_key).order_by(Job.created_at.asc()).limit(1)
+      result = await session.execute(stmt)
+      job = result.scalar_one_or_none()
+      if not job:
+        return None
+      return self._model_to_record(job)
+
+  async def list_child_jobs(self, *, parent_job_id: str, include_done: bool = False) -> list[JobRecord]:
+    """List direct child jobs for a parent job."""
+    async with self._session_factory() as session:
+      stmt = select(Job).where(Job.parent_job_id == parent_job_id).order_by(Job.created_at.asc())
+      if not include_done:
+        stmt = stmt.where(Job.status != "done")
+      result = await session.execute(stmt)
+      rows = result.scalars().all()
+      return [self._model_to_record(row) for row in rows]
+
   async def list_jobs(self, limit: int, offset: int, status: str | None = None, job_id: str | None = None) -> tuple[list[JobRecord], int]:
     """Return a paginated list of jobs with filters and total count."""
     async with self._session_factory() as session:
@@ -226,8 +262,12 @@ class PostgresJobsRepository(JobsRepository):
     return JobRecord(
       job_id=job.job_id,
       user_id=job.user_id,
+      job_kind=job.job_kind,
       request=job.request,
       status=job.status,
+      parent_job_id=job.parent_job_id,
+      lesson_id=job.lesson_id,
+      section_id=job.section_id,
       target_agent=job.target_agent,
       phase=job.phase,
       subphase=job.subphase,

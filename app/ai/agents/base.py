@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
@@ -30,6 +31,15 @@ class BaseAgent[InputT, OutputT](ABC):
 
   name: str
 
+  @staticmethod
+  def _env_agent_key(agent_name: str) -> str:
+    """Convert an agent name into the env var suffix (e.g., SectionBuilder -> SECTION_BUILDER)."""
+    normalized = agent_name.strip()
+    if normalized == "":
+      return ""
+    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", normalized).upper()
+    return snake
+
   def __init__(self, *, model: Model, prov: str, schema: Schema, prog: Progress = None, use: Usage = None) -> None:
     self._model = model
     self._provider_name = prov
@@ -54,7 +64,8 @@ class BaseAgent[InputT, OutputT](ABC):
   def _load_dummy_text(self) -> str | None:
     """Return a deterministic dummy response when enabled for this agent."""
     # Use per-agent environment flags to bypass provider calls in local tests.
-    return AIModel.load_dummy_response(self.name.upper())
+    agent_key = self._env_agent_key(self.name)
+    return AIModel.load_dummy_response(agent_key)
 
   def _load_dummy_json(self) -> dict[str, Any] | None:
     """Return a parsed dummy JSON payload when enabled for this agent."""

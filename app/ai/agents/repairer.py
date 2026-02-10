@@ -4,21 +4,30 @@ from __future__ import annotations
 
 import copy
 import json
-import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
+
+import msgspec
 
 from app.ai.agents.base import BaseAgent
-from app.ai.agents.prompts import format_schema_block, render_repair_prompt
-from app.ai.deterministic_repair import attempt_deterministic_repair
+from app.ai.agents.prompts import render_repair_prompt
 from app.ai.errors import is_output_error
 from app.ai.json_parser import parse_json_with_fallback
 from app.ai.pipeline.contracts import JobContext, RepairInput, RepairResult
-from app.schema.lesson_models import normalize_widget
+from app.schema.selective_schema import create_selective_widget_item
 from app.telemetry.context import llm_call_context
 
 JsonDict = dict[str, Any]
 Errors = list[str]
+
+
+def _prune_none_values(value: Any) -> Any:
+  """Remove `None` values recursively from repaired payload fragments."""
+  if isinstance(value, dict):
+    return {k: _prune_none_values(v) for k, v in value.items() if v is not None}
+  if isinstance(value, list):
+    return [_prune_none_values(item) for item in value]
+  return value
 
 
 @dataclass(frozen=True)
@@ -38,12 +47,12 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
 
   async def run(self, input_data: RepairInput, ctx: JobContext) -> RepairResult:
     """Repair a structured section when validation fails."""
-    logger = logging.getLogger(__name__)
     request = ctx.request
     section = input_data.section
     structured = input_data.structured
     errors = structured.validation_errors
     section_json: JsonDict = structured.payload
+    persisted_section_id = structured.db_section_id
     topic = request.topic
     section_number = section.section_number
     dummy_json = self._load_dummy_json()
@@ -53,16 +62,9 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       validator = self._schema_service.validate_section_payload
       ok, repaired_errors, _ = validator(dummy_json, topic=topic, section_index=section_number)
       err_list = [] if ok else repaired_errors
+      if not err_list:
+        await _persist_repaired_section(section_id=persisted_section_id, repaired_json=dummy_json)
       return RepairResult(section_number=section_number, fixed_json=dummy_json, changes=["dummy_fixture"], errors=err_list)
-
-    if errors:
-      section_json = self._deterministic_repair(section_json, errors, topic, section_number)
-      validator = self._schema_service.validate_section_payload
-      ok, errors, _ = validator(section_json, topic=topic, section_index=section_number)
-
-      if ok:
-        changes = ["deterministic_repair"]
-        return RepairResult(section_number=section_number, fixed_json=section_json, changes=changes, errors=[])
 
     if errors:
       # Apply manual subsection fixes (titles/items) before invoking AI repair.
@@ -74,9 +76,11 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
         ok, errors, _ = validator(section_json, topic=topic, section_index=section_number)
 
         if ok:
+          await _persist_repaired_section(section_id=persisted_section_id, repaired_json=section_json)
           return RepairResult(section_number=section_number, fixed_json=section_json, changes=manual_changes, errors=[])
 
     if not errors:
+      await _persist_repaired_section(section_id=persisted_section_id, repaired_json=section_json)
       return RepairResult(section_number=section_number, fixed_json=section_json, changes=[], errors=[])
 
     # Identify only the widget entries tied to validation failures.
@@ -86,7 +90,21 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
       return RepairResult(section_number=section_number, fixed_json=section_json, changes=[], errors=errors)
 
     widget_types = [target.widget_type for target in repair_targets if target.widget_type]
-    widget_schemas = self._schema_service.widget_schemas_for_types(widget_types)
+    unique_widget_types = list(set(widget_types))
+
+    from app.schema.widget_models import RepairResponse as CanonicalRepairResponse
+
+    if unique_widget_types:
+      widget_item_cls = create_selective_widget_item(unique_widget_types)
+
+      # Define response model dynamically
+      repair_item_cls = type("RepairItem", (msgspec.Struct,), {"__annotations__": {"path": str, "widget": widget_item_cls}})
+
+      schema_response_cls = type("RepairResponse", (msgspec.Struct,), {"__annotations__": {"repairs": list[repair_item_cls]}})
+    else:
+      # Fallback to full schema
+      schema_response_cls = CanonicalRepairResponse
+
     # Provide minimal context for targeted repairs instead of the full section payload.
     prompt_targets = _serialize_repair_targets(repair_targets)
 
@@ -96,69 +114,39 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     for target in repair_targets:
       cleaned_prompt_errors.extend(target.errors)
 
-    prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors, widget_schemas)
-    schema = _build_repair_schema(widget_schemas)
+    prompt_text = render_repair_prompt(request, section, prompt_targets, cleaned_prompt_errors)
 
-    if self._model.supports_structured_output:
-      schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
-      purpose = f"repair_section_{section.section_number}_of_{request.depth}"
-      call_index = f"{section.section_number}/{request.depth}"
+    raw_schema = msgspec.json.schema(schema_response_cls)
+    # Sanitize for Gemini (strips $defs, flattens refs, etc.)
+    schema = self._schema_service.sanitize_schema(raw_schema, provider_name="gemini")
 
-      # Stamp the provider call with agent context for audit logging.
-      with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
-        try:
-          response = await self._model.generate_structured(prompt_text, schema)
-        except Exception as exc:  # noqa: BLE001
-          if not is_output_error(exc):
-            raise
-          # Retry the same request with the parser error appended.
-          retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
-          retry_purpose = f"repair_section_retry_{section.section_number}_of_{request.depth}"
-          retry_call_index = f"retry/{section.section_number}/{request.depth}"
+    purpose = f"repair_section_{section.section_number}_of_{request.depth}"
+    call_index = f"{section.section_number}/{request.depth}"
 
-          with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
-            response = await self._model.generate_structured(retry_prompt, schema)
-
-          self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
-
-      self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
-      repaired_payload = response.content
-
-    else:
-      prompt_parts = [prompt_text, format_schema_block(schema, label="JSON SCHEMA (Repair Output)"), "Output ONLY valid JSON."]
-      prompt_with_schema = "\n\n".join(prompt_parts)
-      purpose = f"repair_section_{section.section_number}_of_{request.depth}"
-      call_index = f"{section.section_number}/{request.depth}"
-
-      # Stamp the provider call with agent context for audit logging.
-      with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
-        raw = await self._model.generate(prompt_with_schema)
-
-      self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=raw.usage)
-
-      # Parse the model output with a lenient fallback to reduce retry churn.
-
+    # Stamp the provider call with agent context for audit logging.
+    with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=purpose, call_index=call_index):
       try:
-        cleaned = self._model.strip_json_fences(raw.content)
-        repaired_payload = cast(dict[str, Any], parse_json_with_fallback(cleaned))
-      except json.JSONDecodeError as exc:
-        logger.error("Repairer failed to parse JSON: %s", exc)
+        response = await self._model.generate_structured(prompt_text, schema)
+      except Exception as exc:  # noqa: BLE001
+        if not is_output_error(exc):
+          raise
         # Retry the same request with the parser error appended.
-        retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_with_schema, error=exc)
+        retry_prompt = self._build_json_retry_prompt(prompt_text=prompt_text, error=exc)
         retry_purpose = f"repair_section_retry_{section.section_number}_of_{request.depth}"
         retry_call_index = f"retry/{section.section_number}/{request.depth}"
 
         with llm_call_context(agent=self.name, lesson_topic=request.topic, job_id=ctx.job_id, purpose=retry_purpose, call_index=retry_call_index):
-          retry_raw = await self._model.generate(retry_prompt)
+          response = await self._model.generate_structured(retry_prompt, schema)
 
-        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=retry_raw.usage)
+        self._record_usage(agent=self.name, purpose=retry_purpose, call_index=retry_call_index, usage=response.usage)
 
-        try:
-          cleaned_retry = self._model.strip_json_fences(retry_raw.content)
-          repaired_payload = cast(dict[str, Any], parse_json_with_fallback(cleaned_retry))
-        except json.JSONDecodeError as retry_exc:
-          logger.error("Repairer retry failed to parse JSON: %s", retry_exc)
-          raise RuntimeError(f"Failed to parse repaired section JSON after retry: {retry_exc}") from retry_exc
+    # Record usage after the primary structured call completes.
+    self._record_usage(agent=self.name, purpose=purpose, call_index=call_index, usage=response.usage)
+
+    result_dict = response.content
+    # Convert dict to msgspec Struct to ensure it matches our internal model
+    repair_response = msgspec.convert(result_dict, type=CanonicalRepairResponse)
+    repaired_payload = _prune_none_values(msgspec.to_builtins(repair_response))
 
     # Apply only the repaired widget payloads back into their original positions.
     repaired_json = _apply_repairs(section_json, repaired_payload, repair_targets)
@@ -166,21 +154,21 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
     ok, repaired_errors, _ = validator(repaired_json, topic=topic, section_index=section_number)
     changes = ["ai_repair"]
     err_list = [] if ok else repaired_errors
+    if not err_list:
+      await _persist_repaired_section(section_id=persisted_section_id, repaired_json=repaired_json)
     return RepairResult(section_number=section_number, fixed_json=repaired_json, changes=changes, errors=err_list)
 
-  @staticmethod
-  def _deterministic_repair(section_json: JsonDict, errors: Errors, topic: str, section_number: int) -> JsonDict:
-    payload = {"title": f"{topic} - Section {section_number}", "blocks": [section_json]}
-    repaired = attempt_deterministic_repair(payload, errors)
-    blocks = repaired.get("blocks")
 
-    if isinstance(blocks, list) and blocks:
-      first_block = blocks[0]
+async def _persist_repaired_section(section_id: int | None, repaired_json: JsonDict) -> None:
+  """Persist repaired section payload and canonical shorthand for the existing section row."""
+  from app.services.section_shorthand import build_section_shorthand_content
+  from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 
-      if isinstance(first_block, dict):
-        return first_block
-
-    return section_json
+  if section_id is None:
+    raise RuntimeError("Repairer missing persisted section id for section update.")
+  shorthand_content = build_section_shorthand_content(repaired_json)
+  repo = PostgresLessonsRepository()
+  await repo.update_section_content_and_shorthand(section_id, repaired_json, shorthand_content)
 
 
 def _collect_repair_targets(section_json: JsonDict, errors: Errors) -> list[RepairTarget]:
@@ -293,9 +281,9 @@ def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple
     misplaced_subsections = []
 
     for item in section_items:
-      # If an item looks like a SubsectionBlock (has 'subsection' or 'section' title + 'items' list),
+      # If an item looks like a SubsectionBlock (has legacy or canonical section key + items list),
       # it's likely misplaced.
-      is_subsection_block = isinstance(item, dict) and (("subsection" in item or "section" in item) and isinstance(item.get("items"), list))
+      is_subsection_block = isinstance(item, dict) and (("title" in item or "subsection" in item or "section" in item) and isinstance(item.get("items"), list))
 
       if is_subsection_block:
         misplaced_subsections.append(item)
@@ -332,13 +320,27 @@ def _apply_subsection_fallbacks(section_json: JsonDict, errors: Errors) -> tuple
     if not isinstance(subsection, dict):
       continue
 
-    # Ensure subsection titles exist for schema validation.
-    if len(tokens) >= 3 and tokens[2] == "subsection":
-      title = subsection.get("subsection")
+    # Ensure canonical subsection key exists for schema validation.
+    if len(tokens) >= 3 and tokens[2] in ("title", "subsection", "section"):
+      section_name = subsection.get("section")
+      if not isinstance(section_name, str) or not section_name.strip():
+        migrated = False
+        for legacy_key in ("title", "subsection"):
+          legacy_value = subsection.pop(legacy_key, None)
+          if isinstance(legacy_value, str) and legacy_value.strip():
+            subsection["section"] = legacy_value
+            changes.append(f"migrated_subsection_section_{subsection_index}")
+            migrated = True
+            break
+        if not migrated:
+          subsection["section"] = f"Subsection {subsection_index + 1}"
+          changes.append(f"subsection_section_{subsection_index}")
 
-      if not isinstance(title, str) or not title.strip():
-        subsection["subsection"] = f"Subsection {subsection_index + 1}"
-        changes.append(f"subsection_title_{subsection_index}")
+      # Remove deprecated alias keys after migration.
+      for legacy_key in ("title", "subsection"):
+        if legacy_key in subsection:
+          subsection.pop(legacy_key)
+          changes.append(f"removed_deprecated_{legacy_key}_{subsection_index}")
 
     # Normalize subsection items into a list so downstream validation stays stable.
     if "items" not in subsection or not isinstance(subsection.get("items"), list):
@@ -490,7 +492,7 @@ def _coerce_items_list(value: Any) -> list[Any]:
   if isinstance(value, dict):
     return [value]
 
-  # Parse string payloads when they look like JSON, otherwise fallback to a paragraph widget.
+  # Parse string payloads when they look like JSON, otherwise fallback to MarkdownText.
   if isinstance(value, str):
     stripped = value.strip()
 
@@ -509,13 +511,13 @@ def _coerce_items_list(value: Any) -> list[Any]:
       if isinstance(parsed, dict):
         return [parsed]
 
-    return [{"p": stripped}]
+    return [{"markdown": {"markdown": stripped}}]
 
-  # Fallback to a paragraph string for scalar values to preserve context.
+  # Fallback to MarkdownText for scalar values to preserve context.
   if value is None:
     return []
 
-  return [{"p": str(value)}]
+  return [{"markdown": {"markdown": str(value)}}]
 
 
 def _detect_widget_type(widget: Any) -> str | None:
@@ -530,7 +532,7 @@ def _detect_widget_type(widget: Any) -> str | None:
         return str(other_keys[0])
       return str(widget["type"])
   if isinstance(widget, str):
-    return "p"
+    return "markdown"
   return None
 
 
@@ -538,46 +540,13 @@ def _safe_normalize_widget(widget: Any) -> JsonDict | None:
   """Normalize a widget payload to full form, preserving raw data on failure."""
 
   # Normalize shorthand into explicit widget objects for schema validation.
+  if isinstance(widget, dict):
+    return widget
 
-  try:
-    normalized = normalize_widget(widget)
-  except ValueError:
-    if isinstance(widget, dict):
-      return widget
+  if isinstance(widget, str):
+    return {"markdown": {"markdown": widget}}
 
-    return None
-
-  return normalized
-
-
-def _build_repair_schema(widget_schemas: dict[str, Any]) -> dict[str, Any]:
-  """Build a structured-output schema for targeted widget repairs."""
-  defs: dict[str, Any] = {}
-  any_of: list[dict[str, Any]] = []
-
-  # Merge widget schemas into a compact union with shared $defs.
-
-  for schema in widget_schemas.values():
-    schema_defs = schema.get("$defs")
-
-    if isinstance(schema_defs, dict):
-      for key, value in schema_defs.items():
-        defs.setdefault(key, value)
-
-    schema_copy = dict(schema)
-    schema_copy.pop("$defs", None)
-    any_of.append(schema_copy)
-
-  if not any_of:
-    any_of.append({"type": "object"})
-
-  repair_item_schema = {"type": "object", "properties": {"path": {"type": "string"}, "widget": {"anyOf": any_of}}, "required": ["path", "widget"], "additionalProperties": False}
-  output_schema = {"type": "object", "properties": {"repairs": {"type": "array", "items": repair_item_schema}}, "required": ["repairs"], "additionalProperties": False}
-
-  if defs:
-    output_schema["$defs"] = defs
-
-  return output_schema
+  return None
 
 
 def _apply_repairs(section_json: JsonDict, repair_payload: Any, targets: list[RepairTarget]) -> JsonDict:

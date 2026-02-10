@@ -1,18 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
+from urllib.parse import urlparse
 
-from app.config import get_settings
+from app.config import get_database_settings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
-
-settings = get_settings()
-
-# Use asyncpg for PostgreSQL
-DATABASE_URL = settings.pg_dsn
-
-if DATABASE_URL and DATABASE_URL.startswith("postgresql://"):
-  DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 
 class Base(DeclarativeBase):
@@ -21,12 +15,31 @@ class Base(DeclarativeBase):
 
 engine = None
 SessionLocal = None
+_logger = logging.getLogger("app.core.database")
+
+
+def _database_url() -> str | None:
+  """Build the SQLAlchemy database URL while keeping settings evaluation minimal."""
+  settings = get_database_settings()
+  database_url = settings.pg_dsn
+  if database_url and database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+  return database_url
+
+
+DATABASE_URL = _database_url()
 
 
 def get_db_engine():  # type: ignore
   global engine
-  if engine is None and DATABASE_URL:
-    engine = create_async_engine(DATABASE_URL, echo=settings.debug, future=True)
+  settings = get_database_settings()
+  database_url = _database_url()
+  # Initialize the engine once so pooled connections reuse the same config.
+  if engine is None and database_url:
+    # Log the sanitized database URL for troubleshooting.
+    _logger.info("Database engine initialized; DYLEN_PG_DSN=%s", _redact_dsn(database_url))
+    engine = create_async_engine(database_url, echo=settings.debug, future=True)
   return engine
 
 
@@ -53,3 +66,21 @@ async def get_db() -> AsyncGenerator[AsyncSession]:
       yield session
     finally:
       await session.close()
+
+
+def _redact_dsn(raw: str) -> str:
+  """Redact credentials from a DSN while keeping host/db visible."""
+  # Parse the DSN so we can safely strip credentials.
+  parsed = urlparse(raw)
+  # Guard against malformed DSNs without a scheme.
+  if not parsed.scheme:
+    return "<invalid>"
+  # Build a sanitized netloc with username and host metadata only.
+  user = parsed.username or ""
+  host = parsed.hostname or ""
+  port = f":{parsed.port}" if parsed.port else ""
+  netloc = f"{user}@{host}{port}" if user else f"{host}{port}"
+  # Preserve the database name when available.
+  database = parsed.path.lstrip("/")
+  path = f"/{database}" if database else ""
+  return f"{parsed.scheme}://{netloc}{path}"

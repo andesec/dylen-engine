@@ -6,7 +6,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.ai.agents.research import ResearchAgent
-from app.api.deps import consume_research_quota
 from app.api.deps_concurrency import verify_concurrency
 from app.config import Settings, get_settings
 from app.core.security import get_current_active_user, require_feature_flag
@@ -26,11 +25,7 @@ def get_research_agent() -> ResearchAgent:
 
 @router.post("/discover", response_model=ResearchDiscoveryResponse, dependencies=[Depends(require_feature_flag("feature.research")), Depends(verify_concurrency("research"))])
 async def discover(
-  request: ResearchDiscoveryRequest,
-  agent: Annotated[ResearchAgent, Depends(get_research_agent)],
-  current_user: Annotated[User, Depends(get_current_active_user)],
-  quota: Annotated[None, Depends(consume_research_quota)],
-  settings: Annotated[Settings, Depends(get_settings)],
+  request: ResearchDiscoveryRequest, agent: Annotated[ResearchAgent, Depends(get_research_agent)], current_user: Annotated[User, Depends(get_current_active_user)], settings: Annotated[Settings, Depends(get_settings)]
 ) -> ResearchDiscoveryResponse:
   """
   Performs initial web search and returns candidate URLs.
@@ -45,6 +40,7 @@ async def discover(
   tracking_job = JobRecord(
     job_id=tracking_job_id,
     user_id=str(current_user.id),
+    job_kind="research",
     request=request.model_dump(mode="python"),
     status="processing",
     target_agent="research",
@@ -59,6 +55,7 @@ async def discover(
     logs=[],
     progress=0.0,
     ttl=job_ttl,
+    idempotency_key=f"research-discover:{tracking_job_id}",
   )
   await jobs_repo.create_job(tracking_job)
 
@@ -90,6 +87,7 @@ async def synthesize(
   tracking_job = JobRecord(
     job_id=tracking_job_id,
     user_id=str(current_user.id),
+    job_kind="research",
     request=request.model_dump(mode="python"),
     status="processing",
     target_agent="research",
@@ -104,6 +102,7 @@ async def synthesize(
     logs=[],
     progress=0.0,
     ttl=job_ttl,
+    idempotency_key=f"research-synthesize:{tracking_job_id}",
   )
   await jobs_repo.create_job(tracking_job)
 

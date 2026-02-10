@@ -23,6 +23,8 @@ substitutions:
   _ENV_YAML_FILE: "/workspace/env.stage.yaml"
 
   _DBURL_SECRET: "STAGE_DATABASE_URL"
+  _ILLUSTRATION_BUCKET: "dylen-stage-illustrations"
+  _GCS_STORAGE_HOST: ""
 
 steps:
   # Step 0: sanity checks + ensure AR repo + convert dotenv -> YAML (bash-only)
@@ -86,11 +88,16 @@ steps:
 
   # Step 1: build
   - name: "gcr.io/cloud-builders/docker"
+    env:
+      - "DOCKER_BUILDKIT=1"
     args:
       [
         "build",
         "--target", "production",
+        "--cache-from", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:buildcache",
+        "--build-arg", "BUILDKIT_INLINE_CACHE=1",
         "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}",
+        "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:buildcache",
         "."
       ]
 
@@ -116,20 +123,22 @@ steps:
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
             --env-vars-file "${_ENV_YAML_FILE}" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},GCS_STORAGE_HOST=${_GCS_STORAGE_HOST}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
             --command "python" \
-            --args="-m,alembic,-c,alembic.ini,upgrade,head"
+            --args "scripts/migrate_with_lock.py"
         else
           gcloud run jobs update "${_MIGRATE_JOB}" \
             --region "${_REGION}" \
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
             --env-vars-file "${_ENV_YAML_FILE}" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},GCS_STORAGE_HOST=${_GCS_STORAGE_HOST}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
             --command "python" \
-            --args="-m,alembic,-c,alembic.ini,upgrade,head"
+            --args "scripts/migrate_with_lock.py"
         fi
 
         gcloud run jobs execute "${_MIGRATE_JOB}" --region "${_REGION}" --wait
@@ -147,6 +156,7 @@ steps:
           --image "$${IMAGE}" \
           --service-account "${_RUN_SA}" \
           --env-vars-file "${_ENV_YAML_FILE}" \
+          --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},GCS_STORAGE_HOST=${_GCS_STORAGE_HOST}" \
           --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
           --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
           --port 8002 \

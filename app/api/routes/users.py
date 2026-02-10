@@ -8,10 +8,10 @@ from app.config import get_settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.schema.sql import User
-from app.services.feature_flags import resolve_effective_feature_flags
-from app.services.quotas import ResolvedQuota
+from app.services.feature_flags import resolve_effective_feature_flags, resolve_global_disabled_features
+from app.services.quotas import QuotaSummaryResponse, ResolvedQuota, build_quota_summary
 from app.services.rbac import get_role_by_id, list_permission_slugs_for_role
-from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.runtime_config import redact_super_admin_config, resolve_effective_runtime_config
 from app.services.users import get_user_subscription_tier
 
 router = APIRouter()
@@ -30,12 +30,17 @@ async def get_my_profile(current_user: User = Depends(get_current_user), db: Asy
   return {"status": current_user.status, "role": {"id": str(role.id), "name": role.name, "level": role.level}, "org_id": str(current_user.org_id) if current_user.org_id else None}
 
 
-@router.get("/me/quota", response_model=ResolvedQuota)
-async def get_my_quota(quota: ResolvedQuota = Depends(get_quota)) -> ResolvedQuota:  # noqa: B008
+@router.get("/me/quota", response_model=QuotaSummaryResponse)
+async def get_my_quota(details: bool = False, quota: ResolvedQuota = Depends(get_quota)) -> QuotaSummaryResponse:  # noqa: B008
   """
   Get the current user's quota and subscription tier.
   """
-  return quota
+  # Build the minimal quota response by default.
+  summary = build_quota_summary(quota)
+  # Attach full details only when explicitly requested.
+  detailed_quota = quota if details else None
+
+  return QuotaSummaryResponse(tier_name=quota.tier_name, quotas=summary, details=detailed_quota)
 
 
 @router.get("/me/features")
@@ -47,11 +52,15 @@ async def get_my_features(current_user: User = Depends(get_current_user), db: As
   tier_id, tier_name = await get_user_subscription_tier(db, current_user.id)
 
   # Compute effective feature flags so the UI can hide disabled capabilities.
-  flags = await resolve_effective_feature_flags(db, org_id=current_user.org_id, subscription_tier_id=tier_id)
+  flags = await resolve_effective_feature_flags(db, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
+  disabled_keys = await resolve_global_disabled_features(db)
+  for key in disabled_keys:
+    flags.pop(key, None)
 
   # Resolve runtime config using env fallbacks plus DB overrides.
   settings = get_settings()
-  runtime_config = await resolve_effective_runtime_config(db, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id)
+  runtime_config = await resolve_effective_runtime_config(db, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
+  runtime_config = redact_super_admin_config(runtime_config)
 
   # Return role permission slugs filtered by permission feature flags when defined.
   role = await get_role_by_id(db, current_user.role_id)

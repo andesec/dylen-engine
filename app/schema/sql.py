@@ -91,6 +91,8 @@ class User(Base):
   topics_of_interest: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
   intended_use: Mapped[str | None] = mapped_column(String, nullable=True)
   intended_use_other: Mapped[str | None] = mapped_column(String, nullable=True)
+  primary_language: Mapped[str | None] = mapped_column(String, nullable=True)
+  secondary_language: Mapped[str | None] = mapped_column(String, nullable=True)
   onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
   accepted_terms_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

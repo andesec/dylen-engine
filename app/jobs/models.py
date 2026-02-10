@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 JobStatus = Literal["queued", "running", "done", "error", "canceled"]
+JobKind = Literal["lesson", "research", "youtube", "maintenance", "writing", "system"]
 
 
 @dataclass
@@ -14,10 +15,14 @@ class JobRecord:
 
   job_id: str
   user_id: str | None
+  job_kind: JobKind
   request: dict[str, Any]
   status: JobStatus
   created_at: str
   updated_at: str
+  parent_job_id: str | None = None
+  lesson_id: str | None = None
+  section_id: int | None = None
   target_agent: str | None = None
   phase: str | None = None
   subphase: str | None = None

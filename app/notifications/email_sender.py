@@ -13,7 +13,7 @@ import urllib.request
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from app.notifications.contracts import EmailNotification, EmailSender
+from app.notifications.contracts import EmailNotification, EmailSender, NotificationProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +92,11 @@ class MailerSendEmailSender(EmailSender):
     except urllib.error.HTTPError as exc:
       raw_error = exc.read().decode("utf-8") if exc.fp else ""
       logger.error("MailerSend email request failed status=%s body=%s", exc.code, raw_error)
-      raise
+      raise NotificationProviderError(f"HTTP Error {exc.code}: {exc.reason}") from exc
 
     except urllib.error.URLError as exc:
       logger.error("MailerSend email request failed: %s", exc)
-      raise
+      raise NotificationProviderError(f"Network Error: {exc.reason}") from exc
 
 
 class NullEmailSender(EmailSender):

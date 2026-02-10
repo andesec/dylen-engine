@@ -7,19 +7,22 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schema.outcomes import OutcomeText
+
 
 class GenerationRequest(BaseModel):
   """Inputs for a lesson generation request."""
 
   topic: str
   prompt: str | None = None
+  outcomes: list[OutcomeText] | None = Field(default=None, min_length=1, max_length=8)
   depth: str
-  section_count: int = Field(ge=2, le=10)
+  section_count: int = Field(ge=1, le=10)
   blueprint: str | None = None
   teaching_style: list[str] | None = None
   language: str | None = None
   learner_level: str | None = None
-  widgets: list[str] | None = Field(default=None, min_length=3, max_length=8)
+  widgets: list[str] | None = Field(default=None, min_length=3, max_length=7)
   constraints: dict[str, Any] | None = None
 
 
@@ -74,6 +77,7 @@ class StructuredSection(BaseModel):
   section_number: int = Field(ge=1)
   payload: dict[str, Any] = Field(serialization_alias="json", validation_alias="json", description="Validated section payload")
   validation_errors: list[str] = Field(default_factory=list)
+  db_section_id: int | None = None
   model_config = ConfigDict(populate_by_name=True)
 
 
@@ -107,10 +111,3 @@ class RepairResult(BaseModel):
   fixed_json: dict[str, Any]
   changes: list[str] = Field(default_factory=list)
   errors: list[str] = Field(default_factory=list)
-
-
-class FinalLesson(BaseModel):
-  """Final stitched lesson JSON with metadata."""
-
-  lesson_json: dict[str, Any]
-  metadata: dict[str, Any] | None = None
