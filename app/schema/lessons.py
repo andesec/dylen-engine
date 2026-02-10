@@ -71,4 +71,5 @@ class SubjectiveInputWidget(Base):
   section_id: Mapped[int] = mapped_column(ForeignKey("sections.section_id", ondelete="CASCADE"), nullable=False, index=True)
   widget_type: Mapped[str] = mapped_column(String, nullable=False)
   ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+  wordlist: Mapped[str | None] = mapped_column(Text, nullable=True)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

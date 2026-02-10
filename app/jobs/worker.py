@@ -93,7 +93,10 @@ class JobProcessor:
     target_agent = str(job.target_agent or "").strip()
     if target_agent == "lesson":
       target_agent = "planner"
-    if target_agent == "" and (("text" in job.request and "widget_id" in job.request) or (isinstance(wrapped_request, dict) and "text" in wrapped_request and "widget_id" in wrapped_request)):
+    if target_agent == "" and (
+      ("text" in job.request and ("widget_id" in job.request or "criteria" in job.request))
+      or (isinstance(wrapped_request, dict) and "text" in wrapped_request and ("widget_id" in wrapped_request or "criteria" in wrapped_request))
+    ):
       target_agent = "writing"
     if target_agent == "":
       await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=list(job.logs or []) + ["Missing target_agent on queued job."])
@@ -1064,7 +1067,7 @@ class JobProcessor:
       provider = str(runtime_config.get("ai.writing.provider") or self._settings.writing_provider)
       model_name = str(runtime_config.get("ai.writing.model") or self._settings.writing_model or "")
       orchestrator = WritingCheckOrchestrator(provider=provider, model=model_name or None, session_factory=session_factory)
-      result = await orchestrator.check_response(text=request_model.text, widget_id=request_model.widget_id)
+      result = await orchestrator.check_response(text=request_model.text, widget_id=request_model.widget_id, criteria=request_model.criteria)
 
       tracker.extend_logs(result.logs)
       cost_summary = _summarize_cost(result.usage, result.total_cost)

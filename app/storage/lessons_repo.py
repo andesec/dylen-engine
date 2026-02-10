@@ -64,6 +64,7 @@ class SubjectiveInputWidgetRecord:
   section_id: int
   widget_type: str
   ai_prompt: str
+  wordlist: str | None = None
   created_at: str | None = None
 
 

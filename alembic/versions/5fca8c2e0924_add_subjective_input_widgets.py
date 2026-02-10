@@ -26,6 +26,7 @@ def upgrade() -> None:
         sa.Column("section_id", sa.Integer(), nullable=False),
         sa.Column("widget_type", sa.String(), nullable=False),
         sa.Column("ai_prompt", sa.Text(), nullable=False),
+        sa.Column("wordlist", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(["section_id"], ["sections.section_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),

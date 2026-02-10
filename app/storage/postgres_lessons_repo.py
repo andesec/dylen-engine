@@ -95,10 +95,10 @@ class PostgresLessonsRepository(LessonsRepository):
     async with self._session_factory() as session:
       created_records: list[SubjectiveInputWidgetRecord] = []
       for r in records:
-        widget = SubjectiveInputWidget(section_id=r.section_id, widget_type=r.widget_type, ai_prompt=r.ai_prompt)
+        widget = SubjectiveInputWidget(section_id=r.section_id, widget_type=r.widget_type, ai_prompt=r.ai_prompt, wordlist=r.wordlist)
         session.add(widget)
         await session.flush()
-        created_records.append(SubjectiveInputWidgetRecord(id=widget.id, section_id=widget.section_id, widget_type=widget.widget_type, ai_prompt=widget.ai_prompt, created_at=str(widget.created_at)))
+        created_records.append(SubjectiveInputWidgetRecord(id=widget.id, section_id=widget.section_id, widget_type=widget.widget_type, ai_prompt=widget.ai_prompt, wordlist=widget.wordlist, created_at=str(widget.created_at)))
       await session.commit()
       return created_records
 

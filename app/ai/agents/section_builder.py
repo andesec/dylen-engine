@@ -349,6 +349,7 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
                   section_id=created_section.section_id,
                   widget_type="freeText",
                   ai_prompt=item.freeText.ai_prompt,
+                  wordlist=item.freeText.wordlist_csv,
                 )
                 subjective_records.append(record)
                 pending_updates.append((item.freeText, len(subjective_records) - 1))
@@ -358,6 +359,7 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
                   section_id=created_section.section_id,
                   widget_type="inputLine",
                   ai_prompt=item.inputLine.ai_prompt,
+                  wordlist=item.inputLine.wordlist_csv,
                 )
                 subjective_records.append(record)
                 pending_updates.append((item.inputLine, len(subjective_records) - 1))
