@@ -12,7 +12,7 @@ from app.schema.quotas import SubscriptionTier, UserTierOverride
 from app.schema.sql import User
 from app.services.users import get_user_subscription_tier
 
-FeatureType = Literal["lesson", "research", "writing", "coach"]
+FeatureType = Literal["lesson", "research", "writing", "tutor"]
 
 
 async def check_concurrency_limit(feature: FeatureType, user: User, db: AsyncSession) -> None:
@@ -55,8 +55,8 @@ async def check_concurrency_limit(feature: FeatureType, user: User, db: AsyncSes
     query = query.where(Job.target_agent == "research")
   elif feature == "writing":
     query = query.where(Job.target_agent == "writing")
-  elif feature == "coach":
-    query = query.where(Job.target_agent == "coach")
+  elif feature == "tutor":
+    query = query.where(Job.target_agent == "tutor")
 
   count_result = await db.execute(query)
   active_count = count_result.scalar_one()

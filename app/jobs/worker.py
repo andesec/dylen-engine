@@ -13,11 +13,11 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from app.ai.agents.coach import CoachAgent
 from app.ai.agents.fenster_builder import FensterBuilderAgent
 from app.ai.agents.illustration import IllustrationAgent
 from app.ai.agents.planner import PlannerAgent
 from app.ai.agents.section_builder import SectionBuilder
+from app.ai.agents.tutor import TutorAgent
 from app.ai.orchestrator import OrchestrationError, OrchestrationResult
 from app.ai.pipeline.contracts import GenerationRequest, JobContext, PlanSection
 from app.ai.router import get_model_for_mode
@@ -79,7 +79,7 @@ class JobProcessor:
       "planner": _MethodHandler(self._process_planner_job),
       "section_builder": _MethodHandler(self._process_section_builder_job),
       "fenster_builder": _MethodHandler(self._process_fenster_build),
-      "coach": _MethodHandler(self._process_coach_job),
+      "tutor": _MethodHandler(self._process_tutor_job),
       "illustration": _MethodHandler(self._process_illustration_job),
       "maintenance": _MethodHandler(self._process_maintenance_job),
     }
@@ -149,7 +149,7 @@ class JobProcessor:
     """Check whether a child job target has available quota for the current user."""
     metric_map: dict[str, tuple[str, str, QuotaPeriod]] = {
       "section_builder": ("limits.sections_per_month", "section.generate", QuotaPeriod.MONTH),
-      "coach": ("limits.coach_sections_per_month", "coach.generate", QuotaPeriod.MONTH),
+      "tutor": ("limits.tutor_sections_per_month", "tutor.generate", QuotaPeriod.MONTH),
       "fenster_builder": ("limits.fenster_widgets_per_month", "fenster.widget.generate", QuotaPeriod.MONTH),
       "illustration": ("limits.image_generations_per_month", "image.generate", QuotaPeriod.MONTH),
       "planner": ("limits.lessons_per_week", "lesson.generate", QuotaPeriod.WEEK),
@@ -311,7 +311,7 @@ class JobProcessor:
       )
       await self._create_child_job(
         parent_job=updated_parent,
-        target_agent="coach",
+        target_agent="tutor",
         payload={"section_index": section_number, "topic": generation_request.topic, "section_data": section_payload, "learning_data_points": section_payload.get("learning_data_points", [])},
         lesson_id=lesson_id,
         section_id=db_section_id,
@@ -493,17 +493,17 @@ class JobProcessor:
       await self._jobs_repo.update_job(job.job_id, **payload)
       return None
 
-  async def _process_coach_job(self, job: JobRecord) -> JobRecord | None:
-    """Execute Coach generation."""
-    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="coach", initial_logs=["Coach job picked up."])
+  async def _process_tutor_job(self, job: JobRecord) -> JobRecord | None:
+    """Execute tutor generation."""
+    tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="tutor", initial_logs=["Tutor job picked up."])
     await tracker.set_phase(phase="building", subphase="generating_audio")
 
     try:
-      # Use section_builder_provider settings as default for Coach
+      # Use section_builder_provider settings as default for tutor generation.
       provider = self._settings.section_builder_provider
       model_name = self._settings.section_builder_model
 
-      model_instance = get_model_for_mode(provider, model_name, agent="coach")
+      model_instance = get_model_for_mode(provider, model_name, agent="tutor")
       schema_service = SchemaService()
 
       usage_list = []
@@ -511,7 +511,7 @@ class JobProcessor:
       def usage_sink(u: dict[str, Any]) -> None:
         usage_list.append(u)
 
-      agent = CoachAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
+      agent = TutorAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
 
       wrapped_payload = job.request.get("payload")
       payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
@@ -538,8 +538,8 @@ class JobProcessor:
       return updated
 
     except Exception as exc:
-      self._logger.error("Coach job failed", exc_info=True)
-      await tracker.fail(phase="failed", message=f"Coach job failed: {exc}")
+      self._logger.error("Tutor job failed", exc_info=True)
+      await tracker.fail(phase="failed", message=f"Tutor job failed: {exc}")
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
       return None
@@ -1297,7 +1297,7 @@ def _strip_internal_request_fields(request: dict[str, Any]) -> dict[str, Any]:
 def _extract_quota_metric(error_message: str) -> str | None:
   """Extract a known quota metric name from an error message."""
   lowered = error_message.lower()
-  known_metrics = ("lesson.generate", "section.generate", "coach.generate", "fenster.widget.generate", "writing.check", "ocr.extract", "image.generate")
+  known_metrics = ("lesson.generate", "section.generate", "tutor.generate", "fenster.widget.generate", "writing.check", "ocr.extract", "image.generate")
   for metric in known_metrics:
     # Match explicit metric names so job logs can report the exact exhausted resource.
     if metric in lowered:

@@ -9,7 +9,7 @@ from starlette.responses import Response
 
 from app.config import Settings, get_settings
 from app.core.database import get_db
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_permission
 from app.schema.illustrations import Illustration, SectionIllustration
 from app.schema.lessons import Lesson, Section
 from app.schema.sql import User
@@ -19,7 +19,7 @@ router = APIRouter()
 _IMAGE_NAME_RE = re.compile(r"^[0-9]+\.webp$")
 
 
-@router.get("/lessons/{lesson_id}/{image_name}")
+@router.get("/lessons/{lesson_id}/{image_name}", dependencies=[Depends(require_permission("media:view_own"))])
 async def get_lesson_media(lesson_id: str, image_name: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user), settings: Settings = Depends(get_settings)) -> Response:  # noqa: B008
   """Authorize lesson media access and stream illustration bytes through the backend."""
   # Keep object name resolution strict to avoid path tricks and noisy DB scans.

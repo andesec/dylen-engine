@@ -1582,17 +1582,12 @@
       },
       "ModeFlagsRecord": {
         "properties": {
-          "coach_mode_enabled": {
-            "title": "Coach Mode Enabled",
-            "type": "boolean"
-          },
           "tutor_mode_enabled": {
             "title": "Tutor Mode Enabled",
             "type": "boolean"
           }
         },
         "required": [
-          "coach_mode_enabled",
           "tutor_mode_enabled"
         ],
         "title": "ModeFlagsRecord",
@@ -1600,17 +1595,12 @@
       },
       "ModeFlagsUpdateRequest": {
         "properties": {
-          "coach_mode_enabled": {
-            "title": "Coach Mode Enabled",
-            "type": "boolean"
-          },
           "tutor_mode_enabled": {
             "title": "Tutor Mode Enabled",
             "type": "boolean"
           }
         },
         "required": [
-          "coach_mode_enabled",
           "tutor_mode_enabled"
         ],
         "title": "ModeFlagsUpdateRequest",
@@ -2190,28 +2180,6 @@
       },
       "PromoQuotaOverrideRequest": {
         "properties": {
-          "coach_mode_enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coach Mode Enabled"
-          },
-          "concurrent_coach_limit": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Concurrent Coach Limit"
-          },
           "concurrent_lesson_limit": {
             "anyOf": [
               {
@@ -2233,6 +2201,17 @@
               }
             ],
             "title": "Concurrent Research Limit"
+          },
+          "concurrent_tutor_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Tutor Limit"
           },
           "concurrent_writing_limit": {
             "anyOf": [
@@ -2299,6 +2278,17 @@
               }
             ],
             "title": "Research Quota"
+          },
+          "tutor_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Mode Enabled"
           }
         },
         "title": "PromoQuotaOverrideRequest",
@@ -2306,28 +2296,6 @@
       },
       "PromoQuotaOverrideResponse": {
         "properties": {
-          "coach_mode_enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coach Mode Enabled"
-          },
-          "concurrent_coach_limit": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Concurrent Coach Limit"
-          },
           "concurrent_lesson_limit": {
             "anyOf": [
               {
@@ -2349,6 +2317,17 @@
               }
             ],
             "title": "Concurrent Research Limit"
+          },
+          "concurrent_tutor_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Tutor Limit"
           },
           "concurrent_writing_limit": {
             "anyOf": [
@@ -2415,6 +2394,17 @@
               }
             ],
             "title": "Research Quota"
+          },
+          "tutor_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Mode Enabled"
           }
         },
         "required": [
@@ -2426,8 +2416,8 @@
           "concurrent_lesson_limit",
           "concurrent_research_limit",
           "concurrent_writing_limit",
-          "concurrent_coach_limit",
-          "coach_mode_enabled"
+          "concurrent_tutor_limit",
+          "tutor_mode_enabled"
         ],
         "title": "PromoQuotaOverrideResponse",
         "type": "object"
@@ -2752,21 +2742,6 @@
             "title": "Availability",
             "type": "object"
           },
-          "coach_mode_enabled": {
-            "title": "Coach Mode Enabled",
-            "type": "boolean"
-          },
-          "coach_voice_tier": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coach Voice Tier"
-          },
           "highest_lesson_depth": {
             "anyOf": [
               {
@@ -2898,6 +2873,21 @@
               }
             ],
             "title": "Total Sections"
+          },
+          "tutor_mode_enabled": {
+            "title": "Tutor Mode Enabled",
+            "type": "boolean"
+          },
+          "tutor_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Voice Tier"
           }
         },
         "required": [
@@ -2913,8 +2903,8 @@
           "remaining_image_uploads",
           "remaining_sections",
           "remaining_research",
-          "coach_mode_enabled",
-          "coach_voice_tier"
+          "tutor_mode_enabled",
+          "tutor_voice_tier"
         ],
         "title": "ResolvedQuota",
         "type": "object"
@@ -3374,32 +3364,6 @@
       },
       "TierRecord": {
         "properties": {
-          "coach_mode_enabled": {
-            "title": "Coach Mode Enabled",
-            "type": "boolean"
-          },
-          "coach_voice_tier": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coach Voice Tier"
-          },
-          "concurrent_coach_limit": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Concurrent Coach Limit"
-          },
           "concurrent_lesson_limit": {
             "anyOf": [
               {
@@ -3421,6 +3385,17 @@
               }
             ],
             "title": "Concurrent Research Limit"
+          },
+          "concurrent_tutor_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Tutor Limit"
           },
           "concurrent_writing_limit": {
             "anyOf": [
@@ -3517,6 +3492,21 @@
               }
             ],
             "title": "Research Quota"
+          },
+          "tutor_mode_enabled": {
+            "title": "Tutor Mode Enabled",
+            "type": "boolean"
+          },
+          "tutor_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Voice Tier"
           }
         },
         "required": [
@@ -3532,48 +3522,15 @@
           "concurrent_lesson_limit",
           "concurrent_research_limit",
           "concurrent_writing_limit",
-          "concurrent_coach_limit",
-          "coach_mode_enabled",
-          "coach_voice_tier"
+          "concurrent_tutor_limit",
+          "tutor_mode_enabled",
+          "tutor_voice_tier"
         ],
         "title": "TierRecord",
         "type": "object"
       },
       "TierUpdateRequest": {
         "properties": {
-          "coach_mode_enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coach Mode Enabled"
-          },
-          "coach_voice_tier": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coach Voice Tier"
-          },
-          "concurrent_coach_limit": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Concurrent Coach Limit"
-          },
           "concurrent_lesson_limit": {
             "anyOf": [
               {
@@ -3595,6 +3552,17 @@
               }
             ],
             "title": "Concurrent Research Limit"
+          },
+          "concurrent_tutor_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Tutor Limit"
           },
           "concurrent_writing_limit": {
             "anyOf": [
@@ -3688,6 +3656,28 @@
               }
             ],
             "title": "Research Quota"
+          },
+          "tutor_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Mode Enabled"
+          },
+          "tutor_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Voice Tier"
           }
         },
         "title": "TierUpdateRequest",
@@ -3825,6 +3815,10 @@
               }
             ],
             "title": "Intended Use Other"
+          },
+          "is_discarded": {
+            "title": "Is Discarded",
+            "type": "boolean"
           },
           "occupation": {
             "anyOf": [
@@ -3988,6 +3982,7 @@
           "org_id",
           "org_name",
           "status",
+          "is_discarded",
           "auth_method",
           "profession",
           "city",
@@ -4160,6 +4155,10 @@
             "title": "Id",
             "type": "string"
           },
+          "is_discarded": {
+            "title": "Is Discarded",
+            "type": "boolean"
+          },
           "org_id": {
             "anyOf": [
               {
@@ -4205,6 +4204,7 @@
           "id",
           "email",
           "status",
+          "is_discarded",
           "role_id",
           "role_name",
           "org_id",
@@ -4433,118 +4433,6 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/admin/coach-audios": {
-      "get": {
-        "description": "List coach audios with pagination, filtering, and sorting.",
-        "operationId": "list_coach_audios_admin_coach_audios_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "default": 1,
-              "minimum": 1,
-              "title": "Page",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "job_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Job Id"
-            }
-          },
-          {
-            "in": "query",
-            "name": "section_number",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Section Number"
-            }
-          },
-          {
-            "in": "query",
-            "name": "sort_by",
-            "required": false,
-            "schema": {
-              "default": "created_at",
-              "title": "Sort By",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "sort_order",
-            "required": false,
-            "schema": {
-              "default": "desc",
-              "title": "Sort Order",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "List Coach Audios",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
     "/admin/config/definitions": {
       "get": {
         "description": "List supported runtime configuration keys for admin UIs.",
@@ -5126,7 +5014,7 @@
     },
     "/admin/feature-flags/modes": {
       "get": {
-        "description": "Return global coach/tutor mode flag defaults.",
+        "description": "Return global tutor mode flag defaults.",
         "operationId": "get_mode_flags_admin_feature_flags_modes_get",
         "responses": {
           "200": {
@@ -5151,7 +5039,7 @@
         ]
       },
       "put": {
-        "description": "Enable or disable global coach/tutor mode flags.",
+        "description": "Enable or disable global tutor mode flags.",
         "operationId": "set_mode_flags_admin_feature_flags_modes_put",
         "requestBody": {
           "content": {
@@ -6233,6 +6121,118 @@
         ]
       }
     },
+    "/admin/tutor-audios": {
+      "get": {
+        "description": "List tutor audios with pagination, filtering, and sorting.",
+        "operationId": "list_tutor_audios_admin_tutor_audios_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "section_number",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section Number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Tutor Audios",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/users": {
       "get": {
         "description": "List users with tenant scoping for org admins.",
@@ -6307,6 +6307,16 @@
                 }
               ],
               "title": "Role Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_discarded",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Discarded",
+              "type": "boolean"
             }
           },
           {
@@ -6495,6 +6505,54 @@
           }
         ],
         "summary": "Get User Details",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/discard": {
+      "patch": {
+        "description": "Soft-delete a user so they are hidden from active flows.",
+        "operationId": "discard_user_account_admin_users__user_id__discard_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Discard User Account",
         "tags": [
           "admin"
         ]
@@ -6746,6 +6804,54 @@
           }
         ],
         "summary": "Reject User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/restore": {
+      "patch": {
+        "description": "Restore a discarded user.",
+        "operationId": "restore_user_account_admin_users__user_id__restore_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Restore User Account",
         "tags": [
           "admin"
         ]
@@ -7493,102 +7599,6 @@
         "summary": "Extract Text From Images",
         "tags": [
           "resources"
-        ]
-      }
-    },
-    "/v1/coach/audio/{audio_id}/content": {
-      "get": {
-        "description": "Stream audio content.",
-        "operationId": "get_audio_content_v1_coach_audio__audio_id__content_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "audio_id",
-            "required": true,
-            "schema": {
-              "title": "Audio Id",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Audio Content",
-        "tags": [
-          "coach"
-        ]
-      }
-    },
-    "/v1/coach/job/{job_id}/audios": {
-      "get": {
-        "description": "Retrieve list of generated audios for a job.",
-        "operationId": "get_job_audios_v1_coach_job__job_id__audios_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Job Audios V1 Coach Job  Job Id  Audios Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Job Audios",
-        "tags": [
-          "coach"
         ]
       }
     },
@@ -8510,6 +8520,102 @@
         "summary": "Synthesize",
         "tags": [
           "research"
+        ]
+      }
+    },
+    "/v1/tutor/audio/{audio_id}/content": {
+      "get": {
+        "description": "Stream audio content.",
+        "operationId": "get_audio_content_v1_tutor_audio__audio_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "audio_id",
+            "required": true,
+            "schema": {
+              "title": "Audio Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Audio Content",
+        "tags": [
+          "tutor"
+        ]
+      }
+    },
+    "/v1/tutor/job/{job_id}/audios": {
+      "get": {
+        "description": "Retrieve list of generated audios for a job.",
+        "operationId": "get_job_audios_v1_tutor_job__job_id__audios_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Job Audios V1 Tutor Job  Job Id  Audios Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Job Audios",
+        "tags": [
+          "tutor"
         ]
       }
     },

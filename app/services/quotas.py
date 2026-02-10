@@ -77,8 +77,8 @@ class ResolvedQuota:
   remaining_sections: int | None
   remaining_research: int | None
 
-  coach_mode_enabled: bool
-  coach_voice_tier: str | None
+  tutor_mode_enabled: bool
+  tutor_voice_tier: str | None
   quota_entries: list[QuotaEntry] = field(default_factory=list)
   availability: dict[str, bool] = field(default_factory=dict)
 
@@ -186,7 +186,7 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
   quota_candidates: list[QuotaEntry | None] = [
     await _bucket_entry(key="lesson.generate", label="Lesson Limit", period=QuotaPeriod.WEEK, limit_key="limits.lessons_per_week", metric_key="lesson.generate"),
     await _bucket_entry(key="section.generate", label="Section Limit", period=QuotaPeriod.MONTH, limit_key="limits.sections_per_month", metric_key="section.generate"),
-    await _bucket_entry(key="coach.generate", label="Coach Limit", period=QuotaPeriod.MONTH, limit_key="limits.coach_sections_per_month", metric_key="coach.generate"),
+    await _bucket_entry(key="tutor.generate", label="Tutor Limit", period=QuotaPeriod.MONTH, limit_key="limits.tutor_sections_per_month", metric_key="tutor.generate"),
     await _bucket_entry(key="fenster.widget.generate", label="Fenster Widget Limit", period=QuotaPeriod.MONTH, limit_key="limits.fenster_widgets_per_month", metric_key="fenster.widget.generate"),
     await _bucket_entry(key="ocr.extract", label="OCR Extract Limit", period=QuotaPeriod.MONTH, limit_key="limits.ocr_files_per_month", metric_key="ocr.extract", feature_flag="feature.ocr"),
     await _bucket_entry(key="writing.check", label="Writing Check Limit", period=QuotaPeriod.MONTH, limit_key="limits.writing_checks_per_month", metric_key="writing.check", feature_flag="feature.writing"),
@@ -212,8 +212,8 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
     remaining_image_uploads=remaining_images,
     remaining_sections=remaining_sections,
     remaining_research=remaining_research,
-    coach_mode_enabled=bool(_pick("coach_mode_enabled")),
-    coach_voice_tier=_pick("coach_voice_tier"),
+    tutor_mode_enabled=bool(_pick("tutor_mode_enabled")),
+    tutor_voice_tier=_pick("tutor_voice_tier"),
     quota_entries=quota_entries,
     availability=availability,
   )

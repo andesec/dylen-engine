@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.msgspec_utils import decode_msgspec_request, encode_msgspec_response
 from app.config import Settings, get_settings
 from app.core.database import get_db
-from app.core.security import get_current_admin_user, require_role_level
+from app.core.security import get_current_admin_user, require_permission, require_role_level
 from app.jobs.models import JobRecord
 from app.schema.data_transfer import DataTransferRun
 from app.schema.sql import RoleLevel, User
@@ -179,7 +179,7 @@ async def _queue_maintenance_job(*, job_id: str, current_user: User, payload: di
   return job_id
 
 
-@router.post("/data-transfer/exports", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.post("/data-transfer/exports", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("data_transfer:export_create"))])
 async def create_export_run(request: Request, background_tasks: BackgroundTasks, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)):  # noqa: B008
   """Queue one export run and return run/job identifiers."""
   payload = await decode_msgspec_request(request, ExportCreateRequest)
@@ -227,7 +227,7 @@ async def create_export_run(request: Request, background_tasks: BackgroundTasks,
   return encode_msgspec_response(CreateRunResponse(run_id=str(run.id), job_id=job_id, status=run.status), status_code=status.HTTP_201_CREATED)
 
 
-@router.get("/data-transfer/exports/{run_id}", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.get("/data-transfer/exports/{run_id}", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("data_transfer:export_read"))])
 async def get_export_run(run_id: str = Path(...), db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)):  # noqa: B008
   """Return one export run status and metadata."""
   _ = current_user
@@ -235,7 +235,7 @@ async def get_export_run(run_id: str = Path(...), db_session: AsyncSession = Dep
   return encode_msgspec_response(_serialize_run(run))
 
 
-@router.post("/data-transfer/exports/{run_id}/download-links", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.post("/data-transfer/exports/{run_id}/download-links", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("data_transfer:download_link_create"))])
 async def get_export_download_links(run_id: str, request: Request, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)):  # noqa: B008
   """Return signed artifact download URLs for a completed export run."""
   _ = current_user
@@ -263,7 +263,7 @@ async def get_export_download_links(run_id: str, request: Request, db_session: A
   return encode_msgspec_response(DownloadLinksResponse(run_id=str(run.id), items=items))
 
 
-@router.post("/data-transfer/hydrates", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.post("/data-transfer/hydrates", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("data_transfer:hydrate_create"))])
 async def create_hydrate_run(request: Request, background_tasks: BackgroundTasks, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)):  # noqa: B008
   """Queue one hydrate run from a source export run id."""
   payload = await decode_msgspec_request(request, HydrateCreateRequest)
@@ -337,7 +337,7 @@ async def create_hydrate_run(request: Request, background_tasks: BackgroundTasks
   return encode_msgspec_response(CreateRunResponse(run_id=str(run.id), job_id=job_id, status=run.status), status_code=status.HTTP_201_CREATED)
 
 
-@router.get("/data-transfer/hydrates/{run_id}", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.get("/data-transfer/hydrates/{run_id}", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("data_transfer:hydrate_read"))])
 async def get_hydrate_run(run_id: str = Path(...), db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)):  # noqa: B008
   """Return one hydrate run status and metadata."""
   _ = current_user

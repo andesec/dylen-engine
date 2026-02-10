@@ -25,7 +25,7 @@ from app.api.models import (
 )
 from app.config import Settings, get_settings
 from app.core.database import get_db
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_permission
 from app.jobs.models import JobRecord
 from app.jobs.progress import build_call_plan
 from app.schema.lesson_catalog import build_lesson_catalog
@@ -52,7 +52,7 @@ _DEFAULT_LIMIT = 10
 _MAX_LIMIT = 100
 
 
-@router.get("", response_model=list[LessonRecordResponse])
+@router.get("", response_model=list[LessonRecordResponse], dependencies=[Depends(require_permission("lesson:list_own"))])
 async def list_lessons(
   settings: Settings = Depends(get_settings),
   current_user: User = Depends(get_current_active_user),
@@ -89,7 +89,7 @@ async def get_lesson_catalog(response: Response, settings: Settings = Depends(ge
   return LessonCatalogResponse(**payload)
 
 
-@router.post("/outcomes", response_model=OutcomesAgentResponse)
+@router.post("/outcomes", response_model=OutcomesAgentResponse, dependencies=[Depends(require_permission("lesson:outcomes"))])
 async def generate_outcomes_endpoint(  # noqa: B008
   request: GenerateLessonRequest,
   settings: Settings = Depends(get_settings),  # noqa: B008
@@ -158,7 +158,7 @@ async def generate_outcomes_endpoint(  # noqa: B008
   return payload
 
 
-@router.post("/generate", response_model=LessonJobResponse, status_code=status.HTTP_202_ACCEPTED, responses={500: {"model": OrchestrationFailureResponse}})
+@router.post("/generate", response_model=LessonJobResponse, status_code=status.HTTP_202_ACCEPTED, responses={500: {"model": OrchestrationFailureResponse}}, dependencies=[Depends(require_permission("lesson:generate"))])
 async def generate_lesson(  # noqa: B008
   request: GenerateLessonRequest,
   settings: Settings = Depends(get_settings),  # noqa: B008
@@ -291,7 +291,7 @@ async def generate_lesson(  # noqa: B008
   return LessonJobResponse(job_id=job_id, expected_sections=expected_sections, lesson_id=lesson_id)
 
 
-@router.get("/{lesson_id}", response_model=LessonRecordResponse)
+@router.get("/{lesson_id}", response_model=LessonRecordResponse, dependencies=[Depends(require_permission("lesson:view_own"))])
 async def get_lesson(  # noqa: B008
   lesson_id: uuid.UUID,
   settings: Settings = Depends(get_settings),  # noqa: B008
@@ -315,7 +315,7 @@ async def get_lesson(  # noqa: B008
   return LessonRecordResponse(lesson_id=record.lesson_id, topic=record.topic, title=record.title, created_at=record.created_at, sections=section_summaries)
 
 
-@router.get("/{lesson_id}/outline", response_model=LessonOutlineResponse)
+@router.get("/{lesson_id}/outline", response_model=LessonOutlineResponse, dependencies=[Depends(require_permission("lesson:outline_own"))])
 async def get_lesson_outline(
   lesson_id: uuid.UUID,
   settings: Settings = Depends(get_settings),  # noqa: B008
@@ -342,7 +342,7 @@ async def get_lesson_outline(
   return LessonOutlineResponse(lesson_id=record.lesson_id, topic=record.topic, title=record.title, sections=sections)
 
 
-@router.post("/jobs", response_model=JobCreateResponse)
+@router.post("/jobs", response_model=JobCreateResponse, dependencies=[Depends(require_permission("lesson:job_create"))])
 async def create_lesson_job(  # noqa: B008
   request: GenerateLessonRequest,
   background_tasks: BackgroundTasks,

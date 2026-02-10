@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_permission
 from app.schema.lessons import Lesson, Section
 from app.schema.sql import User
 
@@ -30,7 +30,7 @@ def _encrypt_section_payload(payload: dict, firebase_uid: str) -> str:
   return base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
 
 
-@router.get("/{lesson_id}/sections/{order_index}")
+@router.get("/{lesson_id}/sections/{order_index}", dependencies=[Depends(require_permission("section:view_own"))])
 async def get_section(lesson_id: str, order_index: int, session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
   """
   Get a specific section shorthand payload by its order index (1-based).

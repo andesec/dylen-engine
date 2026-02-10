@@ -29,7 +29,6 @@ OptStr = str | None
 CONFIG_READ_DEP = Depends(require_permission("config:read"))
 FLAGS_READ_DEP = Depends(require_permission("flags:read"))
 DB_DEP = Depends(get_db)
-COACH_MODE_FLAG_KEY = "feature.coach.mode"
 TUTOR_MODE_FLAG_KEY = "feature.tutor.mode"
 
 
@@ -71,12 +70,10 @@ class FeatureFlagOverrideRequest(BaseModel):
 
 
 class ModeFlagsRecord(BaseModel):
-  coach_mode_enabled: bool
   tutor_mode_enabled: bool
 
 
 class ModeFlagsUpdateRequest(BaseModel):
-  coach_mode_enabled: bool
   tutor_mode_enabled: bool
 
 
@@ -292,23 +289,21 @@ async def get_effective_flags(org_id: str | None = Query(None), tier_name: str |
 
 @router.get("/feature-flags/modes", response_model=ModeFlagsRecord)
 async def get_mode_flags(current_user: User = FLAGS_READ_DEP, db: AsyncSession = Depends(get_db)) -> ModeFlagsRecord:  # noqa: B008
-  """Return global coach/tutor mode flag defaults."""
+  """Return global tutor mode flag defaults."""
   # Enforce global role so tenant users cannot inspect global toggle state.
   await _require_global_role(db, current_user)
-  coach_flag = await get_feature_flag_by_key(db, key=COACH_MODE_FLAG_KEY)
   tutor_flag = await get_feature_flag_by_key(db, key=TUTOR_MODE_FLAG_KEY)
-  if coach_flag is None or tutor_flag is None:
+  if tutor_flag is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mode flags not found")
-  return ModeFlagsRecord(coach_mode_enabled=bool(coach_flag.default_enabled), tutor_mode_enabled=bool(tutor_flag.default_enabled))
+  return ModeFlagsRecord(tutor_mode_enabled=bool(tutor_flag.default_enabled))
 
 
 @router.put("/feature-flags/modes", response_model=ModeFlagsRecord, dependencies=[Depends(require_permission("flags:write_global"))])
 async def set_mode_flags(request: ModeFlagsUpdateRequest, current_user: User = Depends(require_permission("flags:write_global")), db: AsyncSession = Depends(get_db)) -> ModeFlagsRecord:  # noqa: B008
-  """Enable or disable global coach/tutor mode flags."""
+  """Enable or disable global tutor mode flags."""
   # Require global role to keep global feature toggles restricted to global admins.
   await _require_global_role(db, current_user)
-  coach_flag = await set_feature_flag_default_enabled(db, key=COACH_MODE_FLAG_KEY, enabled=request.coach_mode_enabled)
   tutor_flag = await set_feature_flag_default_enabled(db, key=TUTOR_MODE_FLAG_KEY, enabled=request.tutor_mode_enabled)
-  if coach_flag is None or tutor_flag is None:
+  if tutor_flag is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mode flags not found")
-  return ModeFlagsRecord(coach_mode_enabled=bool(coach_flag.default_enabled), tutor_mode_enabled=bool(tutor_flag.default_enabled))
+  return ModeFlagsRecord(tutor_mode_enabled=bool(tutor_flag.default_enabled))

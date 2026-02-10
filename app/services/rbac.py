@@ -9,8 +9,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-DEFAULT_MEMBER_ROLE_NAME = "Org Member"
-DEFAULT_MEMBER_ROLE_DESCRIPTION = "Default role for new users."
+DEFAULT_MEMBER_ROLE_NAME = "Tenant_User"
+DEFAULT_MEMBER_ROLE_DESCRIPTION = "Default tenant role for new users."
 
 
 async def get_role_by_id(session: AsyncSession, role_id: uuid.UUID) -> Role | None:

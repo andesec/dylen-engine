@@ -101,13 +101,19 @@ async def _fetch_rows(connection: AsyncConnection, statement: str, params: dict[
   return [dict(row) for row in result.mappings().all()]
 
 
+async def _table_exists(connection: AsyncConnection, table_name: str) -> bool:
+  """Return True when a table exists in the public schema."""
+  result = await connection.execute(text("SELECT to_regclass(:table_name)"), {"table_name": f"public.{table_name}"})
+  return result.scalar_one_or_none() is not None
+
+
 async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path, strict: bool, max_rows: int | None, include_illustrations: bool, include_audios: bool, include_fensters: bool) -> dict[str, Any]:
   """Collect successful graph rows and write binary sidecars."""
   # Keep sidecar directories stable so hydrate can load deterministic paths.
-  coach_dir = sidecar_dir / "coach_audios"
+  tutor_dir = sidecar_dir / "tutor_audios"
   fenster_dir = sidecar_dir / "fenster_widgets"
   illustration_dir = sidecar_dir / "illustrations"
-  coach_dir.mkdir(parents=True, exist_ok=True)
+  tutor_dir.mkdir(parents=True, exist_ok=True)
   fenster_dir.mkdir(parents=True, exist_ok=True)
   illustration_dir.mkdir(parents=True, exist_ok=True)
 
@@ -135,7 +141,7 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
       "schema_version": "success_bundle/v1",
       "generated_at": datetime.now(UTC).isoformat(),
       "counts": {"jobs": 0},
-      "data": {"jobs": [], "lessons": [], "sections": [], "section_errors": [], "subjective_input_widgets": [], "illustrations": [], "section_illustrations": [], "fenster_widgets": [], "coach_audios": []},
+      "data": {"users": [], "jobs": [], "lessons": [], "sections": [], "section_errors": [], "subjective_input_widgets": [], "illustrations": [], "section_illustrations": [], "fenster_widgets": [], "tutor_audios": []},
       "sidecar_manifest": [],
     }
 
@@ -166,6 +172,34 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
       """,
       {"lesson_ids": list(lesson_ids)},
     )
+  # Export users referenced by jobs/lessons so hydrate can preserve user graph links.
+  user_ids: set[str] = set()
+  for row in jobs_rows:
+    raw_user_id = row.get("user_id")
+    if isinstance(raw_user_id, str) and raw_user_id.strip():
+      user_ids.add(raw_user_id.strip())
+  for row in lessons_rows:
+    raw_user_id = row.get("user_id")
+    if isinstance(raw_user_id, str) and raw_user_id.strip():
+      user_ids.add(raw_user_id.strip())
+  users_rows: list[dict[str, Any]] = []
+  has_users = await _table_exists(connection, "users")
+  if has_users and user_ids:
+    users_rows = await _fetch_rows(
+      connection,
+      """
+      SELECT
+        id, firebase_uid, email, full_name, provider, role_id, org_id, status, auth_method,
+        profession, city, country, age, photo_url,
+        gender, gender_other, occupation, topics_of_interest, intended_use, intended_use_other,
+        primary_language, secondary_language, onboarding_completed, is_discarded, discarded_at, discarded_by,
+        accepted_terms_at, accepted_privacy_at, terms_version, privacy_version, created_at, updated_at
+      FROM users
+      WHERE id::text = ANY(:user_ids)
+      ORDER BY created_at ASC
+      """,
+      {"user_ids": list(user_ids)},
+    )
 
   sections_rows: list[dict[str, Any]] = []
   if lesson_ids:
@@ -185,30 +219,35 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
   section_errors_rows: list[dict[str, Any]] = []
   subjective_widget_rows: list[dict[str, Any]] = []
   section_illustration_rows: list[dict[str, Any]] = []
+  has_section_errors = await _table_exists(connection, "section_errors")
+  has_subjective_input_widgets = await _table_exists(connection, "subjective_input_widgets")
+  has_section_illustrations = await _table_exists(connection, "section_illustrations")
   if section_ids:
-    section_errors_rows = await _fetch_rows(
-      connection,
-      """
-      SELECT
-        id, section_id, error_index, error_message, error_path, section_scope, subsection_index, item_index
-      FROM section_errors
-      WHERE section_id = ANY(:section_ids)
-      ORDER BY section_id ASC, error_index ASC
-      """,
-      {"section_ids": section_ids},
-    )
-    subjective_widget_rows = await _fetch_rows(
-      connection,
-      """
-      SELECT
-        id, section_id, widget_type, ai_prompt, wordlist, created_at
-      FROM subjective_input_widgets
-      WHERE section_id = ANY(:section_ids)
-      ORDER BY section_id ASC, id ASC
-      """,
-      {"section_ids": section_ids},
-    )
-    if include_illustrations:
+    if has_section_errors:
+      section_errors_rows = await _fetch_rows(
+        connection,
+        """
+        SELECT
+          id, section_id, error_index, error_message, error_path, section_scope, subsection_index, item_index
+        FROM section_errors
+        WHERE section_id = ANY(:section_ids)
+        ORDER BY section_id ASC, error_index ASC
+        """,
+        {"section_ids": section_ids},
+      )
+    if has_subjective_input_widgets:
+      subjective_widget_rows = await _fetch_rows(
+        connection,
+        """
+        SELECT
+          id, section_id, widget_type, ai_prompt, wordlist, created_at
+        FROM subjective_input_widgets
+        WHERE section_id = ANY(:section_ids)
+        ORDER BY section_id ASC, id ASC
+        """,
+        {"section_ids": section_ids},
+      )
+    if include_illustrations and has_section_illustrations:
       section_illustration_rows = await _fetch_rows(
         connection,
         """
@@ -223,7 +262,8 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
 
   illustration_ids = list({int(row["illustration_id"]) for row in section_illustration_rows}) if include_illustrations else []
   illustration_rows: list[dict[str, Any]] = []
-  if include_illustrations and illustration_ids:
+  has_illustrations = await _table_exists(connection, "illustrations")
+  if include_illustrations and has_illustrations and illustration_ids:
     illustration_rows = await _fetch_rows(
       connection,
       """
@@ -251,7 +291,8 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
         continue
 
   fenster_rows: list[dict[str, Any]] = []
-  if include_fensters and fenster_ids:
+  has_fenster_widgets = await _table_exists(connection, "fenster_widgets")
+  if include_fensters and has_fenster_widgets and fenster_ids:
     fenster_rows = await _fetch_rows(
       connection,
       """
@@ -264,16 +305,17 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
       {"fenster_ids": list(fenster_ids)},
     )
 
-  # Export coach rows tied to successful jobs.
+  # Export tutor rows tied to successful jobs.
   job_ids = [str(row["job_id"]) for row in jobs_rows]
-  coach_rows: list[dict[str, Any]] = []
-  if include_audios and job_ids:
-    coach_rows = await _fetch_rows(
+  tutor_rows: list[dict[str, Any]] = []
+  has_tutor_audios = await _table_exists(connection, "tutor_audios")
+  if include_audios and has_tutor_audios and job_ids:
+    tutor_rows = await _fetch_rows(
       connection,
       """
       SELECT
         id, job_id, section_number, subsection_index, text_content, audio_data, created_at
-      FROM coach_audios
+      FROM tutor_audios
       WHERE job_id = ANY(:job_ids)
       ORDER BY job_id ASC, section_number ASC, subsection_index ASC, id ASC
       """,
@@ -282,24 +324,24 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
 
   sidecar_manifest: list[dict[str, Any]] = []
 
-  # Move coach binary blobs to sidecar files.
-  for row in coach_rows:
+  # Move tutor binary blobs to sidecar files.
+  for row in tutor_rows:
     source_id = int(row["id"])
     audio_bytes = row.pop("audio_data", None)
     if not isinstance(audio_bytes, (bytes, bytearray)):
-      message = f"coach_audios.id={source_id} missing audio_data bytes."
+      message = f"tutor_audios.id={source_id} missing audio_data bytes."
       if strict:
         raise RuntimeError(message)
       print(f"WARN: {message}")
       continue
-    relative_path = Path("coach_audios") / f"{source_id}.bin"
+    relative_path = Path("tutor_audios") / f"{source_id}.bin"
     target_path = sidecar_dir / relative_path
     payload = bytes(audio_bytes)
     target_path.write_bytes(payload)
     row["audio_data_ref"] = str(relative_path)
     row["audio_data_sha256"] = _sha256_bytes(payload)
     row["audio_data_size"] = len(payload)
-    sidecar_manifest.append({"entity": "coach_audios", "source_id": source_id, "relative_path": str(relative_path), "sha256": row["audio_data_sha256"], "size": len(payload)})
+    sidecar_manifest.append({"entity": "tutor_audios", "source_id": source_id, "relative_path": str(relative_path), "sha256": row["audio_data_sha256"], "size": len(payload)})
 
   # Move fenster binary blobs to sidecar files.
   for row in fenster_rows:
@@ -356,6 +398,7 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
     "schema_version": "success_bundle/v1",
     "generated_at": datetime.now(UTC).isoformat(),
     "counts": {
+      "users": len(users_rows),
       "jobs": len(jobs_rows),
       "lessons": len(lessons_rows),
       "sections": len(sections_rows),
@@ -364,9 +407,10 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
       "illustrations": len(illustration_rows),
       "section_illustrations": len(section_illustration_rows),
       "fenster_widgets": len(fenster_rows),
-      "coach_audios": len(coach_rows),
+      "tutor_audios": len(tutor_rows),
     },
     "data": {
+      "users": [_row_to_dict(row) for row in users_rows],
       "jobs": [_row_to_dict(row) for row in jobs_rows],
       "lessons": [_row_to_dict(row) for row in lessons_rows],
       "sections": [_row_to_dict(row) for row in sections_rows],
@@ -375,7 +419,7 @@ async def _collect_export_data(connection: AsyncConnection, *, sidecar_dir: Path
       "illustrations": [_row_to_dict(row) for row in illustration_rows],
       "section_illustrations": [_row_to_dict(row) for row in section_illustration_rows],
       "fenster_widgets": [_row_to_dict(row) for row in fenster_rows],
-      "coach_audios": [_row_to_dict(row) for row in coach_rows],
+      "tutor_audios": [_row_to_dict(row) for row in tutor_rows],
     },
     "sidecar_manifest": sidecar_manifest,
   }
@@ -415,7 +459,7 @@ def main() -> None:
   parser.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True, help="Fail on missing binary links.")
   parser.add_argument("--max-rows", type=int, default=None, help="Optional cap on successful root jobs.")
   parser.add_argument("--include-illustrations", action=argparse.BooleanOptionalAction, default=True, help="Include illustration rows and sidecar files.")
-  parser.add_argument("--include-audios", action=argparse.BooleanOptionalAction, default=True, help="Include coach audio rows and sidecar files.")
+  parser.add_argument("--include-audios", action=argparse.BooleanOptionalAction, default=True, help="Include tutor audio rows and sidecar files.")
   parser.add_argument("--include-fensters", action=argparse.BooleanOptionalAction, default=True, help="Include fenster rows and sidecar files.")
   args = parser.parse_args()
 

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _JOB_NOT_FOUND_MSG = "Job not found."
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _COMPATIBLE_TARGETS: dict[JobKind, set[str]] = {
-  "lesson": {"planner", "section_builder", "coach", "fenster_builder", "illustration"},
+  "lesson": {"planner", "section_builder", "tutor", "fenster_builder", "illustration"},
   "research": {"research"},
   "youtube": {"youtube"},
   "maintenance": {"maintenance"},
@@ -31,7 +31,7 @@ _COMPATIBLE_TARGETS: dict[JobKind, set[str]] = {
 _TARGET_METRICS: dict[str, tuple[str, str, QuotaPeriod]] = {
   "planner": ("limits.lessons_per_week", "lesson.generate", QuotaPeriod.WEEK),
   "section_builder": ("limits.sections_per_month", "section.generate", QuotaPeriod.MONTH),
-  "coach": ("limits.coach_sections_per_month", "coach.generate", QuotaPeriod.MONTH),
+  "tutor": ("limits.tutor_sections_per_month", "tutor.generate", QuotaPeriod.MONTH),
   "fenster_builder": ("limits.fenster_widgets_per_month", "fenster.widget.generate", QuotaPeriod.MONTH),
   "illustration": ("limits.image_generations_per_month", "image.generate", QuotaPeriod.MONTH),
   "writing": ("limits.writing_checks_per_month", "writing.check", QuotaPeriod.MONTH),

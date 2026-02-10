@@ -1,4 +1,4 @@
-"""SQLAlchemy model for storing generated Coach audio."""
+"""SQLAlchemy model for storing generated tutor audio."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class CoachAudio(Base):
+class TutorAudio(Base):
   """Persist generated audio blobs alongside their source text."""
 
-  __tablename__ = "coach_audios"
+  __tablename__ = "tutor_audios"
 
   id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
   job_id: Mapped[str] = mapped_column(String, index=True, nullable=False)

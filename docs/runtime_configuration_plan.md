@@ -8,7 +8,7 @@ This document classifies current `.env` variables into:
 It also proposes **who can edit what**:
 - **Super Admin (GLOBAL):** full control, including global defaults, tier defaults, and any tenant overrides.
 - **Admin (GLOBAL):** can edit most runtime config and feature flags, but **not** bootstrap secrets or security-boundary settings.
-- **Tenant Admin (Org Admin / TENANT):** can edit their **own organization** overrides within allowed bounds.
+- **Tenant Admin (Tenant_Admin / TENANT):** can edit their **own organization** overrides within allowed bounds.
 
 ## Classification of current `.env` keys
 

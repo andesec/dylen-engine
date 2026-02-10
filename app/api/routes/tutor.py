@@ -8,18 +8,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_active_user
-from app.schema.coach import CoachAudio
+from app.core.security import get_current_active_user, require_permission
 from app.schema.sql import User
+from app.schema.tutor import TutorAudio
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/job/{job_id}/audios")
+@router.get("/job/{job_id}/audios", dependencies=[Depends(require_permission("tutor:audio_view_own"))])
 async def get_job_audios(job_id: str, request: Request, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)) -> dict[str, Any]:
   """Retrieve list of generated audios for a job."""
-  stmt = select(CoachAudio).where(CoachAudio.job_id == job_id).order_by(CoachAudio.section_number, CoachAudio.subsection_index)
+  stmt = select(TutorAudio).where(TutorAudio.job_id == job_id).order_by(TutorAudio.section_number, TutorAudio.subsection_index)
   result = await db_session.execute(stmt)
   audios = result.scalars().all()
 
@@ -39,10 +39,10 @@ async def get_job_audios(job_id: str, request: Request, db_session: AsyncSession
   }
 
 
-@router.get("/audio/{audio_id}/content")
+@router.get("/audio/{audio_id}/content", dependencies=[Depends(require_permission("tutor:audio_view_own"))])
 async def get_audio_content(audio_id: int, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)) -> Response:
   """Stream audio content."""
-  stmt = select(CoachAudio).where(CoachAudio.id == audio_id)
+  stmt = select(TutorAudio).where(TutorAudio.id == audio_id)
   result = await db_session.execute(stmt)
   audio = result.scalar_one_or_none()
 

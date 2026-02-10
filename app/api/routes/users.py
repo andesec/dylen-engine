@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_quota
 from app.config import get_settings
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_active_user, require_permission
 from app.schema.sql import User
 from app.services.feature_flags import resolve_effective_feature_flags, resolve_global_disabled_features
 from app.services.quotas import QuotaSummaryResponse, ResolvedQuota, build_quota_summary
@@ -17,8 +17,8 @@ from app.services.users import get_user_subscription_tier
 router = APIRouter()
 
 
-@router.get("/me")
-async def get_my_profile(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+@router.get("/me", dependencies=[Depends(require_permission("user:self_read"))])
+async def get_my_profile(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
   """
   Get the current user's profile.
   """
@@ -30,7 +30,7 @@ async def get_my_profile(current_user: User = Depends(get_current_user), db: Asy
   return {"status": current_user.status, "role": {"id": str(role.id), "name": role.name, "level": role.level}, "org_id": str(current_user.org_id) if current_user.org_id else None}
 
 
-@router.get("/me/quota", response_model=QuotaSummaryResponse)
+@router.get("/me/quota", response_model=QuotaSummaryResponse, dependencies=[Depends(require_permission("user:quota_read"))])
 async def get_my_quota(details: bool = False, quota: ResolvedQuota = Depends(get_quota)) -> QuotaSummaryResponse:  # noqa: B008
   """
   Get the current user's quota and subscription tier.
@@ -43,8 +43,8 @@ async def get_my_quota(details: bool = False, quota: ResolvedQuota = Depends(get
   return QuotaSummaryResponse(tier_name=quota.tier_name, quotas=summary, details=detailed_quota)
 
 
-@router.get("/me/features")
-async def get_my_features(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
+@router.get("/me/features", dependencies=[Depends(require_permission("user:features_read"))])
+async def get_my_features(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:  # noqa: B008
   """
   Get effective feature flags, runtime config, and permission hints for the current user.
   """

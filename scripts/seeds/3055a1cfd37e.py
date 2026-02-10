@@ -90,11 +90,11 @@ async def seed(connection: AsyncConnection) -> None:
         "level1": "GLOBAL",
         "desc1": "Global administrator.",
         "id2": role_org_admin_id,
-        "name2": "Org Admin",
+        "name2": "Tenant_Admin",
         "level2": "TENANT",
         "desc2": "Organization administrator.",
         "id3": role_org_member_id,
-        "name3": "Org Member",
+        "name3": "Tenant_User",
         "level3": "TENANT",
         "desc3": "Default role for new users.",
       },
@@ -132,7 +132,7 @@ async def seed(connection: AsyncConnection) -> None:
   if await _ensure_columns(
     connection,
     table_name="subscription_tiers",
-    columns=["name", "max_file_upload_kb", "highest_lesson_depth", "max_sections_per_lesson", "file_upload_quota", "image_upload_quota", "gen_sections_quota", "research_quota", "coach_mode_enabled", "coach_voice_tier"],
+    columns=["name", "max_file_upload_kb", "highest_lesson_depth", "max_sections_per_lesson", "file_upload_quota", "image_upload_quota", "gen_sections_quota", "research_quota", "tutor_mode_enabled", "tutor_voice_tier"],
   ):
     await connection.execute(
       text(
@@ -146,14 +146,14 @@ async def seed(connection: AsyncConnection) -> None:
           image_upload_quota,
           gen_sections_quota,
           research_quota,
-          coach_mode_enabled,
-          coach_voice_tier
+          tutor_mode_enabled,
+          tutor_voice_tier
         )
         VALUES
-          (:name1, :mfu1, :depth1, :sections1, :fuq1, :iuq1, :gsq1, :rq1, :coach1, :voice1),
-          (:name2, :mfu2, :depth2, :sections2, :fuq2, :iuq2, :gsq2, :rq2, :coach2, :voice2),
-          (:name3, :mfu3, :depth3, :sections3, :fuq3, :iuq3, :gsq3, :rq3, :coach3, :voice3),
-          (:name4, :mfu4, :depth4, :sections4, :fuq4, :iuq4, :gsq4, :rq4, :coach4, :voice4)
+          (:name1, :mfu1, :depth1, :sections1, :fuq1, :iuq1, :gsq1, :rq1, :tutor1, :voice1),
+          (:name2, :mfu2, :depth2, :sections2, :fuq2, :iuq2, :gsq2, :rq2, :tutor2, :voice2),
+          (:name3, :mfu3, :depth3, :sections3, :fuq3, :iuq3, :gsq3, :rq3, :tutor3, :voice3),
+          (:name4, :mfu4, :depth4, :sections4, :fuq4, :iuq4, :gsq4, :rq4, :tutor4, :voice4)
         ON CONFLICT (name) DO UPDATE
         SET max_file_upload_kb = EXCLUDED.max_file_upload_kb,
             highest_lesson_depth = EXCLUDED.highest_lesson_depth,
@@ -162,8 +162,8 @@ async def seed(connection: AsyncConnection) -> None:
             image_upload_quota = EXCLUDED.image_upload_quota,
             gen_sections_quota = EXCLUDED.gen_sections_quota,
             research_quota = EXCLUDED.research_quota,
-            coach_mode_enabled = EXCLUDED.coach_mode_enabled,
-            coach_voice_tier = EXCLUDED.coach_voice_tier
+            tutor_mode_enabled = EXCLUDED.tutor_mode_enabled,
+            tutor_voice_tier = EXCLUDED.tutor_voice_tier
         """
       ),
       {
@@ -175,7 +175,7 @@ async def seed(connection: AsyncConnection) -> None:
         "iuq1": 0,
         "gsq1": 10,
         "rq1": None,
-        "coach1": False,
+        "tutor1": False,
         "voice1": "none",
         "name2": "Starter",
         "mfu2": 1024,
@@ -185,7 +185,7 @@ async def seed(connection: AsyncConnection) -> None:
         "iuq2": 10,
         "gsq2": 70,
         "rq2": None,
-        "coach2": False,
+        "tutor2": False,
         "voice2": "none",
         "name3": "Plus",
         "mfu3": 2048,
@@ -195,7 +195,7 @@ async def seed(connection: AsyncConnection) -> None:
         "iuq3": 40,
         "gsq3": 150,
         "rq3": None,
-        "coach3": True,
+        "tutor3": True,
         "voice3": "device",
         "name4": "Pro",
         "mfu4": 5120,
@@ -205,7 +205,7 @@ async def seed(connection: AsyncConnection) -> None:
         "iuq4": 100,
         "gsq4": 500,
         "rq4": None,
-        "coach4": True,
+        "tutor4": True,
         "voice4": "premium",
       },
     )
@@ -273,10 +273,10 @@ async def seed(connection: AsyncConnection) -> None:
       {"id": uuid.uuid4(), "key": "limits.sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Starter"), "value_json": 70},
       {"id": uuid.uuid4(), "key": "limits.sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Plus"), "value_json": 150},
       {"id": uuid.uuid4(), "key": "limits.sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Pro"), "value_json": 500},
-      {"id": uuid.uuid4(), "key": "limits.coach_sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Free"), "value_json": 10},
-      {"id": uuid.uuid4(), "key": "limits.coach_sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Starter"), "value_json": 70},
-      {"id": uuid.uuid4(), "key": "limits.coach_sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Plus"), "value_json": 150},
-      {"id": uuid.uuid4(), "key": "limits.coach_sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Pro"), "value_json": 500},
+      {"id": uuid.uuid4(), "key": "limits.tutor_sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Free"), "value_json": 10},
+      {"id": uuid.uuid4(), "key": "limits.tutor_sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Starter"), "value_json": 70},
+      {"id": uuid.uuid4(), "key": "limits.tutor_sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Plus"), "value_json": 150},
+      {"id": uuid.uuid4(), "key": "limits.tutor_sections_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Pro"), "value_json": 500},
       {"id": uuid.uuid4(), "key": "limits.fenster_widgets_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Free"), "value_json": 0},
       {"id": uuid.uuid4(), "key": "limits.fenster_widgets_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Starter"), "value_json": 0},
       {"id": uuid.uuid4(), "key": "limits.fenster_widgets_per_month", "scope": "TIER", "subscription_tier_id": tier_ids.get("Plus"), "value_json": 40},

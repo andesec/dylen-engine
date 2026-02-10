@@ -1,0 +1,44 @@
+[
+  {
+    "entity": "illustrations",
+    "source_id": 3,
+    "relative_path": "illustrations/3__3.webp",
+    "sha256": "a8c6724d65e3716e057014d3c4f6fcc13cbbfdbf9f047352afed4c41812c8c01",
+    "size": 229314
+  },
+  {
+    "entity": "illustrations",
+    "source_id": 4,
+    "relative_path": "illustrations/4__4.webp",
+    "sha256": "4b52d18ae76e8f6fcba58dbd1978949eded79676e2ef58ad7fee1fa4d78cda0b",
+    "size": 175584
+  },
+  {
+    "entity": "illustrations",
+    "source_id": 7,
+    "relative_path": "illustrations/7__7.webp",
+    "sha256": "7d4319052c6f9121cb630d35c34c16deb0385f9a0a29607de9b2a8db09ac4345",
+    "size": 45438
+  },
+  {
+    "entity": "illustrations",
+    "source_id": 8,
+    "relative_path": "illustrations/8__8.webp",
+    "sha256": "3ee3a7473e298865e10b9a8f9f08b86268c5b9ae5d9f5f77bf9485835cc5b245",
+    "size": 49794
+  },
+  {
+    "entity": "illustrations",
+    "source_id": 9,
+    "relative_path": "illustrations/9__9.webp",
+    "sha256": "412c54e05a8a17949fd67b13626bc23644e915452ec8d53543c747ff83783c3f",
+    "size": 40698
+  },
+  {
+    "entity": "illustrations",
+    "source_id": 10,
+    "relative_path": "illustrations/10__10.webp",
+    "sha256": "df318a467effc9dc4b88fae3432292822b8169a6368984a946514569cbc62c1e",
+    "size": 29686
+  }
+]

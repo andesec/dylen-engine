@@ -472,9 +472,9 @@ class DylenOrchestrator:
       else:
         logger.info("Illustration disabled (limit=0). Skipping illustration job for section %s", section_index)
 
-      # Check coach quota
-      coach_limit = int(runtime_config.get("limits.coach_sections_per_month") or 0)
-      if coach_limit > 0:
+      # Check tutor quota
+      tutor_limit = int(runtime_config.get("limits.tutor_sections_per_month") or 0)
+      if tutor_limit > 0:
         # Check remaining quota
         session_factory = get_session_factory()
         user_id_str = (ctx.job_context.metadata or {}).get("user_id")
@@ -484,19 +484,19 @@ class DylenOrchestrator:
         if session_factory and user_id:
           try:
             async with session_factory() as session:
-              snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key="coach.generate", period=QuotaPeriod.MONTH, limit=coach_limit)
+              snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key="tutor.generate", period=QuotaPeriod.MONTH, limit=tutor_limit)
               if snapshot.remaining <= 0:
                 has_quota = False
-                logger.warning("Coach quota exhausted for user %s. Skipping coach job.", user_id)
+                logger.warning("Tutor quota exhausted for user %s. Skipping tutor job.", user_id)
           except Exception as exc:
-            logger.error("Failed to check coach quota: %s", exc)
+            logger.error("Failed to check tutor quota: %s", exc)
 
         if has_quota:
           payload = {"section_index": section_index, "topic": ctx.topic, "section_data": section_json, "learning_data_points": section_json.get("learning_data_points", [])}
-          await job_creator("coach", payload)
-          logger.info("Created coach job for section %s", section_index)
+          await job_creator("tutor", payload)
+          logger.info("Created tutor job for section %s", section_index)
       else:
-        logger.info("Coach disabled (limit=0). Skipping coach job for section %s", section_index)
+        logger.info("Tutor disabled (limit=0). Skipping tutor job for section %s", section_index)
 
     await ctx.progress_reporter(
       "transform",

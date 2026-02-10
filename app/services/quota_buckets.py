@@ -343,7 +343,7 @@ async def initialize_user_quotas(session: AsyncSession, user_id: uuid.UUID) -> N
   metrics = [
     ("lesson.generate", QuotaPeriod.WEEK),
     ("section.generate", QuotaPeriod.MONTH),
-    ("coach.generate", QuotaPeriod.MONTH),
+    ("tutor.generate", QuotaPeriod.MONTH),
     ("fenster.widget.generate", QuotaPeriod.MONTH),
     ("ocr.extract", QuotaPeriod.MONTH),
     ("writing.check", QuotaPeriod.MONTH),

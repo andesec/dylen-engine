@@ -27,9 +27,9 @@ class SubscriptionTier(Base):
   concurrent_lesson_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
   concurrent_research_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
   concurrent_writing_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
-  concurrent_coach_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
-  coach_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-  coach_voice_tier: Mapped[str | None] = mapped_column(String, nullable=True)
+  concurrent_tutor_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
+  tutor_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+  tutor_voice_tier: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class UserTierOverride(Base):
@@ -47,8 +47,8 @@ class UserTierOverride(Base):
   concurrent_lesson_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
   concurrent_research_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
   concurrent_writing_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
-  concurrent_coach_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
-  coach_mode_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+  concurrent_tutor_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  tutor_mode_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class UserUsageMetrics(Base):

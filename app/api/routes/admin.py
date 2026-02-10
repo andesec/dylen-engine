@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.firebase import build_rbac_claims, set_custom_claims
-from app.core.security import get_current_active_user, get_current_admin_user, require_role_level
+from app.core.security import get_current_active_user, get_current_admin_user, require_permission, require_role_level
 from app.jobs.models import JobRecord, JobStatus
 from app.notifications.factory import build_notification_service
 from app.schema.quotas import SubscriptionTier, UserTierOverride
@@ -22,7 +22,7 @@ from app.services.jobs import trigger_job_processing
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, get_role_by_name, list_permission_slugs_for_role, set_role_permissions
 from app.services.section_shorthand_backfill import backfill_section_shorthand
-from app.services.users import delete_user, get_user_by_id, get_user_subscription_tier, get_user_tier_name, list_users, set_user_subscription_tier, update_user_role, update_user_status
+from app.services.users import UserListFilters, delete_user, discard_user, get_user_by_id, get_user_subscription_tier, get_user_tier_name, list_users, restore_discarded_user, set_user_subscription_tier, update_user_role, update_user_status
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.postgres_audit_repo import LlmAuditRecord, PostgresLlmAuditRepository
@@ -120,6 +120,7 @@ class UserRecord(BaseModel):
   id: str
   email: str
   status: UserStatus
+  is_discarded: bool
   role_id: str
   role_name: str | None  # Enriched: role name from roles table
   org_id: str | None
@@ -179,9 +180,9 @@ class TierUpdateRequest(BaseModel):
   concurrent_lesson_limit: int | None = None
   concurrent_research_limit: int | None = None
   concurrent_writing_limit: int | None = None
-  concurrent_coach_limit: int | None = None
-  coach_mode_enabled: bool | None = None
-  coach_voice_tier: str | None = None
+  concurrent_tutor_limit: int | None = None
+  tutor_mode_enabled: bool | None = None
+  tutor_voice_tier: str | None = None
 
 
 class TierRecord(BaseModel):
@@ -197,9 +198,9 @@ class TierRecord(BaseModel):
   concurrent_lesson_limit: int | None
   concurrent_research_limit: int | None
   concurrent_writing_limit: int | None
-  concurrent_coach_limit: int | None
-  coach_mode_enabled: bool
-  coach_voice_tier: str | None
+  concurrent_tutor_limit: int | None
+  tutor_mode_enabled: bool
+  tutor_voice_tier: str | None
 
 
 class PromoQuotaOverrideRequest(BaseModel):
@@ -211,8 +212,8 @@ class PromoQuotaOverrideRequest(BaseModel):
   concurrent_lesson_limit: int | None = None
   concurrent_research_limit: int | None = None
   concurrent_writing_limit: int | None = None
-  concurrent_coach_limit: int | None = None
-  coach_mode_enabled: bool | None = None
+  concurrent_tutor_limit: int | None = None
+  tutor_mode_enabled: bool | None = None
 
 
 class UserPromoUpdateRequest(BaseModel):
@@ -232,8 +233,8 @@ class PromoQuotaOverrideResponse(BaseModel):
   concurrent_lesson_limit: int | None
   concurrent_research_limit: int | None
   concurrent_writing_limit: int | None
-  concurrent_coach_limit: int | None
-  coach_mode_enabled: bool | None
+  concurrent_tutor_limit: int | None
+  tutor_mode_enabled: bool | None
 
 
 class UserPromoResponse(BaseModel):
@@ -283,9 +284,9 @@ def _serialize_tier(tier: SubscriptionTier) -> TierRecord:
     concurrent_lesson_limit=tier.concurrent_lesson_limit,
     concurrent_research_limit=tier.concurrent_research_limit,
     concurrent_writing_limit=tier.concurrent_writing_limit,
-    concurrent_coach_limit=tier.concurrent_coach_limit,
-    coach_mode_enabled=bool(tier.coach_mode_enabled),
-    coach_voice_tier=tier.coach_voice_tier,
+    concurrent_tutor_limit=tier.concurrent_tutor_limit,
+    tutor_mode_enabled=bool(tier.tutor_mode_enabled),
+    tutor_voice_tier=tier.tutor_voice_tier,
   )
 
 
@@ -308,8 +309,8 @@ def _serialize_quota_override(override: UserTierOverride | None) -> PromoQuotaOv
     concurrent_lesson_limit=override.concurrent_lesson_limit,
     concurrent_research_limit=override.concurrent_research_limit,
     concurrent_writing_limit=override.concurrent_writing_limit,
-    concurrent_coach_limit=override.concurrent_coach_limit,
-    coach_mode_enabled=override.coach_mode_enabled,
+    concurrent_tutor_limit=override.concurrent_tutor_limit,
+    tutor_mode_enabled=override.tutor_mode_enabled,
   )
 
 
@@ -338,7 +339,7 @@ def _serialize_onboarding_profile(user: User) -> OnboardingProfileRecord:
   )
 
 
-@router.post("/roles", response_model=RoleRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.post("/roles", response_model=RoleRecord, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_create"))])
 async def create_role(request: RoleCreateRequest, db_session: AsyncSession = Depends(get_db)) -> RoleRecord:  # noqa: B008
   """Create a new role for RBAC management."""
   # Persist a new role for administrative configuration.
@@ -346,7 +347,7 @@ async def create_role(request: RoleCreateRequest, db_session: AsyncSession = Dep
   return RoleRecord(id=str(role.id), name=role.name, level=role.level, description=role.description)
 
 
-@router.put("/roles/{role_id}/permissions", response_model=RolePermissionsResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.put("/roles/{role_id}/permissions", response_model=RolePermissionsResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_permissions_update"))])
 async def update_role_permissions(role_id: str, request: RolePermissionsUpdateRequest, db_session: AsyncSession = Depends(get_db)) -> RolePermissionsResponse:  # noqa: B008
   """Assign permissions to a role in bulk."""
   # Parse the target role id for validation.
@@ -383,13 +384,14 @@ async def update_role_permissions(role_id: str, request: RolePermissionsUpdateRe
   return RolePermissionsResponse(role_id=str(role.id), permissions=permission_records)
 
 
-@router.get("/users", response_model=PaginatedResponse[UserRecord])
+@router.get("/users", response_model=PaginatedResponse[UserRecord], dependencies=[Depends(require_permission("user_data:view"))])
 async def list_user_accounts(
   page: int = Query(1, ge=1),
   limit: int = Query(20, ge=1, le=100),
   email: str | None = Query(None),
   status: UserStatus | None = Query(None),
   role_id: str | None = Query(None),
+  include_discarded: bool = Query(False),
   sort_by: str = Query("id"),
   sort_order: str = Query("desc"),
   current_user: User = Depends(get_current_admin_user),
@@ -413,13 +415,52 @@ async def list_user_accounts(
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role_id format.") from None
 
   # Load users with pagination, filtering, and sorting applied.
-  users_with_enrichment, total = await list_users(db_session, org_id=org_filter, page=page, limit=limit, email=email, status=status, role_id=parsed_role_id, sort_by=sort_by, sort_order=sort_order)
+  filters = UserListFilters(page=page, limit=limit, email=email, status=status, role_id=parsed_role_id, sort_by=sort_by, sort_order=sort_order, with_discarded=include_discarded)
+  users_with_enrichment, total = await list_users(db_session, org_id=org_filter, filters=filters)
   # Format records for response payloads with enriched data.
-  records = [UserRecord(id=str(user.id), email=user.email, status=user.status, role_id=str(user.role_id), role_name=role_name, org_id=str(user.org_id) if user.org_id else None, org_name=org_name) for user, role_name, org_name in users_with_enrichment]
+  records: list[UserRecord] = []
+  for user, role_name, org_name in users_with_enrichment:
+    records.append(UserRecord(id=str(user.id), email=user.email, status=user.status, is_discarded=bool(user.is_discarded), role_id=str(user.role_id), role_name=role_name, org_id=str(user.org_id) if user.org_id else None, org_name=org_name))
   return PaginatedResponse(items=records, total=total, limit=limit, offset=(page - 1) * limit)
 
 
-@router.get("/users/{user_id}/onboarding", response_model=OnboardingProfileRecord)
+@router.patch("/users/{user_id}/discard", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:discard"))])
+async def discard_user_account(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
+  """Soft-delete a user so they are hidden from active flows."""
+  try:
+    parsed_user_id = uuid.UUID(user_id)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id.") from exc
+  user = await get_user_by_id(db_session, parsed_user_id)
+  if user is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+  await check_tenant_permissions(db_session, current_user, target_org_id=user.org_id)
+  user = await discard_user(db_session, user=user, discarded_by=current_user.id)
+  role = await get_role_by_id(db_session, user.role_id)
+  if role is not None:
+    await _update_firebase_claims(db_session, user, role)
+  return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
+
+
+@router.patch("/users/{user_id}/restore", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:restore"))])
+async def restore_user_account(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
+  """Restore a discarded user."""
+  try:
+    parsed_user_id = uuid.UUID(user_id)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id.") from exc
+  user = await get_user_by_id(db_session, parsed_user_id)
+  if user is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+  await check_tenant_permissions(db_session, current_user, target_org_id=user.org_id)
+  user = await restore_discarded_user(db_session, user=user)
+  role = await get_role_by_id(db_session, user.role_id)
+  if role is not None:
+    await _update_firebase_claims(db_session, user, role)
+  return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
+
+
+@router.get("/users/{user_id}/onboarding", response_model=OnboardingProfileRecord, dependencies=[Depends(require_permission("user_data:view"))])
 async def get_user_onboarding_profile(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> OnboardingProfileRecord:  # noqa: B008
   """Return onboarding details so admins can review and approve/reject accounts."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -436,7 +477,7 @@ async def get_user_onboarding_profile(user_id: str, db_session: AsyncSession = D
   return _serialize_onboarding_profile(user)
 
 
-@router.patch("/users/{user_id}/status", response_model=UserStatusResponse)
+@router.patch("/users/{user_id}/status", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
 async def update_user_account_status(user_id: str, request: UserStatusUpdateRequest, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Update a user's approval status and refresh RBAC claims."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -472,7 +513,7 @@ async def update_user_account_status(user_id: str, request: UserStatusUpdateRequ
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/role", response_model=UserStatusResponse)
+@router.patch("/users/{user_id}/role", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
 async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Update a user's role assignment and refresh RBAC claims."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -513,7 +554,7 @@ async def update_user_account_role(user_id: str, request: UserRoleUpdateRequest,
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/role-by-name", response_model=UserStatusResponse)
+@router.patch("/users/{user_id}/role-by-name", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
 async def update_user_account_role_by_name(user_id: str, request: UserRoleNameUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Promote or demote a user by assigning a role using its canonical name."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -541,7 +582,7 @@ async def update_user_account_role_by_name(user_id: str, request: UserRoleNameUp
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/enabled", response_model=UserStatusResponse)
+@router.patch("/users/{user_id}/enabled", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
 async def update_user_enabled_state(user_id: str, request: UserEnabledUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Enable or disable a user account explicitly for admin workflows."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -571,7 +612,7 @@ async def update_user_enabled_state(user_id: str, request: UserEnabledUpdateRequ
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/tier", response_model=UserStatusResponse)
+@router.patch("/users/{user_id}/tier", response_model=UserStatusResponse, dependencies=[Depends(require_permission("user_data:edit"))])
 async def update_user_account_tier(user_id: str, request: UserTierUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Update a user's subscription tier and refresh RBAC claims."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -628,7 +669,7 @@ async def update_subscription_tier(tier_name: str, request: TierUpdateRequest, d
   return _serialize_tier(tier)
 
 
-@router.put("/users/{user_id}/promo", response_model=UserPromoResponse)
+@router.put("/users/{user_id}/promo", response_model=UserPromoResponse, dependencies=[Depends(require_permission("user_data:edit"))])
 async def upsert_user_promo(user_id: str, request: UserPromoUpdateRequest, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserPromoResponse:  # noqa: B008
   """Upsert promo tier/quota/feature overrides for a user."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -721,7 +762,7 @@ async def upsert_user_promo(user_id: str, request: UserPromoUpdateRequest, db_se
   )
 
 
-@router.delete("/users/{user_id}/promo", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/users/{user_id}/promo", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("user_data:edit"))])
 async def delete_user_promo(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> None:  # noqa: B008
   """Delete active promo overrides for a user."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -743,7 +784,7 @@ async def delete_user_promo(user_id: str, db_session: AsyncSession = Depends(get
   await delete_user_feature_flag_overrides(db_session, user_id=user.id)
 
 
-@router.post("/maintenance/archive-lessons", response_model=MaintenanceJobResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.post("/maintenance/archive-lessons", response_model=MaintenanceJobResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:maintenance_archive_lessons"))])
 async def trigger_archive_lessons(background_tasks: BackgroundTasks, current_user: User = Depends(get_current_active_user), settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db)) -> MaintenanceJobResponse:  # noqa: B008
   """Trigger a maintenance job to archive old lessons based on tier retention limits."""
   job_id = generate_job_id()
@@ -774,7 +815,7 @@ async def trigger_archive_lessons(background_tasks: BackgroundTasks, current_use
   return MaintenanceJobResponse(job_id=job_id)
 
 
-@router.patch("/users/{user_id}/approve", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user)])
+@router.patch("/users/{user_id}/approve", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user), Depends(require_permission("user_data:edit"))])
 async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Approve a user account and notify the user."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -808,7 +849,7 @@ async def approve_user(user_id: str, db_session: AsyncSession = Depends(get_db),
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.patch("/users/{user_id}/reject", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user)])
+@router.patch("/users/{user_id}/reject", response_model=UserStatusResponse, dependencies=[Depends(get_current_admin_user), Depends(require_permission("user_data:edit"))])
 async def reject_user(user_id: str, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_admin_user)) -> UserStatusResponse:  # noqa: B008
   """Reject a user account after onboarding review."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -832,7 +873,7 @@ async def reject_user(user_id: str, db_session: AsyncSession = Depends(get_db), 
   return UserStatusResponse(id=str(user.id), email=user.email, status=user.status)
 
 
-@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("user_data:delete_permanent"))])
 async def delete_user_account(user_id: str, db_session: AsyncSession = Depends(get_db)) -> None:  # noqa: B008
   """Delete a user account permanently (GDPR erasure)."""
   try:
@@ -845,7 +886,7 @@ async def delete_user_account(user_id: str, db_session: AsyncSession = Depends(g
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
 
-@router.get("/jobs", response_model=PaginatedResponse[JobRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.get("/jobs", response_model=PaginatedResponse[JobRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:jobs_read"))])
 async def list_jobs(
   page: int = Query(1, ge=1),
   limit: int = Query(20, ge=1, le=100),
@@ -866,7 +907,7 @@ async def list_jobs(
   return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
-@router.get("/lessons", response_model=PaginatedResponse[LessonRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.get("/lessons", response_model=PaginatedResponse[LessonRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:lessons_read"))])
 async def list_lessons(
   page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), topic: str | None = None, status: str | None = None, user_id: str | None = None, is_archived: bool | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")
 ) -> PaginatedResponse[LessonRecord]:
@@ -879,7 +920,7 @@ async def list_lessons(
   return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
-@router.get("/llm-calls", response_model=PaginatedResponse[LlmAuditRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.get("/llm-calls", response_model=PaginatedResponse[LlmAuditRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:llm_calls_read"))])
 async def list_llm_calls(
   page: int = Query(1, ge=1),
   limit: int = Query(20, ge=1, le=100),
@@ -901,7 +942,7 @@ async def list_llm_calls(
   return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
-@router.post("/sections/backfill-shorthand", response_model=SectionShorthandBackfillResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.post("/sections/backfill-shorthand", response_model=SectionShorthandBackfillResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read"))])
 async def backfill_sections_shorthand(request: SectionShorthandBackfillRequest) -> SectionShorthandBackfillResponse:
   """Backfill section shorthand content from stored raw section JSON."""
   result = await backfill_section_shorthand(request.section_ids)
@@ -922,6 +963,7 @@ class UserDetailResponse(BaseModel):
   org_id: str | None
   org_name: str | None
   status: UserStatus
+  is_discarded: bool
   auth_method: str
   profession: str | None
   city: str | None
@@ -945,7 +987,7 @@ class UserDetailResponse(BaseModel):
   updated_at: str
 
 
-@router.get("/users/{user_id}/details", response_model=UserDetailResponse)
+@router.get("/users/{user_id}/details", response_model=UserDetailResponse, dependencies=[Depends(require_permission("user_data:view"))])
 async def get_user_details(user_id: str, current_user: User = Depends(get_current_admin_user), db_session: AsyncSession = Depends(get_db)) -> UserDetailResponse:  # noqa: B008
   """Get complete user details for admin view."""
   # Validate user id inputs early to avoid leaking query behavior.
@@ -987,6 +1029,7 @@ async def get_user_details(user_id: str, current_user: User = Depends(get_curren
     org_id=str(user.org_id) if user.org_id else None,
     org_name=org_name,
     status=user.status,
+    is_discarded=bool(user.is_discarded),
     auth_method=user.auth_method.value,
     profession=user.profession,
     city=user.city,
@@ -1012,7 +1055,7 @@ async def get_user_details(user_id: str, current_user: User = Depends(get_curren
 
 
 # Fenster Widgets Endpoint
-@router.get("/fenster", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.get("/fenster", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read"))])
 async def list_fenster_widgets(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), fenster_id: str | None = None, widget_type: str | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")):
   """List fenster widgets with pagination, filtering, and sorting."""
   from app.storage.postgres_fenster_repo import PostgresFensterRepository
@@ -1023,7 +1066,7 @@ async def list_fenster_widgets(page: int = Query(1, ge=1), limit: int = Query(20
 
 
 # Illustrations Endpoint
-@router.get("/illustrations", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
+@router.get("/illustrations", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read"))])
 async def list_illustrations(
   page: int = Query(1, ge=1),
   limit: int = Query(20, ge=1, le=100),
@@ -1042,12 +1085,12 @@ async def list_illustrations(
   return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
-# Coach Audios Endpoint
-@router.get("/coach-audios", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL))])
-async def list_coach_audios(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), job_id: str | None = None, section_number: int | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")):
-  """List coach audios with pagination, filtering, and sorting."""
-  from app.storage.postgres_coach_audio_repo import PostgresCoachAudioRepository
+# Tutor Audios Endpoint
+@router.get("/tutor-audios", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read"))])
+async def list_tutor_audios(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), job_id: str | None = None, section_number: int | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")):
+  """List tutor audios with pagination, filtering, and sorting."""
+  from app.storage.postgres_tutor_audio_repo import PostgresTutorAudioRepository
 
-  repo = PostgresCoachAudioRepository()
-  items, total = await repo.list_coach_audios(page=page, limit=limit, job_id=job_id, section_number=section_number, sort_by=sort_by, sort_order=sort_order)
+  repo = PostgresTutorAudioRepository()
+  items, total = await repo.list_tutor_audios(page=page, limit=limit, job_id=job_id, section_number=section_number, sort_by=sort_by, sort_order=sort_order)
   return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)

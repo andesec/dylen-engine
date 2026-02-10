@@ -40,7 +40,7 @@ _RUNTIME_CONFIG_DEFINITIONS: dict[str, RuntimeConfigDefinition] = {
   "limits.max_markdown_chars": RuntimeConfigDefinition(key="limits.max_markdown_chars", value_type="int", description="Maximum markdown length for MarkdownText widgets.", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "limits.lessons_per_week": RuntimeConfigDefinition(key="limits.lessons_per_week", value_type="int", description="Maximum lessons that may be generated per week.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.sections_per_month": RuntimeConfigDefinition(key="limits.sections_per_month", value_type="int", description="Maximum lesson sections that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "limits.coach_sections_per_month": RuntimeConfigDefinition(key="limits.coach_sections_per_month", value_type="int", description="Maximum coach sections that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "limits.tutor_sections_per_month": RuntimeConfigDefinition(key="limits.tutor_sections_per_month", value_type="int", description="Maximum tutor sections that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.fenster_widgets_per_month": RuntimeConfigDefinition(key="limits.fenster_widgets_per_month", value_type="int", description="Maximum Fenster widgets that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.ocr_files_per_month": RuntimeConfigDefinition(key="limits.ocr_files_per_month", value_type="int", description="Maximum OCR files that may be processed per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.writing_checks_per_month": RuntimeConfigDefinition(key="limits.writing_checks_per_month", value_type="int", description="Maximum writing checks that may be requested per month.", allowed_scopes=_SCOPES_TIER_TENANT),
@@ -173,7 +173,7 @@ def _env_fallback(settings: Settings, key: str) -> Any:
     return 0
   if key == "limits.sections_per_month":
     return 0
-  if key == "limits.coach_sections_per_month":
+  if key == "limits.tutor_sections_per_month":
     return 0
   if key == "limits.fenster_widgets_per_month":
     return 0

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any
 
 from app.core.database import get_db
@@ -15,6 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 security_scheme = HTTPBearer()
+_FEATURE_PERMISSION_SANITIZE_RE = re.compile(r"[^a-z0-9_]+")
+
+
+def _feature_flag_to_permission_slug(flag_key: str) -> str:
+  """Map a feature flag key to its canonical RBAC permission slug."""
+  normalized = str(flag_key or "").strip().lower()
+  if normalized.startswith("feature."):
+    normalized = normalized[8:]
+  normalized = normalized.replace(".", "_").replace("-", "_").replace(":", "_")
+  normalized = _FEATURE_PERMISSION_SANITIZE_RE.sub("_", normalized)
+  normalized = normalized.strip("_")
+  return f"feature_{normalized}:use"
 
 
 async def _provision_user_from_claims(db: AsyncSession, *, firebase_uid: str, decoded_claims: dict[str, Any], provider_id: str | None) -> User:
@@ -115,6 +128,8 @@ async def get_current_user_or_provision(current_identity: tuple[User, dict[str, 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:  # noqa: B008
   """Block inactive users so only approved accounts access protected routes."""
   # Enforce status guard for all approved-only endpoints.
+  if current_user.is_discarded:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Discarded user")
   if current_user.status != UserStatus.APPROVED:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
 
@@ -124,7 +139,7 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
 async def get_current_admin_user(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> User:  # noqa: B008
   """Require admin permission for protected administrative routes."""
   # Validate admin permission against RBAC tables for consistency.
-  has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug="user:manage")
+  has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug="user_data:view")
   if not has_permission:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
@@ -160,6 +175,10 @@ def require_feature_flag(flag_key: str):  # noqa: ANN001
 
   async def _dependency(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> User:  # noqa: B008
     """Resolve the flag for the current tenant/tier and enforce it."""
+    permission_slug = _feature_flag_to_permission_slug(flag_key)
+    has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug=permission_slug)
+    if not has_permission:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
     # Enforce secure defaults by treating missing flags as disabled.
     tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
     enabled = await is_feature_enabled(db, key=flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)

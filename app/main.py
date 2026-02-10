@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.orchestrator import OrchestrationError
-from app.api.routes import admin, auth, coach, configuration, data_transfer, fenster, jobs, lessons, media, notifications, onboarding, purgatory, push, research, resources, sections, tasks, users, worker, writing
+from app.api.routes import admin, auth, configuration, data_transfer, fenster, jobs, lessons, media, notifications, onboarding, purgatory, push, research, resources, sections, tasks, tutor, users, worker, writing
 from app.config import get_settings
 from app.core.exceptions import global_exception_handler, http_exception_handler, orchestration_exception_handler, request_validation_exception_handler
 from app.core.json import DecimalJSONResponse
@@ -55,4 +55,4 @@ app.include_router(media.router, prefix="/media", tags=["media"])
 app.include_router(tasks.router, prefix="/internal", tags=["tasks"])
 app.include_router(worker.router, prefix="/worker", tags=["worker"])
 app.include_router(fenster.router, prefix="/api/v1/fenster", tags=["fenster"])
-app.include_router(coach.router, prefix="/v1/coach", tags=["coach"])
+app.include_router(tutor.router, prefix="/v1/tutor", tags=["tutor"])

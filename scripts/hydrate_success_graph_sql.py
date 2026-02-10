@@ -41,10 +41,10 @@ def _safe_int(value: Any) -> int | None:
     return None
 
 
-def _rewrite_json_links(value: Any, *, section_id_map: dict[int, int], illustration_id_map: dict[int, int], coach_audio_id_map: dict[int, int]) -> Any:
+def _rewrite_json_links(value: Any, *, section_id_map: dict[int, int], illustration_id_map: dict[int, int], tutor_audio_id_map: dict[int, int]) -> Any:
   """Rewrite known deep-link keys that reference remapped integer ids."""
   if isinstance(value, list):
-    return [_rewrite_json_links(item, section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map) for item in value]
+    return [_rewrite_json_links(item, section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map) for item in value]
   if not isinstance(value, dict):
     return value
 
@@ -68,13 +68,13 @@ def _rewrite_json_links(value: Any, *, section_id_map: dict[int, int], illustrat
       remapped: list[Any] = []
       for item in raw:
         source = _safe_int(item)
-        if source is not None and source in coach_audio_id_map:
-          remapped.append(coach_audio_id_map[source])
+        if source is not None and source in tutor_audio_id_map:
+          remapped.append(tutor_audio_id_map[source])
         else:
           remapped.append(item)
       rewritten[key] = remapped
       continue
-    rewritten[key] = _rewrite_json_links(raw, section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map)
+    rewritten[key] = _rewrite_json_links(raw, section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map)
   return rewritten
 
 
@@ -162,9 +162,198 @@ async def _ensure_advisory_lock(connection: AsyncConnection, lock_key: int) -> N
   await connection.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
 
 
-async def _upsert_lessons(connection: AsyncConnection, lessons_rows: list[dict[str, Any]]) -> None:
+async def _resolve_super_admin_context(connection: AsyncConnection) -> tuple[str, str]:
+  """Resolve fallback super-admin user and role ids for missing/invalid source users."""
+  result = await connection.execute(
+    text(
+      """
+      SELECT u.id::text AS user_id, u.role_id::text AS role_id
+      FROM users u
+      JOIN roles r ON r.id = u.role_id
+      WHERE (r.level::text = 'GLOBAL' OR lower(r.name) = 'super admin')
+        AND u.status::text = 'APPROVED'
+      ORDER BY CASE WHEN lower(u.email) = 'dylen.app@gmail.com' THEN 0 ELSE 1 END, u.created_at ASC
+      LIMIT 1
+      """
+    )
+  )
+  row = result.mappings().one_or_none()
+  if row is None:
+    raise RuntimeError("No approved GLOBAL super-admin user found for hydrate fallback.")
+  return str(row["user_id"]), str(row["role_id"])
+
+
+async def _upsert_users(connection: AsyncConnection, users_rows: list[dict[str, Any]], *, fallback_role_id: str) -> dict[str, str]:
+  """Upsert users and return source->target id mapping for downstream row remapping."""
+  mapping: dict[str, str] = {}
+  for row in users_rows:
+    source_user_id = str(row["id"])
+    source_email = str(row["email"])
+    source_firebase_uid = str(row["firebase_uid"])
+    role_result = await connection.execute(text("SELECT id::text FROM roles WHERE id = :role_id"), {"role_id": row.get("role_id")})
+    resolved_role_id = role_result.scalar_one_or_none() or fallback_role_id
+    resolved_org_id = row.get("org_id")
+    if resolved_org_id is not None:
+      org_result = await connection.execute(text("SELECT id::text FROM organizations WHERE id = :org_id"), {"org_id": resolved_org_id})
+      if org_result.scalar_one_or_none() is None:
+        resolved_org_id = None
+    existing_result = await connection.execute(
+      text(
+        """
+        SELECT id::text
+        FROM users
+        WHERE id::text = :source_user_id
+           OR email = :email
+           OR firebase_uid = :firebase_uid
+        LIMIT 1
+        """
+      ),
+      {"source_user_id": source_user_id, "email": source_email, "firebase_uid": source_firebase_uid},
+    )
+    existing_user_id = existing_result.scalar_one_or_none()
+    if existing_user_id is None:
+      await connection.execute(
+        text(
+          """
+          INSERT INTO users (
+            id, firebase_uid, email, full_name, provider, role_id, org_id, status, auth_method,
+            profession, city, country, age, photo_url,
+            gender, gender_other, occupation, topics_of_interest, intended_use, intended_use_other,
+            primary_language, secondary_language, onboarding_completed, is_discarded, discarded_at, discarded_by,
+            accepted_terms_at, accepted_privacy_at, terms_version, privacy_version, created_at, updated_at
+          ) VALUES (
+            :id::uuid, :firebase_uid, :email, :full_name, :provider, :role_id::uuid, :org_id::uuid, :status::user_status, :auth_method::auth_method,
+            :profession, :city, :country, :age, :photo_url,
+            :gender, :gender_other, :occupation, CAST(:topics_of_interest AS jsonb), :intended_use, :intended_use_other,
+            :primary_language, :secondary_language, :onboarding_completed, :is_discarded, :discarded_at, :discarded_by::uuid,
+            :accepted_terms_at, :accepted_privacy_at, :terms_version, :privacy_version, :created_at, :updated_at
+          )
+          """
+        ),
+        {
+          "id": source_user_id,
+          "firebase_uid": source_firebase_uid,
+          "email": source_email,
+          "full_name": row.get("full_name"),
+          "provider": row.get("provider"),
+          "role_id": resolved_role_id,
+          "org_id": resolved_org_id,
+          "status": row.get("status"),
+          "auth_method": row.get("auth_method"),
+          "profession": row.get("profession"),
+          "city": row.get("city"),
+          "country": row.get("country"),
+          "age": row.get("age"),
+          "photo_url": row.get("photo_url"),
+          "gender": row.get("gender"),
+          "gender_other": row.get("gender_other"),
+          "occupation": row.get("occupation"),
+          "topics_of_interest": json.dumps(row.get("topics_of_interest"), ensure_ascii=True),
+          "intended_use": row.get("intended_use"),
+          "intended_use_other": row.get("intended_use_other"),
+          "primary_language": row.get("primary_language"),
+          "secondary_language": row.get("secondary_language"),
+          "onboarding_completed": bool(row.get("onboarding_completed", False)),
+          "is_discarded": bool(row.get("is_discarded", False)),
+          "discarded_at": row.get("discarded_at"),
+          "discarded_by": row.get("discarded_by"),
+          "accepted_terms_at": row.get("accepted_terms_at"),
+          "accepted_privacy_at": row.get("accepted_privacy_at"),
+          "terms_version": row.get("terms_version"),
+          "privacy_version": row.get("privacy_version"),
+          "created_at": row.get("created_at"),
+          "updated_at": row.get("updated_at"),
+        },
+      )
+      mapping[source_user_id] = source_user_id
+      continue
+    target_user_id = str(existing_user_id)
+    await connection.execute(
+      text(
+        """
+        UPDATE users
+        SET
+          firebase_uid = :firebase_uid,
+          email = :email,
+          full_name = :full_name,
+          provider = :provider,
+          role_id = :role_id::uuid,
+          org_id = :org_id::uuid,
+          status = :status::user_status,
+          auth_method = :auth_method::auth_method,
+          profession = :profession,
+          city = :city,
+          country = :country,
+          age = :age,
+          photo_url = :photo_url,
+          gender = :gender,
+          gender_other = :gender_other,
+          occupation = :occupation,
+          topics_of_interest = CAST(:topics_of_interest AS jsonb),
+          intended_use = :intended_use,
+          intended_use_other = :intended_use_other,
+          primary_language = :primary_language,
+          secondary_language = :secondary_language,
+          onboarding_completed = :onboarding_completed,
+          is_discarded = :is_discarded,
+          discarded_at = :discarded_at,
+          discarded_by = :discarded_by::uuid,
+          accepted_terms_at = :accepted_terms_at,
+          accepted_privacy_at = :accepted_privacy_at,
+          terms_version = :terms_version,
+          privacy_version = :privacy_version,
+          created_at = :created_at,
+          updated_at = :updated_at
+        WHERE id::text = :target_id
+        """
+      ),
+      {
+        "target_id": target_user_id,
+        "firebase_uid": source_firebase_uid,
+        "email": source_email,
+        "full_name": row.get("full_name"),
+        "provider": row.get("provider"),
+        "role_id": resolved_role_id,
+        "org_id": resolved_org_id,
+        "status": row.get("status"),
+        "auth_method": row.get("auth_method"),
+        "profession": row.get("profession"),
+        "city": row.get("city"),
+        "country": row.get("country"),
+        "age": row.get("age"),
+        "photo_url": row.get("photo_url"),
+        "gender": row.get("gender"),
+        "gender_other": row.get("gender_other"),
+        "occupation": row.get("occupation"),
+        "topics_of_interest": json.dumps(row.get("topics_of_interest"), ensure_ascii=True),
+        "intended_use": row.get("intended_use"),
+        "intended_use_other": row.get("intended_use_other"),
+        "primary_language": row.get("primary_language"),
+        "secondary_language": row.get("secondary_language"),
+        "onboarding_completed": bool(row.get("onboarding_completed", False)),
+        "is_discarded": bool(row.get("is_discarded", False)),
+        "discarded_at": row.get("discarded_at"),
+        "discarded_by": row.get("discarded_by"),
+        "accepted_terms_at": row.get("accepted_terms_at"),
+        "accepted_privacy_at": row.get("accepted_privacy_at"),
+        "terms_version": row.get("terms_version"),
+        "privacy_version": row.get("privacy_version"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+      },
+    )
+    mapping[source_user_id] = target_user_id
+  return mapping
+
+
+async def _upsert_lessons(connection: AsyncConnection, lessons_rows: list[dict[str, Any]], *, user_id_map: dict[str, str], fallback_user_id: str) -> None:
   """Upsert lessons while preserving source created_at."""
   for row in lessons_rows:
+    source_user_id = row.get("user_id")
+    if isinstance(source_user_id, str) and source_user_id.strip():
+      resolved_user_id = user_id_map.get(source_user_id, source_user_id)
+    else:
+      resolved_user_id = fallback_user_id
     await connection.execute(
       text(
         """
@@ -198,7 +387,7 @@ async def _upsert_lessons(connection: AsyncConnection, lessons_rows: list[dict[s
       ),
       {
         "lesson_id": row["lesson_id"],
-        "user_id": row.get("user_id"),
+        "user_id": resolved_user_id,
         "topic": row["topic"],
         "title": row["title"],
         "created_at": row["created_at"],
@@ -519,16 +708,16 @@ async def _upsert_fenster_widgets(connection: AsyncConnection, fenster_rows: lis
     )
 
 
-async def _upsert_coach_audios(connection: AsyncConnection, coach_rows: list[dict[str, Any]], *, sidecar_dir: Path, strict: bool) -> dict[int, int]:
-  """Upsert coach audio rows while preserving created_at and mapping ids."""
+async def _upsert_tutor_audios(connection: AsyncConnection, tutor_rows: list[dict[str, Any]], *, sidecar_dir: Path, strict: bool) -> dict[int, int]:
+  """Upsert tutor audio rows while preserving created_at and mapping ids."""
   mapping: dict[int, int] = {}
-  for row in coach_rows:
+  for row in tutor_rows:
     source_id = int(row["id"])
     audio_ref = row.get("audio_data_ref")
     audio_bytes = _load_binary(sidecar_dir=sidecar_dir, relative_path=audio_ref, expected_sha256=row.get("audio_data_sha256"), strict=strict)
     # Never overwrite existing audio bytes due to missing sidecar artifacts.
     if audio_ref and audio_bytes is None:
-      print(f"WARN: Skipping coach audio upsert for missing sidecar. source_id={source_id}")
+      print(f"WARN: Skipping tutor audio upsert for missing sidecar. source_id={source_id}")
       continue
     if audio_bytes is None:
       audio_bytes = b""
@@ -536,7 +725,7 @@ async def _upsert_coach_audios(connection: AsyncConnection, coach_rows: list[dic
       text(
         """
         SELECT id
-        FROM coach_audios
+        FROM tutor_audios
         WHERE job_id = :job_id
           AND section_number = :section_number
           AND subsection_index = :subsection_index
@@ -550,7 +739,7 @@ async def _upsert_coach_audios(connection: AsyncConnection, coach_rows: list[dic
       inserted = await connection.execute(
         text(
           """
-          INSERT INTO coach_audios (
+          INSERT INTO tutor_audios (
             job_id, section_number, subsection_index, text_content, audio_data, created_at
           ) VALUES (
             :job_id, :section_number, :subsection_index, :text_content, :audio_data, :created_at
@@ -567,7 +756,7 @@ async def _upsert_coach_audios(connection: AsyncConnection, coach_rows: list[dic
     await connection.execute(
       text(
         """
-        UPDATE coach_audios
+        UPDATE tutor_audios
         SET
           text_content = :text_content,
           audio_data = :audio_data,
@@ -581,15 +770,15 @@ async def _upsert_coach_audios(connection: AsyncConnection, coach_rows: list[dic
   return mapping
 
 
-async def _refresh_section_content_links(connection: AsyncConnection, section_rows: list[dict[str, Any]], *, section_id_map: dict[int, int], illustration_id_map: dict[int, int], coach_audio_id_map: dict[int, int]) -> None:
+async def _refresh_section_content_links(connection: AsyncConnection, section_rows: list[dict[str, Any]], *, section_id_map: dict[int, int], illustration_id_map: dict[int, int], tutor_audio_id_map: dict[int, int]) -> None:
   """Rewrite remapped links inside section JSON payloads."""
   for row in section_rows:
     source_section_id = int(row["section_id"])
     target_section_id = section_id_map.get(source_section_id)
     if target_section_id is None:
       continue
-    content = _rewrite_json_links(row.get("content"), section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map)
-    shorthand = _rewrite_json_links(row.get("content_shorthand"), section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map)
+    content = _rewrite_json_links(row.get("content"), section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map)
+    shorthand = _rewrite_json_links(row.get("content_shorthand"), section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map)
     await connection.execute(
       text(
         """
@@ -604,13 +793,18 @@ async def _refresh_section_content_links(connection: AsyncConnection, section_ro
     )
 
 
-async def _upsert_jobs(connection: AsyncConnection, jobs_rows: list[dict[str, Any]], *, section_id_map: dict[int, int], illustration_id_map: dict[int, int], coach_audio_id_map: dict[int, int]) -> None:
+async def _upsert_jobs(connection: AsyncConnection, jobs_rows: list[dict[str, Any]], *, section_id_map: dict[int, int], illustration_id_map: dict[int, int], tutor_audio_id_map: dict[int, int], user_id_map: dict[str, str], fallback_user_id: str) -> None:
   """Upsert jobs while preserving created_at/updated_at/completed_at exactly."""
   for row in jobs_rows:
-    remapped_result_json = _rewrite_json_links(row.get("result_json"), section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map)
-    remapped_request = _rewrite_json_links(row.get("request"), section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map)
+    remapped_result_json = _rewrite_json_links(row.get("result_json"), section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map)
+    remapped_request = _rewrite_json_links(row.get("request"), section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map)
     source_section_id = _safe_int(row.get("section_id"))
     target_section_id = section_id_map.get(source_section_id, source_section_id) if source_section_id is not None else None
+    source_user_id = row.get("user_id")
+    if isinstance(source_user_id, str) and source_user_id.strip():
+      resolved_user_id = user_id_map.get(source_user_id, source_user_id)
+    else:
+      resolved_user_id = fallback_user_id
     await connection.execute(
       text(
         """
@@ -669,7 +863,7 @@ async def _upsert_jobs(connection: AsyncConnection, jobs_rows: list[dict[str, An
       ),
       {
         "job_id": row["job_id"],
-        "user_id": row.get("user_id"),
+        "user_id": resolved_user_id,
         "job_kind": row["job_kind"],
         "request": json.dumps(remapped_request, ensure_ascii=True),
         "status": row["status"],
@@ -709,7 +903,7 @@ async def _upsert_jobs(connection: AsyncConnection, jobs_rows: list[dict[str, An
 
 
 async def _verify_timestamp_preservation(
-  connection: AsyncConnection, payload_data: dict[str, Any], *, section_id_map: dict[int, int], illustration_id_map: dict[int, int], coach_audio_id_map: dict[int, int], include_illustrations: bool, include_audios: bool, include_fensters: bool
+  connection: AsyncConnection, payload_data: dict[str, Any], *, section_id_map: dict[int, int], illustration_id_map: dict[int, int], tutor_audio_id_map: dict[int, int], include_illustrations: bool, include_audios: bool, include_fensters: bool
 ) -> None:
   """Verify source timestamps are preserved exactly on target rows."""
   # Verify jobs timestamps.
@@ -778,19 +972,19 @@ async def _verify_timestamp_preservation(
       if str(target) != str(row["created_at"]):
         raise RuntimeError(f"Timestamp verify failed for fenster_widgets.created_at fenster_id={row['fenster_id']}")
 
-  # Verify coach_audios created_at.
+  # Verify tutor_audios created_at.
   if include_audios:
-    for row in payload_data.get("coach_audios", []):
+    for row in payload_data.get("tutor_audios", []):
       source_id = int(row["id"])
-      target_id = coach_audio_id_map.get(source_id)
+      target_id = tutor_audio_id_map.get(source_id)
       if target_id is None:
-        raise RuntimeError(f"Timestamp verify failed: missing coach audio id map for source_id={source_id}")
-      result = await connection.execute(text("SELECT created_at FROM coach_audios WHERE id = :id"), {"id": target_id})
+        raise RuntimeError(f"Timestamp verify failed: missing tutor audio id map for source_id={source_id}")
+      result = await connection.execute(text("SELECT created_at FROM tutor_audios WHERE id = :id"), {"id": target_id})
       target = result.scalar_one_or_none()
       if target is None:
-        raise RuntimeError(f"Timestamp verify failed: missing coach_audios.id={target_id}")
+        raise RuntimeError(f"Timestamp verify failed: missing tutor_audios.id={target_id}")
       if str(target) != str(row["created_at"]):
-        raise RuntimeError(f"Timestamp verify failed for coach_audios.created_at source_id={source_id}")
+        raise RuntimeError(f"Timestamp verify failed for tutor_audios.created_at source_id={source_id}")
 
   # Verify subjective_input_widgets created_at by logical key.
   for row in payload_data.get("subjective_input_widgets", []):
@@ -819,8 +1013,11 @@ async def _verify_timestamp_preservation(
       raise RuntimeError("Timestamp verify failed for subjective_input_widgets.created_at")
 
 
-async def _merge_once(connection: AsyncConnection, payload_data: dict[str, Any], *, sidecar_dir: Path, strict: bool, include_illustrations: bool, include_audios: bool, include_fensters: bool) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
+async def _merge_once(
+  connection: AsyncConnection, payload_data: dict[str, Any], *, sidecar_dir: Path, strict: bool, include_illustrations: bool, include_audios: bool, include_fensters: bool, fallback_user_id: str, fallback_role_id: str
+) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
   """Run one full merge pass and return remapping dictionaries."""
+  users_rows = list(payload_data.get("users", []))
   lessons_rows = list(payload_data.get("lessons", []))
   sections_rows = list(payload_data.get("sections", []))
   section_error_rows = list(payload_data.get("section_errors", []))
@@ -828,20 +1025,21 @@ async def _merge_once(connection: AsyncConnection, payload_data: dict[str, Any],
   illustration_rows = list(payload_data.get("illustrations", [])) if include_illustrations else []
   section_illustration_rows = list(payload_data.get("section_illustrations", [])) if include_illustrations else []
   fenster_rows = list(payload_data.get("fenster_widgets", [])) if include_fensters else []
-  coach_rows = list(payload_data.get("coach_audios", [])) if include_audios else []
+  tutor_rows = list(payload_data.get("tutor_audios", [])) if include_audios else []
   jobs_rows = list(payload_data.get("jobs", []))
 
-  await _upsert_lessons(connection, lessons_rows)
+  user_id_map = await _upsert_users(connection, users_rows, fallback_role_id=fallback_role_id)
+  await _upsert_lessons(connection, lessons_rows, user_id_map=user_id_map, fallback_user_id=fallback_user_id)
   section_id_map = await _upsert_sections(connection, sections_rows)
   await _upsert_section_errors(connection, section_error_rows, section_id_map=section_id_map)
   await _upsert_subjective_widgets(connection, widget_rows, section_id_map=section_id_map)
   illustration_id_map = await _upsert_illustrations(connection, illustration_rows, sidecar_dir=sidecar_dir, strict=strict)
   await _upsert_section_illustrations(connection, section_illustration_rows, section_id_map=section_id_map, illustration_id_map=illustration_id_map)
   await _upsert_fenster_widgets(connection, fenster_rows, sidecar_dir=sidecar_dir, strict=strict)
-  coach_audio_id_map = await _upsert_coach_audios(connection, coach_rows, sidecar_dir=sidecar_dir, strict=strict)
-  await _refresh_section_content_links(connection, sections_rows, section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map)
-  await _upsert_jobs(connection, jobs_rows, section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map)
-  return section_id_map, illustration_id_map, coach_audio_id_map
+  tutor_audio_id_map = await _upsert_tutor_audios(connection, tutor_rows, sidecar_dir=sidecar_dir, strict=strict)
+  await _refresh_section_content_links(connection, sections_rows, section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map)
+  await _upsert_jobs(connection, jobs_rows, section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map, user_id_map=user_id_map, fallback_user_id=fallback_user_id)
+  return section_id_map, illustration_id_map, tutor_audio_id_map
 
 
 async def _validate_manifest(*, sidecar_dir: Path, manifest_rows: list[dict[str, Any]], strict: bool) -> None:
@@ -888,25 +1086,26 @@ async def _run_hydrate(*, dsn: str, in_sql: Path, sidecar_dir: Path, strict: boo
       payload_data = dict(payload.get("data") or {})
       manifest_rows = list(payload.get("sidecar_manifest") or [])
       await _validate_manifest(sidecar_dir=sidecar_dir, manifest_rows=manifest_rows, strict=strict)
+      fallback_user_id, fallback_role_id = await _resolve_super_admin_context(connection)
 
-      section_id_map, illustration_id_map, coach_audio_id_map = await _merge_once(
-        connection, payload_data, sidecar_dir=sidecar_dir, strict=strict, include_illustrations=include_illustrations, include_audios=include_audios, include_fensters=include_fensters
+      section_id_map, illustration_id_map, tutor_audio_id_map = await _merge_once(
+        connection, payload_data, sidecar_dir=sidecar_dir, strict=strict, include_illustrations=include_illustrations, include_audios=include_audios, include_fensters=include_fensters, fallback_user_id=fallback_user_id, fallback_role_id=fallback_role_id
       )
       await _verify_timestamp_preservation(
-        connection, payload_data, section_id_map=section_id_map, illustration_id_map=illustration_id_map, coach_audio_id_map=coach_audio_id_map, include_illustrations=include_illustrations, include_audios=include_audios, include_fensters=include_fensters
+        connection, payload_data, section_id_map=section_id_map, illustration_id_map=illustration_id_map, tutor_audio_id_map=tutor_audio_id_map, include_illustrations=include_illustrations, include_audios=include_audios, include_fensters=include_fensters
       )
 
       # Re-run merge once more to verify idempotent replay keeps timestamps unchanged.
       if verify_rerun:
-        rerun_section_map, rerun_illustration_map, rerun_coach_map = await _merge_once(
-          connection, payload_data, sidecar_dir=sidecar_dir, strict=strict, include_illustrations=include_illustrations, include_audios=include_audios, include_fensters=include_fensters
+        rerun_section_map, rerun_illustration_map, rerun_tutor_map = await _merge_once(
+          connection, payload_data, sidecar_dir=sidecar_dir, strict=strict, include_illustrations=include_illustrations, include_audios=include_audios, include_fensters=include_fensters, fallback_user_id=fallback_user_id, fallback_role_id=fallback_role_id
         )
         await _verify_timestamp_preservation(
           connection,
           payload_data,
           section_id_map=rerun_section_map,
           illustration_id_map=rerun_illustration_map,
-          coach_audio_id_map=rerun_coach_map,
+          tutor_audio_id_map=rerun_tutor_map,
           include_illustrations=include_illustrations,
           include_audios=include_audios,
           include_fensters=include_fensters,
@@ -938,7 +1137,7 @@ def main() -> None:
   parser.add_argument("--advisory-lock-key", type=int, default=819224151, help="Transaction advisory lock key.")
   parser.add_argument("--verify-rerun", action=argparse.BooleanOptionalAction, default=True, help="Run a second merge pass to verify idempotency/timestamps.")
   parser.add_argument("--include-illustrations", action=argparse.BooleanOptionalAction, default=True, help="Hydrate illustration rows and links.")
-  parser.add_argument("--include-audios", action=argparse.BooleanOptionalAction, default=True, help="Hydrate coach audio rows.")
+  parser.add_argument("--include-audios", action=argparse.BooleanOptionalAction, default=True, help="Hydrate tutor audio rows.")
   parser.add_argument("--include-fensters", action=argparse.BooleanOptionalAction, default=True, help="Hydrate fenster rows.")
   args = parser.parse_args()
 

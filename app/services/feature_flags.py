@@ -8,12 +8,21 @@ import uuid
 
 from app.config import get_settings
 from app.schema.feature_flags import FeatureFlag, OrganizationFeatureFlag, SubscriptionTierFeatureFlag, UserFeatureFlagOverride
+from app.schema.sql import Permission
 from app.services.runtime_config import resolve_effective_runtime_config
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _FLAG_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")
+
+
+def feature_flag_to_permission_slug(key: str) -> str:
+  """Convert a feature flag key into a permission slug."""
+  normalized = validate_flag_key(key)
+  suffix = normalized[8:] if normalized.startswith("feature.") else normalized
+  suffix = suffix.replace(".", "_").replace("-", "_").replace(":", "_").strip("_")
+  return f"feature_{suffix}:use"
 
 
 def validate_flag_key(key: str) -> str:
@@ -46,6 +55,13 @@ async def create_feature_flag(session: AsyncSession, *, key: str, description: s
   normalized = validate_flag_key(key)
   flag = FeatureFlag(key=normalized, description=description, default_enabled=default_enabled)
   session.add(flag)
+  # Keep feature permissions synchronized with feature definitions.
+  permission_slug = feature_flag_to_permission_slug(normalized)
+  permission_display = f"Use {normalized}"
+  permission_description = f"Access endpoints gated by feature flag `{normalized}`."
+  permission_stmt = insert(Permission).values(id=uuid.uuid4(), slug=permission_slug, display_name=permission_display, description=permission_description)
+  permission_stmt = permission_stmt.on_conflict_do_update(index_elements=["slug"], set_={"display_name": permission_display, "description": permission_description})
+  await session.execute(permission_stmt)
   await session.commit()
   await session.refresh(flag)
   return flag
