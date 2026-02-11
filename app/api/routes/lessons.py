@@ -29,6 +29,7 @@ from app.core.security import get_current_active_user, require_permission
 from app.jobs.models import JobRecord
 from app.jobs.progress import build_call_plan
 from app.schema.lesson_catalog import build_lesson_catalog
+from app.schema.lesson_requests import LessonRequest
 from app.schema.outcomes import OutcomesAgentResponse
 from app.schema.quotas import QuotaPeriod
 from app.schema.sql import User
@@ -142,7 +143,16 @@ async def generate_outcomes_endpoint(  # noqa: B008
     max_outcomes = 8
 
   generation_request = GenerationRequest(
-    topic=request.topic, prompt=request.details, depth=request.depth, section_count=2, blueprint=request.blueprint, teaching_style=request.teaching_style, language=request.primary_language, learner_level=request.learner_level, widgets=request.widgets
+    topic=request.topic,
+    prompt=request.details,
+    depth=request.depth,
+    section_count=2,
+    blueprint=request.blueprint,
+    teaching_style=request.teaching_style,
+    lesson_language=request.lesson_language,
+    secondary_language=request.secondary_language,
+    learner_level=request.learner_level,
+    widgets=request.widgets,
   )
   try:
     payload, _model_used = await generate_lesson_outcomes(generation_request, settings=settings, provider=provider, model=str(model_name) if model_name else None, job_id=job_id, max_outcomes=max_outcomes)
@@ -236,6 +246,25 @@ async def generate_lesson(  # noqa: B008
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
   expected_sections = int(capped_sections)
 
+  # Persist immutable lesson request context (including required outcomes) for downstream linkage.
+  lesson_request = LessonRequest(
+    creator_id=str(current_user.id),
+    topic=request.topic,
+    details=request.details,
+    outcomes_json=list(request.outcomes),
+    blueprint=request.blueprint,
+    teaching_style_json=list(request.teaching_style),
+    learner_level=request.learner_level,
+    depth=request.depth,
+    lesson_language=request.lesson_language,
+    secondary_language=request.secondary_language,
+    widgets_json=list(request.widgets) if request.widgets else None,
+    status="queued",
+    is_archived=False,
+  )
+  db_session.add(lesson_request)
+  await db_session.flush()
+
   # Save Job
   request_payload = request.model_dump(mode="python", by_alias=True)
   request_payload["_lesson_id"] = lesson_id  # Store lesson_id for retrieval
@@ -244,6 +273,7 @@ async def generate_lesson(  # noqa: B008
   meta = dict(meta)
   meta["user_id"] = str(current_user.id)
   meta["quota_cap_sections"] = expected_sections
+  meta["lesson_request_id"] = int(lesson_request.id)
   request_payload["_meta"] = meta
   # Pre-populate job logs so clients can explain quota-capped jobs.
   job_logs: list[str] = []
@@ -257,7 +287,8 @@ async def generate_lesson(  # noqa: B008
     job_kind="lesson",
     request=request_payload,
     status="queued",
-    target_agent="lesson",  # Mark as lesson job
+    lesson_id=lesson_id,
+    target_agent="planner",
     phase="queued",
     created_at=timestamp,
     updated_at=timestamp,
@@ -273,15 +304,13 @@ async def generate_lesson(  # noqa: B008
     idempotency_key=request.idempotency_key or f"lesson-generate:{job_id}",
   )
   await jobs_repo.create_job(job_record)
+  await db_session.commit()
 
   # Enqueue Task
   enqueuer = get_task_enqueuer(settings)
 
-  # Params for worker
-  params = request.model_dump(mode="python", by_alias=True)
-
   try:
-    await enqueuer.enqueue_lesson(lesson_id=lesson_id, job_id=job_id, params=params, user_id=str(current_user.id))
+    await enqueuer.enqueue(job_id, {})
   except Exception as e:
     logger.error("Failed to enqueue lesson task: %s", e, exc_info=True)
     # Mark job as error so it doesn't stay queued forever (avoid leaking internal error details to clients).
@@ -360,5 +389,27 @@ async def create_lesson_job(  # noqa: B008
   await check_concurrency_limit("lesson", current_user, db_session)
   if not request.idempotency_key:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="idempotency_key is required.")
-  create_payload = JobCreateRequest(job_kind="lesson", target_agent="planner", idempotency_key=request.idempotency_key, payload=request.model_dump(mode="python", by_alias=True))
+  lesson_id = generate_lesson_id()
+  lesson_request = LessonRequest(
+    creator_id=str(current_user.id),
+    topic=request.topic,
+    details=request.details,
+    outcomes_json=list(request.outcomes),
+    blueprint=request.blueprint,
+    teaching_style_json=list(request.teaching_style),
+    learner_level=request.learner_level,
+    depth=request.depth,
+    lesson_language=request.lesson_language,
+    secondary_language=request.secondary_language,
+    widgets_json=list(request.widgets) if request.widgets else None,
+    status="queued",
+    is_archived=False,
+  )
+  db_session.add(lesson_request)
+  await db_session.flush()
+  payload = request.model_dump(mode="python", by_alias=True)
+  payload["_lesson_id"] = lesson_id
+  payload["_meta"] = {"user_id": str(current_user.id), "lesson_request_id": int(lesson_request.id)}
+  create_payload = JobCreateRequest(job_kind="lesson", target_agent="planner", idempotency_key=request.idempotency_key, payload=payload, lesson_id=lesson_id)
+  await db_session.commit()
   return await create_job(create_payload, settings, background_tasks, db_session, user_id=str(current_user.id))

@@ -48,11 +48,19 @@ class OutcomesAgentInput(BaseModel):
   teaching_style: list[StrictStr] | None = Field(default=None, description="Optional teaching style guidance.")
   learner_level: StrictStr | None = Field(default=None, description="Optional learner level hint.")
   depth: StrictStr = Field(default="highlights", description="Requested depth hint (used only for prompt guidance).")
-  primary_language: StrictStr | None = Field(default="English", description="Primary language for the generated outcomes.")
+  lesson_language: StrictStr | None = Field(default="English", description="Primary language for the generated outcomes.")
+  secondary_language: StrictStr | None = Field(default=None, description="Optional secondary language for language practice blueprint.")
   widgets: list[StrictStr] | None = Field(default=None, description="Optional widget ids to consider for the lesson.")
   max_outcomes: StrictInt = Field(default=5, ge=1, le=8, description="Maximum number of outcomes to return.")
 
   model_config = ConfigDict(extra="forbid")
+
+  @model_validator(mode="after")
+  def validate_secondary_language_scope(self) -> OutcomesAgentInput:
+    """Allow secondary_language only for language practice blueprint requests."""
+    if self.secondary_language is not None and str(self.blueprint or "") != "languagepractice":
+      raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")
+    return self
 
 
 class OutcomesAgentResponse(BaseModel):

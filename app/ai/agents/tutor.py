@@ -6,10 +6,11 @@ import uuid
 from typing import Any
 
 from app.ai.agents.base import BaseAgent
+from app.ai.agents.prompts import _load_prompt
 from app.ai.pipeline.contracts import JobContext
 from app.core.database import get_session_factory
 from app.schema.quotas import QuotaPeriod
-from app.schema.tutor import TutorAudio
+from app.schema.tutor import Tutor
 from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, release_quota_reservation, reserve_quota
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
@@ -94,7 +95,7 @@ class TutorAgent(BaseAgent[dict[str, Any], list[int]]):
       # Persist audio rows in a short-lived transaction after generation completes.
       async with session_factory() as session:
         for idx, script, audio_bytes in generated_segments:
-          audio_entry = TutorAudio(job_id=ctx.job_id, section_number=section_index, subsection_index=idx, text_content=script, audio_data=audio_bytes)
+          audio_entry = Tutor(creator_id=str(raw_user_id), job_id=ctx.job_id, section_number=section_index, subsection_index=idx + 1, text_content=script, audio_data=audio_bytes, status="completed", is_archived=False)
           session.add(audio_entry)
           await session.flush()
           audio_ids.append(audio_entry.id)
@@ -125,20 +126,10 @@ class TutorAgent(BaseAgent[dict[str, Any], list[int]]):
     """Construct a prompt for generating a subsection coaching script."""
     points_str = "\n".join(f"- {p}" for p in points) or "- (none provided)"
     content_str = json.dumps(subsection, indent=2, default=str)
-
-    return f"""
-You are an expert educational tutor.
-Topic: {topic}
-Subsection: {sub_title}
-
-Key Learning Points:
-{points_str}
-
-Content:
-{content_str}
-
-Write a short, engaging, and encouraging audio script (spoken text) for this subsection.
-The script should reinforce the key learning points and guide the learner through the content.
-Keep it concise (under 1 minute spoken).
-Do not include "Script:" or other metadata labels, just the spoken text.
-"""
+    prompt_template = _load_prompt("tutor_script.md")
+    rendered = prompt_template
+    rendered = rendered.replace("{{TOPIC}}", str(topic))
+    rendered = rendered.replace("{{SUBSECTION_TITLE}}", str(sub_title))
+    rendered = rendered.replace("{{LEARNING_POINTS}}", points_str)
+    rendered = rendered.replace("{{SUBSECTION_CONTENT}}", content_str)
+    return rendered

@@ -15,8 +15,8 @@ from app.services.quota_buckets import commit_quota_reservation, get_quota_snaps
 from app.services.request_validation import _validate_writing_request
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_subscription_tier
+from app.services.writing import WritingCheckResult, WritingCheckService
 from app.utils.ids import generate_job_id
-from app.writing.orchestrator import WritingCheckOrchestrator, WritingCheckResult
 
 router = APIRouter()
 
@@ -37,7 +37,7 @@ def _writing_request_metrics(request: WritingCheckRequest) -> Mapping[str, int]:
   text_words = len([part for part in text.split() if part.strip()])
   metrics = {"text_chars": int(text_chars), "text_words": int(text_words)}
   if request.widget_id is not None:
-    metrics["widget_id"] = int(request.widget_id)
+    metrics["widget_ref_len"] = len(str(request.widget_id))
   return metrics
 
 
@@ -54,7 +54,7 @@ async def create_writing_check(  # noqa: B008
 
   if current_user.id:
     metrics = _writing_request_metrics(request)
-    widget_info = f"widget={metrics.get('widget_id')}" if "widget_id" in metrics else "legacy"
+    widget_info = f"widget_ref_len={metrics.get('widget_ref_len')}" if "widget_ref_len" in metrics else "legacy"
     prompt_summary = f"Writing check request; chars={metrics['text_chars']} words={metrics['text_words']} {widget_info}"
     await log_llm_interaction(user_id=current_user.id, model_name="writing-check", prompt_summary=prompt_summary, status="processing", session=db_session)
 
@@ -78,15 +78,8 @@ async def create_writing_check(  # noqa: B008
     provider = str(runtime_config.get("ai.writing.provider") or settings.writing_provider)
     model_name = str(runtime_config.get("ai.writing.model") or settings.writing_model or "")
 
-    # Ad-hoc session factory wrapper
-    from contextlib import asynccontextmanager
-
-    @asynccontextmanager
-    async def _session_wrapper():
-      yield db_session
-
-    orchestrator = WritingCheckOrchestrator(provider=provider, model=model_name or None, session_factory=_session_wrapper)
-    result = await orchestrator.check_response(text=request.text, widget_id=request.widget_id, criteria=request.criteria)
+    service = WritingCheckService(provider=provider, model=model_name or None)
+    result = await service.check_response(session=db_session, text=request.text, requester_user_id=str(current_user.id), widget_id=request.widget_id, criteria=request.criteria)
 
     # Commit quota on successful LLM call (even if the check itself found issues with the writing)
     await commit_quota_reservation(db_session, user_id=current_user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=writing_checks_per_month, job_id=job_id, metadata={"job_id": job_id})

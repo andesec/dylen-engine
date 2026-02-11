@@ -50,7 +50,7 @@ async def check_concurrency_limit(feature: FeatureType, user: User, db: AsyncSes
 
   if feature == "lesson":
     # Include NULL for legacy support, but new writing/research jobs MUST set target_agent.
-    query = query.where(or_(Job.target_agent.is_(None), Job.target_agent.in_(["lesson", "planner", "orchestrator", "lesson_orchestrator"])))
+    query = query.where(or_(Job.target_agent.is_(None), Job.target_agent.in_(["lesson", "planner"])))
   elif feature == "research":
     query = query.where(Job.target_agent == "research")
   elif feature == "writing":

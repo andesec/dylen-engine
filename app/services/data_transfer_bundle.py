@@ -130,9 +130,10 @@ async def execute_export_run(*, session: AsyncSession, settings: Settings, run: 
         illustration_paths = [path.relative_to(sidecar_dir) for path in sorted((sidecar_dir / "illustrations").rglob("*")) if path.is_file()]
         _zip_encrypted(output_path=illustrations_zip_path, input_root=sidecar_dir, relative_paths=illustration_paths, password=derived_password)
         zip_candidates.append(("illustrations", illustrations_zip_path))
-      if run.include_audios and (sidecar_dir / "tutor_audios").exists():
+      tutor_sidecar_dir = sidecar_dir / "tutors"
+      if run.include_audios and tutor_sidecar_dir.exists():
         audios_zip_path = tmp_dir / "audios.zip"
-        audio_paths = [path.relative_to(sidecar_dir) for path in sorted((sidecar_dir / "tutor_audios").rglob("*")) if path.is_file()]
+        audio_paths = [path.relative_to(sidecar_dir) for path in sorted(tutor_sidecar_dir.rglob("*")) if path.is_file()]
         _zip_encrypted(output_path=audios_zip_path, input_root=sidecar_dir, relative_paths=audio_paths, password=derived_password)
         zip_candidates.append(("audios", audios_zip_path))
       if run.include_fensters and (sidecar_dir / "fenster_widgets").exists():
@@ -149,8 +150,9 @@ async def execute_export_run(*, session: AsyncSession, settings: Settings, run: 
       # Copy only requested sidecars to the encrypted bundle.
       if run.include_illustrations and (sidecar_dir / "illustrations").exists():
         shutil.copytree(sidecar_dir / "illustrations", bundle_root / "illustrations", dirs_exist_ok=True)
-      if run.include_audios and (sidecar_dir / "tutor_audios").exists():
-        shutil.copytree(sidecar_dir / "tutor_audios", bundle_root / "tutor_audios", dirs_exist_ok=True)
+      tutor_sidecar_dir = sidecar_dir / "tutors"
+      if run.include_audios and tutor_sidecar_dir.exists():
+        shutil.copytree(tutor_sidecar_dir, bundle_root / "tutors", dirs_exist_ok=True)
       if run.include_fensters and (sidecar_dir / "fenster_widgets").exists():
         shutil.copytree(sidecar_dir / "fenster_widgets", bundle_root / "fenster_widgets", dirs_exist_ok=True)
       bundle_zip_path = tmp_dir / "bundle.zip"

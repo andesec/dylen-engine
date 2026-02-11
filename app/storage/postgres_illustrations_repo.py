@@ -6,7 +6,7 @@ import msgspec
 from sqlalchemy import func, select
 
 from app.core.database import get_session_factory
-from app.schema.illustrations import Illustration, SectionIllustration
+from app.schema.illustrations import Illustration
 from app.schema.lessons import Section
 
 
@@ -58,11 +58,8 @@ class PostgresIllustrationsRepository:
       if mime_type:
         conditions.append(Illustration.mime_type == mime_type)
       if section_id is not None:
-        # Join with section_illustrations to filter by section
-        stmt = stmt.join(SectionIllustration, SectionIllustration.illustration_id == Illustration.id)
-        stmt = stmt.where(SectionIllustration.section_id == section_id)
-        count_stmt = count_stmt.join(SectionIllustration, SectionIllustration.illustration_id == Illustration.id)
-        count_stmt = count_stmt.where(SectionIllustration.section_id == section_id)
+        stmt = stmt.join(Section, Section.illustration_id == Illustration.id).where(Section.section_id == section_id)
+        count_stmt = count_stmt.join(Section, Section.illustration_id == Illustration.id).where(Section.section_id == section_id)
 
       if conditions:
         stmt = stmt.where(*conditions)
@@ -93,7 +90,7 @@ class PostgresIllustrationsRepository:
       records = []
       for illustration in illustrations:
         # Get section IDs
-        section_stmt = select(SectionIllustration.section_id).where(SectionIllustration.illustration_id == illustration.id)
+        section_stmt = select(Section.section_id).where(Section.illustration_id == illustration.id)
         section_result = await session.execute(section_stmt)
         section_ids = [row[0] for row in section_result.all()]
 

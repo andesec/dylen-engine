@@ -13,7 +13,27 @@ from app.core.database import Base
 from app.schema.audit import LlmCallAudit  # noqa: F401
 from app.schema.email_delivery_logs import EmailDeliveryLog  # noqa: F401
 from app.schema.jobs import Job  # noqa: F401
+from app.schema.lesson_requests import LessonRequest  # noqa: F401
 from app.schema.lessons import Lesson  # noqa: F401
+from app.schema.tutor import Tutor  # noqa: F401
+from app.schema.widgets_content import (  # noqa: F401
+  AsciiDiagramWidget,
+  ChecklistWidget,
+  CodeEditorWidget,
+  CompareWidget,
+  FillBlankWidget,
+  FlipcardsWidget,
+  InteractiveTerminalWidget,
+  MarkdownWidget,
+  McqsWidget,
+  StepFlowWidget,
+  SwipeCardWidget,
+  TableDataWidget,
+  TerminalDemoWidget,
+  TranslationWidget,
+  TreeviewWidget,
+  TutorFragment,
+)
 
 
 class RoleLevel(str, Enum):

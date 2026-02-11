@@ -25,7 +25,8 @@ class FensterRecord(msgspec.Struct):
 class PostgresFensterRepository:
   """Persist and retrieve fenster widgets from Postgres using SQLAlchemy."""
 
-  def __init__(self, table_name: str = "fenster_widgets") -> None:
+  def __init__(self, table_name: str = "fensters") -> None:
+    _ = table_name
     self._session_factory = get_session_factory()
     if self._session_factory is None:
       raise RuntimeError("Database not initialized")

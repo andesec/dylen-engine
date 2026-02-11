@@ -32,7 +32,7 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
   word_count = _count_words(request.text)
   if word_count > 300:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"User text is too long ({word_count} words). Max 300 words.")
-  if request.widget_id is not None and request.widget_id <= 0:
+  if request.widget_id is not None and str(request.widget_id).strip() == "":
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid widget_id.")
   if estimate_bytes(request.model_dump(mode="python")) > MAX_REQUEST_BYTES:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request payload is too large for persistence.")
@@ -41,7 +41,7 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
 def _resolve_primary_language(request: GenerateLessonRequest) -> str | None:
   """Return the requested primary language for orchestration prompts."""
   # This feeds prompt guidance but does not change response schema.
-  return request.primary_language
+  return request.lesson_language
 
 
 def _resolve_learner_level(request: GenerateLessonRequest) -> str | None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String, Text, func, text
+from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +25,7 @@ class Lesson(Base):
   model_b: Mapped[str] = mapped_column(String, nullable=False)
   # lesson_json removed
   lesson_plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+  lesson_request_id: Mapped[int | None] = mapped_column(ForeignKey("lesson_requests.id"), nullable=True, index=True)
   status: Mapped[str] = mapped_column(String, nullable=False)
   latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
   idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
@@ -44,9 +45,14 @@ class Section(Base):
   status: Mapped[str] = mapped_column(String, nullable=False)
   content: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
   content_shorthand: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+  removed_widgets_csv: Mapped[str | None] = mapped_column(Text, nullable=True)
+  illustration_id: Mapped[int | None] = mapped_column(ForeignKey("illustrations.id", ondelete="SET NULL"), nullable=True, index=True)
+  markdown_id: Mapped[int | None] = mapped_column(ForeignKey("markdowns.id", ondelete="SET NULL"), nullable=True, index=True)
+  tutor_id: Mapped[int | None] = mapped_column(ForeignKey("tutors.id", ondelete="SET NULL"), nullable=True, index=True)
 
   lesson: Mapped[Lesson] = relationship("Lesson", back_populates="sections")
   errors: Mapped[list[SectionError]] = relationship("SectionError", back_populates="section", cascade="all, delete-orphan")
+  subsections: Mapped[list[Subsection]] = relationship("Subsection", back_populates="section", cascade="all, delete-orphan")
 
 
 class SectionError(Base):
@@ -64,12 +70,62 @@ class SectionError(Base):
   section: Mapped[Section] = relationship("Section", back_populates="errors")
 
 
-class SubjectiveInputWidget(Base):
-  __tablename__ = "subjective_input_widgets"
+class Subsection(Base):
+  __tablename__ = "subsections"
+  __table_args__ = (UniqueConstraint("section_id", "subsection_index", name="ux_subsections_section_subsection_index"),)
 
   id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
   section_id: Mapped[int] = mapped_column(ForeignKey("sections.section_id", ondelete="CASCADE"), nullable=False, index=True)
+  subsection_index: Mapped[int] = mapped_column(Integer, nullable=False)
+  subsection_title: Mapped[str] = mapped_column(Text, nullable=False)
+  status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+  created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+  section: Mapped[Section] = relationship("Section", back_populates="subsections")
+  widgets: Mapped[list[SubsectionWidget]] = relationship("SubsectionWidget", back_populates="subsection", cascade="all, delete-orphan")
+
+
+class SubsectionWidget(Base):
+  __tablename__ = "subsection_widgets"
+  __table_args__ = (UniqueConstraint("subsection_id", "widget_index", "widget_type", name="ux_subsection_widgets_subsection_widget_index_type"), UniqueConstraint("public_id", name="ux_subsection_widgets_public_id"))
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  public_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+  subsection_id: Mapped[int] = mapped_column(ForeignKey("subsections.id", ondelete="CASCADE"), nullable=False, index=True)
+  widget_id: Mapped[str | None] = mapped_column(String, nullable=True)
+  widget_index: Mapped[int] = mapped_column(Integer, nullable=False)
   widget_type: Mapped[str] = mapped_column(String, nullable=False)
+  status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+  created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+  subsection: Mapped[Subsection] = relationship("Subsection", back_populates="widgets")
+
+
+class InputLine(Base):
+  __tablename__ = "input_lines"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
   ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
   wordlist: Mapped[str | None] = mapped_column(Text, nullable=True)
+  status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class FreeText(Base):
+  __tablename__ = "free_texts"
+
+  id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+  creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+  ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+  wordlist: Mapped[str | None] = mapped_column(Text, nullable=True)
+  status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+  created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

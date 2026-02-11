@@ -1096,12 +1096,12 @@ async def list_illustrations(
   return encode_msgspec_response(MsgspecPaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit))
 
 
-# Tutor Audios Endpoint
-@router.get("/tutor-audios", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read"))])
-async def list_tutor_audios(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), job_id: str | None = None, section_number: int | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")):
-  """List tutor audios with pagination, filtering, and sorting."""
-  from app.storage.postgres_tutor_audio_repo import PostgresTutorAudioRepository
+# Tutor Endpoint
+@router.get("/tutors", dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read"))])
+async def list_tutors(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), job_id: str | None = None, section_number: int | None = None, sort_by: str = Query("created_at"), sort_order: str = Query("desc")):
+  """List tutors with pagination, filtering, and sorting."""
+  from app.storage.postgres_tutor_repo import PostgresTutorRepository
 
-  repo = PostgresTutorAudioRepository()
-  items, total = await repo.list_tutor_audios(page=page, limit=limit, job_id=job_id, section_number=section_number, sort_by=sort_by, sort_order=sort_order)
+  repo = PostgresTutorRepository()
+  items, total = await repo.list_tutors(page=page, limit=limit, job_id=job_id, section_number=section_number, sort_by=sort_by, sort_order=sort_order)
   return encode_msgspec_response(MsgspecPaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit))

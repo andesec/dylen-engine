@@ -121,7 +121,7 @@ def _serialize_plan_section(plan_section: PlanSection | None) -> str:
 def render_planner_prompt(request: Req) -> str:
   """Render the planner prompt for lesson planning with concrete substitutions."""
   prompt_template = _load_prompt(_resolve_planner_prompt_name(request.blueprint))
-  primary_language = request.language or "English"
+  primary_language = request.lesson_language or "English"
 
   if request.widgets:
     supported_widgets = ", ".join(_build_prompt_widgets(request.widgets))

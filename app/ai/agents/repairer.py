@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,6 +47,17 @@ class RepairerAgent(BaseAgent[RepairInput, RepairResult]):
   name = "Repairer"
 
   async def run(self, input_data: RepairInput, ctx: JobContext) -> RepairResult:
+    """Run repair logic with a catch-all to prevent worker crashes."""
+    logger = logging.getLogger(__name__)
+    try:
+      return await self._run_impl(input_data, ctx)
+    except Exception as exc:  # noqa: BLE001
+      logger.error("Repairer failed unexpectedly.", exc_info=True)
+      section_number = int(input_data.section.section_number)
+      original_payload = input_data.structured.payload if isinstance(input_data.structured.payload, dict) else {}
+      return RepairResult(section_number=section_number, fixed_json=original_payload, changes=[], errors=[f"repairer_failed: {exc}"])
+
+  async def _run_impl(self, input_data: RepairInput, ctx: JobContext) -> RepairResult:
     """Repair a structured section when validation fails."""
     request = ctx.request
     section = input_data.section

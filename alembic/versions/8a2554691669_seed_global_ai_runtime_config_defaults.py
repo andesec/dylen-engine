@@ -5,6 +5,7 @@ Revises: 8f2f7f3a9c11
 Create Date: 2026-02-11 05:30:11.072713
 
 """
+# empty: allow
 
 from __future__ import annotations
 

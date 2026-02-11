@@ -59,14 +59,15 @@ class GenerateLessonRequest(BaseModel):
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
   details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
-  outcomes: list[OutcomeText] | None = Field(default=None, min_length=1, max_length=8, description="Optional outcomes to guide the planner (3-8 items recommended).")
+  outcomes: list[OutcomeText] = Field(min_length=1, max_length=8, description="Required outcomes to guide the planner.")
   blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] = Field(
     description="Required blueprint guidance for lesson planning."
   )
   teaching_style: list[Literal["conceptual", "theoretical", "practical"]] = Field(min_length=1, max_length=3, description="Required teaching style guidance for lesson planning.")
   learner_level: StrictStr | None = Field(default=None, min_length=1, description="Optional learner level hint used for prompt guidance.")
   depth: Literal["highlights", "detailed", "training"] = Field(default="highlights", description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).")
-  primary_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
+  lesson_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
+  secondary_language: Literal["English", "German", "Urdu"] | None = Field(default=None, description="Optional secondary language for language practice blueprint.")
   widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=7, description="Optional list of allowed widgets (overrides defaults).")
   schema_version: StrictStr | None = Field(default=None, description="Optional schema version to pin the lesson output to.")
   idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
@@ -163,6 +164,13 @@ class GenerateLessonRequest(BaseModel):
       raise ValueError("Widget entries must be unique.")
     return widgets
 
+  @model_validator(mode="after")
+  def validate_secondary_language_scope(self) -> GenerateLessonRequest:
+    """Restrict secondary language usage to language practice blueprint only."""
+    if self.secondary_language is not None and self.blueprint != "languagepractice":
+      raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")
+    return self
+
 
 class LessonMeta(BaseModel):
   """Metadata about the lesson generation process."""
@@ -256,7 +264,7 @@ class WritingCheckRequest(BaseModel):
   """Request payload for response evaluation."""
 
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
-  widget_id: StrictInt | None = Field(default=None, description="The ID of the subjective input widget being checked.")
+  widget_id: StrictStr | None = Field(default=None, description="Public subsection widget id being checked.")
   criteria: dict[str, Any] | None = Field(default=None, description="Legacy evaluation criteria (deprecated).")
   model_config = ConfigDict(extra="forbid")
 

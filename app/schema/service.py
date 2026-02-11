@@ -176,16 +176,16 @@ def _issues_to_messages(issues: list[ValidationIssue]) -> list[str]:
 
 
 def _is_overlong_only_issues(issues: list[ValidationIssue]) -> bool:
-  """Allow non-blocking validation when failures are only max-length/max-items violations."""
+  """Allow non-blocking validation when failures are only string/item length violations."""
   if not issues:
     return False
   return all(_is_overlong_issue(issue.message) for issue in issues)
 
 
 def _is_overlong_issue(message: str) -> bool:
-  """Detect msgspec errors that are strictly about upper length bounds."""
+  """Detect msgspec errors that are strictly about string/item length bounds."""
   lowered = message.lower()
-  if "length <=" not in lowered:
+  if "length" not in lowered:
     return False
   return "expected `str`" in lowered or "expected `array`" in lowered
 

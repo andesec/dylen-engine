@@ -10,43 +10,43 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_active_user, require_permission
 from app.schema.sql import User
-from app.schema.tutor import TutorAudio
+from app.schema.tutor import Tutor
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/job/{job_id}/audios", dependencies=[Depends(require_permission("tutor:audio_view_own"))])
-async def get_job_audios(job_id: str, request: Request, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)) -> dict[str, Any]:
-  """Retrieve list of generated audios for a job."""
-  stmt = select(TutorAudio).where(TutorAudio.job_id == job_id).order_by(TutorAudio.section_number, TutorAudio.subsection_index)
+@router.get("/job/{job_id}/tutors", dependencies=[Depends(require_permission("tutor:audio_view_own"))])
+async def get_job_tutors(job_id: str, request: Request, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)) -> dict[str, Any]:
+  """Retrieve list of generated tutor records for a job."""
+  stmt = select(Tutor).where(Tutor.job_id == job_id, Tutor.creator_id == str(current_user.id), Tutor.is_archived.is_(False)).order_by(Tutor.section_number, Tutor.subsection_index)
   result = await db_session.execute(stmt)
-  audios = result.scalars().all()
+  tutors = result.scalars().all()
 
   return {
     "job_id": job_id,
-    "audios": [
+    "tutors": [
       {
-        "id": audio.id,
-        "section_number": audio.section_number,
-        "subsection_index": audio.subsection_index,
-        "text_content": audio.text_content,
+        "id": tutor.id,
+        "section_number": tutor.section_number,
+        "subsection_index": tutor.subsection_index,
+        "text_content": tutor.text_content,
         # Avoid hardcoded paths so refactors don't break API clients.
-        "audio_url": str(request.url_for("get_audio_content", audio_id=audio.id)),
+        "audio_url": str(request.url_for("get_tutor_content", tutor_id=tutor.id)),
       }
-      for audio in audios
+      for tutor in tutors
     ],
   }
 
 
-@router.get("/audio/{audio_id}/content", dependencies=[Depends(require_permission("tutor:audio_view_own"))])
-async def get_audio_content(audio_id: int, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)) -> Response:
-  """Stream audio content."""
-  stmt = select(TutorAudio).where(TutorAudio.id == audio_id)
+@router.get("/{tutor_id}/content", dependencies=[Depends(require_permission("tutor:audio_view_own"))])
+async def get_tutor_content(tutor_id: int, db_session: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)) -> Response:
+  """Stream tutor audio content."""
+  stmt = select(Tutor).where(Tutor.id == tutor_id, Tutor.creator_id == str(current_user.id), Tutor.is_archived.is_(False))
   result = await db_session.execute(stmt)
-  audio = result.scalar_one_or_none()
+  tutor = result.scalar_one_or_none()
 
-  if not audio:
-    raise HTTPException(status_code=404, detail="Audio not found")
+  if not tutor:
+    raise HTTPException(status_code=404, detail="Tutor not found")
 
-  return Response(content=audio.audio_data, media_type="audio/mpeg")
+  return Response(content=tutor.audio_data, media_type="audio/mpeg")

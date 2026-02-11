@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from app.ai.orchestrator import DylenOrchestrator
 from app.api.models import PlannerModel, RepairerModel, SectionBuilderModel
 from app.config import Settings
 
@@ -103,18 +102,3 @@ def resolve_agent_defaults(settings: Settings, runtime_config: dict[str, object]
   repairer_provider = _provider_for_model_hint(repairer_model, repairer_provider)
 
   return (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model)
-
-
-def _get_orchestrator(
-  settings: Settings, *, section_builder_provider: str | None = None, section_builder_model: str | None = None, planner_provider: str | None = None, planner_model: str | None = None, repair_provider: str | None = None, repair_model: str | None = None
-) -> DylenOrchestrator:
-  return DylenOrchestrator(
-    section_builder_provider=section_builder_provider or settings.section_builder_provider,
-    section_builder_model=section_builder_model or settings.section_builder_model,
-    planner_provider=planner_provider or settings.planner_provider,
-    planner_model=planner_model or settings.planner_model,
-    repair_provider=repair_provider or settings.repair_provider,
-    repair_model=repair_model or settings.repair_model,
-    schema_version=settings.schema_version,
-    fenster_technical_constraints=settings.fenster_technical_constraints,
-  )

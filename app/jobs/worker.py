@@ -10,39 +10,36 @@ from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.ai.agents.fenster_builder import FensterBuilderAgent
 from app.ai.agents.illustration import IllustrationAgent
 from app.ai.agents.planner import PlannerAgent
+from app.ai.agents.repairer import RepairerAgent
 from app.ai.agents.section_builder import SectionBuilder
 from app.ai.agents.tutor import TutorAgent
-from app.ai.orchestrator import OrchestrationError, OrchestrationResult
-from app.ai.pipeline.contracts import GenerationRequest, JobContext, PlanSection
+from app.ai.pipeline.contracts import GenerationRequest, JobContext, PlanSection, RepairInput, SectionDraft
+from app.ai.pipeline.lesson_requests import GenerateLessonRequestStruct
 from app.ai.router import get_model_for_mode
 from app.ai.utils.cost import calculate_total_cost
-from app.ai.utils.progress import SectionProgressUpdate
-from app.api.models import GenerateLessonRequest
 from app.config import Settings
 from app.core.database import get_session_factory
 from app.jobs.dispatch import JobProcessorHandler, JobProcessorRegistry
 from app.jobs.dispatch import process_job as dispatch_process_job
 from app.jobs.models import JobRecord
-from app.jobs.progress import MAX_TRACKED_LOGS, JobCanceledError, JobProgressTracker, SectionProgress, build_call_plan
+from app.jobs.progress import JobProgressTracker
 from app.notifications.factory import build_notification_service
 from app.schema.data_transfer import DataTransferRun
 from app.schema.fenster import FensterWidget, FensterWidgetType
-from app.schema.illustrations import Illustration, SectionIllustration
-from app.schema.lessons import Section
+from app.schema.illustrations import Illustration
+from app.schema.lesson_requests import LessonRequest
+from app.schema.lessons import Lesson, Section, Subsection, SubsectionWidget
 from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
 from app.services.data_transfer_bundle import execute_export_run, execute_hydrate_run
 from app.services.feature_flags import resolve_feature_flag_decision
 from app.services.maintenance import archive_old_lessons
-from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
 from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
-from app.services.request_validation import _resolve_learner_level, _resolve_primary_language
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.section_shorthand import build_section_shorthand_content
 from app.services.storage_client import build_storage_client
@@ -52,7 +49,7 @@ from app.storage.factory import _get_repo
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord
 from app.utils.compression import compress_html
-from app.utils.ids import generate_lesson_id
+from app.utils.ids import generate_lesson_id, generate_nanoid
 
 
 class JobProcessor:
@@ -107,8 +104,7 @@ class JobProcessor:
   async def _create_child_job(self, *, parent_job: JobRecord, target_agent: str, payload: dict[str, Any], lesson_id: str | None, section_id: int | None, job_kind: str | None = None) -> JobRecord | None:
     """Create and enqueue a child job from a parent job."""
     if not await self._quota_available_for_target(user_id=parent_job.user_id, target_agent=target_agent):
-      await self._jobs_repo.update_job(parent_job.job_id, logs=list(parent_job.logs or []) + [f"Skipped child job for {target_agent}: quota unavailable."])
-      return None
+      raise QuotaExceededError(f"{target_agent} quota unavailable")
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     child_job_id = str(uuid.uuid4())
     request_payload = {"payload": payload, "_meta": {"parent_job_id": parent_job.job_id}}
@@ -189,9 +185,15 @@ class JobProcessor:
     """Execute planner-only work and fan out one section-builder job per section."""
     tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="planner", initial_logs=["Planner job picked up."])
     await tracker.set_phase(phase="planning", subphase="planner_start")
+    lesson_request_id: int | None = None
     try:
+      original_request_payload = job.request.get("payload") if isinstance(job.request.get("payload"), dict) else job.request
+      request_meta = original_request_payload.get("_meta") if isinstance(original_request_payload.get("_meta"), dict) else {}
+      raw_lesson_request_id = request_meta.get("lesson_request_id")
+      if raw_lesson_request_id is not None:
+        lesson_request_id = int(raw_lesson_request_id)
       request_payload = _strip_internal_request_fields(job.request)
-      request_model = GenerateLessonRequest.model_validate(request_payload)
+      request_model = GenerateLessonRequestStruct.model_validate(request_payload)
       section_count = {"highlights": 2, "detailed": 6, "training": 10}.get(str(request_model.depth).lower(), 2)
       generation_request = GenerationRequest(
         topic=request_model.topic,
@@ -201,7 +203,8 @@ class JobProcessor:
         section_count=section_count,
         blueprint=request_model.blueprint,
         teaching_style=request_model.teaching_style,
-        language=request_model.primary_language,
+        lesson_language=request_model.lesson_language,
+        secondary_language=request_model.secondary_language,
         learner_level=request_model.learner_level,
         widgets=request_model.widgets,
       )
@@ -234,8 +237,18 @@ class JobProcessor:
         latency_ms=0,
         idempotency_key=request_model.idempotency_key,
         lesson_plan=lesson_plan.model_dump(mode="python"),
+        lesson_request_id=lesson_request_id,
       )
       await repo.upsert_lesson(lesson_record)
+      if lesson_request_id is not None:
+        session_factory = get_session_factory()
+        if session_factory is not None:
+          async with session_factory() as session:
+            lesson_request_row = await session.get(LessonRequest, int(lesson_request_id))
+            if lesson_request_row is not None:
+              lesson_request_row.status = "planned"
+              session.add(lesson_request_row)
+              await session.commit()
       done_payload = {
         "status": "done",
         "phase": "complete",
@@ -256,10 +269,15 @@ class JobProcessor:
           "generation_request": generation_request.model_dump(mode="python"),
           "schema_version": request_model.schema_version or self._settings.schema_version,
         }
-        await self._create_child_job(parent_job=updated_parent, target_agent="section_builder", payload=child_payload, lesson_id=lesson_id, section_id=None)
+        try:
+          await self._create_child_job(parent_job=updated_parent, target_agent="section_builder", payload=child_payload, lesson_id=lesson_id, section_id=None)
+        except QuotaExceededError as exc:
+          await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Planner stopped section fan-out due to quota: {exc}"])
+          break
       return await self._jobs_repo.get_job(job.job_id)
     except Exception as exc:  # noqa: BLE001
       self._logger.error("Planner job failed", exc_info=True)
+      await _update_lesson_request_status(lesson_request_id=lesson_request_id, status="failed")
       await tracker.fail(phase="failed", message=f"Planner job failed: {exc}")
       await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
       return None
@@ -268,6 +286,9 @@ class JobProcessor:
     """Execute one section-builder unit and fan out section child jobs."""
     tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="section_builder", initial_logs=["Section builder job picked up."])
     await tracker.set_phase(phase="building", subphase="section_builder_start")
+    lesson_id = ""
+    section_number = 0
+    db_section_id: int | None = None
     try:
       wrapped_payload = job.request.get("payload")
       request_payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
@@ -289,6 +310,26 @@ class JobProcessor:
         metadata["user_id"] = str(job.user_id)
       job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=generation_request, metadata=metadata)
       structured = await section_agent.run(plan_section, job_ctx)
+      non_blocking_validation_errors = _extract_non_blocking_length_errors(structured.validation_errors)
+      if non_blocking_validation_errors:
+        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Section {section_number} ignored non-blocking length violations and continued generation."])
+        structured.validation_errors = [err for err in structured.validation_errors if err not in non_blocking_validation_errors]
+      if structured.validation_errors:
+        repair_provider = self._settings.repair_provider
+        repair_model_name = self._settings.repair_model
+        repair_model_instance = get_model_for_mode(repair_provider, repair_model_name, agent="repairer")
+        repair_agent = RepairerAgent(model=repair_model_instance, prov=repair_provider, schema=SchemaService())
+        repair_input = RepairInput(section=SectionDraft(section_number=section_number, title=plan_section.title, plan_section=plan_section, raw_text=""), structured=structured)
+        repair_result = await repair_agent.run(repair_input, job_ctx)
+        if repair_result.errors:
+          db_section_id = int(structured.db_section_id) if structured.db_section_id is not None else None
+          await _update_section_status(section_id=db_section_id, status="failed")
+          await _mark_lesson_pipeline_failed(lesson_id=lesson_id)
+          await tracker.fail(phase="failed", message=f"Section {section_number} failed validation and single repair attempt.")
+          await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs, result_json={"lesson_id": lesson_id, "section_number": section_number, "errors": repair_result.errors})
+          return None
+        structured.payload = repair_result.fixed_json
+        structured.validation_errors = []
       db_section_id = int(structured.db_section_id) if structured.db_section_id is not None else None
       done_payload = {
         "status": "done",
@@ -303,31 +344,73 @@ class JobProcessor:
       if updated_parent is None:
         return None
       section_payload = structured.payload
-      await self._create_child_job(
-        parent_job=updated_parent,
-        target_agent="illustration",
-        payload={"section_index": section_number, "section_id": db_section_id, "lesson_id": lesson_id, "topic": generation_request.topic, "section_data": section_payload},
-        lesson_id=lesson_id,
-        section_id=db_section_id,
-      )
-      await self._create_child_job(
-        parent_job=updated_parent,
-        target_agent="tutor",
-        payload={"section_index": section_number, "topic": generation_request.topic, "section_data": section_payload, "learning_data_points": section_payload.get("learning_data_points", [])},
-        lesson_id=lesson_id,
-        section_id=db_section_id,
-      )
-      if _section_contains_fenster(section_payload):
+      removed_widget_refs: list[str] = []
+      try:
         await self._create_child_job(
           parent_job=updated_parent,
-          target_agent="fenster_builder",
-          payload={"lesson_id": lesson_id, "concept_context": f"Fenster widgets for section {section_number} in topic {generation_request.topic}", "target_audience": generation_request.learner_level or "Student", "technical_constraints": {}},
+          target_agent="illustration",
+          payload={"section_index": section_number, "section_id": db_section_id, "lesson_id": lesson_id, "topic": generation_request.topic, "section_data": section_payload},
           lesson_id=lesson_id,
           section_id=db_section_id,
         )
+      except QuotaExceededError:
+        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Illustration job skipped for section {section_number}: quota unavailable."])
+        removed_widget_refs.append(f"{section_number}.1.1.illustration")
+        if isinstance(section_payload, dict):
+          section_payload.pop("illustration", None)
+      try:
+        await self._create_child_job(
+          parent_job=updated_parent,
+          target_agent="tutor",
+          payload={"section_index": section_number, "section_id": db_section_id, "topic": generation_request.topic, "section_data": section_payload, "learning_data_points": section_payload.get("learning_data_points", [])},
+          lesson_id=lesson_id,
+          section_id=db_section_id,
+        )
+      except QuotaExceededError:
+        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Tutor job skipped for section {section_number}: quota unavailable."])
+        removed_widget_refs.append(f"{section_number}.1.1.tutor")
+      if _section_contains_fenster(section_payload):
+        fenster_widget_ids = _extract_widget_public_ids(section_payload, widget_type="fenster")
+        for fenster_public_id in fenster_widget_ids:
+          try:
+            await self._create_child_job(
+              parent_job=updated_parent,
+              target_agent="fenster_builder",
+              payload={
+                "lesson_id": lesson_id,
+                "section_id": db_section_id,
+                "widget_public_ids": [fenster_public_id],
+                "concept_context": f"Fenster widget for section {section_number} in topic {generation_request.topic}",
+                "target_audience": generation_request.learner_level or "Student",
+                "technical_constraints": {},
+              },
+              lesson_id=lesson_id,
+              section_id=db_section_id,
+            )
+          except QuotaExceededError:
+            await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Fenster job skipped for section {section_number}: quota unavailable for widget {fenster_public_id}."])
+            removed_widget_refs.extend(_remove_widget_items_by_public_id(section_payload=section_payload, section_index=section_number, widget_type="fenster", public_ids=[fenster_public_id]))
+            if db_section_id is not None:
+              await _update_subsection_widget_status(section_id=db_section_id, widget_types=("fenster",), status="skipped", public_ids=[fenster_public_id])
+      if db_section_id is not None and removed_widget_refs:
+        session_factory = get_session_factory()
+        if session_factory is not None:
+          async with session_factory() as session:
+            section_row = await session.get(Section, db_section_id)
+            if section_row is not None:
+              existing_csv = str(section_row.removed_widgets_csv or "").strip()
+              added_csv = ",".join(removed_widget_refs)
+              section_row.removed_widgets_csv = f"{existing_csv},{added_csv}".strip(",") if existing_csv else added_csv
+              section_row.content = section_payload
+              section_row.content_shorthand = build_section_shorthand_content(section_payload)
+              session.add(section_row)
+              await session.commit()
       return await self._jobs_repo.get_job(job.job_id)
     except Exception as exc:  # noqa: BLE001
       self._logger.error("Section builder job failed", exc_info=True)
+      await _update_section_status(section_id=db_section_id, status="failed")
+      if lesson_id:
+        await _mark_lesson_pipeline_failed(lesson_id=lesson_id)
       await tracker.fail(phase="failed", message=f"Section builder job failed: {exc}")
       await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
       return None
@@ -425,6 +508,8 @@ class JobProcessor:
     """Execute Fenster Widget generation."""
     tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="fenster", initial_logs=["Fenster job picked up."])
     await tracker.set_phase(phase="building", subphase="generating_code")
+    section_id = 0
+    widget_public_ids: list[str] = []
 
     try:
       provider = self._settings.fenster_provider
@@ -443,6 +528,8 @@ class JobProcessor:
 
       wrapped_payload = job.request.get("payload")
       payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
+      section_id = int(job.section_id or payload.get("section_id") or 0)
+      widget_public_ids = [str(item) for item in list(payload.get("widget_public_ids") or []) if str(item).strip()]
       # Use a dummy request for context
       dummy_req = GenerationRequest(topic="widget_build", depth="highlights", section_count=2)
       # Forward settings and user metadata for agent-scoped quota reservations.
@@ -457,13 +544,30 @@ class JobProcessor:
       compressed = compress_html(html_content)
 
       # Insert DB
-      fenster_id = uuid.uuid4()
+      fenster_resource_id = ""
       session_factory = get_session_factory()
       if session_factory:
         async with session_factory() as session:
-          widget = FensterWidget(fenster_id=fenster_id, type=FensterWidgetType.INLINE_BLOB, content=compressed, url=None)
-          session.add(widget)
+          existing_widget = await _resolve_fenster_widget_by_subsection_mapping(session=session, section_id=section_id, subsection_widget_public_ids=widget_public_ids)
+          fenster_resource_id = existing_widget.public_id if existing_widget is not None else ""
+          if fenster_resource_id == "":
+            fenster_resource_id = generate_nanoid()
+          if existing_widget is None:
+            existing_widget = (await session.execute(select(FensterWidget).where(FensterWidget.public_id == fenster_resource_id).limit(1))).scalar_one_or_none()
+          if existing_widget is None:
+            existing_widget = FensterWidget(fenster_id=uuid.uuid4(), public_id=fenster_resource_id, creator_id=str(job.user_id or ""), status="completed", is_archived=False, type=FensterWidgetType.INLINE_BLOB, content=compressed, url=None)
+            session.add(existing_widget)
+          else:
+            existing_widget.creator_id = str(job.user_id or existing_widget.creator_id)
+            existing_widget.status = "completed"
+            existing_widget.is_archived = False
+            existing_widget.type = FensterWidgetType.INLINE_BLOB
+            existing_widget.content = compressed
+            existing_widget.url = None
+            session.add(existing_widget)
           await session.commit()
+      if section_id > 0:
+        await _update_subsection_widget_status(section_id=section_id, widget_types=("fenster",), status="completed", widget_id=fenster_resource_id, public_ids=widget_public_ids)
 
       # Calculate cost
       total_cost = calculate_total_cost(usage_list)
@@ -472,7 +576,7 @@ class JobProcessor:
 
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-      result_json = {"fenster_id": str(fenster_id)}
+      result_json = {"fenster_resource_id": fenster_resource_id}
 
       payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Widget built and stored."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **payload)
@@ -483,12 +587,16 @@ class JobProcessor:
       # Since we don't have a partial-success status, "done" with logs is better than "error" for quota toggles.
       if "quota disabled" in str(exc) or isinstance(exc, QuotaExceededError):
         self._logger.info("Fenster quota disabled, skipping job %s", job.job_id)
+        if section_id > 0:
+          await _update_subsection_widget_status(section_id=section_id, widget_types=("fenster",), status="skipped", public_ids=widget_public_ids)
         completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Quota disabled. Skipping widget build."], "result_json": {}, "completed_at": completed_at}
         updated = await self._jobs_repo.update_job(job.job_id, **payload)
         return updated
 
       self._logger.error("Fenster build failed", exc_info=True)
+      if section_id > 0:
+        await _update_subsection_widget_status(section_id=section_id, widget_types=("fenster",), status="failed", public_ids=widget_public_ids)
       await tracker.fail(phase="failed", message=f"Fenster build failed: {exc}")
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
@@ -520,7 +628,7 @@ class JobProcessor:
 
       if not tutor_mode_enabled:
         completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Tutor mode disabled. Skipping audio generation."], "result_json": {"audio_ids": [], "count": 0, "skipped": True}, "completed_at": completed_at}
+        payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Tutor mode disabled. Skipping tutor generation."], "result_json": {"tutor_ids": [], "count": 0, "skipped": True}, "completed_at": completed_at}
         updated = await self._jobs_repo.update_job(job.job_id, **payload)
         return updated
 
@@ -548,6 +656,16 @@ class JobProcessor:
       job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=dummy_req, metadata=job_metadata)
 
       audio_ids = await agent.run(payload, job_ctx)
+      section_id = int(payload.get("section_id") or 0)
+      if section_id > 0 and audio_ids:
+        session_factory = get_session_factory()
+        if session_factory is not None:
+          async with session_factory() as session:
+            section_row = await session.get(Section, section_id)
+            if section_row is not None:
+              section_row.tutor_id = int(audio_ids[0])
+              session.add(section_row)
+              await session.commit()
 
       # Cost
       total_cost = calculate_total_cost(usage_list)
@@ -555,7 +673,7 @@ class JobProcessor:
       await tracker.set_cost(cost_summary)
 
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-      result_json = {"audio_ids": audio_ids, "count": len(audio_ids)}
+      result_json = {"tutor_ids": audio_ids, "count": len(audio_ids)}
 
       payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + [f"Generated {len(audio_ids)} audio segments."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **payload)
@@ -611,7 +729,7 @@ class JobProcessor:
         section_row = await session.get(Section, section_id)
         if section_row is None:
           raise RuntimeError(f"Section {section_id} not found for illustration job.")
-        existing_illustration_id = _extract_section_illustration_id(section_row.content)
+        existing_illustration_id = int(section_row.illustration_id) if section_row.illustration_id is not None else _extract_section_illustration_id(section_row.content)
         if existing_illustration_id is not None:
           existing_illustration = await session.get(Illustration, existing_illustration_id)
           if existing_illustration is not None and existing_illustration.status == "completed" and await storage_client.exists(existing_illustration.storage_object_name):
@@ -619,7 +737,13 @@ class JobProcessor:
             cost_summary = _summarize_cost([], total_cost)
             await tracker.set_cost(cost_summary)
             completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            result_json = {"section_id": section_id, "illustration_id": int(existing_illustration.id), "image_name": existing_illustration.storage_object_name, "skipped": True}
+            result_json = {"section_id": section_id, "illustration_id": int(existing_illustration.id), "resource_id": str(existing_illustration.public_id), "image_name": existing_illustration.storage_object_name, "skipped": True}
+            async with session_factory() as session:
+              section_row = await session.get(Section, section_id)
+              if section_row is not None:
+                section_row.illustration_id = int(existing_illustration.id)
+                session.add(section_row)
+                await session.commit()
             update_payload = {
               "status": "done",
               "phase": "complete",
@@ -630,6 +754,7 @@ class JobProcessor:
               "completed_at": completed_at,
             }
             updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
+            await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed", widget_id=str(existing_illustration.id))
             return updated
 
       # Resolve runtime-configured provider/model for the illustration agent.
@@ -670,6 +795,8 @@ class JobProcessor:
       async with session_factory() as session:
         pending_object_name = f"tmp-{uuid.uuid4().hex}.webp"
         illustration_row = Illustration(
+          public_id=generate_nanoid(),
+          creator_id=str(job.user_id or ""),
           storage_bucket=storage_client.bucket_name,
           storage_object_name=pending_object_name,
           mime_type="image/webp",
@@ -685,7 +812,7 @@ class JobProcessor:
         await session.refresh(illustration_row)
         illustration_row_id = int(illustration_row.id)
 
-      object_name = f"{illustration_row_id}.webp"
+      object_name = f"{illustration_row.public_id}.webp"
       await storage_client.upload_webp(generation["image_bytes"], object_name, cache_control="public, max-age=3600")
       uploaded_object_name = object_name
 
@@ -702,24 +829,31 @@ class JobProcessor:
         illustration_row.ai_prompt = generation_prompt
         illustration_row.keywords = generation_keywords
         session.add(illustration_row)
-        link_row = SectionIllustration(section_id=section_id, illustration_id=illustration_row_id)
-        session.add(link_row)
-
         # Keep section payload as source of truth for the active illustration pointer.
         section_content = dict(section_row.content or {})
-        section_content["illustration"] = {"caption": generation_caption, "ai_prompt": generation_prompt, "keywords": generation_keywords, "id": illustration_row_id}
+        existing_illustration = section_content.get("illustration")
+        tracking_id: str | None = None
+        if isinstance(existing_illustration, dict):
+          raw_tracking_id = existing_illustration.get("id")
+          if isinstance(raw_tracking_id, str) and raw_tracking_id.strip():
+            tracking_id = raw_tracking_id.strip()
+        if tracking_id is None:
+          tracking_id = await _resolve_section_widget_public_id(section_id=section_id, widget_type="illustration")
+        section_content["illustration"] = {"caption": generation_caption, "ai_prompt": generation_prompt, "keywords": generation_keywords, "resource_id": illustration_row.public_id, "id": tracking_id}
         shorthand_content = build_section_shorthand_content(section_content)
         section_row.content = section_content
         section_row.content_shorthand = shorthand_content
+        section_row.illustration_id = illustration_row_id
         session.add(section_row)
         await session.commit()
       finalized_success = True
+      await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed", widget_id=str(illustration_row.public_id))
 
       total_cost = calculate_total_cost(usage_list)
       cost_summary = _summarize_cost(usage_list, total_cost)
       await tracker.set_cost(cost_summary)
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-      result_json = {"section_id": section_id, "illustration_id": illustration_row_id, "image_name": uploaded_object_name or "", "mime_type": "image/webp"}
+      result_json = {"section_id": section_id, "illustration_id": illustration_row_id, "resource_id": str(illustration_row.public_id), "image_name": uploaded_object_name or "", "mime_type": "image/webp"}
       update_payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + [f"Illustration generated for section {section_id}."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
       return updated
@@ -732,6 +866,8 @@ class JobProcessor:
           async with session_factory() as session:
             if illustration_row_id is None:
               failed_row = Illustration(
+                public_id=generate_nanoid(),
+                creator_id=str(job.user_id or ""),
                 storage_bucket=self._settings.illustration_bucket,
                 storage_object_name=uploaded_object_name or f"failed-{uuid.uuid4().hex}.webp",
                 mime_type="image/webp",
@@ -767,337 +903,11 @@ class JobProcessor:
         except Exception:  # noqa: BLE001
           self._logger.warning("Failed to remove partially uploaded illustration object %s", uploaded_object_name)
       self._logger.error("Illustration job failed", exc_info=True)
+      if section_id > 0:
+        await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="failed")
       await tracker.fail(phase="failed", message=f"Illustration job failed: {exc}")
       payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
       await self._jobs_repo.update_job(job.job_id, **payload)
-      return None
-
-  async def _process_lesson_generation(self, job: JobRecord) -> JobRecord | None:
-    """Execute a single queued lesson generation job."""
-    wrapped_payload = job.request.get("payload")
-    request_payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
-
-    base_logs = job.logs + ["Job acknowledged by worker."]
-    try:
-      call_plan = build_call_plan(request_payload)
-    except ValueError as exc:
-      error_log = f"Validation failed: {exc}"
-      payload = {"status": "error", "phase": "failed", "subphase": "validation", "progress": 100.0, "logs": base_logs + [error_log]}
-      await self._jobs_repo.update_job(job.job_id, **payload)
-      return None
-
-    total_steps = call_plan.total_steps(include_validation=True, include_repair=True)
-    # Prefer persisted expected section counts so quota-capped jobs remain deterministic.
-    expected_sections = int(job.expected_sections or call_plan.depth)
-    initial_logs = base_logs + [
-      f"Planned AI calls: {call_plan.required_calls}",
-      f"Depth: {call_plan.depth}",
-      f"Planner calls: {call_plan.planner_calls}",
-      f"SectionBuilder calls: {call_plan.section_builder_calls}",
-      f"Repair calls: {call_plan.repair_calls}",
-    ]
-    base_completed_indexes = _infer_completed_section_indexes(job)
-    tracker = JobProgressTracker(
-      job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=total_steps, total_ai_calls=call_plan.total_ai_calls, label_prefix=call_plan.label_prefix, initial_logs=initial_logs, completed_section_indexes=base_completed_indexes
-    )
-    await tracker.set_phase(phase="plan", subphase="planner_start", expected_sections=expected_sections)
-
-    start_time = time.monotonic()
-
-    # Re-hydrate request model for access to typed fields
-    # Use internal helper to strip metadata (like _meta, user_id) that causes validation errors
-    try:
-      cleaned_request = _strip_internal_request_fields(request_payload)
-      request_model = GenerateLessonRequest.model_validate(cleaned_request)
-    except ValidationError:
-      self._logger.warning("Job %s has invalid request data, aborting.", job.job_id)
-      raise
-    soft_timeout = _parse_timeout_env("JOB_SOFT_TIMEOUT_SECONDS")
-    hard_timeout = _parse_timeout_env("JOB_HARD_TIMEOUT_SECONDS")
-    soft_timeout_recorded = False
-    # Capture quota config for per-section consumption in the progress callback.
-    # Keep quota enforcement metadata separate from agent-side reservations.
-    quota_user_id: uuid.UUID | None = None
-    quota_sections_per_month = 0
-
-    async def _check_timeouts() -> bool:
-      nonlocal soft_timeout_recorded
-      elapsed = time.monotonic() - start_time
-      if hard_timeout and elapsed >= hard_timeout:
-        await tracker.fail(phase="failed", message="Job hit hard timeout.")
-        return True
-      if soft_timeout and elapsed >= soft_timeout and not soft_timeout_recorded:
-        tracker.add_logs("Soft timeout threshold exceeded; continuing until hard timeout.")
-        soft_timeout_recorded = True
-      return False
-
-    tracker.add_logs("Collect phase started.")
-    try:
-      if await _check_timeouts():
-        return None
-
-      # Normalize retry targeting before invoking orchestration.
-      retry_agents = _normalize_retry_agents(job.retry_agents)
-
-      if retry_agents:
-        tracker.add_logs(f"Retry agents: {', '.join(sorted(retry_agents))}")
-
-      retry_section_indexes = _normalize_retry_section_indexes(job.retry_sections, expected_sections)
-      retry_section_numbers = _to_section_numbers(retry_section_indexes) if retry_section_indexes else None
-      is_retry = job.retry_count is not None and job.retry_count > 0
-      enable_repair = retry_agents is None or "repair" in retry_agents
-      is_retry = job.retry_count is not None and job.retry_count > 0
-      enable_repair = retry_agents is None or "repair" in retry_agents
-      # Unused variables removed: base_result_json, base_completed_sections, retry_completed_indexes
-      # Enforce quota cap for section generation, including mid-queue tier changes.
-      session_factory = get_session_factory()
-      # Store runtime config for model defaults once user tier is known.
-      runtime_config: dict[str, Any] | None = None
-
-      # Determine lesson_id early for persistence
-      lesson_id = job.result_json.get("lesson_id") if job.result_json and "lesson_id" in job.result_json else generate_lesson_id()
-
-      # Update job metadata with lesson_id so Orchestrator can persist sections incrementally
-      # We'll construct full job_metadata below.
-      if session_factory is not None and job.user_id:
-        try:
-          quota_user_id = uuid.UUID(str(job.user_id))
-        except ValueError:
-          quota_user_id = None
-        if quota_user_id is not None:
-          try:
-            async with session_factory() as session:
-              user = await get_user_by_id(session, quota_user_id)
-              if user is not None:
-                tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
-                runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
-                quota_sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
-                if quota_sections_per_month <= 0:
-                  raise QuotaExceededError("section.generate quota disabled")
-                quota_snapshot = await get_quota_snapshot(session, user_id=user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=quota_sections_per_month)
-                if quota_snapshot.remaining <= 0:
-                  raise QuotaExceededError("section.generate quota exceeded")
-                # Respect any persisted cap plus the live remaining quota to avoid overruns.
-                expected_sections = min(int(expected_sections), int(quota_snapshot.remaining))
-                if expected_sections <= 0:
-                  raise QuotaExceededError("section.generate quota exceeded")
-          except Exception as exc:  # noqa: BLE001
-            if isinstance(exc, QuotaExceededError):
-              raise
-            raise ValueError(f"Quota enforcement failed: {exc}") from exc
-
-      if retry_section_indexes:
-        tracker.add_logs(f"Retry sections: {', '.join(str(i) for i in retry_section_indexes)}")
-
-      # Cap generation to the first N sections when expected_sections is lower than the plan depth.
-      quota_section_filter = None
-      if expected_sections < call_plan.depth:
-        quota_section_filter = set(range(1, expected_sections + 1))
-        tracker.add_logs(f"Quota cap applied: generating only {expected_sections} section(s) this month.")
-
-      effective_section_filter = retry_section_numbers
-      if quota_section_filter is not None:
-        effective_section_filter = quota_section_filter if effective_section_filter is None else set(effective_section_filter).intersection(quota_section_filter)
-        if effective_section_filter is not None and len(effective_section_filter) == 0:
-          raise ValueError("No sections remain eligible for generation under the current quota cap.")
-
-      # -------------------------------------------------------------------------
-      # RETRY LOGIC: DB-BASED PRE-CHECK
-      # -------------------------------------------------------------------------
-      if is_retry:
-        try:
-          repo = _get_repo(self._settings)
-          # If we are retrying, the lesson might already exist.
-          # lesson_id is already resolved above.
-          existing_sections = await repo.list_sections(lesson_id)
-          if existing_sections:
-            completed_indices = {s.order_index for s in existing_sections}  # 0-based
-            # We need to generate everything from 0 to expected_sections-1 that is NOT in existing_indices
-            needed_indices = {i for i in range(expected_sections) if i not in completed_indices}
-
-            # Convert to 1-based for Orchestraor filter
-            needed_section_numbers = {i + 1 for i in needed_indices}
-
-            if effective_section_filter:
-              effective_section_filter = effective_section_filter.intersection(needed_section_numbers)
-            else:
-              effective_section_filter = needed_section_numbers
-
-            tracker.add_logs(f"Retry: Found {len(existing_sections)} sections. Generating: {sorted(effective_section_filter)}")
-          else:
-            tracker.add_logs("Retry: No existing sections found in DB. Generating all.")
-        except Exception as exc:
-          self._logger.error("Failed to check existing sections for retry: %s", exc)
-      # -------------------------------------------------------------------------
-
-      # Prepare Metadata including lesson_id
-      job_metadata = {"settings": self._settings, "lesson_id": lesson_id}
-      if job.user_id:
-        job_metadata["user_id"] = str(job.user_id)
-
-      # Create or Ensure Lesson Record Exists (Status: Generating)
-      try:
-        repo = _get_repo(self._settings)
-        existing_lesson = await repo.get_lesson(lesson_id)
-        if not existing_lesson:
-          placeholder_record = LessonRecord(
-            lesson_id=lesson_id,
-            user_id=str(job.user_id) if job.user_id else None,
-            topic=request_payload.get("topic", "Unknown"),
-            title=request_payload.get("topic", "Unknown"),
-            created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            schema_version=self._settings.schema_version,
-            prompt_version=self._settings.prompt_version,
-            provider_a="pending",
-            model_a="pending",
-            provider_b="pending",
-            model_b="pending",
-            status="generating",
-            latency_ms=0,
-          )
-          await repo.upsert_lesson(placeholder_record)
-      except Exception as exc:
-        self._logger.warning("Failed to create/check lesson record: %s", exc)
-
-      orchestration_result = await self._run_orchestration(
-        job.job_id,
-        request_payload,
-        expected_sections=expected_sections,
-        tracker=tracker,
-        timeout_checker=_check_timeouts,
-        retry_section_numbers=effective_section_filter,
-        is_retry=is_retry,
-        enable_repair=enable_repair,
-        base_completed_sections=request_payload.get("base_completed_sections", 0),
-        retry_completed_indexes=[],  # Always start fresh for retries
-        runtime_config=runtime_config,
-        quota_user_id=quota_user_id,
-        quota_sections_per_month=quota_sections_per_month,
-        job_metadata=job_metadata,
-      )
-
-      # Abort quickly if a cancellation lands after orchestration completes.
-
-      # Abort quickly if a cancellation lands after orchestration completes.
-      canceled_record = await self._jobs_repo.get_job(job.job_id)
-
-      if canceled_record and canceled_record.status == "canceled":
-        raise JobCanceledError(f"Job {job.job_id} was canceled before validation.")
-
-      if await _check_timeouts():
-        return None
-
-      # Surface orchestration logs even when validation fails.
-      # Surface orchestration logs even when validation fails.
-      tracker.extend_logs(orchestration_result.logs)
-
-      cost_summary = _summarize_cost(orchestration_result.usage, orchestration_result.total_cost)
-      await tracker.set_cost(cost_summary)
-
-      # Finalize Lesson Record (Status: OK, Plan: Saved)
-      repo = _get_repo(self._settings)
-
-      existing_lesson = await repo.get_lesson(lesson_id)
-
-      # extracted_plan removed (unused)
-
-      latency_ms = int((time.monotonic() - start_time) * 1000)
-      # Ensure persistence never fails on missing title fields by using an existing title first.
-      title = existing_lesson.title if existing_lesson and existing_lesson.title else None
-      if not isinstance(title, str) or not title.strip():
-        title = request_payload.get("topic") or request_model.topic
-
-      final_lesson_record = LessonRecord(
-        lesson_id=lesson_id,
-        user_id=str(job.user_id) if job.user_id else None,
-        topic=request_model.topic,
-        title=title,
-        created_at=existing_lesson.created_at if existing_lesson else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        schema_version=request_model.schema_version or self._settings.schema_version,
-        prompt_version=self._settings.prompt_version,
-        provider_a=orchestration_result.provider_a,
-        model_a=orchestration_result.model_a,
-        provider_b=orchestration_result.provider_b,
-        model_b=orchestration_result.model_b,
-        status="ok",
-        latency_ms=latency_ms,
-        idempotency_key=request_model.idempotency_key,
-        lesson_plan=orchestration_result.artifacts.get("plan") if orchestration_result.artifacts else None,
-      )
-      # Save Sections logic removed - handled by SectionBuilder
-
-      # Save Lesson Record
-      await repo.upsert_lesson(final_lesson_record)
-
-      # Notify the job owner
-      await _notify_job_lesson_generated(settings=self._settings, job_request=job.request, lesson_id=lesson_id, topic=request_model.topic)
-
-      log_updates = tracker.logs[-MAX_TRACKED_LOGS:]
-      log_updates.append("Job completed successfully.")
-      completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-      # Re-fetch sections to report accurate count
-      final_sections = await repo.list_sections(lesson_id)
-
-      summary = {"lesson_id": lesson_id, "title": title, "total_sections": len(final_sections), "generated_count": len(final_sections), "sections": [{"section_id": s.section_id, "title": s.title} for s in final_sections]}
-
-      payload = {
-        "status": "done",
-        "phase": "validate",
-        "subphase": "complete",
-        "progress": 100.0,
-        "logs": log_updates,
-        "result_json": summary,
-        "artifacts": orchestration_result.artifacts,
-        "validation": {"ok": True, "errors": []},
-        "cost": cost_summary,
-        "expected_sections": expected_sections,
-        "completed_sections": len(final_sections),
-        "completed_at": completed_at,
-      }
-      updated = await self._jobs_repo.update_job(job.job_id, **payload)
-      return updated
-    except JobCanceledError:
-      # Re-fetch the record to ensure we have the final canceled state
-      return await self._jobs_repo.get_job(job.job_id)
-
-    except OrchestrationError as exc:
-      # Preserve pipeline logs when orchestration fails fast.
-      tracker.extend_logs(exc.logs)
-      quota_metric = _extract_quota_metric(str(exc))
-      if quota_metric is not None:
-        quota_message = f"Quota exceeded during lesson job execution ({quota_metric})."
-        self._logger.warning("Job %s failed due to exhausted quota. metric=%s error=%s", job.job_id, quota_metric, exc)
-        await tracker.fail(phase="failed", message=quota_message)
-        payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
-        await self._jobs_repo.update_job(job.job_id, **payload)
-        await _notify_job_failed(settings=self._settings, job=job)
-        return None
-      error_log = f"Job failed: {exc}"
-      self._logger.error(error_log)
-      await tracker.fail(phase="failed", message=error_log)
-      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
-      await self._jobs_repo.update_job(job.job_id, **payload)
-      await _notify_job_failed(settings=self._settings, job=job)
-      return None
-
-    except QuotaExceededError as exc:
-      quota_metric = _extract_quota_metric(str(exc)) or "unknown"
-      quota_message = f"Quota exceeded during lesson job execution ({quota_metric})."
-      self._logger.warning("Job %s failed due to exhausted quota. metric=%s error=%s", job.job_id, quota_metric, exc)
-      await tracker.fail(phase="failed", message=quota_message)
-      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
-      await self._jobs_repo.update_job(job.job_id, **payload)
-      await _notify_job_failed(settings=self._settings, job=job)
-      return None
-
-    except Exception as exc:  # noqa: BLE001
-      error_log = f"Job failed: {exc}"
-      self._logger.error("Job processing failed unexpectedly", exc_info=True)
-      await tracker.fail(phase="failed", message=error_log)
-      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
-      await self._jobs_repo.update_job(job.job_id, **payload)
-      await _notify_job_failed(settings=self._settings, job=job)
       return None
 
   async def process_queue(self, limit: int = 5) -> list[JobRecord]:
@@ -1109,198 +919,6 @@ class JobProcessor:
       if processed:
         results.append(processed)
     return results
-
-  async def _run_orchestration(
-    self,
-    job_id: str,
-    request: dict[str, Any],
-    *,
-    expected_sections: int,
-    tracker: JobProgressTracker | None = None,
-    timeout_checker: Callable[[], Awaitable[bool]] | None = None,
-    retry_section_numbers: set[int] | None = None,
-    is_retry: bool = False,
-    enable_repair: bool = True,
-    base_completed_sections: int = 0,
-    retry_completed_indexes: list[int] | None = None,
-    job_metadata: dict[str, Any] | None = None,
-    runtime_config: dict[str, Any] | None = None,
-    quota_user_id: uuid.UUID | None = None,
-    quota_sections_per_month: int = 0,
-  ) -> OrchestrationResult:
-    """Execute the orchestration pipeline with guarded parameters."""
-
-    try:
-      # Drop deprecated fields so legacy records can still be parsed.
-      if "mode" in request:
-        request = {key: value for key, value in request.items() if key != "mode"}
-
-      request_model = GenerateLessonRequest.model_validate(_strip_internal_request_fields(request))
-
-    except ValidationError as exc:
-      raise ValueError("Stored job request is invalid.") from exc
-    topic = request_model.topic
-
-    if len(topic) > self._settings.max_topic_length:
-      raise ValueError(f"Topic exceeds max length of {self._settings.max_topic_length}.")
-
-    # Resolve per-agent defaults so queued jobs honor runtime configuration.
-    selection = resolve_agent_defaults(self._settings, runtime_config or {})
-    (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
-    language = _resolve_primary_language(request_model)
-    learner_level = _resolve_learner_level(request_model)
-    schema_version = request_model.schema_version or self._settings.schema_version
-
-    orchestrator = _get_orchestrator(
-      self._settings, section_builder_provider=section_builder_provider, section_builder_model=section_builder_model, planner_provider=planner_provider, planner_model=planner_model, repair_provider=repairer_provider, repair_model=repairer_model
-    )
-
-    logs: list[str] = [
-      f"Starting job {job_id}",
-      f"Topic: {topic[:80]}{'...' if len(topic) > 80 else ''}",
-      f"SectionBuilder provider: {section_builder_provider}",
-      f"SectionBuilder model: {section_builder_model or 'default'}",
-      f"Planner provider: {planner_provider}",
-      f"Planner model: {planner_model or 'default'}",
-      f"Repairer provider: {repairer_provider}",
-      f"Repairer model: {repairer_model or 'default'}",
-    ]
-
-    Msgs = list[str] | None  # noqa: N806
-
-    async def _progress_callback(phase: str, subphase: str | None, messages: Msgs = None, advance: bool = True, partial_json: dict[str, Any] | None = None, section_progress: SectionProgressUpdate | None = None) -> None:
-      if tracker is None:
-        return
-
-      # Active guardrail check
-      if timeout_checker and await timeout_checker():
-        # Note: We can't easily raise an exception here that Orchestrator will catch nicely,
-        # but Orchestrator has its own try/except now.
-        # If we raise here, Orchestrator will catch it and return partial usage.
-        raise TimeoutError("Job hit timeout during orchestration.")
-
-      # Check for cancellation
-      # note: dropped synchronous cancellation check to avoid async issues in callback
-      # record = await self._jobs_repo.get_job(job_id)
-      # if record and record.status == "canceled":
-      #   raise JobCanceledError(f"Job {job_id} was canceled during orchestration.")
-
-      # Map orchestrator section updates into tracker-friendly metadata.
-      tracker_section: SectionProgress | None = None
-
-      if section_progress is not None:
-        merged_completed_sections = (section_progress.completed_sections or 0) + base_completed_sections
-        tracker_section = SectionProgress(index=section_progress.index, title=section_progress.title, status=section_progress.status, retry_count=section_progress.retry_count, completed_sections=merged_completed_sections)
-
-        # Keep track of completed retry indexes for partial merge payloads.
-        if retry_completed_indexes is not None and section_progress.status == "completed":
-          if section_progress.index not in retry_completed_indexes:
-            retry_completed_indexes.append(section_progress.index)
-        # Section quota reservations are handled inside agents to keep accounting local.
-
-      log_message = "; ".join(messages or [])
-      # merged_partial removed (unused)
-
-      if advance:
-        await tracker.complete_step(phase=phase, subphase=subphase, message=log_message or None, result_json=partial_json, expected_sections=expected_sections, section_progress=tracker_section)
-      else:
-        if log_message:
-          tracker.add_logs(log_message)
-
-        await tracker.set_phase(phase=phase, subphase=subphase, result_json=partial_json, expected_sections=expected_sections, section_progress=tracker_section)
-
-    async def _job_creator(target_agent: str, payload: dict[str, Any]) -> None:
-      # Fetch parent metadata so child jobs inherit the user id.
-      parent_record = await self._jobs_repo.get_job(job_id)
-      parent_user_id = parent_record.user_id if parent_record is not None else None
-      parent_artifacts = dict(parent_record.artifacts or {}) if parent_record is not None else None
-      child_jobs = list(parent_artifacts.get("child_jobs") or []) if parent_artifacts is not None else []
-      new_job_id = str(uuid.uuid4())
-      timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-      request = {"payload": payload, "_meta": {"parent_job_id": job_id}}
-      record = JobRecord(
-        job_id=new_job_id,
-        user_id=parent_user_id,
-        job_kind=(parent_record.job_kind if parent_record is not None else "lesson"),
-        request=request,
-        status="queued",
-        parent_job_id=job_id,
-        lesson_id=parent_record.lesson_id if parent_record is not None else None,
-        section_id=None,
-        target_agent=target_agent,
-        created_at=timestamp,
-        updated_at=timestamp,
-        phase="queued",
-        logs=[],
-        idempotency_key=f"{new_job_id}:{target_agent}",
-      )
-      await self._jobs_repo.create_job(record)
-      # Track child jobs in the parent artifacts so the UI can retry them.
-      if parent_artifacts is not None:
-        child_jobs.append({"job_id": new_job_id, "target_agent": target_agent, "status": "queued"})
-        parent_artifacts["child_jobs"] = child_jobs
-        await self._jobs_repo.update_job(job_id, artifacts=parent_artifacts)
-      # Enqueue the child job immediately so it executes without manual intervention.
-      enqueuer = get_task_enqueuer(self._settings)
-      try:
-        await enqueuer.enqueue(new_job_id, {})
-      except Exception:  # noqa: BLE001
-        await self._jobs_repo.update_job(new_job_id, status="error", phase="error", logs=["Enqueue failed: CHILD_TASK_ENQUEUE_FAILED"])
-        if parent_artifacts is not None:
-          updated_child_jobs = []
-          for child in child_jobs:
-            if child.get("job_id") == new_job_id:
-              updated_child_jobs.append({"job_id": new_job_id, "target_agent": target_agent, "status": "error"})
-            else:
-              updated_child_jobs.append(child)
-          parent_artifacts["child_jobs"] = updated_child_jobs
-          await self._jobs_repo.update_job(job_id, artifacts=parent_artifacts)
-        await _notify_child_job_failed(settings=self._settings, parent_job=parent_record, child_job_id=new_job_id)
-
-    # Forward settings and user metadata so agents can reserve quota locally.
-    # Merge with provided job_metadata (containing lesson_id) or start fresh
-    combined_metadata = dict(job_metadata or {})
-    combined_metadata.setdefault("settings", self._settings)
-    if quota_user_id is not None:
-      combined_metadata["user_id"] = str(quota_user_id)
-    result = await orchestrator.generate_lesson(
-      job_id=job_id,
-      topic=topic,
-      details=request_model.details,
-      outcomes=request_model.outcomes,
-      blueprint=request_model.blueprint,
-      teaching_style=request_model.teaching_style,
-      learner_level=learner_level,
-      depth=request_model.depth,
-      widgets=request_model.widgets,
-      schema_version=schema_version,
-      section_builder_model=section_builder_model,
-      structured_output=True,
-      language=language,
-      progress_callback=_progress_callback,
-      section_filter=retry_section_numbers,
-      enable_repair=enable_repair,
-      job_creator=_job_creator,
-      job_metadata=combined_metadata,
-    )
-
-    merged_logs = list(_merge_logs(logs, result.logs))
-
-    if tracker is not None:
-      await tracker.set_phase(phase="validate", subphase="validation", expected_sections=expected_sections)
-
-    return OrchestrationResult(
-      # lesson_json used to be here
-      provider_a=result.provider_a,
-      model_a=result.model_a,
-      provider_b=result.provider_b,
-      model_b=result.model_b,
-      validation_errors=result.validation_errors,
-      logs=merged_logs,
-      usage=result.usage,
-      total_cost=result.total_cost,
-      artifacts=result.artifacts,
-    )
 
 
 def _strip_internal_request_fields(request: dict[str, Any]) -> dict[str, Any]:
@@ -1329,6 +947,18 @@ def _extract_quota_metric(error_message: str) -> str | None:
   if "quota" in lowered:
     return "unknown"
   return None
+
+
+def _extract_non_blocking_length_errors(errors: list[str]) -> list[str]:
+  """Return validation errors that only describe string/item length constraints."""
+  non_blocking_errors: list[str] = []
+  for error_message in errors:
+    lowered = str(error_message).lower()
+    if "length" not in lowered:
+      continue
+    if "expected `str`" in lowered or "expected `array`" in lowered:
+      non_blocking_errors.append(error_message)
+  return non_blocking_errors
 
 
 def _extract_user_id(job_request: dict[str, Any]) -> uuid.UUID | None:
@@ -1463,6 +1093,35 @@ def _section_contains_fenster(section_payload: dict[str, Any]) -> bool:
   return False
 
 
+def _extract_widget_public_ids(section_payload: dict[str, Any], *, widget_type: str) -> list[str]:
+  """Collect public widget ids from subsection items for a specific widget type."""
+  collected: list[str] = []
+  if not isinstance(section_payload, dict):
+    return collected
+  subsections = section_payload.get("subsections")
+  if not isinstance(subsections, list):
+    return collected
+  for subsection in subsections:
+    if not isinstance(subsection, dict):
+      continue
+    items = subsection.get("items")
+    if not isinstance(items, list):
+      continue
+    for item in items:
+      if not isinstance(item, dict):
+        continue
+      widget_payload = item.get(widget_type)
+      if isinstance(widget_payload, list) and widget_payload:
+        maybe_id = widget_payload[-1]
+        if isinstance(maybe_id, str) and maybe_id.strip():
+          collected.append(maybe_id.strip())
+      if isinstance(widget_payload, dict):
+        maybe_id = widget_payload.get("id")
+        if isinstance(maybe_id, str) and maybe_id.strip():
+          collected.append(maybe_id.strip())
+  return collected
+
+
 def _extract_section_illustration_id(section_content: dict[str, Any] | None) -> int | None:
   """Return the active illustration id from section content when present."""
   if not isinstance(section_content, dict):
@@ -1520,59 +1179,191 @@ def _derive_illustration_metadata_from_payload(payload: dict[str, Any], section_
   return caption, ai_prompt, keywords
 
 
-_ALLOWED_RETRY_AGENTS = {"planner", "gatherer", "structurer", "repair"}
+async def _update_subsection_widget_status(*, section_id: int, widget_types: tuple[str, ...], status: str, widget_id: str | None = None, public_ids: list[str] | None = None) -> None:
+  """Best-effort update for subsection widget lifecycle status after child-job completion."""
+  if section_id <= 0:
+    return
+  if not widget_types:
+    return
+  session_factory = get_session_factory()
+  if session_factory is None:
+    return
+  normalized_types = {item.strip().lower() for item in widget_types if item.strip()}
+  if not normalized_types:
+    return
+  normalized_public_ids = {item.strip() for item in (public_ids or []) if item and item.strip()}
+  try:
+    async with session_factory() as session:
+      stmt = select(SubsectionWidget).join(Subsection, Subsection.id == SubsectionWidget.subsection_id).where(Subsection.section_id == section_id)
+      result = await session.execute(stmt)
+      rows = result.scalars().all()
+      changed = False
+      for row in rows:
+        row_widget_type = str(row.widget_type or "").strip().lower()
+        if row_widget_type not in normalized_types:
+          continue
+        if normalized_public_ids and str(row.public_id or "").strip() not in normalized_public_ids:
+          continue
+        row.status = status
+        if widget_id is not None:
+          row.widget_id = widget_id
+        session.add(row)
+        changed = True
+      if changed:
+        await session.commit()
+  except Exception:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed updating subsection widget status for section_id=%s", section_id, exc_info=True)
 
 
-def _normalize_retry_agents(raw_agents: list[str] | None) -> set[str] | None:
-  """Normalize retry agent names for downstream orchestration controls."""
-
-  if not raw_agents:
+async def _resolve_section_widget_public_id(*, section_id: int, widget_type: str) -> str | None:
+  """Best-effort lookup of the first subsection widget public id for a section/widget type."""
+  if section_id <= 0:
+    return None
+  normalized_widget_type = widget_type.strip().lower()
+  if normalized_widget_type == "":
+    return None
+  session_factory = get_session_factory()
+  if session_factory is None:
+    return None
+  try:
+    async with session_factory() as session:
+      stmt = (
+        select(SubsectionWidget.public_id)
+        .join(Subsection, Subsection.id == SubsectionWidget.subsection_id)
+        .where(Subsection.section_id == section_id, SubsectionWidget.widget_type == normalized_widget_type, SubsectionWidget.is_archived.is_(False), Subsection.is_archived.is_(False))
+        .order_by(Subsection.subsection_index.asc(), SubsectionWidget.widget_index.asc())
+        .limit(1)
+      )
+      result = await session.execute(stmt)
+      value = result.scalar_one_or_none()
+      return str(value).strip() if isinstance(value, str) and value.strip() else None
+  except Exception:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed resolving subsection widget public id for section_id=%s widget_type=%s", section_id, normalized_widget_type, exc_info=True)
     return None
 
-  # Normalize agent names for consistency in retry logic.
-  normalized = {agent.strip().lower() for agent in raw_agents if agent.strip()}
-  unknown = sorted(normalized - _ALLOWED_RETRY_AGENTS)
 
-  if unknown:
-    raise ValueError(f"Unsupported retry agents: {', '.join(unknown)}")
-
-  return normalized
-
-
-def _normalize_retry_section_indexes(raw_sections: list[int] | None, expected_sections: int) -> list[int] | None:
-  """Normalize 0-based retry section indexes with bounds validation."""
-
-  if raw_sections is None:
+async def _resolve_fenster_widget_by_subsection_mapping(*, session: Any, section_id: int, subsection_widget_public_ids: list[str]) -> FensterWidget | None:
+  """Resolve a fenster row from subsection widget mappings for the current section."""
+  if section_id <= 0:
     return None
+  candidate_public_ids = [str(item).strip() for item in subsection_widget_public_ids if str(item).strip()]
+  if not candidate_public_ids:
+    return None
+  mapping_stmt = (
+    select(SubsectionWidget.widget_id)
+    .join(Subsection, Subsection.id == SubsectionWidget.subsection_id)
+    .where(Subsection.section_id == section_id, SubsectionWidget.widget_type == "fenster", SubsectionWidget.public_id.in_(candidate_public_ids), SubsectionWidget.is_archived.is_(False), Subsection.is_archived.is_(False))
+    .limit(1)
+  )
+  mapping_row = (await session.execute(mapping_stmt)).first()
+  if mapping_row is None or mapping_row.widget_id is None:
+    return None
+  widget_stmt = select(FensterWidget).where(FensterWidget.public_id == str(mapping_row.widget_id)).limit(1)
+  return (await session.execute(widget_stmt)).scalar_one_or_none()
 
-  # Deduplicate and sort while ensuring indexes are within bounds.
-  unique = sorted(set(raw_sections))
-  invalid = [index for index in unique if index < 0 or index >= expected_sections]
 
-  if invalid:
-    raise ValueError("Retry section indexes are out of range.")
+async def _update_lesson_request_status(*, lesson_request_id: int | None, status: str) -> None:
+  """Best-effort update for lesson request lifecycle status."""
+  if lesson_request_id is None:
+    return
+  session_factory = get_session_factory()
+  if session_factory is None:
+    return
+  try:
+    async with session_factory() as session:
+      row = await session.get(LessonRequest, int(lesson_request_id))
+      if row is None:
+        return
+      row.status = status
+      session.add(row)
+      await session.commit()
+  except Exception:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed updating lesson_request status for lesson_request_id=%s", lesson_request_id, exc_info=True)
 
-  return unique
+
+async def _update_section_status(*, section_id: int | None, status: str) -> None:
+  """Best-effort update for section lifecycle status."""
+  if section_id is None:
+    return
+  session_factory = get_session_factory()
+  if session_factory is None:
+    return
+  try:
+    async with session_factory() as session:
+      row = await session.get(Section, int(section_id))
+      if row is None:
+        return
+      row.status = status
+      session.add(row)
+      await session.commit()
+  except Exception:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed updating section status for section_id=%s", section_id, exc_info=True)
 
 
-def _to_section_numbers(indexes: list[int]) -> set[int]:
-  """Convert 0-based indexes into 1-based section numbers."""
-  # Orchestrator expects section numbers (1-based) rather than indexes.
-  return {index + 1 for index in indexes}
+async def _mark_lesson_pipeline_failed(*, lesson_id: str) -> None:
+  """Best-effort failure propagation for lesson and linked lesson request rows."""
+  if lesson_id.strip() == "":
+    return
+  session_factory = get_session_factory()
+  if session_factory is None:
+    return
+  try:
+    async with session_factory() as session:
+      lesson_row = await session.get(Lesson, lesson_id)
+      if lesson_row is None:
+        return
+      lesson_row.status = "failed"
+      session.add(lesson_row)
+      linked_lesson_request_id = int(lesson_row.lesson_request_id) if lesson_row.lesson_request_id is not None else None
+      if linked_lesson_request_id is not None:
+        lesson_request_row = await session.get(LessonRequest, linked_lesson_request_id)
+        if lesson_request_row is not None:
+          lesson_request_row.status = "failed"
+          session.add(lesson_request_row)
+      await session.commit()
+  except Exception:  # noqa: BLE001
+    logging.getLogger(__name__).error("Failed propagating failure status for lesson_id=%s", lesson_id, exc_info=True)
 
 
-def _infer_completed_section_indexes(record: JobRecord) -> list[int]:
-  """Infer completed section indexes when explicit tracking is missing."""
-
-  if record.completed_section_indexes:
-    return list(record.completed_section_indexes)
-
-  # Fall back to result_json length when explicit indexes are unavailable.
-  if record.result_json:
-    blocks = record.result_json.get("blocks")
-    if isinstance(blocks, list):
-      return list(range(len(blocks)))
-
-  # Use completed_sections as a last resort when other data is missing.
-  count = record.completed_sections or 0
-  return list(range(count))
+def _remove_widget_items_by_public_id(*, section_payload: dict[str, Any], section_index: int, widget_type: str, public_ids: list[str]) -> list[str]:
+  """Remove subsection widget items by public id and return removed widget CSV references."""
+  removed_refs: list[str] = []
+  if not isinstance(section_payload, dict):
+    return removed_refs
+  target_public_ids = {str(item).strip() for item in public_ids if str(item).strip()}
+  if not target_public_ids:
+    return removed_refs
+  subsections = section_payload.get("subsections")
+  if not isinstance(subsections, list):
+    return removed_refs
+  normalized_type = str(widget_type).strip()
+  for subsection_position, subsection in enumerate(subsections, start=1):
+    if not isinstance(subsection, dict):
+      continue
+    items = subsection.get("items")
+    if not isinstance(items, list):
+      continue
+    retained_items: list[Any] = []
+    for widget_position, item in enumerate(items, start=1):
+      if not isinstance(item, dict):
+        retained_items.append(item)
+        continue
+      widget_payload = item.get(normalized_type)
+      if not isinstance(widget_payload, list) and not isinstance(widget_payload, dict):
+        retained_items.append(item)
+        continue
+      widget_public_id = None
+      if isinstance(widget_payload, list) and widget_payload:
+        maybe_public_id = widget_payload[-1]
+        if isinstance(maybe_public_id, str) and maybe_public_id.strip():
+          widget_public_id = maybe_public_id.strip()
+      if isinstance(widget_payload, dict):
+        maybe_public_id = widget_payload.get("id")
+        if isinstance(maybe_public_id, str) and maybe_public_id.strip():
+          widget_public_id = maybe_public_id.strip()
+      if widget_public_id not in target_public_ids:
+        retained_items.append(item)
+        continue
+      removed_refs.append(f"{section_index}.{subsection_position}.{widget_position}.{normalized_type}")
+    subsection["items"] = retained_items
+  return removed_refs
