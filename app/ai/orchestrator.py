@@ -21,6 +21,7 @@ from app.ai.utils.progress import SectionProgressUpdate, create_section_progress
 from app.core.database import get_session_factory
 from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
+from app.services.feature_flags import resolve_feature_flag_decision
 from app.services.quota_buckets import get_quota_snapshot
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
@@ -28,6 +29,7 @@ from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 
 OptStr = str | None
 Msgs = list[str] | None
+RuntimeConfig = dict[str, Any]
 ProgressCallback = Callable[[str, OptStr, Msgs, bool, dict[str, Any] | None, Optional["SectionProgressUpdate"]], Awaitable[None]] | None
 JobCreator = Callable[[str, dict[str, Any]], Awaitable[None]] | None
 DEFAULT_MODEL = "gemini-2.5-pro"
@@ -281,7 +283,7 @@ class DylenOrchestrator:
     if job_creator and ctx.lesson_plan:
       await self._create_widget_jobs(ctx.lesson_plan, ctx.job_context, job_creator, logger)
 
-  async def _resolve_runtime_config(self, job_context: JobContext, logger: logging.Logger) -> dict[str, Any]:
+  async def _resolve_runtime_config(self, job_context: JobContext, logger: logging.Logger) -> RuntimeConfig:
     session_factory = get_session_factory()
     user_id_str = (job_context.metadata or {}).get("user_id")
     settings = (job_context.metadata or {}).get("settings")
@@ -298,6 +300,25 @@ class DylenOrchestrator:
       except Exception as exc:
         logger.warning("Failed to resolve runtime config: %s", exc)
     return runtime_config
+
+  async def _resolve_tutor_mode_enabled(self, job_context: JobContext, logger: logging.Logger) -> bool:
+    """Resolve whether tutor mode is enabled for this job context."""
+    session_factory = get_session_factory()
+    user_id_str = (job_context.metadata or {}).get("user_id")
+    user_id = uuid.UUID(str(user_id_str)) if user_id_str else None
+    if session_factory is None or user_id is None:
+      return False
+    try:
+      async with session_factory() as session:
+        user = await get_user_by_id(session, user_id)
+        if user is None:
+          return False
+        tier_id, _ = await get_user_subscription_tier(session, user.id)
+        decision = await resolve_feature_flag_decision(session, key="feature.tutor.mode", org_id=user.org_id, subscription_tier_id=tier_id, user_id=user.id)
+        return bool(decision.enabled)
+    except Exception as exc:
+      logger.warning("Failed to resolve tutor mode feature flag: %s", exc)
+      return False
 
   async def _create_widget_jobs(self, plan: LessonPlan, job_context: JobContext, job_creator: Callable[[str, dict[str, Any]], Awaitable[None]], logger: logging.Logger) -> None:
     session_factory = get_session_factory()
@@ -346,6 +367,9 @@ class DylenOrchestrator:
     target_section_count = len(target_sections) if target_sections is not None else ctx.section_count
 
     runtime_config = await self._resolve_runtime_config(ctx.job_context, logger)
+    tutor_mode_enabled = await self._resolve_tutor_mode_enabled(ctx.job_context, logger)
+    if not tutor_mode_enabled:
+      logger.info("Tutor mode feature flag disabled. Tutor jobs will be skipped.")
 
     if not enable_repair:
       msg = "Repair is disabled; pipeline will stop on invalid sections."
@@ -357,7 +381,7 @@ class DylenOrchestrator:
       if target_sections is not None and section_index not in target_sections:
         continue
 
-      await self._generate_section(ctx, agents, logger, plan_section, sections, enable_repair, job_creator, runtime_config)
+      await self._generate_section(ctx, agents, logger, plan_section, sections, enable_repair, job_creator, runtime_config, tutor_mode_enabled)
 
     # Validation of collected sections
     if len(sections) < target_section_count:
@@ -371,7 +395,9 @@ class DylenOrchestrator:
       await ctx.progress_reporter("collect", "missing_sections", [error_msg], advance=False)
       raise OrchestrationError(error_msg, logs=list(ctx.logs))
 
-  async def _generate_section(self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, plan_section: Any, sections: dict[int, SectionDraft], enable_repair: bool, job_creator: JobCreator, runtime_config: dict[str, Any]) -> None:
+  async def _generate_section(
+    self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, plan_section: Any, sections: dict[int, SectionDraft], enable_repair: bool, job_creator: JobCreator, runtime_config: RuntimeConfig, tutor_mode_on: bool
+  ) -> None:
     section_index = plan_section.section_number
 
     subphase = f"build_section_{section_index}_of_{ctx.section_count}"
@@ -391,10 +417,10 @@ class DylenOrchestrator:
     ctx.draft_artifacts.append(draft.model_dump(mode="python"))
     ctx.structured_artifacts.append(structured.model_dump(mode="python"))
 
-    await self._validate_and_repair_section(ctx, agents, logger, draft, structured, section_index, enable_repair, job_creator, runtime_config)
+    await self._validate_and_repair_section(ctx, agents, logger, draft, structured, section_index, enable_repair, job_creator, runtime_config, tutor_mode_on)
 
   async def _validate_and_repair_section(
-    self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, draft: SectionDraft, structured: StructuredSection, section_index: int, enable_repair: bool, job_creator: JobCreator, runtime_config: dict[str, Any]
+    self, ctx: _OrchestrationContext, agents: _AgentsBundle, logger: logging.Logger, draft: SectionDraft, structured: StructuredSection, section_index: int, enable_repair: bool, job_creator: JobCreator, runtime_config: RuntimeConfig, tutor_mode_on: bool
   ) -> None:
     # If validation errors exist, try to repair (unless disabled)
     if structured.validation_errors:
@@ -472,31 +498,34 @@ class DylenOrchestrator:
       else:
         logger.info("Illustration disabled (limit=0). Skipping illustration job for section %s", section_index)
 
-      # Check tutor quota
-      tutor_limit = int(runtime_config.get("limits.tutor_sections_per_month") or 0)
-      if tutor_limit > 0:
-        # Check remaining quota
-        session_factory = get_session_factory()
-        user_id_str = (ctx.job_context.metadata or {}).get("user_id")
-        user_id = uuid.UUID(str(user_id_str)) if user_id_str else None
+      # Enforce tutor mode feature-gate before quota checks or child-job creation.
+      if tutor_mode_on:
+        tutor_limit = int(runtime_config.get("limits.tutor_sections_per_month") or 0)
+        if tutor_limit > 0:
+          # Check remaining quota
+          session_factory = get_session_factory()
+          user_id_str = (ctx.job_context.metadata or {}).get("user_id")
+          user_id = uuid.UUID(str(user_id_str)) if user_id_str else None
 
-        has_quota = True
-        if session_factory and user_id:
-          try:
-            async with session_factory() as session:
-              snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key="tutor.generate", period=QuotaPeriod.MONTH, limit=tutor_limit)
-              if snapshot.remaining <= 0:
-                has_quota = False
-                logger.warning("Tutor quota exhausted for user %s. Skipping tutor job.", user_id)
-          except Exception as exc:
-            logger.error("Failed to check tutor quota: %s", exc)
+          has_quota = True
+          if session_factory and user_id:
+            try:
+              async with session_factory() as session:
+                snapshot = await get_quota_snapshot(session, user_id=user_id, metric_key="tutor.generate", period=QuotaPeriod.MONTH, limit=tutor_limit)
+                if snapshot.remaining <= 0:
+                  has_quota = False
+                  logger.warning("Tutor quota exhausted for user %s. Skipping tutor job.", user_id)
+            except Exception as exc:
+              logger.error("Failed to check tutor quota: %s", exc)
 
-        if has_quota:
-          payload = {"section_index": section_index, "topic": ctx.topic, "section_data": section_json, "learning_data_points": section_json.get("learning_data_points", [])}
-          await job_creator("tutor", payload)
-          logger.info("Created tutor job for section %s", section_index)
+          if has_quota:
+            payload = {"section_index": section_index, "topic": ctx.topic, "section_data": section_json, "learning_data_points": section_json.get("learning_data_points", [])}
+            await job_creator("tutor", payload)
+            logger.info("Created tutor job for section %s", section_index)
+        else:
+          logger.info("Tutor disabled (limit=0). Skipping tutor job for section %s", section_index)
       else:
-        logger.info("Tutor disabled (limit=0). Skipping tutor job for section %s", section_index)
+        logger.info("Tutor mode flag disabled. Skipping tutor job for section %s", section_index)
 
     await ctx.progress_reporter(
       "transform",

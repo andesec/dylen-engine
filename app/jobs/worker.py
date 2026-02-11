@@ -38,6 +38,7 @@ from app.schema.lessons import Section
 from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
 from app.services.data_transfer_bundle import execute_export_run, execute_hydrate_run
+from app.services.feature_flags import resolve_feature_flag_decision
 from app.services.maintenance import archive_old_lessons
 from app.services.model_routing import _get_orchestrator, resolve_agent_defaults
 from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
@@ -499,11 +500,34 @@ class JobProcessor:
     await tracker.set_phase(phase="building", subphase="generating_audio")
 
     try:
-      # Use section_builder_provider settings as default for tutor generation.
-      provider = self._settings.section_builder_provider
-      model_name = self._settings.section_builder_model
+      # Resolve runtime-configured provider/model and feature-gate status for tutor generation.
+      session_factory = get_session_factory()
+      runtime_config: dict[str, Any] = {}
+      tutor_mode_enabled = False
+      if session_factory and job.user_id:
+        try:
+          parsed_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          parsed_user_id = None
+        if parsed_user_id is not None:
+          async with session_factory() as session:
+            user = await get_user_by_id(session, parsed_user_id)
+            if user is not None:
+              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+              decision = await resolve_feature_flag_decision(session, key="feature.tutor.mode", org_id=user.org_id, subscription_tier_id=tier_id, user_id=user.id)
+              tutor_mode_enabled = bool(decision.enabled)
 
-      model_instance = get_model_for_mode(provider, model_name, agent="tutor")
+      if not tutor_mode_enabled:
+        completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Tutor mode disabled. Skipping audio generation."], "result_json": {"audio_ids": [], "count": 0, "skipped": True}, "completed_at": completed_at}
+        updated = await self._jobs_repo.update_job(job.job_id, **payload)
+        return updated
+
+      provider = str(runtime_config.get("ai.tutor.provider") or self._settings.tutor_provider)
+      model_name = str(runtime_config.get("ai.tutor.model") or self._settings.tutor_model or "")
+
+      model_instance = get_model_for_mode(provider, model_name or None, agent="tutor")
       schema_service = SchemaService()
 
       usage_list = []

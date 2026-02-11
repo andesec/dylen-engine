@@ -34,6 +34,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _initialize_logging(settings)
     # Emit a startup confirmation log for operators.
     logger.info("Startup complete - logging verified.")
+    # Log effective LLM audit toggles so cloud misconfiguration is visible immediately.
+    logger.info("LLM audit config enabled=%s pg_dsn_set=%s", bool(settings.llm_audit_enabled), bool(settings.pg_dsn))
     # Enforce startup env contracts before app dependencies are initialized.
     validate_runtime_env_or_raise(logger=logger, target="service")
 

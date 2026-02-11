@@ -136,6 +136,13 @@ def _required_key_names(*, target: str) -> set[str]:
   return {definition.name for definition in REQUIRED_ENV_REGISTRY if definition.required and definition.used_by in allowed_targets}
 
 
+def _required_key_name_set_for_all_targets() -> set[str]:
+  """Return required keys across service and migrator contracts."""
+  from app.core.env_contract import REQUIRED_ENV_REGISTRY
+
+  return {definition.name for definition in REQUIRED_ENV_REGISTRY if definition.required}
+
+
 def _known_key_names(*, target: str) -> set[str]:
   """Collect known keys from the centralized runtime env registry."""
   from app.core.env_contract import REQUIRED_ENV_REGISTRY
@@ -160,6 +167,7 @@ def main() -> None:
   parser.add_argument("--project-id", required=True, help="Target GCP project ID.")
   parser.add_argument("--env-file", required=True, help="Path to local dotenv file (e.g. .env-stage).")
   parser.add_argument("--prefix", default="", help="Optional secret name prefix, e.g. STAGE_.")
+  parser.add_argument("--default-dylen-env", choices=["development", "stage", "production", "test"], help="Set DYLEN_ENV to this value when it is missing from the env file.")
   parser.add_argument("--dry-run", action="store_true", help="Print planned actions without writing secrets.")
   parser.add_argument("--allow-unknown", action="store_true", help="Allow keys outside REQUIRED_ENV_REGISTRY.")
   parser.add_argument("--target", choices=["service", "migrator", "both"], default="service", help="Validate keys for service, migrator, or both contracts.")
@@ -170,6 +178,11 @@ def main() -> None:
     raise RuntimeError(f"Env file not found: {env_file}")
 
   env_values = _parse_dotenv_file(env_file=env_file)
+  if "DYLEN_ENV" not in env_values and args.default_dylen_env:
+    # Provide an explicit fallback so stage/prod syncs can remain strict without editing local files each run.
+    env_values["DYLEN_ENV"] = args.default_dylen_env
+    print(f"INFO defaulted DYLEN_ENV={args.default_dylen_env}")
+
   known_keys = _known_key_names(target=args.target)
   required_keys = _required_key_names(target=args.target)
   unknown_keys = sorted([key for key in env_values if key not in known_keys])
@@ -194,9 +207,16 @@ def main() -> None:
   updated_count = 0
   unchanged_count = 0
   failed_count = 0
+  skipped_empty_count = 0
+  required_key_set = _required_key_name_set_for_all_targets()
 
   for key, value in sorted(env_values.items(), key=lambda item: item[0]):
     if key in unknown_keys and not args.allow_unknown:
+      continue
+
+    if value == "" and key not in required_key_set:
+      skipped_empty_count += 1
+      print(f"SKIPPED_EMPTY secret {key}")
       continue
 
     secret_name = _normalize_secret_name(key=key, prefix=args.prefix)
@@ -226,7 +246,7 @@ def main() -> None:
       failed_count += 1
       print(f"FAILED secret {secret_name}: {exc}")
 
-  print(f"SUMMARY created={created_count} updated={updated_count} unchanged={unchanged_count} failed={failed_count}")
+  print(f"SUMMARY created={created_count} updated={updated_count} unchanged={unchanged_count} skipped_empty={skipped_empty_count} failed={failed_count}")
   if failed_count > 0:
     raise RuntimeError("One or more secrets failed to sync.")
 

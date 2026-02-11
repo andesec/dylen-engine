@@ -1,14 +1,16 @@
 import datetime
 import time
 import uuid
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
+import msgspec
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.api.msgspec_utils import encode_msgspec_response
 from app.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.firebase import build_rbac_claims, set_custom_claims
@@ -37,6 +39,15 @@ T = TypeVar("T")
 
 class PaginatedResponse[T](BaseModel):
   items: list[T]
+  total: int
+  limit: int
+  offset: int
+
+
+class MsgspecPaginatedResponse(msgspec.Struct):
+  """Serialize paginated payloads using msgspec to avoid Pydantic conversions."""
+
+  items: list[Any]
   total: int
   limit: int
   offset: int
@@ -1062,7 +1073,7 @@ async def list_fenster_widgets(page: int = Query(1, ge=1), limit: int = Query(20
 
   repo = PostgresFensterRepository()
   items, total = await repo.list_fenster(page=page, limit=limit, fenster_id=fenster_id, widget_type=widget_type, sort_by=sort_by, sort_order=sort_order)
-  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
+  return encode_msgspec_response(MsgspecPaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit))
 
 
 # Illustrations Endpoint
@@ -1082,7 +1093,7 @@ async def list_illustrations(
 
   repo = PostgresIllustrationsRepository()
   items, total = await repo.list_illustrations(page=page, limit=limit, status=status, is_archived=is_archived, mime_type=mime_type, section_id=section_id, sort_by=sort_by, sort_order=sort_order)
-  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
+  return encode_msgspec_response(MsgspecPaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit))
 
 
 # Tutor Audios Endpoint
@@ -1093,4 +1104,4 @@ async def list_tutor_audios(page: int = Query(1, ge=1), limit: int = Query(20, g
 
   repo = PostgresTutorAudioRepository()
   items, total = await repo.list_tutor_audios(page=page, limit=limit, job_id=job_id, section_number=section_number, sort_by=sort_by, sort_order=sort_order)
-  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
+  return encode_msgspec_response(MsgspecPaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit))

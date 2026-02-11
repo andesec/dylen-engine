@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import msgspec
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, select
 
 from app.core.database import get_session_factory
 from app.schema.jobs import Job
@@ -40,7 +40,14 @@ class PostgresTutorAudioRepository:
       offset = (page - 1) * limit
 
       # Build base query with joins for enriched data
-      stmt = select(TutorAudio, Job.lesson_id, User.email).outerjoin(Job, Job.job_id == TutorAudio.job_id).outerjoin(User, User.id == Job.user_id).limit(limit).offset(offset)
+      stmt = (
+        select(TutorAudio, Job.lesson_id, User.email)
+        .outerjoin(Job, Job.job_id == TutorAudio.job_id)
+        # jobs.user_id is stored as varchar, so cast users.id for a type-safe join.
+        .outerjoin(User, cast(User.id, String) == Job.user_id)
+        .limit(limit)
+        .offset(offset)
+      )
 
       count_stmt = select(func.count()).select_from(TutorAudio)
 
