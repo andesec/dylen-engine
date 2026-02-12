@@ -54,12 +54,11 @@ class RepairerModel(str, Enum):
   GEMINI_25_FLASH = "gemini-2.5-flash"
 
 
-class GenerateLessonRequest(BaseModel):
-  """Request payload for lesson generation."""
+class BaseLessonRequest(BaseModel):
+  """Shared request payload for lesson generation and outcomes preflight."""
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
   details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
-  outcomes: list[OutcomeText] = Field(min_length=1, max_length=8, description="Required outcomes to guide the planner.")
   blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] = Field(
     description="Required blueprint guidance for lesson planning."
   )
@@ -165,11 +164,21 @@ class GenerateLessonRequest(BaseModel):
     return widgets
 
   @model_validator(mode="after")
-  def validate_secondary_language_scope(self) -> GenerateLessonRequest:
+  def validate_secondary_language_scope(self) -> BaseLessonRequest:
     """Restrict secondary language usage to language practice blueprint only."""
     if self.secondary_language is not None and self.blueprint != "languagepractice":
       raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")
     return self
+
+
+class GenerateLessonRequest(BaseLessonRequest):
+  """Request payload for lesson generation."""
+
+  outcomes: list[OutcomeText] = Field(min_length=1, max_length=8, description="Required outcomes to guide the planner.")
+
+
+class GenerateOutcomesRequest(BaseLessonRequest):
+  """Request payload for outcomes preflight."""
 
 
 class LessonMeta(BaseModel):
@@ -304,7 +313,7 @@ class LessonJobResponse(JobCreateResponse):
   lesson_id: StrictStr
 
 
-RetryAgent = Literal["planner", "section_builder", "repair"]
+RetryAgent = Literal["planner", "section_builder", "illustration", "tutor", "fenster_builder"]
 
 
 class JobRetryRequest(BaseModel):
@@ -350,4 +359,10 @@ class JobStatusResponse(BaseModel):
   status: JobStatus
   child_jobs: list[ChildJobStatus] | None = None
   lesson_id: StrictStr | None = None
+  requested_job_id: StrictStr | None = None
+  resolved_job_id: StrictStr | None = None
+  was_superseded: bool = False
+  superseded_by_job_id: StrictStr | None = None
+  superseded_job_id: StrictStr | None = None
+  follow_from_job_id: StrictStr | None = None
   model_config = ConfigDict(populate_by_name=True)

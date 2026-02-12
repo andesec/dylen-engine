@@ -175,7 +175,7 @@ async def _queue_maintenance_job(*, job_id: str, current_user: User, payload: di
   )
   repo = PostgresJobsRepository()
   await repo.create_job(record)
-  trigger_job_processing(background_tasks, job_id, settings)
+  trigger_job_processing(background_tasks, job_id, settings, auto_process=True)
   return job_id
 
 

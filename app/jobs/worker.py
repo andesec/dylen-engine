@@ -40,7 +40,7 @@ from app.services.data_transfer_bundle import execute_export_run, execute_hydrat
 from app.services.feature_flags import resolve_feature_flag_decision
 from app.services.maintenance import archive_old_lessons
 from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
-from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.runtime_config import get_fenster_model, get_illustration_model, get_planner_model, get_repair_model, get_section_builder_model, get_tutor_model, resolve_effective_runtime_config
 from app.services.section_shorthand import build_section_shorthand_content
 from app.services.storage_client import build_storage_client
 from app.services.tasks.factory import get_task_enqueuer
@@ -91,14 +91,15 @@ class JobProcessor:
     if target_agent == "lesson":
       target_agent = "planner"
     if target_agent == "":
-      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=list(job.logs or []) + ["Missing target_agent on queued job."])
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=list(job.logs or []) + ["Missing target_agent on queued job."], error_json={"message": "Missing target_agent on queued job."})
       return None
+    await self._jobs_repo.update_job(job.job_id, status="running")
     try:
       result = await dispatch_process_job(job, target_agent, self._registry, self._jobs_repo, get_task_enqueuer(self._settings), None, self._settings)
       return result.record
     except Exception as exc:  # noqa: BLE001
       self._logger.error("Job processor dispatch failed for job %s", job.job_id, exc_info=True)
-      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=list(job.logs or []) + [f"Dispatch failed: {exc}"])
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=list(job.logs or []) + [f"Dispatch failed: {exc}"], error_json={"message": str(exc)})
       return None
 
   async def _create_child_job(self, *, parent_job: JobRecord, target_agent: str, payload: dict[str, Any], lesson_id: str | None, section_id: int | None, job_kind: str | None = None) -> JobRecord | None:
@@ -111,6 +112,7 @@ class JobProcessor:
 
     child_record = JobRecord(
       job_id=child_job_id,
+      root_job_id=str(parent_job.root_job_id or parent_job.job_id),
       user_id=parent_job.user_id,
       job_kind=(job_kind or parent_job.job_kind),
       request=request_payload,
@@ -133,12 +135,36 @@ class JobProcessor:
       idempotency_key=f"{child_job_id}:{target_agent}",
     )
     await self._jobs_repo.create_job(child_record)
+    checkpoint_section_index: int | None = None
+    if "section_index" in payload:
+      try:
+        checkpoint_section_index = int(payload.get("section_index") or 0)
+      except (TypeError, ValueError):
+        checkpoint_section_index = None
+    if checkpoint_section_index is None and "section_number" in payload:
+      try:
+        checkpoint_section_index = int(payload.get("section_number") or 0)
+      except (TypeError, ValueError):
+        checkpoint_section_index = None
+    await self._jobs_repo.upsert_checkpoint(
+      job_id=child_record.job_id, stage=target_agent, section_index=checkpoint_section_index if checkpoint_section_index and checkpoint_section_index > 0 else None, state="pending", artifact_refs_json={"lesson_id": lesson_id, "section_id": section_id}
+    )
     enqueuer = get_task_enqueuer(self._settings)
     try:
       await enqueuer.enqueue(child_job_id, {})
-    except Exception:  # noqa: BLE001
-      await self._jobs_repo.update_job(child_job_id, status="error", phase="failed", progress=100.0, logs=["Enqueue failed: CHILD_TASK_ENQUEUE_FAILED"])
+    except Exception as exc:  # noqa: BLE001
+      await self._jobs_repo.update_job(child_job_id, status="error", phase="failed", progress=100.0, logs=["Enqueue failed: CHILD_TASK_ENQUEUE_FAILED"], error_json={"message": str(exc), "code": "CHILD_TASK_ENQUEUE_FAILED"})
+      await self._jobs_repo.upsert_checkpoint(
+        job_id=child_job_id,
+        stage=target_agent,
+        section_index=checkpoint_section_index if checkpoint_section_index and checkpoint_section_index > 0 else None,
+        state="error",
+        artifact_refs_json={"lesson_id": lesson_id, "section_id": section_id},
+        attempt_count=1,
+        last_error=str(exc),
+      )
       await self._jobs_repo.update_job(parent_job.job_id, logs=list(parent_job.logs or []) + [f"Failed to enqueue child job {child_job_id}."])
+      await _notify_child_job_failed(settings=self._settings, parent_job=parent_job, child_job_id=child_job_id)
       return None
     return child_record
 
@@ -181,8 +207,116 @@ class JobProcessor:
       self._logger.error("Quota availability check failed for target_agent=%s", target_agent, exc_info=True)
       return False
 
+  async def _checkpoint_is_done(self, *, job: JobRecord, stage: str, section_index: int | None) -> bool:
+    """Return True when the current stage/section checkpoint is already complete."""
+    checkpoint = await self._jobs_repo.get_checkpoint(job_id=job.job_id, stage=stage, section_index=section_index)
+    return bool(checkpoint and checkpoint.state == "done")
+
+  async def _checkpoint_mark_state(self, *, job: JobRecord, stage: str, section_index: int | None, state: str, artifact_refs_json: dict[str, Any] | None = None, last_error: str | None = None) -> None:
+    """Persist checkpoint state transitions for resumable execution."""
+    current = await self._jobs_repo.get_checkpoint(job_id=job.job_id, stage=stage, section_index=section_index)
+    attempt_count = int(current.attempt_count) + (1 if state == "error" else 0) if current else (1 if state == "error" else 0)
+    await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage=stage, section_index=section_index, state=state, artifact_refs_json=artifact_refs_json, attempt_count=attempt_count, last_error=last_error)
+
+  async def _checkpoint_claim_state(self, *, job: JobRecord, stage: str, section_index: int | None) -> str:
+    """Atomically claim one checkpoint and return claim status."""
+    current = await self._jobs_repo.get_checkpoint(job_id=job.job_id, stage=stage, section_index=section_index)
+    if current is not None and current.state == "done":
+      return "done"
+    if current is None:
+      await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage=stage, section_index=section_index, state="pending")
+    claim_fn = getattr(self._jobs_repo, "claim_checkpoint", None)
+    if callable(claim_fn):
+      claimed = await claim_fn(job_id=job.job_id, stage=stage, section_index=section_index)
+      if claimed is not None:
+        return "claimed"
+      refreshed = await self._jobs_repo.get_checkpoint(job_id=job.job_id, stage=stage, section_index=section_index)
+      if refreshed is not None and refreshed.state == "done":
+        return "done"
+      return "locked"
+    await self._checkpoint_mark_state(job=job, stage=stage, section_index=section_index, state="running")
+    return "claimed"
+
+  async def _fan_out_section_children(
+    self, *, job: JobRecord, updated_parent: JobRecord, tracker: JobProgressTracker, lesson_id: str, section_number: int, db_section_id: int | None, section_payload: dict[str, Any], topic: str, learner_level: str | None
+  ) -> None:
+    """Queue downstream section agents for unfinished checkpoints only."""
+    if db_section_id is None:
+      return
+    removed_widget_refs: list[str] = []
+    if not await self._checkpoint_is_done(job=job, stage="illustration", section_index=section_number):
+      try:
+        await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="illustration", section_index=section_number, state="pending", artifact_refs_json={"section_id": db_section_id})
+        await self._create_child_job(
+          parent_job=updated_parent,
+          target_agent="illustration",
+          payload={"section_index": section_number, "section_id": db_section_id, "lesson_id": lesson_id, "topic": topic, "section_data": section_payload},
+          lesson_id=lesson_id,
+          section_id=db_section_id,
+        )
+      except QuotaExceededError:
+        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Illustration job skipped for section {section_number}: quota unavailable."])
+        removed_widget_refs.append(f"{section_number}.1.1.illustration")
+        section_payload.pop("illustration", None)
+    if not await self._checkpoint_is_done(job=job, stage="tutor", section_index=section_number):
+      try:
+        await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="tutor", section_index=section_number, state="pending", artifact_refs_json={"section_id": db_section_id})
+        await self._create_child_job(
+          parent_job=updated_parent,
+          target_agent="tutor",
+          payload={"section_index": section_number, "section_id": db_section_id, "topic": topic, "section_data": section_payload, "learning_data_points": section_payload.get("learning_data_points", [])},
+          lesson_id=lesson_id,
+          section_id=db_section_id,
+        )
+      except QuotaExceededError:
+        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Tutor job skipped for section {section_number}: quota unavailable."])
+        removed_widget_refs.append(f"{section_number}.1.1.tutor")
+    if _section_contains_fenster(section_payload) and not await self._checkpoint_is_done(job=job, stage="fenster_builder", section_index=section_number):
+      await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="fenster_builder", section_index=section_number, state="pending", artifact_refs_json={"section_id": db_section_id})
+      fenster_widget_ids = _extract_widget_public_ids(section_payload, widget_type="fenster")
+      for fenster_public_id in fenster_widget_ids:
+        try:
+          await self._create_child_job(
+            parent_job=updated_parent,
+            target_agent="fenster_builder",
+            payload={
+              "lesson_id": lesson_id,
+              "section_id": db_section_id,
+              "widget_public_ids": [fenster_public_id],
+              "concept_context": f"Fenster widget for section {section_number} in topic {topic}",
+              "target_audience": learner_level or "Student",
+              "technical_constraints": {},
+            },
+            lesson_id=lesson_id,
+            section_id=db_section_id,
+          )
+        except QuotaExceededError:
+          await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Fenster job skipped for section {section_number}: quota unavailable for widget {fenster_public_id}."])
+          removed_widget_refs.extend(_remove_widget_items_by_public_id(section_payload=section_payload, section_index=section_number, widget_type="fenster", public_ids=[fenster_public_id]))
+          await _update_subsection_widget_status(section_id=db_section_id, widget_types=("fenster",), status="skipped", public_ids=[fenster_public_id])
+    if removed_widget_refs:
+      session_factory = get_session_factory()
+      if session_factory is not None:
+        async with session_factory() as session:
+          section_row = await session.get(Section, db_section_id)
+          if section_row is not None:
+            existing_csv = str(section_row.removed_widgets_csv or "").strip()
+            added_csv = ",".join(removed_widget_refs)
+            section_row.removed_widgets_csv = f"{existing_csv},{added_csv}".strip(",") if existing_csv else added_csv
+            section_row.content = section_payload
+            section_row.content_shorthand = build_section_shorthand_content(section_payload)
+            session.add(section_row)
+            await session.commit()
+
   async def _process_planner_job(self, job: JobRecord) -> JobRecord | None:
     """Execute planner-only work and fan out one section-builder job per section."""
+    planner_claim = await self._checkpoint_claim_state(job=job, stage="planner", section_index=None)
+    if planner_claim == "done":
+      await self._jobs_repo.append_event(job_id=job.job_id, event_type="checkpoint", message="Planner checkpoint already complete. Skipping generation.", payload_json={"stage": "planner"})
+      return await self._jobs_repo.update_job(job.job_id, status="done", completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    if planner_claim == "locked":
+      await self._jobs_repo.append_event(job_id=job.job_id, event_type="checkpoint", message="Planner checkpoint is locked by another worker; skipping duplicate execution.", payload_json={"stage": "planner"})
+      return await self._jobs_repo.get_job(job.job_id)
     tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="planner", initial_logs=["Planner job picked up."])
     await tracker.set_phase(phase="planning", subphase="planner_start")
     lesson_request_id: int | None = None
@@ -208,8 +342,18 @@ class JobProcessor:
         learner_level=request_model.learner_level,
         widgets=request_model.widgets,
       )
-      provider = self._settings.planner_provider
-      model_name = self._settings.planner_model
+      # Resolve runtime config for per-tenant model overrides.
+      runtime_config: dict[str, Any] = {}
+      if job.user_id:
+        session_factory = get_session_factory()
+        if session_factory is not None:
+          async with session_factory() as session:
+            user = await get_user_by_id(session, job.user_id)
+            if user is not None:
+              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+
+      provider, model_name = get_planner_model(runtime_config)
       model_instance = get_model_for_mode(provider, model_name, agent="planner")
       planner_agent = PlannerAgent(model=model_instance, prov=provider, schema=SchemaService())
       lesson_id = str(job.lesson_id or generate_lesson_id())
@@ -261,10 +405,13 @@ class JobProcessor:
       updated_parent = await self._jobs_repo.update_job(job.job_id, **done_payload)
       if updated_parent is None:
         return None
+      await self._checkpoint_mark_state(job=job, stage="planner", section_index=None, state="done", artifact_refs_json={"lesson_id": lesson_id, "planned_sections": len(lesson_plan.sections)})
       for plan_section in lesson_plan.sections:
+        section_number = int(plan_section.section_number)
+        await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="section_builder", section_index=section_number, state="pending", artifact_refs_json={"lesson_id": lesson_id})
         child_payload = {
           "lesson_id": lesson_id,
-          "section_number": int(plan_section.section_number),
+          "section_number": section_number,
           "plan_section": plan_section.model_dump(mode="python"),
           "generation_request": generation_request.model_dump(mode="python"),
           "schema_version": request_model.schema_version or self._settings.schema_version,
@@ -278,8 +425,9 @@ class JobProcessor:
     except Exception as exc:  # noqa: BLE001
       self._logger.error("Planner job failed", exc_info=True)
       await _update_lesson_request_status(lesson_request_id=lesson_request_id, status="failed")
+      await self._checkpoint_mark_state(job=job, stage="planner", section_index=None, state="error", last_error=str(exc))
       await tracker.fail(phase="failed", message=f"Planner job failed: {exc}")
-      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs, error_json={"message": str(exc)})
       return None
 
   async def _process_section_builder_job(self, job: JobRecord) -> JobRecord | None:
@@ -289,6 +437,8 @@ class JobProcessor:
     lesson_id = ""
     section_number = 0
     db_section_id: int | None = None
+    generation_topic = "unknown"
+    learner_level: str | None = None
     try:
       wrapped_payload = job.request.get("payload")
       request_payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
@@ -298,11 +448,57 @@ class JobProcessor:
       section_number = int(request_payload.get("section_number") or 0)
       if section_number <= 0:
         raise RuntimeError("Section builder job missing section_number.")
+      section_claim = await self._checkpoint_claim_state(job=job, stage="section_builder", section_index=section_number)
+      if section_claim == "done":
+        await self._jobs_repo.append_event(job_id=job.job_id, event_type="checkpoint", message=f"Section {section_number} checkpoint already complete. Skipping generation.", payload_json={"stage": "section_builder", "section_index": section_number})
+        return await self._jobs_repo.update_job(job.job_id, status="done", completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+      if section_claim == "locked":
+        await self._jobs_repo.append_event(
+          job_id=job.job_id, event_type="checkpoint", message=f"Section {section_number} checkpoint is locked by another worker; skipping duplicate execution.", payload_json={"stage": "section_builder", "section_index": section_number}
+        )
+        return await self._jobs_repo.get_job(job.job_id)
+      session_factory = get_session_factory()
+      if session_factory is not None:
+        async with session_factory() as session:
+          existing_section = (await session.execute(select(Section).where(Section.lesson_id == lesson_id, Section.order_index == section_number).limit(1))).scalar_one_or_none()
+          if existing_section is not None and existing_section.status == "completed" and isinstance(existing_section.content, dict) and existing_section.content:
+            db_section_id = int(existing_section.section_id)
+            done_payload = {
+              "status": "done",
+              "phase": "complete",
+              "progress": 100.0,
+              "logs": tracker.logs + [f"Section {section_number} already exists. Skipping regeneration."],
+              "result_json": {"lesson_id": lesson_id, "section_number": section_number, "section_id": db_section_id, "skipped": True},
+              "section_id": db_section_id,
+              "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            await self._checkpoint_mark_state(job=job, stage="section_builder", section_index=section_number, state="done", artifact_refs_json={"section_id": db_section_id, "skipped": True})
+            updated_parent = await self._jobs_repo.update_job(job.job_id, **done_payload)
+            generation_payload = request_payload.get("generation_request") or {}
+            generation_topic = str(generation_payload.get("topic") or "unknown")
+            learner_level = str(generation_payload.get("learner_level") or "").strip() or None
+            if updated_parent is not None:
+              await self._fan_out_section_children(
+                job=job, updated_parent=updated_parent, tracker=tracker, lesson_id=lesson_id, section_number=section_number, db_section_id=db_section_id, section_payload=dict(existing_section.content), topic=generation_topic, learner_level=learner_level
+              )
+            return updated_parent
       generation_payload = request_payload.get("generation_request") or {}
       generation_request = GenerationRequest.model_validate(generation_payload)
+      generation_topic = str(generation_request.topic or "unknown")
+      learner_level = str(generation_request.learner_level or "").strip() or None
       plan_section = PlanSection.model_validate(request_payload.get("plan_section") or {})
-      provider = self._settings.section_builder_provider
-      model_name = self._settings.section_builder_model
+      # Resolve runtime config for per-tenant model overrides.
+      runtime_config: dict[str, Any] = {}
+      if job.user_id:
+        session_factory = get_session_factory()
+        if session_factory is not None:
+          async with session_factory() as session:
+            user = await get_user_by_id(session, job.user_id)
+            if user is not None:
+              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+
+      provider, model_name = get_section_builder_model(runtime_config)
       model_instance = get_model_for_mode(provider, model_name, agent="section_builder")
       section_agent = SectionBuilder(model=model_instance, prov=provider, schema=SchemaService())
       metadata = {"settings": self._settings, "lesson_id": lesson_id, "schema_version": str(request_payload.get("schema_version") or self._settings.schema_version), "structured_output": True}
@@ -315,8 +511,7 @@ class JobProcessor:
         await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Section {section_number} ignored non-blocking length violations and continued generation."])
         structured.validation_errors = [err for err in structured.validation_errors if err not in non_blocking_validation_errors]
       if structured.validation_errors:
-        repair_provider = self._settings.repair_provider
-        repair_model_name = self._settings.repair_model
+        repair_provider, repair_model_name = get_repair_model(runtime_config)
         repair_model_instance = get_model_for_mode(repair_provider, repair_model_name, agent="repairer")
         repair_agent = RepairerAgent(model=repair_model_instance, prov=repair_provider, schema=SchemaService())
         repair_input = RepairInput(section=SectionDraft(section_number=section_number, title=plan_section.title, plan_section=plan_section, raw_text=""), structured=structured)
@@ -325,8 +520,17 @@ class JobProcessor:
           db_section_id = int(structured.db_section_id) if structured.db_section_id is not None else None
           await _update_section_status(section_id=db_section_id, status="failed")
           await _mark_lesson_pipeline_failed(lesson_id=lesson_id)
+          await self._checkpoint_mark_state(job=job, stage="section_builder", section_index=section_number, state="error", last_error="; ".join([str(item) for item in repair_result.errors]))
           await tracker.fail(phase="failed", message=f"Section {section_number} failed validation and single repair attempt.")
-          await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs, result_json={"lesson_id": lesson_id, "section_number": section_number, "errors": repair_result.errors})
+          await self._jobs_repo.update_job(
+            job.job_id,
+            status="error",
+            phase="failed",
+            progress=100.0,
+            logs=tracker.logs,
+            result_json={"lesson_id": lesson_id, "section_number": section_number, "errors": repair_result.errors},
+            error_json={"message": "SECTION_VALIDATION_REPAIR_FAILED", "errors": [str(item) for item in repair_result.errors]},
+          )
           return None
         structured.payload = repair_result.fixed_json
         structured.validation_errors = []
@@ -343,76 +547,20 @@ class JobProcessor:
       updated_parent = await self._jobs_repo.update_job(job.job_id, **done_payload)
       if updated_parent is None:
         return None
-      section_payload = structured.payload
-      removed_widget_refs: list[str] = []
-      try:
-        await self._create_child_job(
-          parent_job=updated_parent,
-          target_agent="illustration",
-          payload={"section_index": section_number, "section_id": db_section_id, "lesson_id": lesson_id, "topic": generation_request.topic, "section_data": section_payload},
-          lesson_id=lesson_id,
-          section_id=db_section_id,
-        )
-      except QuotaExceededError:
-        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Illustration job skipped for section {section_number}: quota unavailable."])
-        removed_widget_refs.append(f"{section_number}.1.1.illustration")
-        if isinstance(section_payload, dict):
-          section_payload.pop("illustration", None)
-      try:
-        await self._create_child_job(
-          parent_job=updated_parent,
-          target_agent="tutor",
-          payload={"section_index": section_number, "section_id": db_section_id, "topic": generation_request.topic, "section_data": section_payload, "learning_data_points": section_payload.get("learning_data_points", [])},
-          lesson_id=lesson_id,
-          section_id=db_section_id,
-        )
-      except QuotaExceededError:
-        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Tutor job skipped for section {section_number}: quota unavailable."])
-        removed_widget_refs.append(f"{section_number}.1.1.tutor")
-      if _section_contains_fenster(section_payload):
-        fenster_widget_ids = _extract_widget_public_ids(section_payload, widget_type="fenster")
-        for fenster_public_id in fenster_widget_ids:
-          try:
-            await self._create_child_job(
-              parent_job=updated_parent,
-              target_agent="fenster_builder",
-              payload={
-                "lesson_id": lesson_id,
-                "section_id": db_section_id,
-                "widget_public_ids": [fenster_public_id],
-                "concept_context": f"Fenster widget for section {section_number} in topic {generation_request.topic}",
-                "target_audience": generation_request.learner_level or "Student",
-                "technical_constraints": {},
-              },
-              lesson_id=lesson_id,
-              section_id=db_section_id,
-            )
-          except QuotaExceededError:
-            await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Fenster job skipped for section {section_number}: quota unavailable for widget {fenster_public_id}."])
-            removed_widget_refs.extend(_remove_widget_items_by_public_id(section_payload=section_payload, section_index=section_number, widget_type="fenster", public_ids=[fenster_public_id]))
-            if db_section_id is not None:
-              await _update_subsection_widget_status(section_id=db_section_id, widget_types=("fenster",), status="skipped", public_ids=[fenster_public_id])
-      if db_section_id is not None and removed_widget_refs:
-        session_factory = get_session_factory()
-        if session_factory is not None:
-          async with session_factory() as session:
-            section_row = await session.get(Section, db_section_id)
-            if section_row is not None:
-              existing_csv = str(section_row.removed_widgets_csv or "").strip()
-              added_csv = ",".join(removed_widget_refs)
-              section_row.removed_widgets_csv = f"{existing_csv},{added_csv}".strip(",") if existing_csv else added_csv
-              section_row.content = section_payload
-              section_row.content_shorthand = build_section_shorthand_content(section_payload)
-              session.add(section_row)
-              await session.commit()
+      await self._checkpoint_mark_state(job=job, stage="section_builder", section_index=section_number, state="done", artifact_refs_json={"section_id": db_section_id})
+      await self._fan_out_section_children(
+        job=job, updated_parent=updated_parent, tracker=tracker, lesson_id=lesson_id, section_number=section_number, db_section_id=db_section_id, section_payload=structured.payload, topic=generation_topic, learner_level=learner_level
+      )
       return await self._jobs_repo.get_job(job.job_id)
     except Exception as exc:  # noqa: BLE001
       self._logger.error("Section builder job failed", exc_info=True)
       await _update_section_status(section_id=db_section_id, status="failed")
       if lesson_id:
         await _mark_lesson_pipeline_failed(lesson_id=lesson_id)
+      if section_number > 0:
+        await self._checkpoint_mark_state(job=job, stage="section_builder", section_index=section_number, state="error", last_error=str(exc))
       await tracker.fail(phase="failed", message=f"Section builder job failed: {exc}")
-      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs, error_json={"message": str(exc)})
       return None
 
   async def _process_maintenance_job(self, job: JobRecord) -> JobRecord | None:
@@ -501,7 +649,7 @@ class JobProcessor:
                 session.add(run)
                 await session.commit()
       await tracker.fail(phase="failed", message=f"Maintenance job failed: {exc}")
-      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs)
+      await self._jobs_repo.update_job(job.job_id, status="error", phase="failed", progress=100.0, logs=tracker.logs, error_json={"message": str(exc)})
       return None
 
   async def _process_fenster_build(self, job: JobRecord) -> JobRecord | None:
@@ -509,12 +657,33 @@ class JobProcessor:
     tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="fenster", initial_logs=["Fenster job picked up."])
     await tracker.set_phase(phase="building", subphase="generating_code")
     section_id = 0
+    section_index = 0
     widget_public_ids: list[str] = []
 
     try:
-      provider = self._settings.fenster_provider
-      model_name = self._settings.fenster_model
+      wrapped_payload = job.request.get("payload")
+      payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
+      section_index = int(payload.get("section_index") or 0)
+      fenster_checkpoint_index = section_index if section_index > 0 else None
+      fenster_claim = await self._checkpoint_claim_state(job=job, stage="fenster_builder", section_index=fenster_checkpoint_index)
+      if fenster_claim == "done":
+        await self._jobs_repo.append_event(job_id=job.job_id, event_type="checkpoint", message="Fenster checkpoint already complete. Skipping generation.", payload_json={"stage": "fenster_builder", "section_index": section_index})
+        return await self._jobs_repo.update_job(job.job_id, status="done", completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+      if fenster_claim == "locked":
+        await self._jobs_repo.append_event(job_id=job.job_id, event_type="checkpoint", message="Fenster checkpoint is locked by another worker; skipping duplicate execution.", payload_json={"stage": "fenster_builder", "section_index": section_index})
+        return await self._jobs_repo.get_job(job.job_id)
+      # Resolve runtime config for per-tenant model overrides.
+      runtime_config: dict[str, Any] = {}
+      if job.user_id:
+        session_factory = get_session_factory()
+        if session_factory is not None:
+          async with session_factory() as session:
+            user = await get_user_by_id(session, job.user_id)
+            if user is not None:
+              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
 
+      provider, model_name = get_fenster_model(runtime_config)
       model_instance = get_model_for_mode(provider, model_name, agent="fenster_builder")
 
       schema_service = SchemaService()
@@ -526,8 +695,6 @@ class JobProcessor:
 
       agent = FensterBuilderAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
 
-      wrapped_payload = job.request.get("payload")
-      payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
       section_id = int(job.section_id or payload.get("section_id") or 0)
       widget_public_ids = [str(item) for item in list(payload.get("widget_public_ids") or []) if str(item).strip()]
       # Use a dummy request for context
@@ -580,6 +747,7 @@ class JobProcessor:
 
       payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Widget built and stored."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **payload)
+      await self._checkpoint_mark_state(job=job, stage="fenster_builder", section_index=section_index if section_index > 0 else None, state="done", artifact_refs_json={"section_id": section_id, "fenster_resource_id": fenster_resource_id})
       return updated
 
     except Exception as exc:
@@ -592,22 +760,36 @@ class JobProcessor:
         completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Quota disabled. Skipping widget build."], "result_json": {}, "completed_at": completed_at}
         updated = await self._jobs_repo.update_job(job.job_id, **payload)
+        await self._checkpoint_mark_state(job=job, stage="fenster_builder", section_index=section_index if section_index > 0 else None, state="done", artifact_refs_json={"section_id": section_id, "skipped": True})
         return updated
 
       self._logger.error("Fenster build failed", exc_info=True)
       if section_id > 0:
         await _update_subsection_widget_status(section_id=section_id, widget_types=("fenster",), status="failed", public_ids=widget_public_ids)
       await tracker.fail(phase="failed", message=f"Fenster build failed: {exc}")
-      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs, "error_json": {"message": str(exc)}}
       await self._jobs_repo.update_job(job.job_id, **payload)
+      await self._checkpoint_mark_state(job=job, stage="fenster_builder", section_index=section_index if section_index > 0 else None, state="error", last_error=str(exc))
       return None
 
   async def _process_tutor_job(self, job: JobRecord) -> JobRecord | None:
     """Execute tutor generation."""
     tracker = JobProgressTracker(job_id=job.job_id, jobs_repo=self._jobs_repo, total_steps=1, total_ai_calls=1, label_prefix="tutor", initial_logs=["Tutor job picked up."])
     await tracker.set_phase(phase="building", subphase="generating_audio")
+    section_index = 0
 
     try:
+      wrapped_payload = job.request.get("payload")
+      payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
+      section_index = int(payload.get("section_index") or 0)
+      tutor_checkpoint_index = section_index if section_index > 0 else None
+      tutor_claim = await self._checkpoint_claim_state(job=job, stage="tutor", section_index=tutor_checkpoint_index)
+      if tutor_claim == "done":
+        await self._jobs_repo.append_event(job_id=job.job_id, event_type="checkpoint", message="Tutor checkpoint already complete. Skipping generation.", payload_json={"stage": "tutor", "section_index": section_index})
+        return await self._jobs_repo.update_job(job.job_id, status="done", completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+      if tutor_claim == "locked":
+        await self._jobs_repo.append_event(job_id=job.job_id, event_type="checkpoint", message="Tutor checkpoint is locked by another worker; skipping duplicate execution.", payload_json={"stage": "tutor", "section_index": section_index})
+        return await self._jobs_repo.get_job(job.job_id)
       # Resolve runtime-configured provider/model and feature-gate status for tutor generation.
       session_factory = get_session_factory()
       runtime_config: dict[str, Any] = {}
@@ -630,10 +812,10 @@ class JobProcessor:
         completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + ["Tutor mode disabled. Skipping tutor generation."], "result_json": {"tutor_ids": [], "count": 0, "skipped": True}, "completed_at": completed_at}
         updated = await self._jobs_repo.update_job(job.job_id, **payload)
+        await self._checkpoint_mark_state(job=job, stage="tutor", section_index=section_index if section_index > 0 else None, state="done", artifact_refs_json={"section_index": section_index, "skipped": True})
         return updated
 
-      provider = str(runtime_config.get("ai.tutor.provider") or self._settings.tutor_provider)
-      model_name = str(runtime_config.get("ai.tutor.model") or self._settings.tutor_model or "")
+      provider, model_name = get_tutor_model(runtime_config)
 
       model_instance = get_model_for_mode(provider, model_name or None, agent="tutor")
       schema_service = SchemaService()
@@ -645,8 +827,6 @@ class JobProcessor:
 
       agent = TutorAgent(model=model_instance, prov=provider, schema=schema_service, use=usage_sink)
 
-      wrapped_payload = job.request.get("payload")
-      payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
       # Context
       dummy_req = GenerationRequest(topic=payload.get("topic", "unknown"), depth="highlights", section_count=1)
       # Forward settings and user metadata for agent-scoped quota reservations.
@@ -677,13 +857,15 @@ class JobProcessor:
 
       payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + [f"Generated {len(audio_ids)} audio segments."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **payload)
+      await self._checkpoint_mark_state(job=job, stage="tutor", section_index=section_index if section_index > 0 else None, state="done", artifact_refs_json={"section_index": section_index, "count": len(audio_ids)})
       return updated
 
     except Exception as exc:
       self._logger.error("Tutor job failed", exc_info=True)
       await tracker.fail(phase="failed", message=f"Tutor job failed: {exc}")
-      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs, "error_json": {"message": str(exc)}}
       await self._jobs_repo.update_job(job.job_id, **payload)
+      await self._checkpoint_mark_state(job=job, stage="tutor", section_index=section_index if section_index > 0 else None, state="error", last_error=str(exc))
       return None
 
   async def _process_illustration_job(self, job: JobRecord) -> JobRecord | None:
@@ -694,6 +876,7 @@ class JobProcessor:
     wrapped_payload = job.request.get("payload")
     payload = wrapped_payload if isinstance(wrapped_payload, dict) else job.request
     section_id = int(payload.get("section_id") or 0)
+    section_index = int(payload.get("section_index") or 0)
     illustration_row_id: int | None = None
     uploaded_object_name: str | None = None
     generation_caption: str | None = None
@@ -702,6 +885,16 @@ class JobProcessor:
     finalized_success = False
 
     try:
+      illustration_checkpoint_index = section_index if section_index > 0 else None
+      illustration_claim = await self._checkpoint_claim_state(job=job, stage="illustration", section_index=illustration_checkpoint_index)
+      if illustration_claim == "done":
+        await self._jobs_repo.append_event(job_id=job.job_id, event_type="checkpoint", message=f"Illustration checkpoint already complete for section_index={section_index}.", payload_json={"stage": "illustration", "section_index": section_index})
+        return await self._jobs_repo.update_job(job.job_id, status="done", completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+      if illustration_claim == "locked":
+        await self._jobs_repo.append_event(
+          job_id=job.job_id, event_type="checkpoint", message=f"Illustration checkpoint is locked by another worker for section_index={section_index}; skipping duplicate execution.", payload_json={"stage": "illustration", "section_index": section_index}
+        )
+        return await self._jobs_repo.get_job(job.job_id)
       if section_id <= 0:
         raise ValueError("Illustration job payload missing valid section_id.")
 
@@ -755,6 +948,9 @@ class JobProcessor:
             }
             updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
             await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed", widget_id=str(existing_illustration.id))
+            await self._checkpoint_mark_state(
+              job=job, stage="illustration", section_index=section_index if section_index > 0 else None, state="done", artifact_refs_json={"section_id": section_id, "illustration_id": int(existing_illustration.id), "skipped": True}
+            )
             return updated
 
       # Resolve runtime-configured provider/model for the illustration agent.
@@ -770,8 +966,7 @@ class JobProcessor:
             if user is not None:
               tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
               runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
-      provider = str(runtime_config.get("ai.illustration.provider") or runtime_config.get("ai.visualizer.provider") or self._settings.illustration_provider)
-      model_name = str(runtime_config.get("ai.illustration.model") or runtime_config.get("ai.visualizer.model") or self._settings.illustration_model or "")
+      provider, model_name = get_illustration_model(runtime_config)
       model_instance = get_model_for_mode(provider, model_name or None, agent="illustration")
       schema_service = SchemaService()
       usage_list: list[dict[str, Any]] = []
@@ -856,6 +1051,9 @@ class JobProcessor:
       result_json = {"section_id": section_id, "illustration_id": illustration_row_id, "resource_id": str(illustration_row.public_id), "image_name": uploaded_object_name or "", "mime_type": "image/webp"}
       update_payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + [f"Illustration generated for section {section_id}."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
+      await self._checkpoint_mark_state(
+        job=job, stage="illustration", section_index=section_index if section_index > 0 else None, state="done", artifact_refs_json={"section_id": section_id, "illustration_id": illustration_row_id, "image_name": uploaded_object_name}
+      )
       return updated
 
     except Exception as exc:
@@ -906,8 +1104,9 @@ class JobProcessor:
       if section_id > 0:
         await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="failed")
       await tracker.fail(phase="failed", message=f"Illustration job failed: {exc}")
-      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs}
+      payload = {"status": "error", "phase": "failed", "progress": 100.0, "logs": tracker.logs, "error_json": {"message": str(exc)}}
       await self._jobs_repo.update_job(job.job_id, **payload)
+      await self._checkpoint_mark_state(job=job, stage="illustration", section_index=section_index if section_index > 0 else None, state="error", last_error=str(exc))
       return None
 
   async def process_queue(self, limit: int = 5) -> list[JobRecord]:

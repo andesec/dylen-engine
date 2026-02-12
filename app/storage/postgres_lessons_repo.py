@@ -104,18 +104,16 @@ class PostgresLessonsRepository(LessonsRepository):
     async with self._session_factory() as session:
       created_records: list[SectionRecord] = []
       for r in records:
-        section = Section(
-          lesson_id=r.lesson_id,
-          title=r.title,
-          order_index=r.order_index,
-          status=r.status,
-          content=r.content,
-          content_shorthand=r.content_shorthand,
-          removed_widgets_csv=r.removed_widgets_csv,
-          illustration_id=r.illustration_id,
-          markdown_id=r.markdown_id,
-          tutor_id=r.tutor_id,
-        )
+        existing = (await session.execute(select(Section).where(Section.lesson_id == r.lesson_id, Section.order_index == r.order_index).limit(1))).scalar_one_or_none()
+        section = existing or Section(lesson_id=r.lesson_id, order_index=r.order_index)
+        section.title = r.title
+        section.status = r.status
+        section.content = r.content
+        section.content_shorthand = r.content_shorthand
+        section.removed_widgets_csv = r.removed_widgets_csv
+        section.illustration_id = r.illustration_id
+        section.markdown_id = r.markdown_id
+        section.tutor_id = r.tutor_id
         session.add(section)
         await session.flush()
         created_records.append(
@@ -167,7 +165,13 @@ class PostgresLessonsRepository(LessonsRepository):
     async with self._session_factory() as session:
       created_records: list[SubsectionRecord] = []
       for r in records:
-        subsection = Subsection(section_id=r.section_id, subsection_index=r.subsection_index, subsection_title=r.subsection_title, status=r.status, is_archived=r.is_archived)
+        subsection = (await session.execute(select(Subsection).where(Subsection.section_id == r.section_id, Subsection.subsection_index == r.subsection_index).limit(1))).scalar_one_or_none()
+        if subsection is None:
+          subsection = Subsection(section_id=r.section_id, subsection_index=r.subsection_index, subsection_title=r.subsection_title, status=r.status, is_archived=r.is_archived)
+        else:
+          subsection.subsection_title = r.subsection_title
+          subsection.status = r.status
+          subsection.is_archived = r.is_archived
         session.add(subsection)
         await session.flush()
         created_records.append(SubsectionRecord(id=subsection.id, section_id=subsection.section_id, subsection_index=subsection.subsection_index, subsection_title=subsection.subsection_title, status=subsection.status, is_archived=subsection.is_archived))
@@ -179,8 +183,15 @@ class PostgresLessonsRepository(LessonsRepository):
     async with self._session_factory() as session:
       created_records: list[SubsectionWidgetRecord] = []
       for r in records:
+        widget = (await session.execute(select(SubsectionWidget).where(SubsectionWidget.subsection_id == r.subsection_id, SubsectionWidget.widget_index == r.widget_index, SubsectionWidget.widget_type == r.widget_type).limit(1))).scalar_one_or_none()
         public_id = str(r.public_id or generate_nanoid())
-        widget = SubsectionWidget(public_id=public_id, subsection_id=r.subsection_id, widget_id=r.widget_id, widget_index=r.widget_index, widget_type=r.widget_type, status=r.status, is_archived=r.is_archived)
+        if widget is None:
+          widget = SubsectionWidget(public_id=public_id, subsection_id=r.subsection_id, widget_id=r.widget_id, widget_index=r.widget_index, widget_type=r.widget_type, status=r.status, is_archived=r.is_archived)
+        else:
+          widget.public_id = str(widget.public_id or public_id)
+          widget.widget_id = r.widget_id
+          widget.status = r.status
+          widget.is_archived = r.is_archived
         session.add(widget)
         await session.flush()
         created_records.append(

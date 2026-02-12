@@ -13,6 +13,7 @@ from app.api.deps_concurrency import check_concurrency_limit
 from app.api.models import (
   GenerateLessonRequest,
   GenerateLessonResponse,
+  GenerateOutcomesRequest,
   JobCreateRequest,
   JobCreateResponse,
   LessonCatalogResponse,
@@ -37,7 +38,7 @@ from app.services.jobs import create_job
 from app.services.outcomes import generate_lesson_outcomes
 from app.services.quota_buckets import QuotaExceededError, consume_quota, get_quota_snapshot, refund_quota
 from app.services.request_validation import _validate_generate_request
-from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.runtime_config import get_outcomes_model, resolve_effective_runtime_config
 from app.services.tasks.factory import get_task_enqueuer
 from app.services.users import get_user_subscription_tier
 from app.services.widget_entitlements import validate_widget_entitlements
@@ -92,7 +93,7 @@ async def get_lesson_catalog(response: Response, settings: Settings = Depends(ge
 
 @router.post("/outcomes", response_model=OutcomesAgentResponse, dependencies=[Depends(require_permission("lesson:outcomes"))])
 async def generate_outcomes_endpoint(  # noqa: B008
-  request: GenerateLessonRequest,
+  request: GenerateOutcomesRequest,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
@@ -133,8 +134,7 @@ async def generate_outcomes_endpoint(  # noqa: B008
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.outcomes_check"}) from None
 
   # Route outcomes through the dedicated outcomes provider/model by default; operators can override per-tenant.
-  provider = str(runtime_config.get("ai.outcomes.provider") or settings.outcomes_provider)
-  model_name = runtime_config.get("ai.outcomes.model") or settings.outcomes_model
+  provider, model_name = get_outcomes_model(runtime_config)
   max_outcomes = int(runtime_config.get("limits.max_outcomes") or 5)
   # Clamp invalid operator configuration to a safe range.
   if max_outcomes <= 0:

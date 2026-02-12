@@ -2,6 +2,34 @@
 
 These instructions apply to the entire repository unless a more specific `AGENTS.md` is added in a subdirectory.
 
+## Build, Run, and Test
+
+- **Install**: `make install` (uses `uv sync --all-extras`)
+- **Run dev**: `make dev` (starts Postgres + FastAPI with hot reload on port 8080)
+- **Stop dev**: `make dev-stop`
+- **Lint**: `make lint` (ruff check)
+- **Format**: `make format` (ruff format) and `make format-check` to verify
+- **Type check**: `make typecheck` (mypy)
+- **Test**: `make test` (pytest)
+- **Generate OpenAPI**: `make openapi` (updates `openapi.json`)
+- **Migrations**: Use `alembic upgrade head` (idempotent) and seed runners; migrations are schema-only
+
+## Architecture
+
+FastAPI backend ([app/main.py](app/main.py)) with modular structure:
+- **API routes** (`app/api/routes/`): Feature-organized routers (auth, lessons, jobs, etc.) included in main app
+- **Services** (`app/services/`, `app/ai/`, `app/storage/`): Business logic and provider integrations
+- **Schema** (`app/schema/`): Pydantic models with strict validation; all endpoints return `DecimalJSONResponse`
+- **Core** (`app/core/`): Exception handlers, middleware (CORS, security headers, request logging), lifespan, JSON encoder
+- **Storage** (`app/storage/`): Database layer (SQLAlchemy async, PostgreSQL, Alembic for migrations)
+- **Config** ([app/config.py](app/config.py)): Runtime config with validation; required environment variables defined and fail-fast on startup
+
+Key patterns:
+- All async/await throughout (FastAPI + SQLAlchemy asyncio)
+- CORS disabled globally (`docs_url=None`, `redoc_url=None`, `openapi_url=None`)
+- Middleware stack for logging, security headers, request validation
+- Feature flags and quotas managed via runtime config and database
+
 ## Engineering guardrails
 - Secure-by-default posture; avoid introducing permissive defaults.
 - Local-first and serverless-first design preferences.
@@ -13,9 +41,11 @@ These instructions apply to the entire repository unless a more specific `AGENTS
 
 ## Coding Standards (Strict)
 - Always keep method parameters, arguments, and signatures on the same line.
-- Add line breaks and after the following blocks: [if/else, try/except, loop, with]
+- Add line breaks after the following blocks: [if/else, try/except, loop, with]
 - Add comments for all logic implementations. Add docstrings for functions. They should focus on How and Why and less on What.
 - No blank lines after the comments, the next line should start with the code directly.
+- Async patterns: All database and I/O operations use `async`/`await`. Use `Session.execute()` with SQLAlchemy ORM for queries. Router functions are `async def`.
+- Exception handling: Raise `HTTPException` for API errors (avoid bare `Exception`). Use custom exceptions in `app.core.exceptions` when needed.
 
 ## Workflow expectations
 - Don't unnecessarily format a file or code if there is no change in the code there.

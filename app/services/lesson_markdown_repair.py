@@ -24,11 +24,12 @@ from app.ai.router import get_model_for_mode
 from app.config import Settings
 from app.schema.markdown_limits import collect_overlong_markdown_errors, collect_overlong_markdown_errors_by_section
 from app.schema.service import SchemaService
+from app.services.runtime_config import get_repair_model
 
 MAX_MARKDOWN_REPAIR_ROUNDS = 2
 
 
-async def repair_lesson_overlong_markdown(lesson_json: dict[str, Any], *, topic: str, settings: Settings, max_markdown_chars: int, job_id: str) -> dict[str, Any]:
+async def repair_lesson_overlong_markdown(lesson_json: dict[str, Any], *, topic: str, settings: Settings, max_markdown_chars: int, job_id: str, runtime_config: dict[str, Any] | None = None) -> dict[str, Any]:
   """Repair MarkdownText widgets that exceed the configured hard limit.
 
   Why:
@@ -45,8 +46,8 @@ async def repair_lesson_overlong_markdown(lesson_json: dict[str, Any], *, topic:
   if not errors_by_section:
     return repaired
   # Build a Repairer agent with the configured provider/model so behavior matches pipeline repair.
-  provider = str(settings.repair_provider)
-  model_name = settings.repair_model
+  runtime_config = runtime_config or {}
+  provider, model_name = get_repair_model(runtime_config)
   model_instance = get_model_for_mode(provider, model_name, agent="repairer")
   schema_service = SchemaService()
   agent = RepairerAgent(model=model_instance, prov=provider, schema=schema_service)

@@ -117,7 +117,7 @@ def _collect_subsection_records(section_struct: Any, section_id: int) -> list[Su
   """Build subsection rows using 1-based subsection indexes."""
   records: list[SubsectionRecord] = []
   for subsection_index, sub in enumerate(section_struct.subsections, start=1):
-    records.append(SubsectionRecord(id=None, section_id=section_id, subsection_index=subsection_index, subsection_title=str(sub.subsection), status="completed", is_archived=False))
+    records.append(SubsectionRecord(id=None, section_id=section_id, subsection_index=subsection_index, subsection_title=str(sub.section), status="completed", is_archived=False))
   return records
 
 
@@ -407,11 +407,11 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
               widget_type, widget_payload = entry
               payload_json = msgspec.to_builtins(widget_payload)
               if widget_type == "inputLine":
-                record = InputLineRecord(creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
+                record = InputLineRecord(id=None, creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
                 created_rows = await repo.create_input_lines([record])
                 widget_row_id = str(created_rows[0].id) if created_rows and created_rows[0].id is not None else None
               elif widget_type == "freeText":
-                record = FreeTextRecord(creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
+                record = FreeTextRecord(id=None, creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
                 created_rows = await repo.create_free_texts([record])
                 widget_row_id = str(created_rows[0].id) if created_rows and created_rows[0].id is not None else None
               else:

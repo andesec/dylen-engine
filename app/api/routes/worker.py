@@ -41,7 +41,7 @@ async def process_lesson_endpoint(task: LessonGenerationTask, settings: Settings
     return {"status": "job_not_found"}
 
   # Idempotency check
-  if job.status in ("processing", "done"):
+  if job.status in ("running", "processing", "done"):
     logger.info("Job %s is already %s. Skipping.", task.job_id, job.status)
     return {"status": "skipped"}
 

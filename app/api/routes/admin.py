@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.api.models import JobStatusResponse
 from app.api.msgspec_utils import encode_msgspec_response
 from app.config import Settings, get_settings
 from app.core.database import get_db
@@ -20,7 +21,7 @@ from app.notifications.factory import build_notification_service
 from app.schema.quotas import SubscriptionTier, UserTierOverride
 from app.schema.sql import Role, RoleLevel, User, UserStatus
 from app.services.feature_flags import delete_user_feature_flag_overrides, get_feature_flag_by_key, is_feature_enabled, list_active_user_feature_overrides, set_user_feature_flag_override
-from app.services.jobs import trigger_job_processing
+from app.services.jobs import resume_job_from_failure_admin, trigger_job_processing
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, get_role_by_name, list_permission_slugs_for_role, set_role_permissions
 from app.services.section_shorthand_backfill import backfill_section_shorthand
@@ -259,6 +260,11 @@ class UserPromoResponse(BaseModel):
 
 class MaintenanceJobResponse(BaseModel):
   job_id: str
+
+
+class ResumeJobFromFailureRequest(BaseModel):
+  sections: list[int] | None = None
+  agents: list[Literal["planner", "section_builder", "illustration", "tutor", "fenster_builder"]] | None = None
 
 
 class SectionShorthandBackfillRequest(BaseModel):
@@ -822,7 +828,7 @@ async def trigger_archive_lessons(background_tasks: BackgroundTasks, current_use
   )
   repo = get_jobs_repo()
   await repo.create_job(record)
-  trigger_job_processing(background_tasks, job_id, settings)
+  trigger_job_processing(background_tasks, job_id, settings, auto_process=True)
   return MaintenanceJobResponse(job_id=job_id)
 
 
@@ -916,6 +922,17 @@ async def list_jobs(
   items, total = await repo.list_jobs(page=page, limit=limit, status=status, job_id=job_id, job_kind=job_kind, user_id=user_id, target_agent=target_agent, sort_by=sort_by, sort_order=sort_order)
   # Return a typed pagination envelope that callers can rely on.
   return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
+
+
+@router.post("/jobs/{job_id}/resume-from-failure", response_model=JobStatusResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:jobs_read"))])
+async def resume_job_from_failure(
+  job_id: str,
+  request: ResumeJobFromFailureRequest,
+  background_tasks: BackgroundTasks,
+  settings: Settings = Depends(get_settings),  # noqa: B008
+) -> JobStatusResponse:
+  """Fork a new resumable lesson-pipeline job from a failed job id."""
+  return await resume_job_from_failure_admin(job_id=job_id, settings=settings, background_tasks=background_tasks, sections=request.sections, agents=request.agents)
 
 
 @router.get("/lessons", response_model=PaginatedResponse[LessonRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:lessons_read"))])

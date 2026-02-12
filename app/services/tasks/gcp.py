@@ -22,14 +22,14 @@ class CloudTasksEnqueuer(TaskEnqueuer):
     if not self.settings.cloud_tasks_queue_path:
       raise RuntimeError("Cloud Tasks queue path not configured.")
 
-    if not self.settings.base_url:
-      raise RuntimeError("Base URL not configured.")
+    if not self.settings.internal_service_url:
+      raise RuntimeError("Internal service URL not configured.")
 
     # Enforce shared-secret auth for internal task endpoints (deny-by-default).
     if not self.settings.task_secret:
       raise RuntimeError("Task secret not configured.")
 
-    url = f"{self.settings.base_url}/internal/tasks/process-job"
+    url = f"{self.settings.internal_service_url}/internal/tasks/process-job"
     headers = {"Content-Type": "application/json"}
     headers["authorization"] = f"Bearer {self.settings.task_secret}"
 
@@ -53,14 +53,14 @@ class CloudTasksEnqueuer(TaskEnqueuer):
     if not self.settings.cloud_tasks_queue_path:
       raise RuntimeError("Cloud Tasks queue path not configured.")
 
-    if not self.settings.base_url:
-      raise RuntimeError("Base URL not configured.")
+    if not self.settings.internal_service_url:
+      raise RuntimeError("Internal service URL not configured.")
 
     # Enforce shared-secret auth for internal task endpoints (deny-by-default).
     if not self.settings.task_secret:
       raise RuntimeError("Task secret not configured.")
 
-    url = f"{self.settings.base_url}/worker/process-lesson"
+    url = f"{self.settings.internal_service_url}/worker/process-lesson"
 
     payload = {"lesson_id": lesson_id, "job_id": job_id, "params": params, "user_id": user_id}
 

@@ -126,9 +126,12 @@
             "enum": [
               "queued",
               "running",
+              "processing",
+              "in_progress",
               "done",
               "error",
-              "canceled"
+              "canceled",
+              "superseded"
             ],
             "title": "Status",
             "type": "string"
@@ -340,24 +343,7 @@
             "description": "Optional learner level hint used for prompt guidance.",
             "title": "Learner Level"
           },
-          "outcomes": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 8,
-                "minItems": 1,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional outcomes to guide the planner (3-8 items recommended).",
-            "title": "Outcomes"
-          },
-          "primary_language": {
+          "lesson_language": {
             "default": "English",
             "description": "Primary language for lesson output.",
             "enum": [
@@ -365,7 +351,182 @@
               "German",
               "Urdu"
             ],
-            "title": "Primary Language",
+            "title": "Lesson Language",
+            "type": "string"
+          },
+          "outcomes": {
+            "description": "Required outcomes to guide the planner.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional schema version to pin the lesson output to.",
+            "title": "Schema Version"
+          },
+          "secondary_language": {
+            "anyOf": [
+              {
+                "enum": [
+                  "English",
+                  "German",
+                  "Urdu"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional secondary language for language practice blueprint.",
+            "title": "Secondary Language"
+          },
+          "teaching_style": {
+            "description": "Required teaching style guidance for lesson planning.",
+            "items": {
+              "enum": [
+                "conceptual",
+                "theoretical",
+                "practical"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Teaching Style",
+            "type": "array"
+          },
+          "topic": {
+            "description": "Topic to generate a lesson for.",
+            "examples": [
+              "Introduction to Python"
+            ],
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
+          },
+          "widgets": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 7,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional list of allowed widgets (overrides defaults).",
+            "title": "Widgets"
+          }
+        },
+        "required": [
+          "topic",
+          "blueprint",
+          "teaching_style",
+          "outcomes"
+        ],
+        "title": "GenerateLessonRequest",
+        "type": "object"
+      },
+      "GenerateOutcomesRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for outcomes preflight.",
+        "properties": {
+          "blueprint": {
+            "description": "Required blueprint guidance for lesson planning.",
+            "enum": [
+              "skillbuilding",
+              "knowledgeunderstanding",
+              "communicationskills",
+              "planningandproductivity",
+              "movementandfitness",
+              "growthmindset",
+              "criticalthinking",
+              "creativeskills",
+              "webdevandcoding",
+              "languagepractice"
+            ],
+            "title": "Blueprint",
+            "type": "string"
+          },
+          "depth": {
+            "default": "highlights",
+            "description": "Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
+            "enum": [
+              "highlights",
+              "detailed",
+              "training"
+            ],
+            "title": "Depth",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional user-supplied details (max 300 characters).",
+            "examples": [
+              "Focus on lists and loops"
+            ],
+            "title": "Details"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional client-generated UUID to prevent duplicate processing of the same request.",
+            "title": "Idempotency Key"
+          },
+          "learner_level": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional learner level hint used for prompt guidance.",
+            "title": "Learner Level"
+          },
+          "lesson_language": {
+            "default": "English",
+            "description": "Primary language for lesson output.",
+            "enum": [
+              "English",
+              "German",
+              "Urdu"
+            ],
+            "title": "Lesson Language",
             "type": "string"
           },
           "schema_version": {
@@ -379,6 +540,23 @@
             ],
             "description": "Optional schema version to pin the lesson output to.",
             "title": "Schema Version"
+          },
+          "secondary_language": {
+            "anyOf": [
+              {
+                "enum": [
+                  "English",
+                  "German",
+                  "Urdu"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional secondary language for language practice blueprint.",
+            "title": "Secondary Language"
           },
           "teaching_style": {
             "description": "Required teaching style guidance for lesson planning.",
@@ -427,7 +605,7 @@
           "blueprint",
           "teaching_style"
         ],
-        "title": "GenerateLessonRequest",
+        "title": "GenerateOutcomesRequest",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -664,6 +842,18 @@
             ],
             "title": "Current Section Title"
           },
+          "error_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Json"
+          },
           "expected_sections": {
             "anyOf": [
               {
@@ -781,6 +971,17 @@
             ],
             "title": "Result Json"
           },
+          "resume_source_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Source Job Id"
+          },
           "retry_agents": {
             "anyOf": [
               {
@@ -831,6 +1032,17 @@
             ],
             "title": "Retry Sections"
           },
+          "root_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Job Id"
+          },
           "section_id": {
             "anyOf": [
               {
@@ -842,13 +1054,27 @@
             ],
             "title": "Section Id"
           },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
           "status": {
             "enum": [
               "queued",
               "running",
+              "processing",
+              "in_progress",
               "done",
               "error",
-              "canceled"
+              "canceled",
+              "superseded"
             ],
             "title": "Status",
             "type": "string"
@@ -863,6 +1089,17 @@
               }
             ],
             "title": "Subphase"
+          },
+          "superseded_by_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By Job Id"
           },
           "target_agent": {
             "anyOf": [
@@ -948,7 +1185,9 @@
                   "enum": [
                     "planner",
                     "section_builder",
-                    "repair"
+                    "illustration",
+                    "tutor",
+                    "fenster_builder"
                   ],
                   "type": "string"
                 },
@@ -997,6 +1236,17 @@
             ],
             "title": "Child Jobs"
           },
+          "follow_from_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow From Job Id"
+          },
           "job_id": {
             "title": "Job Id",
             "type": "string"
@@ -1012,16 +1262,68 @@
             ],
             "title": "Lesson Id"
           },
+          "requested_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Job Id"
+          },
+          "resolved_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Job Id"
+          },
           "status": {
             "enum": [
               "queued",
               "running",
+              "processing",
+              "in_progress",
               "done",
               "error",
-              "canceled"
+              "canceled",
+              "superseded"
             ],
             "title": "Status",
             "type": "string"
+          },
+          "superseded_by_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By Job Id"
+          },
+          "superseded_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded Job Id"
+          },
+          "was_superseded": {
+            "default": false,
+            "title": "Was Superseded",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1254,6 +1556,17 @@
               }
             ],
             "title": "Lesson Plan"
+          },
+          "lesson_request_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Request Id"
           },
           "model_a": {
             "title": "Model A",
@@ -2909,6 +3222,47 @@
         "title": "ResolvedQuota",
         "type": "object"
       },
+      "ResumeJobFromFailureRequest": {
+        "properties": {
+          "agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "planner",
+                    "section_builder",
+                    "illustration",
+                    "tutor",
+                    "fenster_builder"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agents"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections"
+          }
+        },
+        "title": "ResumeJobFromFailureRequest",
+        "type": "object"
+      },
       "RoleCreateRequest": {
         "properties": {
           "description": {
@@ -4355,13 +4709,13 @@
           "widget_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The ID of the subjective input widget being checked.",
+            "description": "Public subsection widget id being checked.",
             "title": "Widget Id"
           }
         },
@@ -5429,9 +5783,12 @@
                   "enum": [
                     "queued",
                     "running",
+                    "processing",
+                    "in_progress",
                     "done",
                     "error",
-                    "canceled"
+                    "canceled",
+                    "superseded"
                   ],
                   "type": "string"
                 },
@@ -5555,6 +5912,64 @@
           }
         ],
         "summary": "List Jobs",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/jobs/{job_id}/resume-from-failure": {
+      "post": {
+        "description": "Fork a new resumable lesson-pipeline job from a failed job id.",
+        "operationId": "resume_job_from_failure_admin_jobs__job_id__resume_from_failure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeJobFromFailureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resume Job From Failure",
         "tags": [
           "admin"
         ]
@@ -6121,10 +6536,10 @@
         ]
       }
     },
-    "/admin/tutor-audios": {
+    "/admin/tutors": {
       "get": {
-        "description": "List tutor audios with pagination, filtering, and sorting.",
-        "operationId": "list_tutor_audios_admin_tutor_audios_get",
+        "description": "List tutors with pagination, filtering, and sorting.",
+        "operationId": "list_tutors_admin_tutors_get",
         "parameters": [
           {
             "in": "query",
@@ -6227,7 +6642,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Tutor Audios",
+        "summary": "List Tutors",
         "tags": [
           "admin"
         ]
@@ -7439,6 +7854,52 @@
         ]
       }
     },
+    "/api/v1/fenster/subsection-widget/{subsection_widget_id}": {
+      "get": {
+        "description": "Retrieve a fenster widget using the subsection_widget public id.",
+        "operationId": "get_fenster_widget_by_subsection_widget_id_api_v1_fenster_subsection_widget__subsection_widget_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subsection_widget_id",
+            "required": true,
+            "schema": {
+              "title": "Subsection Widget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Fenster Widget By Subsection Widget Id",
+        "tags": [
+          "fenster"
+        ]
+      }
+    },
     "/api/v1/fenster/{widget_id}": {
       "get": {
         "description": "Retrieve a Fenster widget by ID.\nRequires 'Plus' or 'Pro' tier.",
@@ -7600,6 +8061,52 @@
           }
         ],
         "summary": "Get Lesson Media",
+        "tags": [
+          "media"
+        ]
+      }
+    },
+    "/media/widgets/{subsection_widget_id}/illustration": {
+      "get": {
+        "description": "Authorize widget-linked illustration access using subsection widget public ids.",
+        "operationId": "get_widget_illustration_media_widgets__subsection_widget_id__illustration_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subsection_widget_id",
+            "required": true,
+            "schema": {
+              "title": "Subsection Widget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Widget Illustration",
         "tags": [
           "media"
         ]
@@ -8105,7 +8612,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenerateLessonRequest"
+                "$ref": "#/components/schemas/GenerateOutcomesRequest"
               }
             }
           },
@@ -8573,17 +9080,67 @@
         ]
       }
     },
-    "/v1/tutor/audio/{audio_id}/content": {
+    "/v1/tutor/job/{job_id}/tutors": {
       "get": {
-        "description": "Stream audio content.",
-        "operationId": "get_audio_content_v1_tutor_audio__audio_id__content_get",
+        "description": "Retrieve list of generated tutor records for a job.",
+        "operationId": "get_job_tutors_v1_tutor_job__job_id__tutors_get",
         "parameters": [
           {
             "in": "path",
-            "name": "audio_id",
+            "name": "job_id",
             "required": true,
             "schema": {
-              "title": "Audio Id",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Job Tutors V1 Tutor Job  Job Id  Tutors Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Job Tutors",
+        "tags": [
+          "tutor"
+        ]
+      }
+    },
+    "/v1/tutor/{tutor_id}/content": {
+      "get": {
+        "description": "Stream tutor audio content.",
+        "operationId": "get_tutor_content_v1_tutor__tutor_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tutor_id",
+            "required": true,
+            "schema": {
+              "title": "Tutor Id",
               "type": "integer"
             }
           }
@@ -8613,57 +9170,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Audio Content",
-        "tags": [
-          "tutor"
-        ]
-      }
-    },
-    "/v1/tutor/job/{job_id}/audios": {
-      "get": {
-        "description": "Retrieve list of generated audios for a job.",
-        "operationId": "get_job_audios_v1_tutor_job__job_id__audios_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Job Audios V1 Tutor Job  Job Id  Audios Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Job Audios",
+        "summary": "Get Tutor Content",
         "tags": [
           "tutor"
         ]

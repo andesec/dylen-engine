@@ -13,7 +13,7 @@ from app.schema.sql import User
 from app.services.audit import log_llm_interaction
 from app.services.quota_buckets import commit_quota_reservation, get_quota_snapshot, release_quota_reservation, reserve_quota
 from app.services.request_validation import _validate_writing_request
-from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.runtime_config import get_writing_model, resolve_effective_runtime_config
 from app.services.users import get_user_subscription_tier
 from app.services.writing import WritingCheckResult, WritingCheckService
 from app.utils.ids import generate_job_id
@@ -75,8 +75,7 @@ async def create_writing_check(  # noqa: B008
   await reserve_quota(db_session, user_id=current_user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=writing_checks_per_month, job_id=job_id, metadata={"job_id": job_id})
 
   try:
-    provider = str(runtime_config.get("ai.writing.provider") or settings.writing_provider)
-    model_name = str(runtime_config.get("ai.writing.model") or settings.writing_model or "")
+    provider, model_name = get_writing_model(runtime_config)
 
     service = WritingCheckService(provider=provider, model=model_name or None)
     result = await service.check_response(session=db_session, text=request.text, requester_user_id=str(current_user.id), widget_id=request.widget_id, criteria=request.criteria)

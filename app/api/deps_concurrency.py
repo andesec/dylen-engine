@@ -1,4 +1,3 @@
-import time
 from typing import Annotated, Literal
 
 from fastapi import Depends, HTTPException, status
@@ -43,10 +42,8 @@ async def check_concurrency_limit(feature: FeatureType, user: User, db: AsyncSes
         limit = val
 
   # 3. Count Active Jobs
-  active_statuses = ["queued", "processing", "in_progress"]
-  current_time = int(time.time())
-
-  query = select(func.count(Job.job_id)).where(Job.user_id == str(user.id), Job.status.in_(active_statuses), or_(Job.ttl.is_(None), Job.ttl > current_time))
+  active_statuses = ["queued", "running"]
+  query = select(func.count(Job.job_id)).where(Job.user_id == str(user.id), Job.status.in_(active_statuses))
 
   if feature == "lesson":
     # Include NULL for legacy support, but new writing/research jobs MUST set target_agent.

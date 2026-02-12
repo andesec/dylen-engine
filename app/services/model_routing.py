@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from app.api.models import PlannerModel, RepairerModel, SectionBuilderModel
-from app.config import Settings
 
 _GEMINI_PROVIDER = "gemini"
 _OPENROUTER_PROVIDER = "openrouter"
@@ -29,6 +28,8 @@ _GEMINI_REPAIRER_MODELS = {RepairerModel.GEMINI_25_FLASH}
 _OPENROUTER_REPAIRER_MODELS = {RepairerModel.GPT_OSS_20B, RepairerModel.GEMMA_3_27B, RepairerModel.DEEPSEEK_R1_0528}
 
 DEFAULT_SECTION_BUILDER_MODEL = SectionBuilderModel.GEMINI_25_PRO.value
+DEFAULT_PLANNER_MODEL = PlannerModel.GEMINI_25_PRO.value
+DEFAULT_REPAIRER_MODEL = RepairerModel.GEMINI_25_FLASH.value
 
 
 def _is_vertex_model(model_name: str | None) -> bool:
@@ -73,9 +74,22 @@ def _provider_for_model_hint(model_name: str | None, fallback_provider: str) -> 
   return fallback_provider
 
 
-def resolve_agent_defaults(settings: Settings, runtime_config: dict[str, object]) -> tuple[str, str | None, str, str | None, str, str | None]:
+def split_provider_model(raw_value: str | None, fallback_provider: str) -> tuple[str, str | None]:
+  """Parse provider/model values with a fallback provider."""
+  if not raw_value:
+    return (fallback_provider, None)
+  normalized = str(raw_value).strip()
+  if "/" not in normalized:
+    return (fallback_provider, normalized)
+  provider, model = normalized.split("/", 1)
+  provider = provider.strip() or fallback_provider
+  model = model.strip()
+  return (provider, model if model != "" else None)
+
+
+def resolve_agent_defaults(runtime_config: dict[str, object]) -> tuple[str, str | None, str, str | None, str, str | None]:
   """
-  Resolve provider/model defaults from runtime config with settings fallbacks.
+  Resolve provider/model defaults from runtime config with hardcoded fallbacks.
 
   Keeps providers aligned with model hints when possible.
   """
@@ -87,14 +101,17 @@ def resolve_agent_defaults(settings: Settings, runtime_config: dict[str, object]
 
     return str(value)
 
-  # Resolve defaults from runtime config or environment-backed settings.
-  section_builder_model = _normalize_model(runtime_config.get("ai.section_builder.model")) or settings.section_builder_model or DEFAULT_SECTION_BUILDER_MODEL
-  planner_model = _normalize_model(runtime_config.get("ai.planner.model")) or settings.planner_model
-  repairer_model = _normalize_model(runtime_config.get("ai.repair.model")) or settings.repair_model
+  # Resolve defaults from runtime config or hardcoded defaults.
+  section_builder_raw = _normalize_model(runtime_config.get("ai.section_builder.model")) or DEFAULT_SECTION_BUILDER_MODEL
+  planner_raw = _normalize_model(runtime_config.get("ai.planner.model")) or DEFAULT_PLANNER_MODEL
+  repairer_raw = _normalize_model(runtime_config.get("ai.repair.model")) or DEFAULT_REPAIRER_MODEL
 
-  section_builder_provider = str(runtime_config.get("ai.section_builder.provider") or settings.section_builder_provider)
-  planner_provider = str(runtime_config.get("ai.planner.provider") or settings.planner_provider)
-  repairer_provider = str(runtime_config.get("ai.repair.provider") or settings.repair_provider)
+  section_builder_provider, section_builder_model = split_provider_model(section_builder_raw, _GEMINI_PROVIDER)
+  planner_provider, planner_model = split_provider_model(planner_raw, _GEMINI_PROVIDER)
+  repairer_provider, repairer_model = split_provider_model(repairer_raw, _GEMINI_PROVIDER)
+
+  if not section_builder_model:
+    section_builder_model = DEFAULT_SECTION_BUILDER_MODEL
 
   # Align providers with model hints when model names imply a different provider.
   section_builder_provider = _provider_for_section_builder_model(section_builder_model, section_builder_provider)

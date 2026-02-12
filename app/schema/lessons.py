@@ -37,6 +37,7 @@ class Lesson(Base):
 
 class Section(Base):
   __tablename__ = "sections"
+  __table_args__ = (UniqueConstraint("lesson_id", "order_index", name="ux_sections_lesson_order_index"),)
 
   section_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
   lesson_id: Mapped[str] = mapped_column(ForeignKey("lessons.lesson_id"), nullable=False, index=True)

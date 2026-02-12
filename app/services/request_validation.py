@@ -1,4 +1,4 @@
-from app.api.models import MAX_REQUEST_BYTES, GenerateLessonRequest, WritingCheckRequest
+from app.api.models import MAX_REQUEST_BYTES, BaseLessonRequest, GenerateLessonRequest, WritingCheckRequest
 from app.config import Settings
 from app.jobs.guardrails import estimate_bytes
 from fastapi import HTTPException, status
@@ -9,10 +9,10 @@ def _count_words(text: str) -> int:
   return len(text.split())
 
 
-def _validate_generate_request(request: GenerateLessonRequest, settings: Settings, *, max_topic_length: int | None = None) -> None:
+def _validate_generate_request(request: BaseLessonRequest, settings: Settings, *, max_topic_length: int | None = None) -> None:
   """Enforce topic/detail length and persistence size constraints."""
   # Allow callers to override max topic length using runtime configuration.
-  effective_max_topic_length = settings.max_topic_length if max_topic_length is None else int(max_topic_length)
+  effective_max_topic_length = 200 if max_topic_length is None else int(max_topic_length)
   if effective_max_topic_length <= 0:
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid max topic length configuration.")
   if len(request.topic) > effective_max_topic_length:
