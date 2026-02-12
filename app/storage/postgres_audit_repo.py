@@ -100,12 +100,29 @@ class PostgresLlmAuditRepository:
       await session.commit()
       logger.debug("Updated LLM audit record %s", record_id)
 
-  async def list_records(self, limit: int, offset: int, job_id: str | None = None, agent: str | None = None, status: str | None = None) -> tuple[list[LlmAuditRecord], int]:
-    """Return a paginated list of LLM audit records with optional filters."""
+  async def list_records(
+    self,
+    page: int = 1,
+    limit: int = 20,
+    job_id: str | None = None,
+    agent: str | None = None,
+    status: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    request_type: str | None = None,
+    sort_by: str = "started_at",
+    sort_order: str = "desc",
+  ) -> tuple[list[LlmAuditRecord], int]:
+    """Return a paginated list of LLM audit records with optional filters and sorting."""
     async with self._session_factory() as session:
-      stmt = select(LlmCallAudit).order_by(LlmCallAudit.started_at.desc()).limit(limit).offset(offset)
+      # Calculate offset from page
+      offset = (page - 1) * limit
+
+      # Build base query
+      stmt = select(LlmCallAudit).limit(limit).offset(offset)
       count_stmt = select(func.count()).select_from(LlmCallAudit)
 
+      # Apply filters
       conditions = []
       if job_id:
         conditions.append(LlmCallAudit.job_id == job_id)
@@ -113,11 +130,38 @@ class PostgresLlmAuditRepository:
         conditions.append(LlmCallAudit.agent == agent)
       if status:
         conditions.append(LlmCallAudit.status == status)
+      if provider:
+        conditions.append(LlmCallAudit.provider == provider)
+      if model:
+        conditions.append(LlmCallAudit.model == model)
+      if request_type:
+        conditions.append(LlmCallAudit.request_type == request_type)
 
       if conditions:
         stmt = stmt.where(*conditions)
         count_stmt = count_stmt.where(*conditions)
 
+      # Apply sorting
+      sort_column = LlmCallAudit.started_at  # default
+      if sort_by == "started_at":
+        sort_column = LlmCallAudit.started_at
+      elif sort_by == "duration_ms":
+        sort_column = LlmCallAudit.duration_ms
+      elif sort_by == "agent":
+        sort_column = LlmCallAudit.agent
+      elif sort_by == "provider":
+        sort_column = LlmCallAudit.provider
+      elif sort_by == "model":
+        sort_column = LlmCallAudit.model
+      elif sort_by == "status":
+        sort_column = LlmCallAudit.status
+
+      if sort_order.lower() == "asc":
+        stmt = stmt.order_by(sort_column.asc())
+      else:
+        stmt = stmt.order_by(sort_column.desc())
+
+      # Execute queries
       total = await session.scalar(count_stmt)
       result = await session.execute(stmt)
       rows = result.scalars().all()

@@ -16,7 +16,6 @@ Goal: keep lesson JSON compact, predictable for LLMs, and easy to render on the 
 ```
 
 - `title` (string, required): lesson title.
-- `title` (string, required): lesson title.
 - `blocks` (array, required): ordered lesson blocks. Only `section` is a valid block type.
 
 Note:
@@ -36,7 +35,7 @@ Recommendations:
 {
   "section": "Section title",
   "markdown": ["Section intro markdown.", "left"],
-  "illustration": [42, "Optional runtime caption"],
+  "illustration": ["42.webp", "Optional runtime caption", "a1B2c3D4e5F6g7H8"],
   "subsections": [
     {
       "section": "Subsection title",
@@ -70,11 +69,15 @@ Unless the object is a block (`section`) or uses `type`, it must use exactly one
 
 Note:
 - Dividers are auto-inserted between widgets when a section/subsection has multiple items.
+- Every widget shorthand payload must include `id` as the last element.
+- `id` is the public `subsection_widget_id` (nanoid string), not a numeric table PK.
+- Widgets that produce media/content assets can also include `resource_id` (public id from the widget table) for fetch/caching.
+- In model-generated JSON, `id` and `resource_id` should be `null` and are filled by the backend after persistence.
 
 ### `markdown` (MarkdownText)
 
 ```json
-{ "markdown": ["A short explanation, definition, or narrative context."] }
+{ "markdown": ["A short explanation, definition, or narrative context.", "left", "a1B2c3D4e5F6g7H8"] }
 { "markdown": ["**Warning:** Common pitfall / misconception."] }
 { "markdown": ["**Success:** Checkpoint: how to know you understood it."] }
 { "markdown": ["- Item 1\n- Item 2\n- Item 3"] }
@@ -91,17 +94,36 @@ Rules:
 
 ### `illustration` (Visual Widget)
 
-`illustration` uses compact shorthand: `[id, caption]`.
+`illustration` uses compact shorthand: `[resource_id, caption, id]`.
 
 ```json
-"illustration": [42, "Visual summary caption"]
+"illustration": ["42.webp", "Visual summary caption", "a1B2c3D4e5F6g7H8"]
 ```
 
 Rules:
-- Index `0` is `id` (integer or `null`).
+- Index `0` is `resource_id` (string, stable public nanoid for media retrieval/caching).
 - Index `1` is caption string.
-- Frontend media URL is built as `/media/lessons/{lesson_id}/{illustration[0]}.webp`.
-- If `illustration[0]` is null/missing/empty/not an integer, frontend should skip rendering illustration.
+- Index `2` is `id` (string, public subsection widget id used for tracking/progress).
+- Frontend media URL is built as `/media/lessons/{lesson_id}/{illustration[0]}`.
+- If `illustration[0]` is null/missing/empty, frontend should skip rendering illustration.
+
+---
+
+### `fenster` (Interactive HTML Widget)
+
+`fenster` uses shorthand: `[title, description, resource_id, id]`.
+
+```json
+{ "fenster": ["Interactive demo", "Explore the concept", "6f5d8a8a-1f1d-4a3b-9c2a-7e9a1f3b4d5c", "a1B2c3D4e5F6g7H8"] }
+```
+
+Rules:
+- Index `0` is `title` (string).
+- Index `1` is `description` (string).
+- Index `2` is `resource_id` (string, stable public nanoid for delivery/caching).
+- Index `3` is `id` (string, public subsection widget id used for tracking/progress).
+- Frontend fenster URL is built as `/fenster/{fenster[2]}`.
+- `ai_prompt` is server-side only and must not be exposed in shorthand/client payload.
 
 ---
 
@@ -236,7 +258,7 @@ Recommendation:
 ### `freeText` (Free Text Editor - Multiline)
 
 ```json
-{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary"] }
+{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary", 123] }
 ```
 
 Schema (array positions):
@@ -244,6 +266,7 @@ Schema (array positions):
 2. `seedLocked` (string, optional): non-removable prefix.
 3. `lang` (string, optional): language key. Default: `en`.
 4. `wordlistCsv` (string, optional): comma-separated terms as one string.
+5. `id` (integer, optional): Database ID of the subjective input widget.
 
 Notes:
 - Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
@@ -261,13 +284,14 @@ Where to use:
 ### `inputLine` (Single Line Input)
 
 ```json
-{ "inputLine": ["Prompt text", "en", "term1,term2,term3"] }
+{ "inputLine": ["Prompt text", "en", "term1,term2,term3", 123] }
 ```
 
 Schema (array positions):
 1. `prompt` (string): label/prompt for the input.
 2. `lang` (string, optional): language code. Default: `en`.
 3. `wordlistCsv` (string, optional): comma-separated terms for checking.
+4. `id` (integer, optional): Database ID of the subjective input widget.
 
 Notes:
 - Single-line input only.
@@ -292,7 +316,7 @@ Notes:
 ```
 
 Schema (array positions):
-1. `lead` (string): title shown above the flow.
+1. `title` (string): title shown above the flow.
 2. `flow` (array): steps and/or branch nodes.
 
 Branch node format:
@@ -313,7 +337,7 @@ Where to use:
 ```
 
 Schema (array positions):
-1. `lead` (string): title shown above the diagram.
+1. `title` (string): title shown above the diagram.
 2. `diagram` (string): raw ASCII text (whitespace preserved).
 
 Where to use:
@@ -328,7 +352,7 @@ Where to use:
 ```
 
 Schema (array positions):
-1. `lead` (string): title shown above the checklist.
+1. `title` (string): title shown above the checklist.
 2. `tree` (array): nested items and groups.
 
 Node formats:
@@ -346,30 +370,20 @@ Where to use:
 ### `interactiveTerminal` (Guided Command Practice)
 
 ```json
-{
-  "interactiveTerminal": {
-    "lead": "Try these commands:",
-    "rules": [
-      ["^help$", "ok", "Commands: help, list, open <name>\\n"],
-      [".*", "err", "Unknown command."]
-    ],
-    "guided": [
-      ["Type <b>help</b> to see commands.", "help"]
-    ]
-  }
-}
+{ "interactiveTerminal": ["Try these commands:", [["^help$", "ok", "Commands: help, list, open <name>\\n"], [".*", "err", "Unknown command."]], [["Type <b>help</b> to see commands.", "help"]], "a1B2c3D4e5F6g7H8"] }
 ```
 
-Schema:
-- `lead` (string): Title shown above the terminal.
-- `rules` (array): List of `[regexString, level, outputString]` tuples.
+Schema (array positions):
+- `0`: `title` (string): Title shown above the terminal.
+- `1`: `rules` (array): List of `[regexString, level, outputString]` tuples.
   - `regexString`: matching pattern for user input.
   - `level`: `ok` (standard output) or `err` (error styling).
   - `outputString`: response to print.
-- `guided` (array): List of `[taskHtml, solutionString]` tuples.
+- `2`: `guided` (array, optional): List of `[taskHtml, solutionString]` tuples.
   - Usage: Enforces a specific sequence of commands.
   - `taskHtml`: Description shown in the guide panel. Can use `<b>`, `<code>`.
   - `solutionString`: The exact command the user must type.
+- `3` or `last`: `id` (string): public subsection widget id.
 
 Where to use:
 - Interactive CLI training where you want the user to type specific commands.
@@ -379,23 +393,16 @@ Where to use:
 ### `terminalDemo` (Scripted Command Playback)
 
 ```json
-{
-  "terminalDemo": {
-    "lead": "Watch the Git flow:",
-    "rules": [
-      ["git status", 400, "On branch main\\nnothing to commit"],
-      ["git log --oneline", 600, "a1b2c3 add tests"]
-    ]
-  }
-}
+{ "terminalDemo": ["Watch the Git flow:", [["git status", 400, "On branch main\\nnothing to commit"], ["git log --oneline", 600, "a1b2c3 add tests"]], "a1B2c3D4e5F6g7H8"] }
 ```
 
-Schema:
-- `lead` (string): Title.
-- `rules` (array): List of `[commandString, delayMs, outputString]` tuples.
+Schema (array positions):
+- `0`: `title` (string): Title.
+- `1`: `rules` (array): List of `[commandString, delayMs, outputString]` tuples.
   - `commandString`: The command to simulate typing.
   - `delayMs`: Time in milliseconds to wait before showing output (simulates processing).
   - `outputString`: The command output.
+- `2` or `last`: `id` (string): public subsection widget id.
 
 Where to use:
 - Demonstrating a sequence of commands passively (user watches).
@@ -475,7 +482,7 @@ Notes:
     {
       "section": "What it is",
       "markdown": ["Define the concept in plain language.", "left"],
-      "illustration": [42, "Quick visual of the core idea"],
+      "illustration": ["42.webp", "Quick visual of the core idea", "a1B2c3D4e5F6g7H8"],
       "subsections": [
         {
           "section": "Examples",
@@ -523,7 +530,7 @@ Notes:
 {
   "section": "Section title",
   "markdown": ["Section intro", "left"],
-  "illustration": [42, "Optional caption"],
+  "illustration": ["42.webp", "Optional caption", "a1B2c3D4e5F6g7H8"],
   "subsections": [
     {
       "section": "Subsection title",

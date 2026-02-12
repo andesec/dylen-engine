@@ -1,7 +1,6 @@
 import logging
 from typing import Any
 
-from app.ai.orchestrator import OrchestrationError
 from app.config import Settings
 from app.core.json import DecimalJSONResponse
 from fastapi import HTTPException, Request, status
@@ -118,16 +117,3 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Decima
 
   # Preserve 4xx details for client-correctable errors.
   return DecimalJSONResponse(status_code=exc.status_code, content=_error_payload(exc.detail, settings, request_id=request_id))
-
-
-async def orchestration_exception_handler(request: Request, exc: OrchestrationError) -> DecimalJSONResponse:
-  """Return a structured failure response for orchestration errors."""
-  from app.config import get_settings
-
-  settings = get_settings()
-  # Log orchestration failures with stack traces for diagnostics.
-  logger = logging.getLogger("uvicorn.error")
-  request_id = getattr(request.state, "request_id", None)
-  logger.error("Orchestration failure request_id=%s path=%s error_type=%s", request_id, request.url.path, type(exc).__name__, exc_info=True)
-  # Avoid returning orchestration logs to callers; they may contain prompts, tool output, or PII.
-  return DecimalJSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=_error_payload("Internal Server Error", settings, request_id=request_id))

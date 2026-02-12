@@ -149,11 +149,11 @@ def _seed_script_content(*, revision: str) -> str:
     '        "level1": "GLOBAL",\n'
     '        "desc1": "Global administrator.",\n'
     '        "id2": role_org_admin_id,\n'
-    '        "name2": "Org Admin",\n'
+    '        "name2": "Tenant_Admin",\n'
     '        "level2": "TENANT",\n'
     '        "desc2": "Organization administrator.",\n'
     '        "id3": role_org_member_id,\n'
-    '        "name3": "Org Member",\n'
+    '        "name3": "Tenant_User",\n'
     '        "level3": "TENANT",\n'
     '        "desc3": "Default role for new users.",\n'
     "      },\n"
@@ -205,8 +205,8 @@ def _seed_script_content(*, revision: str) -> str:
     '      "image_upload_quota",\n'
     '      "gen_sections_quota",\n'
     '      "research_quota",\n'
-    '      "coach_mode_enabled",\n'
-    '      "coach_voice_tier",\n'
+    '      "tutor_mode_enabled",\n'
+    '      "tutor_voice_tier",\n'
     "    ],\n"
     "  ):\n"
     "    await connection.execute(\n"
@@ -221,14 +221,14 @@ def _seed_script_content(*, revision: str) -> str:
     "          image_upload_quota,\n"
     "          gen_sections_quota,\n"
     "          research_quota,\n"
-    "          coach_mode_enabled,\n"
-    "          coach_voice_tier\n"
+    "          tutor_mode_enabled,\n"
+    "          tutor_voice_tier\n"
     "        )\n"
     "        VALUES\n"
-    "          (:name1, :mfu1, :depth1, :sections1, :fuq1, :iuq1, :gsq1, :rq1, :coach1, :voice1),\n"
-    "          (:name2, :mfu2, :depth2, :sections2, :fuq2, :iuq2, :gsq2, :rq2, :coach2, :voice2),\n"
-    "          (:name3, :mfu3, :depth3, :sections3, :fuq3, :iuq3, :gsq3, :rq3, :coach3, :voice3),\n"
-    "          (:name4, :mfu4, :depth4, :sections4, :fuq4, :iuq4, :gsq4, :rq4, :coach4, :voice4)\n"
+    "          (:name1, :mfu1, :depth1, :sections1, :fuq1, :iuq1, :gsq1, :rq1, :tutor1, :voice1),\n"
+    "          (:name2, :mfu2, :depth2, :sections2, :fuq2, :iuq2, :gsq2, :rq2, :tutor2, :voice2),\n"
+    "          (:name3, :mfu3, :depth3, :sections3, :fuq3, :iuq3, :gsq3, :rq3, :tutor3, :voice3),\n"
+    "          (:name4, :mfu4, :depth4, :sections4, :fuq4, :iuq4, :gsq4, :rq4, :tutor4, :voice4)\n"
     "        ON CONFLICT (name) DO UPDATE\n"
     "        SET max_file_upload_kb = EXCLUDED.max_file_upload_kb,\n"
     "            highest_lesson_depth = EXCLUDED.highest_lesson_depth,\n"
@@ -237,8 +237,8 @@ def _seed_script_content(*, revision: str) -> str:
     "            image_upload_quota = EXCLUDED.image_upload_quota,\n"
     "            gen_sections_quota = EXCLUDED.gen_sections_quota,\n"
     "            research_quota = EXCLUDED.research_quota,\n"
-    "            coach_mode_enabled = EXCLUDED.coach_mode_enabled,\n"
-    "            coach_voice_tier = EXCLUDED.coach_voice_tier\n"
+    "            tutor_mode_enabled = EXCLUDED.tutor_mode_enabled,\n"
+    "            tutor_voice_tier = EXCLUDED.tutor_voice_tier\n"
     '        """\n'
     "      ),\n"
     "      {\n"
@@ -250,7 +250,7 @@ def _seed_script_content(*, revision: str) -> str:
     '        "iuq1": 0,\n'
     '        "gsq1": 10,\n'
     '        "rq1": None,\n'
-    '        "coach1": False,\n'
+    '        "tutor1": False,\n'
     '        "voice1": "none",\n'
     '        "name2": "Starter",\n'
     '        "mfu2": 1024,\n'
@@ -260,7 +260,7 @@ def _seed_script_content(*, revision: str) -> str:
     '        "iuq2": 10,\n'
     '        "gsq2": 70,\n'
     '        "rq2": None,\n'
-    '        "coach2": False,\n'
+    '        "tutor2": False,\n'
     '        "voice2": "none",\n'
     '        "name3": "Plus",\n'
     '        "mfu3": 2048,\n'
@@ -270,7 +270,7 @@ def _seed_script_content(*, revision: str) -> str:
     '        "iuq3": 40,\n'
     '        "gsq3": 150,\n'
     '        "rq3": None,\n'
-    '        "coach3": True,\n'
+    '        "tutor3": True,\n'
     '        "voice3": "device",\n'
     '        "name4": "Pro",\n'
     '        "mfu4": 5120,\n'
@@ -280,7 +280,7 @@ def _seed_script_content(*, revision: str) -> str:
     '        "iuq4": 100,\n'
     '        "gsq4": 500,\n'
     '        "rq4": None,\n'
-    '        "coach4": True,\n'
+    '        "tutor4": True,\n'
     '        "voice4": "premium",\n'
     "      },\n"
     "    )\n"

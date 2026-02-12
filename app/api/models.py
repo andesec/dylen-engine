@@ -54,19 +54,19 @@ class RepairerModel(str, Enum):
   GEMINI_25_FLASH = "gemini-2.5-flash"
 
 
-class GenerateLessonRequest(BaseModel):
-  """Request payload for lesson generation."""
+class BaseLessonRequest(BaseModel):
+  """Shared request payload for lesson generation and outcomes preflight."""
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
   details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
-  outcomes: list[OutcomeText] | None = Field(default=None, min_length=1, max_length=8, description="Optional outcomes to guide the planner (3-8 items recommended).")
   blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] = Field(
     description="Required blueprint guidance for lesson planning."
   )
   teaching_style: list[Literal["conceptual", "theoretical", "practical"]] = Field(min_length=1, max_length=3, description="Required teaching style guidance for lesson planning.")
   learner_level: StrictStr | None = Field(default=None, min_length=1, description="Optional learner level hint used for prompt guidance.")
   depth: Literal["highlights", "detailed", "training"] = Field(default="highlights", description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).")
-  primary_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
+  lesson_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
+  secondary_language: Literal["English", "German", "Urdu"] | None = Field(default=None, description="Optional secondary language for language practice blueprint.")
   widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=7, description="Optional list of allowed widgets (overrides defaults).")
   schema_version: StrictStr | None = Field(default=None, description="Optional schema version to pin the lesson output to.")
   idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
@@ -102,6 +102,21 @@ class GenerateLessonRequest(BaseModel):
 
     if isinstance(learner_level, str):
       data["learner_level"] = _normalize_option_id(learner_level)
+
+    secondary_language = data.get("secondary_language")
+    if isinstance(secondary_language, str):
+      # Normalize common client formats and empty strings before enum validation.
+      language_value = secondary_language.strip()
+      if language_value == "":
+        data["secondary_language"] = None
+      else:
+        # Ignore secondary_language for non-language blueprints to keep the API backward-compatible.
+        blueprint_value = data.get("blueprint")
+        if blueprint_value != "languagepractice":
+          data["secondary_language"] = None
+        else:
+          language_aliases = {"english": "English", "en": "English", "german": "German", "de": "German", "urdu": "Urdu", "ur": "Urdu"}
+          data["secondary_language"] = language_aliases.get(language_value.lower(), language_value)
 
     depth = data.get("depth")
 
@@ -162,6 +177,27 @@ class GenerateLessonRequest(BaseModel):
     if len(set(widgets)) != len(widgets):
       raise ValueError("Widget entries must be unique.")
     return widgets
+
+  @model_validator(mode="after")
+  def validate_secondary_language_scope(self) -> BaseLessonRequest:
+    """Enforce secondary language only for language practice lessons."""
+    # Require a target language only when the user selected the language practice blueprint.
+    if self.blueprint == "languagepractice" and self.secondary_language is None:
+      raise ValueError("secondary_language is required when blueprint is languagepractice.")
+    # Reject stray secondary language values for non-language blueprints.
+    if self.secondary_language is not None and self.blueprint != "languagepractice":
+      raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")
+    return self
+
+
+class GenerateLessonRequest(BaseLessonRequest):
+  """Request payload for lesson generation."""
+
+  outcomes: list[OutcomeText] = Field(min_length=1, max_length=8, description="Required outcomes to guide the planner.")
+
+
+class GenerateOutcomesRequest(BaseLessonRequest):
+  """Request payload for outcomes preflight."""
 
 
 class LessonMeta(BaseModel):
@@ -256,9 +292,15 @@ class WritingCheckRequest(BaseModel):
   """Request payload for response evaluation."""
 
   text: StrictStr = Field(min_length=1, description="The user-written response to check (max 300 words).")
-  criteria: dict[str, Any] = Field(description="The evaluation criteria from the lesson.")
-  idempotency_key: StrictStr | None = Field(default=None, description="Optional client-generated UUID to prevent duplicate processing of the same request.")
+  widget_id: StrictStr | None = Field(default=None, description="Public subsection widget id being checked.")
+  criteria: dict[str, Any] | None = Field(default=None, description="Legacy evaluation criteria (deprecated).")
   model_config = ConfigDict(extra="forbid")
+
+  @model_validator(mode="after")
+  def validate_check_target(self) -> WritingCheckRequest:
+    if self.widget_id is None and self.criteria is None:
+      raise ValueError("Either widget_id or criteria must be provided.")
+    return self
 
 
 JobKind = Literal["lesson", "research", "youtube", "maintenance", "writing", "system"]
@@ -290,7 +332,7 @@ class LessonJobResponse(JobCreateResponse):
   lesson_id: StrictStr
 
 
-RetryAgent = Literal["planner", "section_builder", "repair"]
+RetryAgent = Literal["planner", "section_builder", "illustration", "tutor", "fenster_builder"]
 
 
 class JobRetryRequest(BaseModel):
@@ -336,4 +378,10 @@ class JobStatusResponse(BaseModel):
   status: JobStatus
   child_jobs: list[ChildJobStatus] | None = None
   lesson_id: StrictStr | None = None
+  requested_job_id: StrictStr | None = None
+  resolved_job_id: StrictStr | None = None
+  was_superseded: bool = False
+  superseded_by_job_id: StrictStr | None = None
+  superseded_job_id: StrictStr | None = None
+  follow_from_job_id: StrictStr | None = None
   model_config = ConfigDict(populate_by_name=True)

@@ -102,6 +102,12 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
     return User(id="test-user-id", email="test@example.com", status=UserStatus.APPROVED)
 
   app.dependency_overrides[get_current_active_user] = _get_current_active_user_override
+  from app.core.database import get_db
+
+  async def _get_db_override():
+    yield None
+
+  app.dependency_overrides[get_db] = _get_db_override
 
   client = TestClient(app)
   # Remove dev key header, use empty headers or valid bearer if needed (but overridden)

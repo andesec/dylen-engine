@@ -17,13 +17,15 @@ from app.schema.quotas import QuotaPeriod
 from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, get_quota_snapshot, release_quota_reservation, reserve_quota
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
+from app.storage.lessons_repo import FreeTextRecord, InputLineRecord, SubsectionRecord, SubsectionWidgetRecord
 from app.telemetry.context import llm_call_context
+from app.utils.ids import generate_nanoid
 
 
-def _is_overlong_validation_error(message: str) -> bool:
-  """Treat max-length and max-items violations as non-blocking generation warnings."""
+def _is_non_blocking_length_validation_error(message: str) -> bool:
+  """Treat string/item length violations as non-blocking generation warnings."""
   lowered = message.lower()
-  if "length <=" not in lowered:
+  if "length" not in lowered:
     return False
   return "expected `str`" in lowered or "expected `array`" in lowered
 
@@ -93,6 +95,55 @@ def _extract_error_location(error_message: str) -> tuple[str | None, str | None,
   if item_match:
     item_index = int(item_match.group(1))
   return normalized_path, section_scope, subsection_index, item_index
+
+
+def _collect_subjective_input_widget_records(section_struct: Any, creator_id: str) -> tuple[list[InputLineRecord], list[FreeTextRecord], list[tuple[str, Any, int]]]:
+  """Collect subjective widget rows and keep payload references for id backfill."""
+  input_lines: list[InputLineRecord] = []
+  free_texts: list[FreeTextRecord] = []
+  pending_updates: list[tuple[str, Any, int]] = []
+  for sub in section_struct.subsections:
+    for item in sub.items:
+      if item.inputLine and item.inputLine.ai_prompt:
+        input_lines.append(InputLineRecord(id=None, creator_id=creator_id, ai_prompt=item.inputLine.ai_prompt, wordlist=item.inputLine.wordlist_csv))
+        pending_updates.append(("inputLine", item.inputLine, len(input_lines) - 1))
+      if item.freeText and item.freeText.ai_prompt:
+        free_texts.append(FreeTextRecord(id=None, creator_id=creator_id, ai_prompt=item.freeText.ai_prompt, wordlist=item.freeText.wordlist_csv))
+        pending_updates.append(("freeText", item.freeText, len(free_texts) - 1))
+  return input_lines, free_texts, pending_updates
+
+
+def _collect_subsection_records(section_struct: Any, section_id: int) -> list[SubsectionRecord]:
+  """Build subsection rows using 1-based subsection indexes."""
+  records: list[SubsectionRecord] = []
+  for subsection_index, sub in enumerate(section_struct.subsections, start=1):
+    records.append(SubsectionRecord(id=None, section_id=section_id, subsection_index=subsection_index, subsection_title=str(sub.section), status="completed", is_archived=False))
+  return records
+
+
+def _collect_subsection_widget_records(section_struct: Any, subsection_rows: list[SubsectionRecord]) -> list[SubsectionWidgetRecord]:
+  """Build subsection widget rows from generated section items using 1-based widget indexes."""
+  records: list[SubsectionWidgetRecord] = []
+  subsection_id_by_index = {row.subsection_index: int(row.id) for row in subsection_rows if row.id is not None}
+  for subsection_index, sub in enumerate(section_struct.subsections, start=1):
+    subsection_id = subsection_id_by_index.get(subsection_index)
+    if subsection_id is None:
+      continue
+    for widget_index, item in enumerate(sub.items, start=1):
+      widget_type = str(item.type if hasattr(item, "type") else "unknown")
+      records.append(SubsectionWidgetRecord(id=None, subsection_id=subsection_id, widget_id=str(getattr(item, "id", "")) or None, widget_index=widget_index, widget_type=widget_type, status="pending", is_archived=False))
+  return records
+
+
+def _resolve_widget_entry(item: Any) -> tuple[str, Any] | None:
+  """Resolve the active widget key/payload from a one-of item struct."""
+  from app.schema.widget_models import get_widget_shorthand_names
+
+  for widget_key in get_widget_shorthand_names():
+    payload = getattr(item, widget_key, None)
+    if payload is not None:
+      return widget_key, payload
+  return None
 
 
 def _normalize_allowed_widgets(widget_names: list[str] | None) -> list[str] | None:
@@ -296,8 +347,8 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           except msgspec.ValidationError as e:
             # Capture validation errors from msgspec
             err_msg = str(e)
-            if _is_overlong_validation_error(err_msg):
-              logger.warning("Section validation exceeded max length/items and was accepted: %s", err_msg)
+            if _is_non_blocking_length_validation_error(err_msg):
+              logger.warning("Section validation violated string/item length constraints and was accepted: %s", err_msg)
               raw_payload = locals().get("result_dict", {})
               if isinstance(raw_payload, dict):
                 section_json = _prune_none_values(raw_payload)
@@ -308,7 +359,7 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
             else:
               logger.warning(f"Section validation failed: {e}")
               # We return the raw (potentially invalid) payload but mark it with errors
-              # so the orchestrator can decide to repair it.
+              # so the worker can run a single repair attempt.
               # If result_dict is available, use it; otherwise empty dict
               raw_payload = locals().get("result_dict", {})
               section_json = _prune_none_values(raw_payload) if isinstance(raw_payload, dict) else {}
@@ -336,9 +387,49 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           error_records.append(SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=index, error_message=message, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index))
         await repo.create_section_errors(error_records)
       else:
+        # Persist subjective input widgets if structured output is available.
+        if section_struct is not None:
+          creator_id = str(raw_user_id)
+          markdown_payload = msgspec.to_builtins(section_struct.markdown)
+          markdown_id = await repo.create_widget_payload(widget_type="markdown", creator_id=creator_id, payload_json=markdown_payload)
+          await repo.update_section_links(created_section.section_id, markdown_id=int(markdown_id))
+          subsection_records = _collect_subsection_records(section_struct=section_struct, section_id=created_section.section_id)
+          created_subsections = await repo.create_subsections(subsection_records) if subsection_records else []
+          subsection_id_by_index = {row.subsection_index: int(row.id) for row in created_subsections if row.id is not None}
+          for subsection_index, subsection in enumerate(section_struct.subsections, start=1):
+            subsection_id = subsection_id_by_index.get(subsection_index)
+            if subsection_id is None:
+              continue
+            for widget_index, item in enumerate(subsection.items, start=1):
+              entry = _resolve_widget_entry(item)
+              if entry is None:
+                continue
+              widget_type, widget_payload = entry
+              payload_json = msgspec.to_builtins(widget_payload)
+              if widget_type == "inputLine":
+                record = InputLineRecord(id=None, creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
+                created_rows = await repo.create_input_lines([record])
+                widget_row_id = str(created_rows[0].id) if created_rows and created_rows[0].id is not None else None
+              elif widget_type == "freeText":
+                record = FreeTextRecord(id=None, creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
+                created_rows = await repo.create_free_texts([record])
+                widget_row_id = str(created_rows[0].id) if created_rows and created_rows[0].id is not None else None
+              else:
+                widget_row_id = await repo.create_widget_payload(widget_type=widget_type, creator_id=creator_id, payload_json=payload_json)
+              if hasattr(widget_payload, "resource_id"):
+                widget_payload.resource_id = widget_row_id
+              public_id = generate_nanoid()
+              subsection_widget_rows = await repo.create_subsection_widgets(
+                [SubsectionWidgetRecord(subsection_id=subsection_id, public_id=public_id, widget_id=widget_row_id, widget_index=widget_index, widget_type=widget_type, status="pending", is_archived=False)]
+              )
+              if subsection_widget_rows and hasattr(widget_payload, "id"):
+                widget_payload.id = subsection_widget_rows[0].public_id
+
         try:
+          if section_struct is not None:
+            section_json = _prune_none_values(msgspec.to_builtins(section_struct))
           shorthand_content = _build_shorthand_content(section_struct=section_struct, section_json=section_json, section_number=section_index, logger=logger)
-          await repo.update_section_shorthand(created_section.section_id, shorthand_content)
+          await repo.update_section_content_and_shorthand(created_section.section_id, section_json, shorthand_content)
         except Exception as exc:  # noqa: BLE001
           shorthand_error = f"payload: shorthand conversion failed: {exc}"
           error_path, section_scope, subsection_index, item_index = _extract_error_location(shorthand_error)

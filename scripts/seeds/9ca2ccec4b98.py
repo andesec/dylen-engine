@@ -1,4 +1,4 @@
-"""Seed coach/tutor mode feature flags."""
+"""Seed tutor mode feature flags."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-_MODE_FLAG_DEFINITIONS: tuple[tuple[str, str, bool], ...] = (("feature.coach.mode", "Enable coach mode.", False), ("feature.tutor.mode", "Enable tutor mode.", False))
+_MODE_FLAG_DEFINITIONS: tuple[tuple[str, str, bool], ...] = (("feature.tutor.mode", "Enable tutor mode.", False),)
 
 
 async def _table_exists(connection: AsyncConnection, *, table_name: str, schema: str | None = None) -> bool:
@@ -63,7 +63,7 @@ async def _ensure_columns(connection: AsyncConnection, *, table_name: str, colum
 
 
 async def seed(connection: AsyncConnection) -> None:
-  """Upsert coach/tutor mode feature flags with secure defaults."""
+  """Upsert tutor mode feature flags with secure defaults."""
   # Verify required columns before upserting feature flags.
   feature_flags_ready = await _ensure_columns(connection, table_name="feature_flags", columns=["id", "key", "description", "default_enabled"])
   if not feature_flags_ready:

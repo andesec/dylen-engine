@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from app.core.database import get_db_engine
+from app.core.env_contract import EnvContractError, validate_runtime_env_or_raise
 from app.core.firebase import initialize_firebase
 from app.core.logging import _initialize_logging
 from app.services.storage_client import build_storage_client
@@ -33,6 +34,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _initialize_logging(settings)
     # Emit a startup confirmation log for operators.
     logger.info("Startup complete - logging verified.")
+    # Log effective LLM audit toggles so cloud misconfiguration is visible immediately.
+    logger.info("LLM audit config enabled=%s pg_dsn_set=%s", bool(settings.llm_audit_enabled), bool(settings.pg_dsn))
+    # Enforce startup env contracts before app dependencies are initialized.
+    validate_runtime_env_or_raise(logger=logger, target="service")
 
     # Initialize Firebase before handling requests.
     initialize_firebase()
@@ -58,6 +63,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         subprocess.run([sys.executable, "scripts/migrate_with_lock.py"], check=True, cwd=repo_root)
         # Log the database state after migrations to confirm the runtime schema.
         await _log_db_state(logger=logger)
+
+  except EnvContractError:
+    # Fail-fast when required startup configuration is missing or invalid.
+    logger.error("Environment contract failed; refusing to start the service.", exc_info=True)
+    raise
 
   except Exception as exc:
     # Log initialization failures but allow the app to continue starting.

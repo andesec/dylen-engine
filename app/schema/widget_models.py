@@ -41,12 +41,16 @@ class Widget(msgspec.Struct):
 class MarkdownPayload(msgspec.Struct):
   markdown: Annotated[str, msgspec.Meta(description="Main markdown content (30-700 chars including symbols), break into short paragraphs as needed.")]
   align: Literal["left", "center"] = "left"
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="markdown.markdown", value=self.markdown, min_length=30, max_length=700)
 
   def output(self) -> list[str]:
-    return [self.markdown, self.align]
+    result = [self.markdown, self.align]
+    if self.id:
+      result.append(self.id)
+    return result
 
 
 class IllustrationPayload(msgspec.Struct):
@@ -55,11 +59,12 @@ class IllustrationPayload(msgspec.Struct):
   caption: Annotated[str | None, msgspec.Meta(description="Short caption shown beside section markdown.")] = None
   ai_prompt: Annotated[str | None, msgspec.Meta(description="Prompt used for image generation.")] = None
   keywords: Annotated[list[str] | None, msgspec.Meta(description="Preferred 4-keyword concept guide for image generation.")] = None
-  id: Annotated[int | None, msgspec.Meta(description="Generated illustration identifier used for media retrieval.")] = None
+  resource_id: Annotated[str | None, msgspec.Meta(description="Public illustration resource identifier used for media retrieval. System-assigned at persistence time; leave null in model output.")] = None
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier used for learner tracking. System-assigned at persistence time; leave null in model output.")] = None
 
   def output(self) -> list[Any]:
-    """Return frontend shorthand as [id, caption]."""
-    return [self.id, self.caption or ""]
+    """Return frontend shorthand as [resource_id, caption, id]."""
+    return [self.resource_id, self.caption or "", self.id]
 
 
 class FlipCardPayload(msgspec.Struct):
@@ -83,17 +88,25 @@ class FlipCardPayload(msgspec.Struct):
 
 class FlipCardsPayload(msgspec.Struct):
   cards: Annotated[list[FlipCardPayload], msgspec.Meta(description="Array of flipcards.")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def output(self) -> list[list[str]]:
-    return [card.output() for card in self.cards]
+    res: list[Any] = [card.output() for card in self.cards]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class TranslationPayload(msgspec.Struct):
   source: Annotated[str, msgspec.Meta(pattern=r"^[a-zA-Z]{2,3}[:\-] .+", description="Source text with lang prefix (e.g. 'EN: Text')")]
   target: Annotated[str, msgspec.Meta(pattern=r"^[a-zA-Z]{2,3}[:\-] .+", description="Target text with lang prefix (e.g. 'DE: Text')")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def output(self) -> list[str]:
-    return [self.source, self.target]
+    res = [self.source, self.target]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class FillBlankPayload(msgspec.Struct):
@@ -101,9 +114,13 @@ class FillBlankPayload(msgspec.Struct):
   answer: Annotated[str, msgspec.Meta(description="The expected answer string")]
   hint: Annotated[str, msgspec.Meta(description="Brief hint for the blank")]
   explanation: Annotated[str, msgspec.Meta(description="Explanation of the correct answer")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def output(self) -> list[str]:
-    return [self.prompt, self.answer, self.hint, self.explanation]
+    res = [self.prompt, self.answer, self.hint, self.explanation]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class FreeTextPayload(msgspec.Struct):
@@ -111,8 +128,10 @@ class FreeTextPayload(msgspec.Struct):
   seed_locked: Annotated[str | None, msgspec.Meta(description="Fixed non-removable prefix text")] = None
   lang: Annotated[str | None, msgspec.Meta(description="Language code (e.g. 'en')")] = None
   wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated vocabulary terms")] = None
+  ai_prompt: Annotated[str | None, msgspec.Meta(description="Prompt used to proofread/score the input")] = None
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
-  def output(self) -> list[str | None]:
+  def output(self) -> list[Any]:
     res = [self.prompt]
     if self.seed_locked:
       res.append(self.seed_locked)
@@ -120,6 +139,8 @@ class FreeTextPayload(msgspec.Struct):
       res.append(self.lang)
     if self.wordlist_csv:
       res.append(self.wordlist_csv)
+    if self.id:
+      res.append(self.id)
     return res
 
 
@@ -127,26 +148,34 @@ class InputLinePayload(msgspec.Struct):
   prompt: Annotated[str, msgspec.Meta(description="Input field label (min 1 char)")]
   lang: Annotated[str | None, msgspec.Meta(description="Language code (e.g. 'en')")] = None
   wordlist_csv: Annotated[str | None, msgspec.Meta(description="Comma-separated terms for validation")] = None
+  ai_prompt: Annotated[str | None, msgspec.Meta(description="Prompt used to proofread/score the input")] = None
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
-  def output(self) -> list[str | None]:
+  def output(self) -> list[Any]:
     res = [self.prompt]
     if self.lang:
       res.append(self.lang)
     if self.wordlist_csv:
       res.append(self.wordlist_csv)
+    if self.id:
+      res.append(self.id)
     return res
 
 
 class AsciiDiagramPayload(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Title for the proper ASCII diagram (6-40 chars)")]
   diagram: Annotated[str, msgspec.Meta(description="Diagram text. Make all ASCII diagram lines the same length (pad with spaces) and separate lines with \n.")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="asciiDiagram.title", value=self.title, min_length=6, max_length=40)
     _warn_len_out_of_range(field_name="asciiDiagram.diagram", value=self.diagram, min_length=1)
 
   def output(self) -> list[str]:
-    return [self.title, self.diagram]
+    res = [self.title, self.diagram]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class TerminalRule(msgspec.Struct):
@@ -164,13 +193,20 @@ class InteractiveTerminalPayload(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Terminal title (6-40 chars)")]
   rules: Annotated[list[TerminalRule], msgspec.Meta(description="Regex-based terminal rule list (min 1 rule)")]
   guided: Annotated[list[GuidedTask] | None, msgspec.Meta(description="List of optional guided tasks")] = None
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="interactiveTerminal.title", value=self.title, min_length=6, max_length=40)
     _warn_len_out_of_range(field_name="interactiveTerminal.rules", value=self.rules, min_length=1)
 
-  def output(self) -> dict[str, Any]:
-    return msgspec.to_builtins(self)
+  def output(self) -> list[Any]:
+    rules = [[rule.regex, rule.level, rule.output] for rule in self.rules]
+    res: list[Any] = [self.title, rules]
+    if self.guided:
+      res.append([[task.task_markdown, task.solution_string] for task in self.guided])
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class DemoRule(msgspec.Struct):
@@ -182,13 +218,17 @@ class DemoRule(msgspec.Struct):
 class TerminalDemoPayload(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Demo title (6-40 chars)")]
   rules: Annotated[list[DemoRule], msgspec.Meta(description="Demo step list (min 1 step)")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="terminalDemo.title", value=self.title, min_length=6, max_length=40)
     _warn_len_out_of_range(field_name="terminalDemo.rules", value=self.rules, min_length=1)
 
-  def output(self) -> dict[str, Any]:
-    return msgspec.to_builtins(self)
+  def output(self) -> list[Any]:
+    res: list[Any] = [self.title, [[rule.command, rule.delay_ms, rule.output] for rule in self.rules]]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class CodeEditorPayload(msgspec.Struct):
@@ -196,6 +236,7 @@ class CodeEditorPayload(msgspec.Struct):
   language: Annotated[str, msgspec.Meta(description="Syntax highlighting language (e.g. 'javascript', 'python')")]
   read_only: bool = False
   highlighted_lines: Annotated[list[int] | None, msgspec.Meta(description="List of 1-based line numbers to highlight")] = None
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def output(self) -> list[Any]:
     res = [self.code, self.language]
@@ -203,6 +244,8 @@ class CodeEditorPayload(msgspec.Struct):
       res.append(self.read_only)
     if self.highlighted_lines:
       res.append(self.highlighted_lines)
+    if self.id:
+      res.append(self.id)
     return res
 
 
@@ -228,37 +271,49 @@ class SwipeCardsPayload(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Drill instruction title (6-40 chars)")]
   buckets: Annotated[BucketLabels, msgspec.Meta(description="Left and right bucket labels")]
   cards: Annotated[list[SwipeCardPayload], msgspec.Meta(description="Swipe card list (min 4 cards)")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="swipecards.title", value=self.title, min_length=6, max_length=40)
     _warn_len_out_of_range(field_name="swipecards.cards", value=self.cards, min_length=4)
 
   def output(self) -> list[Any]:
-    return [self.title, [self.buckets.left, self.buckets.right], [c.output() for c in self.cards]]
+    res: list[Any] = [self.title, [self.buckets.left, self.buckets.right], [c.output() for c in self.cards]]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class StepFlowPayload(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Flow title (6-40 chars)")]
   flow: Annotated[list[Annotated[str | list[Any], msgspec.Meta(description="Node: 'Step' (string) or [['Choice', [substeps...]], ...] branch")]], msgspec.Meta(description="Sequential steps or branch nodes (max depth 4)")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="stepFlow.title", value=self.title, min_length=6, max_length=40)
     _warn_len_out_of_range(field_name="stepFlow.flow", value=self.flow, min_length=1)
 
   def output(self) -> list[Any]:
-    return [self.title, self.flow]
+    res = [self.title, self.flow]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class ChecklistPayload(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Checklist title (6-40 chars)")]
   tree: Annotated[list[Annotated[str | list[Any], msgspec.Meta(description="Node: 'Item' (string) or ['Group Title', [children...]]")]], msgspec.Meta(description="Checklist items and groups (max depth 3)")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="checklist.title", value=self.title, min_length=6, max_length=40)
     _warn_len_out_of_range(field_name="checklist.tree", value=self.tree, min_length=1)
 
   def output(self) -> list[Any]:
-    return [self.title, self.tree]
+    res = [self.title, self.tree]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class TreeViewPayload(msgspec.Struct):
@@ -266,6 +321,7 @@ class TreeViewPayload(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Header shown above the tree (6-40 chars)")] | None = None
   textarea_id: Annotated[str | None, msgspec.Meta(description="Editor textarea ID for scrolling")] = None
   editor_id: Annotated[str | None, msgspec.Meta(description="Editor container ID for scrolling")] = None
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def output(self) -> list[Any]:
     res = [self.lesson]
@@ -275,6 +331,8 @@ class TreeViewPayload(msgspec.Struct):
       res.append(self.textarea_id)
     if self.editor_id:
       res.append(self.editor_id)
+    if self.id:
+      res.append(self.id)
     return res
 
 
@@ -299,6 +357,7 @@ class MCQsQuestion(msgspec.Struct):
 class MCQsInner(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Quiz title (6-40 chars)")]
   questions: Annotated[list[MCQsQuestion], msgspec.Meta(description="Question list (min 1 question)")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="mcqs.title", value=self.title, min_length=6, max_length=40)
@@ -306,13 +365,18 @@ class MCQsInner(msgspec.Struct):
 
   def output(self) -> list[Any]:
     """Return frontend shorthand as [title, questions]."""
-    return [self.title, [question.output() for question in self.questions]]
+    res: list[Any] = [self.title, [question.output() for question in self.questions]]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class FensterPayload(msgspec.Struct):
   title: Annotated[str, msgspec.Meta(description="Widget title (6-40 chars)")]
   description: Annotated[str, msgspec.Meta(description="Concept explanation text (min 20 chars)")]
   ai_prompt: Annotated[str, msgspec.Meta(description="AI generation prompt to create an interactive widget based on the topic using HTML/JS/CSS (min 50 chars)")]
+  resource_id: Annotated[str | None, msgspec.Meta(description="Public fenster resource identifier used for media retrieval. System-assigned at persistence time; leave null in model output.")] = None
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="fenster.title", value=self.title, min_length=6, max_length=40)
@@ -320,13 +384,20 @@ class FensterPayload(msgspec.Struct):
     _warn_len_out_of_range(field_name="fenster.ai_prompt", value=self.ai_prompt, min_length=50)
 
   def output(self) -> list[str]:
-    return [self.title, self.description, self.ai_prompt]
+    # Do not expose ai_prompt in client-facing shorthand; it is server-side only.
+    res = [self.title, self.description]
+    if self.resource_id:
+      res.append(self.resource_id)
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class TablePayload(msgspec.Struct):
   """Tabular data widget with header row and data rows."""
 
   rows: Annotated[list[list[str]], msgspec.Meta(description="List of rows, where each row is a list of 2-6 strings. First row is the header.")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="table.rows", value=self.rows, min_length=2, max_length=10)
@@ -344,7 +415,10 @@ class TablePayload(msgspec.Struct):
         logger.warning("Widget length warning for table.row[%s].cols: got %s, expected %s", i, len(row), header_cols)
 
   def output(self) -> list[list[str]]:
-    return self.rows
+    res: list[Any] = [*self.rows]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class CompareRow(msgspec.Struct):
@@ -356,12 +430,16 @@ class ComparePayload(msgspec.Struct):
   """Two-column comparison widget."""
 
   rows: Annotated[list[CompareRow], msgspec.Meta(description="Header row + 1-9 comparison rows (exactly 2 columns)")]
+  id: Annotated[str | None, msgspec.Meta(description="Public subsection widget identifier. System-assigned at persistence time; leave null in model output.")] = None
 
   def __post_init__(self):
     _warn_len_out_of_range(field_name="compare.rows", value=self.rows, min_length=2, max_length=10)
 
   def output(self) -> list[list[str]]:
-    return [[r.left, r.right] for r in self.rows]
+    res: list[Any] = [[r.left, r.right] for r in self.rows]
+    if self.id:
+      res.append(self.id)
+    return res
 
 
 class WidgetItem(msgspec.Struct):

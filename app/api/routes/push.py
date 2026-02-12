@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
 
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_permission
 from app.notifications.push_subscription_repo import PushSubscriptionEntry, PushSubscriptionRepository
 from app.schema.sql import User
 
@@ -101,7 +101,7 @@ class PushUnsubscribeRequest(BaseModel):
     return normalized
 
 
-@router.post("/subscribe", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/subscribe", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("push:subscribe_own"))])
 async def subscribe_to_push(payload: PushSubscribeRequest, response: Response, current_user: User = Depends(get_current_active_user), user_agent: str | None = Header(default=None)) -> Response:  # noqa: B008
   """Upsert the authenticated user's browser push subscription."""
   normalized_user_agent = None
@@ -119,7 +119,7 @@ async def subscribe_to_push(payload: PushSubscribeRequest, response: Response, c
   return response
 
 
-@router.delete("/unsubscribe", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/unsubscribe", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("push:unsubscribe_own"))])
 async def unsubscribe_from_push(payload: PushUnsubscribeRequest, response: Response, current_user: User = Depends(get_current_active_user)) -> Response:  # noqa: B008
   """Delete a push subscription owned by the authenticated user."""
   # Delete by user and endpoint while keeping the operation idempotent.

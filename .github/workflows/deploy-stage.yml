@@ -1,0 +1,43 @@
+name: Deploy Stage
+
+on:
+  workflow_run:
+    workflows:
+      - CI/CD
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-stage
+  cancel-in-progress: false
+
+jobs:
+  deploy-stage:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Authenticate to Google Cloud (Stage)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_STAGE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_STAGE_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Submit stage Cloud Build
+        run: |
+          gcloud builds submit \
+            --project "${{ secrets.GCP_STAGE_PROJECT_ID }}" \
+            --config cloudbuild-stage.migrate.yml \
+            --substitutions "_REGION=${{ secrets.GCP_STAGE_REGION }},_AR_REPO=${{ secrets.GCP_STAGE_AR_REPO }},_IMAGE=${{ secrets.GCP_STAGE_IMAGE_NAME }},_TAG=${{ github.sha }},_SERVICE=${{ secrets.GCP_STAGE_SERVICE }},_MIGRATE_JOB=${{ secrets.GCP_STAGE_MIGRATE_JOB }},_RUN_SA=${{ secrets.GCP_STAGE_RUN_SERVICE_ACCOUNT }},_CLOUDSQL_INSTANCE=${{ secrets.GCP_STAGE_CLOUD_SQL_INSTANCE }}"

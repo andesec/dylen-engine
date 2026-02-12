@@ -17,6 +17,7 @@ class SubscriptionTier(Base):
 
   id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
   name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+  is_tenant_tier: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
   max_file_upload_kb: Mapped[int | None] = mapped_column(Integer, nullable=True)
   highest_lesson_depth: Mapped[str | None] = mapped_column(Enum("highlights", "detailed", "training", name="lesson_depth"), nullable=True)
   max_sections_per_lesson: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -27,9 +28,9 @@ class SubscriptionTier(Base):
   concurrent_lesson_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
   concurrent_research_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
   concurrent_writing_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
-  concurrent_coach_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
-  coach_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-  coach_voice_tier: Mapped[str | None] = mapped_column(String, nullable=True)
+  concurrent_tutor_limit: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1, server_default="1")
+  tutor_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+  tutor_voice_tier: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class UserTierOverride(Base):
@@ -47,8 +48,8 @@ class UserTierOverride(Base):
   concurrent_lesson_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
   concurrent_research_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
   concurrent_writing_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
-  concurrent_coach_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
-  coach_mode_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+  concurrent_tutor_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+  tutor_mode_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class UserUsageMetrics(Base):
@@ -94,7 +95,7 @@ class UserQuotaBucket(Base):
   period_start: Mapped[Date] = mapped_column(Date, nullable=False)
   used: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
   reserved: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
-  updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+  updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class UserQuotaReservation(Base):

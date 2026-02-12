@@ -40,7 +40,7 @@ _RUNTIME_CONFIG_DEFINITIONS: dict[str, RuntimeConfigDefinition] = {
   "limits.max_markdown_chars": RuntimeConfigDefinition(key="limits.max_markdown_chars", value_type="int", description="Maximum markdown length for MarkdownText widgets.", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "limits.lessons_per_week": RuntimeConfigDefinition(key="limits.lessons_per_week", value_type="int", description="Maximum lessons that may be generated per week.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.sections_per_month": RuntimeConfigDefinition(key="limits.sections_per_month", value_type="int", description="Maximum lesson sections that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "limits.coach_sections_per_month": RuntimeConfigDefinition(key="limits.coach_sections_per_month", value_type="int", description="Maximum coach sections that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "limits.tutor_sections_per_month": RuntimeConfigDefinition(key="limits.tutor_sections_per_month", value_type="int", description="Maximum tutor sections that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.fenster_widgets_per_month": RuntimeConfigDefinition(key="limits.fenster_widgets_per_month", value_type="int", description="Maximum Fenster widgets that may be generated per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.ocr_files_per_month": RuntimeConfigDefinition(key="limits.ocr_files_per_month", value_type="int", description="Maximum OCR files that may be processed per month.", allowed_scopes=_SCOPES_TIER_TENANT),
   "limits.writing_checks_per_month": RuntimeConfigDefinition(key="limits.writing_checks_per_month", value_type="int", description="Maximum writing checks that may be requested per month.", allowed_scopes=_SCOPES_TIER_TENANT),
@@ -63,33 +63,23 @@ _RUNTIME_CONFIG_DEFINITIONS: dict[str, RuntimeConfigDefinition] = {
   "fenster.widgets_tier": RuntimeConfigDefinition(key="fenster.widgets_tier", value_type="str", description="Fenster widget tier (none|flash|reasoning).", allowed_scopes=_SCOPES_TIER_TENANT),
   "themes.allowed": RuntimeConfigDefinition(key="themes.allowed", value_type="json", description="Allowed theme IDs for the user.", allowed_scopes=_SCOPES_TIER_TENANT),
   "jobs.auto_process": RuntimeConfigDefinition(key="jobs.auto_process", value_type="bool", description="Automatically process jobs when created.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
-  "jobs.ttl_seconds": RuntimeConfigDefinition(key="jobs.ttl_seconds", value_type="int", description="Optional TTL (seconds) for job records.", allowed_scopes=_SCOPES_GLOBAL),
-  "jobs.max_retries": RuntimeConfigDefinition(key="jobs.max_retries", value_type="int", description="Maximum retry attempts for failed jobs.", allowed_scopes=_SCOPES_GLOBAL),
   "lessons.cache_catalog": RuntimeConfigDefinition(key="lessons.cache_catalog", value_type="bool", description="Enable cache headers for the lesson catalog.", allowed_scopes=_SCOPES_GLOBAL),
   "lessons.schema_version": RuntimeConfigDefinition(key="lessons.schema_version", value_type="str", description="Default schema version for generated lessons.", allowed_scopes=_SCOPES_GLOBAL, super_admin_only=True),
   "lessons.prompt_version": RuntimeConfigDefinition(key="lessons.prompt_version", value_type="str", description="Default prompt version for generated lessons.", allowed_scopes=_SCOPES_GLOBAL, super_admin_only=True),
   "lessons.repair_overlong_markdown": RuntimeConfigDefinition(key="lessons.repair_overlong_markdown", value_type="bool", description="Enable internal overlong markdown repair (USER-scope only).", allowed_scopes=_SCOPES_USER, super_admin_only=True),
-  "ai.section_builder.provider": RuntimeConfigDefinition(key="ai.section_builder.provider", value_type="str", description="Default provider for section builder.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.section_builder.model": RuntimeConfigDefinition(key="ai.section_builder.model", value_type="str", description="Default model for section builder.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.planner.provider": RuntimeConfigDefinition(key="ai.planner.provider", value_type="str", description="Default provider for planner.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.planner.model": RuntimeConfigDefinition(key="ai.planner.model", value_type="str", description="Default model for planner.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.outcomes.provider": RuntimeConfigDefinition(key="ai.outcomes.provider", value_type="str", description="Default provider for outcomes agent.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.outcomes.model": RuntimeConfigDefinition(key="ai.outcomes.model", value_type="str", description="Default model for outcomes agent.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.repair.provider": RuntimeConfigDefinition(key="ai.repair.provider", value_type="str", description="Default provider for repair.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
-  "ai.repair.model": RuntimeConfigDefinition(key="ai.repair.model", value_type="str", description="Default model for repair.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
-  "ai.fenster.provider": RuntimeConfigDefinition(key="ai.fenster.provider", value_type="str", description="Default provider for Fenster builder.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.fenster.model": RuntimeConfigDefinition(key="ai.fenster.model", value_type="str", description="Default model for Fenster builder.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.fenster.technical_constraints": RuntimeConfigDefinition(key="ai.fenster.technical_constraints", value_type="json", description="Fenster technical constraints JSON for widget generation.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.writing.provider": RuntimeConfigDefinition(key="ai.writing.provider", value_type="str", description="Default provider for writing checks.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.writing.model": RuntimeConfigDefinition(key="ai.writing.model", value_type="str", description="Default model for writing checks.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.tutor.provider": RuntimeConfigDefinition(key="ai.tutor.provider", value_type="str", description="Default provider for tutor.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.tutor.model": RuntimeConfigDefinition(key="ai.tutor.model", value_type="str", description="Default model for tutor.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.illustration.provider": RuntimeConfigDefinition(key="ai.illustration.provider", value_type="str", description="Default provider for illustration.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.illustration.model": RuntimeConfigDefinition(key="ai.illustration.model", value_type="str", description="Default model for illustration.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.visualizer.provider": RuntimeConfigDefinition(key="ai.visualizer.provider", value_type="str", description="Legacy alias for ai.illustration.provider.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.visualizer.model": RuntimeConfigDefinition(key="ai.visualizer.model", value_type="str", description="Legacy alias for ai.illustration.model.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.youtube.provider": RuntimeConfigDefinition(key="ai.youtube.provider", value_type="str", description="Default provider for YouTube capture.", allowed_scopes=_SCOPES_TIER_TENANT),
-  "ai.youtube.model": RuntimeConfigDefinition(key="ai.youtube.model", value_type="str", description="Default model for YouTube capture.", allowed_scopes=_SCOPES_TIER_TENANT),
+  "ai.section_builder.model": RuntimeConfigDefinition(key="ai.section_builder.model", value_type="str", description="Default model for section builder (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.planner.model": RuntimeConfigDefinition(key="ai.planner.model", value_type="str", description="Default model for planner (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.outcomes.model": RuntimeConfigDefinition(key="ai.outcomes.model", value_type="str", description="Default model for outcomes agent (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.repair.model": RuntimeConfigDefinition(key="ai.repair.model", value_type="str", description="Default model for repair (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.fenster.model": RuntimeConfigDefinition(key="ai.fenster.model", value_type="str", description="Default model for Fenster builder (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.fenster.technical_constraints": RuntimeConfigDefinition(key="ai.fenster.technical_constraints", value_type="json", description="Fenster technical constraints JSON for widget generation.", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.writing.model": RuntimeConfigDefinition(key="ai.writing.model", value_type="str", description="Default model for writing checks (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.tutor.model": RuntimeConfigDefinition(key="ai.tutor.model", value_type="str", description="Default model for tutor (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.illustration.model": RuntimeConfigDefinition(key="ai.illustration.model", value_type="str", description="Default model for illustration (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.visualizer.model": RuntimeConfigDefinition(key="ai.visualizer.model", value_type="str", description="Legacy alias for ai.illustration.model (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.youtube.model": RuntimeConfigDefinition(key="ai.youtube.model", value_type="str", description="Default model for YouTube capture (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.research.model": RuntimeConfigDefinition(key="ai.research.model", value_type="str", description="Default model for research discovery (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
+  "ai.research.router_model": RuntimeConfigDefinition(key="ai.research.router_model", value_type="str", description="Default router model for research intent classification (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "email.from_address": RuntimeConfigDefinition(key="email.from_address", value_type="str", description="Email 'from' address for outbound notifications.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
   "email.from_name": RuntimeConfigDefinition(key="email.from_name", value_type="str", description="Email 'from' name for outbound notifications.", allowed_scopes=_SCOPES_GLOBAL_TENANT),
   "email.provider": RuntimeConfigDefinition(key="email.provider", value_type="str", description="Email provider identifier.", allowed_scopes=_SCOPES_GLOBAL),
@@ -166,14 +156,14 @@ def _env_fallback(settings: Settings, key: str) -> Any:
   """Resolve a fallback value from environment-backed Settings for a config key."""
   # Preserve existing behavior by defaulting to environment settings when DB is unset.
   if key == "limits.max_topic_length":
-    return int(settings.max_topic_length)
+    return 200  # Hardcoded default, no longer env-configurable
   if key == "limits.max_markdown_chars":
     return int(settings.max_markdown_chars)
   if key == "limits.lessons_per_week":
     return 0
   if key == "limits.sections_per_month":
     return 0
-  if key == "limits.coach_sections_per_month":
+  if key == "limits.tutor_sections_per_month":
     return 0
   if key == "limits.fenster_widgets_per_month":
     return 0
@@ -218,63 +208,41 @@ def _env_fallback(settings: Settings, key: str) -> Any:
   if key == "fenster.widgets_tier":
     return "none"
   if key == "jobs.auto_process":
-    return bool(settings.jobs_auto_process)
-  if key == "jobs.ttl_seconds":
-    return int(settings.jobs_ttl_seconds) if settings.jobs_ttl_seconds is not None else None
-  if key == "jobs.max_retries":
-    return int(settings.job_max_retries)
+    return True  # Default to auto-process enabled
   if key == "lessons.cache_catalog":
-    return bool(settings.cache_lesson_catalog)
+    return False  # No caching by default (runtime configurable via DB)
   if key == "lessons.schema_version":
     return str(settings.schema_version)
   if key == "lessons.prompt_version":
     return str(settings.prompt_version)
   if key == "lessons.repair_overlong_markdown":
     return False
-  if key == "ai.section_builder.provider":
-    return str(settings.section_builder_provider)
   if key == "ai.section_builder.model":
-    return str(settings.section_builder_model or "")
-  if key == "ai.planner.provider":
-    return str(settings.planner_provider)
+    return "gemini/gemini-2.5-pro"
   if key == "ai.planner.model":
-    return str(settings.planner_model or "")
-  if key == "ai.outcomes.provider":
-    # Default to the configured outcomes provider when runtime config is unset.
-    return str(settings.outcomes_provider)
+    return "gemini/gemini-2.5-pro"
   if key == "ai.outcomes.model":
-    # Default to the configured outcomes model when runtime config is unset.
-    return str(settings.outcomes_model or "")
-  if key == "ai.repair.provider":
-    return str(settings.repair_provider)
+    return "gemini/gemini-2.5-flash"
   if key == "ai.repair.model":
-    return str(settings.repair_model or "")
-  if key == "ai.fenster.provider":
-    return str(settings.fenster_provider)
+    return "gemini/gemini-2.5-flash"
   if key == "ai.fenster.model":
-    return str(settings.fenster_model or "")
+    return "gemini/gemini-2.5-flash"
   if key == "ai.fenster.technical_constraints":
     return dict(settings.fenster_technical_constraints)
-  if key == "ai.writing.provider":
-    return str(settings.writing_provider)
   if key == "ai.writing.model":
-    return str(settings.writing_model or "")
-  if key == "ai.tutor.provider":
-    return str(settings.tutor_provider)
+    return "gemini/gemini-2.5-flash"
   if key == "ai.tutor.model":
-    return str(settings.tutor_model or "")
-  if key == "ai.illustration.provider":
-    return str(settings.illustration_provider)
+    return "gemini/gemini-2.5-flash"
   if key == "ai.illustration.model":
-    return str(settings.illustration_model or "")
-  if key == "ai.visualizer.provider":
-    return str(settings.illustration_provider)
+    return "gemini/gemini-2.5-flash-image"
   if key == "ai.visualizer.model":
-    return str(settings.illustration_model or "")
-  if key == "ai.youtube.provider":
-    return str(settings.youtube_provider)
+    return "gemini/gemini-2.5-flash-image"
   if key == "ai.youtube.model":
-    return str(settings.youtube_model or "")
+    return "gemini/gemini-2.0-flash"
+  if key == "ai.research.model":
+    return "gemini/gemini-1.5-pro"
+  if key == "ai.research.router_model":
+    return "gemini/gemini-1.5-flash"
   if key == "email.from_address":
     return str(settings.email_from_address or "")
   if key == "email.from_name":
@@ -381,3 +349,111 @@ def redact_super_admin_config(config: dict[str, Any]) -> dict[str, Any]:
       continue
     redacted[key] = value
   return redacted
+
+
+# ============================================================================
+# Model Configuration Helpers
+# ============================================================================
+# These helpers encapsulate the hierarchy and provider/model extraction logic.
+# They simplify code that needs AI model configurations.
+
+
+def _parse_provider_model(value: str | None, default_provider: str, default_model: str) -> tuple[str, str]:
+  """Parse 'provider/model' format or return defaults.
+
+  How/Why:
+    - DB stores models as "provider/model" format (e.g., "gemini/gemini-2.5-pro")
+    - This helper splits them and provides sensible defaults when missing
+    - Callers get (provider, model) tuple directly without worrying about format
+  """
+  if not value:
+    return (default_provider, default_model)
+
+  value = str(value).strip()
+  if "/" not in value:
+    return (default_provider, value)
+
+  parts = value.split("/", 1)
+  provider = parts[0].strip() if parts[0].strip() else default_provider
+  model = parts[1].strip() if len(parts) > 1 and parts[1].strip() else default_model
+
+  return (provider, model)
+
+
+def get_model_provider_and_name(runtime_config: dict[str, Any], config_key: str, default_provider: str, default_model: str) -> tuple[str, str]:
+  """Get (provider, model) tuple from runtime config with defaults.
+
+  How/Why:
+    - Single call to get both provider and model from one config key
+    - Automatically handles "provider/model" string format
+    - Returns sensible defaults if not configured
+
+  Example:
+    provider, model = get_model_provider_and_name(
+      runtime_config,
+      "ai.section_builder.model",
+      default_provider="gemini",
+      default_model="gemini-2.5-pro"
+    )
+  """
+  value = runtime_config.get(config_key)
+  return _parse_provider_model(value, default_provider, default_model)
+
+
+def get_section_builder_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for section builder."""
+  return get_model_provider_and_name(runtime_config, "ai.section_builder.model", "gemini", "gemini-2.5-pro")
+
+
+def get_planner_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for planner."""
+  return get_model_provider_and_name(runtime_config, "ai.planner.model", "gemini", "gemini-2.5-pro")
+
+
+def get_outcomes_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for outcomes agent."""
+  return get_model_provider_and_name(runtime_config, "ai.outcomes.model", "gemini", "gemini-2.5-flash")
+
+
+def get_repair_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for repair agent."""
+  return get_model_provider_and_name(runtime_config, "ai.repair.model", "gemini", "gemini-2.5-flash")
+
+
+def get_fenster_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for Fenster widget builder."""
+  return get_model_provider_and_name(runtime_config, "ai.fenster.model", "gemini", "gemini-2.5-flash")
+
+
+def get_writing_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for writing checks."""
+  return get_model_provider_and_name(runtime_config, "ai.writing.model", "gemini", "gemini-2.5-flash")
+
+
+def get_tutor_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for tutor."""
+  return get_model_provider_and_name(runtime_config, "ai.tutor.model", "gemini", "gemini-2.5-flash")
+
+
+def get_illustration_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for illustration/visualization."""
+  fallback_value = runtime_config.get("ai.visualizer.model")
+  if runtime_config.get("ai.illustration.model") is None and fallback_value is not None:
+    return _parse_provider_model(str(fallback_value), "gemini", "gemini-2.5-flash-image")
+
+  return get_model_provider_and_name(runtime_config, "ai.illustration.model", "gemini", "gemini-2.5-flash-image")
+
+
+def get_youtube_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for YouTube capture."""
+  return get_model_provider_and_name(runtime_config, "ai.youtube.model", "gemini", "gemini-2.0-flash")
+
+
+def get_research_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for research discovery."""
+  return get_model_provider_and_name(runtime_config, "ai.research.model", "gemini", "gemini-1.5-pro")
+
+
+def get_research_router_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
+  """Get (provider, model) for research router/classifier."""
+  return get_model_provider_and_name(runtime_config, "ai.research.router_model", "gemini", "gemini-1.5-flash")

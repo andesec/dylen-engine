@@ -26,6 +26,7 @@ dependencies = [
     "google-cloud-tasks>=2.18.0",
     "brotli>=1.0.9",
     "msgspec>=0.18.6",
+    "pyzipper>=0.3.6",
     "mirascope[google]>=2.2.0",
     "pywebpush>=2.0.3",
 ]

@@ -15,7 +15,7 @@ async def test_local_task_dispatch():
 
   settings = get_settings()
   # Force settings for test
-  settings = replace(settings, base_url="http://localhost:8000", task_secret="test-task-secret")
+  settings = replace(settings, internal_service_url="http://localhost:8000", task_secret="test-task-secret")
 
   with patch("app.services.tasks.local.httpx.AsyncClient") as mock_client_cls:
     mock_client = AsyncMock()
@@ -29,7 +29,7 @@ async def test_local_task_dispatch():
     job_id = "test-job-123"
     await enqueuer.enqueue(job_id, {})
 
-    expected_url = f"{settings.base_url.rstrip('/')}/internal/tasks/process-job"
+    expected_url = f"{settings.internal_service_url.rstrip('/')}/internal/tasks/process-job"
     mock_client.post.assert_called_once()
     args, kwargs = mock_client.post.call_args
     assert args[0] == expected_url
@@ -47,7 +47,7 @@ async def test_task_handler_endpoint():
         response = await ac.post("/internal/tasks/process-job", json={"job_id": "job-abc"}, headers={"authorization": "Bearer test-task-secret"})
 
       assert response.status_code == 200
-      assert response.json() == {"status": "ok"}
+      assert response.json() == {"status": "accepted"}
       mock_process.assert_called_once()
       args, _ = mock_process.call_args
       assert args[0] == "job-abc"

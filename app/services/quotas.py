@@ -77,8 +77,8 @@ class ResolvedQuota:
   remaining_sections: int | None
   remaining_research: int | None
 
-  coach_mode_enabled: bool
-  coach_voice_tier: str | None
+  tutor_mode_enabled: bool
+  tutor_voice_tier: str | None
   quota_entries: list[QuotaEntry] = field(default_factory=list)
   availability: dict[str, bool] = field(default_factory=dict)
 
@@ -113,6 +113,37 @@ def build_quota_summary(quota: ResolvedQuota) -> list[QuotaSummaryEntry]:
     summaries.append(QuotaSummaryEntry(resource=entry.key, total=entry.limit, available=entry.remaining))
 
   return summaries
+
+
+def get_quota_resource(quota: ResolvedQuota, *, resource: str) -> dict[str, int | str | bool | None]:
+  """Return a single quota resource payload keyed by resource name."""
+  # Normalize input keys so route handlers can map user input deterministically.
+  target = (resource or "").strip().lower()
+  if target == "":
+    return {}
+
+  # Resolve base quota resources that come from tier/override columns.
+  base_map: dict[str, tuple[int | None, int | None]] = {
+    "file_uploads": (quota.total_file_uploads, quota.remaining_file_uploads),
+    "image_uploads": (quota.total_image_uploads, quota.remaining_image_uploads),
+    "sections": (quota.total_sections, quota.remaining_sections),
+    "research": (quota.total_research, quota.remaining_research),
+  }
+  if target in base_map:
+    total, available = base_map[target]
+    if total is None or total <= 0:
+      return {}
+    return {"resource": target, "total": total, "available": available, "tracked": True}
+
+  # Resolve bucket-based resources from the computed quota entries.
+  for entry in quota.quota_entries:
+    if entry.key != target:
+      continue
+    if entry.limit <= 0:
+      return {}
+    return {"resource": entry.key, "label": entry.label, "period": entry.period, "total": entry.limit, "used": entry.used, "available": entry.remaining, "tracked": entry.tracked, "enabled": entry.available}
+
+  return {}
 
 
 async def get_active_override(session: AsyncSession, user_id: uuid.UUID) -> UserTierOverride | None:
@@ -186,7 +217,7 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
   quota_candidates: list[QuotaEntry | None] = [
     await _bucket_entry(key="lesson.generate", label="Lesson Limit", period=QuotaPeriod.WEEK, limit_key="limits.lessons_per_week", metric_key="lesson.generate"),
     await _bucket_entry(key="section.generate", label="Section Limit", period=QuotaPeriod.MONTH, limit_key="limits.sections_per_month", metric_key="section.generate"),
-    await _bucket_entry(key="coach.generate", label="Coach Limit", period=QuotaPeriod.MONTH, limit_key="limits.coach_sections_per_month", metric_key="coach.generate"),
+    await _bucket_entry(key="tutor.generate", label="Tutor Limit", period=QuotaPeriod.MONTH, limit_key="limits.tutor_sections_per_month", metric_key="tutor.generate"),
     await _bucket_entry(key="fenster.widget.generate", label="Fenster Widget Limit", period=QuotaPeriod.MONTH, limit_key="limits.fenster_widgets_per_month", metric_key="fenster.widget.generate"),
     await _bucket_entry(key="ocr.extract", label="OCR Extract Limit", period=QuotaPeriod.MONTH, limit_key="limits.ocr_files_per_month", metric_key="ocr.extract", feature_flag="feature.ocr"),
     await _bucket_entry(key="writing.check", label="Writing Check Limit", period=QuotaPeriod.MONTH, limit_key="limits.writing_checks_per_month", metric_key="writing.check", feature_flag="feature.writing"),
@@ -212,8 +243,8 @@ async def resolve_quota(session: AsyncSession, user_id: uuid.UUID) -> ResolvedQu
     remaining_image_uploads=remaining_images,
     remaining_sections=remaining_sections,
     remaining_research=remaining_research,
-    coach_mode_enabled=bool(_pick("coach_mode_enabled")),
-    coach_voice_tier=_pick("coach_voice_tier"),
+    tutor_mode_enabled=bool(_pick("tutor_mode_enabled")),
+    tutor_voice_tier=_pick("tutor_voice_tier"),
     quota_entries=quota_entries,
     availability=availability,
   )

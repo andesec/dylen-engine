@@ -45,3 +45,6 @@ reproduce_crash.py
 
 # uv-specific
 .uv
+
+# Backups
+backups/

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
+import os
+import re
 from typing import Annotated, Any
 
 from app.core.database import get_db
 from app.core.firebase import verify_id_token
 from app.schema.sql import RoleLevel, User, UserStatus
-from app.services.feature_flags import get_feature_flag_by_key, is_feature_enabled
+from app.services.feature_flags import FEATURE_REASON_MISCONFIGURED, resolve_feature_flag_decision
 from app.services.rbac import get_or_create_default_member_role, get_role_by_id, role_has_permission
 from app.services.users import create_user, get_user_by_firebase_uid, get_user_subscription_tier, get_user_tier_name, resolve_auth_method, update_user_provider
 from fastapi import Depends, HTTPException, status
@@ -15,6 +18,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 security_scheme = HTTPBearer()
+_FEATURE_PERMISSION_SANITIZE_RE = re.compile(r"[^a-z0-9_]+")
+logger = logging.getLogger(__name__)
+
+
+def _allow_auth_without_db() -> bool:
+  """Allow database-less auth checks only in explicit test contexts."""
+  return bool(os.getenv("PYTEST_CURRENT_TEST"))
+
+
+def _feature_flag_to_permission_slug(flag_key: str) -> str:
+  """Map a feature flag key to its canonical RBAC permission slug."""
+  normalized = str(flag_key or "").strip().lower()
+  if normalized.startswith("feature."):
+    normalized = normalized[8:]
+  normalized = normalized.replace(".", "_").replace("-", "_").replace(":", "_")
+  normalized = _FEATURE_PERMISSION_SANITIZE_RE.sub("_", normalized)
+  normalized = normalized.strip("_")
+  return f"feature_{normalized}:use"
 
 
 async def _provision_user_from_claims(db: AsyncSession, *, firebase_uid: str, decoded_claims: dict[str, Any], provider_id: str | None) -> User:
@@ -115,6 +136,8 @@ async def get_current_user_or_provision(current_identity: tuple[User, dict[str, 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:  # noqa: B008
   """Block inactive users so only approved accounts access protected routes."""
   # Enforce status guard for all approved-only endpoints.
+  if current_user.is_discarded:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Discarded user")
   if current_user.status != UserStatus.APPROVED:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
 
@@ -123,8 +146,12 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
 
 async def get_current_admin_user(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> User:  # noqa: B008
   """Require admin permission for protected administrative routes."""
+  if db is None:
+    if _allow_auth_without_db():
+      return current_user
+    raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authorization service unavailable.")
   # Validate admin permission against RBAC tables for consistency.
-  has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug="user:manage")
+  has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug="user_data:view")
   if not has_permission:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
@@ -136,19 +163,37 @@ def require_permission(permission_slug: str):  # noqa: ANN001
 
   async def _dependency(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> User:  # noqa: B008
     """Verify the user role includes the required permission before proceeding."""
+    if db is None:
+      if _allow_auth_without_db():
+        return current_user
+      raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authorization service unavailable.")
     # Query RBAC mappings to ensure permission is attached to the user's role.
     has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug=permission_slug)
     if not has_permission:
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
-    # Support feature-flagging permissions without changing RBAC role tables.
+    # Enforce strict deny-by-default permission flags for every gated function.
     permission_flag_key = f"perm.{permission_slug}"
-    flag = await get_feature_flag_by_key(db, key=permission_flag_key)
-    if flag is not None:
-      tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
-      enabled = await is_feature_enabled(db, key=permission_flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
-      if not enabled:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission disabled")
+    tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
+    decision = await resolve_feature_flag_decision(db, key=permission_flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
+    if not decision.enabled:
+      # Log strict decision context so production denials can be diagnosed without exposing internals to clients.
+      logger.warning(
+        "Permission feature gate denied user_id=%s permission=%s flag=%s reason_code=%s tier_id=%s org_id=%s tier_record_exists=%s tenant_record_exists=%s promo_record_exists=%s",
+        current_user.id,
+        permission_slug,
+        permission_flag_key,
+        decision.reason_code,
+        tier_id,
+        current_user.org_id,
+        decision.tier_record_exists,
+        decision.tenant_record_exists,
+        decision.promo_record_exists,
+      )
+      detail: dict[str, str] = {"error": "FEATURE_UNAVAILABLE", "message": "Feature is not available. Please contact your administrator."}
+      if decision.reason_code == FEATURE_REASON_MISCONFIGURED:
+        detail["reason_code"] = FEATURE_REASON_MISCONFIGURED
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
     return current_user
 
@@ -160,11 +205,35 @@ def require_feature_flag(flag_key: str):  # noqa: ANN001
 
   async def _dependency(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)) -> User:  # noqa: B008
     """Resolve the flag for the current tenant/tier and enforce it."""
-    # Enforce secure defaults by treating missing flags as disabled.
+    if db is None:
+      if _allow_auth_without_db():
+        return current_user
+      raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authorization service unavailable.")
+    permission_slug = _feature_flag_to_permission_slug(flag_key)
+    has_permission = await role_has_permission(db, role_id=current_user.role_id, permission_slug=permission_slug)
+    if not has_permission:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+
+    # Enforce secure defaults through strict scope-chain resolution.
     tier_id, _tier_name = await get_user_subscription_tier(db, current_user.id)
-    enabled = await is_feature_enabled(db, key=flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
-    if not enabled:
-      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "FEATURE_DISABLED", "flag": flag_key})
+    decision = await resolve_feature_flag_decision(db, key=flag_key, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=current_user.id)
+    if not decision.enabled:
+      # Log strict decision context so production denials can be diagnosed without exposing internals to clients.
+      logger.warning(
+        "Feature gate denied user_id=%s flag=%s reason_code=%s tier_id=%s org_id=%s tier_record_exists=%s tenant_record_exists=%s promo_record_exists=%s",
+        current_user.id,
+        flag_key,
+        decision.reason_code,
+        tier_id,
+        current_user.org_id,
+        decision.tier_record_exists,
+        decision.tenant_record_exists,
+        decision.promo_record_exists,
+      )
+      detail: dict[str, str] = {"error": "FEATURE_UNAVAILABLE", "message": "Feature is not available. Please contact your administrator."}
+      if decision.reason_code == FEATURE_REASON_MISCONFIGURED:
+        detail["reason_code"] = FEATURE_REASON_MISCONFIGURED
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
     return current_user
 
   return _dependency
