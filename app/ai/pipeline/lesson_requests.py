@@ -26,5 +26,7 @@ class GenerateLessonRequestStruct(PipelineStruct):
   def __post_init__(self) -> None:
     if len(self.outcomes) < 1 or len(self.outcomes) > 8:
       raise ValueError("outcomes must include 1-8 values.")
+    if self.blueprint == "languagepractice" and self.secondary_language is None:
+      raise ValueError("secondary_language is required when blueprint is languagepractice.")
     if self.secondary_language is not None and self.blueprint != "languagepractice":
       raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")

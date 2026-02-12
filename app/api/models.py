@@ -103,6 +103,21 @@ class BaseLessonRequest(BaseModel):
     if isinstance(learner_level, str):
       data["learner_level"] = _normalize_option_id(learner_level)
 
+    secondary_language = data.get("secondary_language")
+    if isinstance(secondary_language, str):
+      # Normalize common client formats and empty strings before enum validation.
+      language_value = secondary_language.strip()
+      if language_value == "":
+        data["secondary_language"] = None
+      else:
+        # Ignore secondary_language for non-language blueprints to keep the API backward-compatible.
+        blueprint_value = data.get("blueprint")
+        if blueprint_value != "languagepractice":
+          data["secondary_language"] = None
+        else:
+          language_aliases = {"english": "English", "en": "English", "german": "German", "de": "German", "urdu": "Urdu", "ur": "Urdu"}
+          data["secondary_language"] = language_aliases.get(language_value.lower(), language_value)
+
     depth = data.get("depth")
 
     # Coerce legacy numeric depth values into supported labels so background jobs and older clients do not crash model validation.
@@ -165,7 +180,11 @@ class BaseLessonRequest(BaseModel):
 
   @model_validator(mode="after")
   def validate_secondary_language_scope(self) -> BaseLessonRequest:
-    """Restrict secondary language usage to language practice blueprint only."""
+    """Enforce secondary language only for language practice lessons."""
+    # Require a target language only when the user selected the language practice blueprint.
+    if self.blueprint == "languagepractice" and self.secondary_language is None:
+      raise ValueError("secondary_language is required when blueprint is languagepractice.")
+    # Reject stray secondary language values for non-language blueprints.
     if self.secondary_language is not None and self.blueprint != "languagepractice":
       raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")
     return self

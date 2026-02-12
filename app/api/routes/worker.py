@@ -23,13 +23,16 @@ class LessonGenerationTask(BaseModel):
 
 
 @router.post("/process-lesson", status_code=status.HTTP_200_OK)
-async def process_lesson_endpoint(task: LessonGenerationTask, settings: Settings = Depends(get_settings), authorization: str | None = Header(default=None)) -> dict[str, str]:
+async def process_lesson_endpoint(task: LessonGenerationTask, settings: Settings = Depends(get_settings), authorization: str | None = Header(default=None), x_dylen_task_secret: str | None = Header(default=None)) -> dict[str, str]:
   """Worker endpoint to process lesson generation."""
   # Secure internal worker endpoint with the shared task secret when configured.
   if not settings.task_secret:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task authentication is not configured.")
-  expected = f"Bearer {settings.task_secret}"
-  if not secrets.compare_digest((authorization or ""), expected):
+  expected_auth = f"Bearer {settings.task_secret}"
+  # Cloud Tasks OIDC uses Authorization for Cloud Run invoker auth, so use a dedicated secret header first.
+  shared_secret_valid = secrets.compare_digest((x_dylen_task_secret or ""), settings.task_secret)
+  legacy_auth_valid = secrets.compare_digest((authorization or ""), expected_auth)
+  if not shared_secret_valid and not legacy_auth_valid:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid task secret.")
   logger.info("Received lesson generation task for job %s", task.job_id)
 

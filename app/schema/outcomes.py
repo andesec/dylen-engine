@@ -57,7 +57,9 @@ class OutcomesAgentInput(BaseModel):
 
   @model_validator(mode="after")
   def validate_secondary_language_scope(self) -> OutcomesAgentInput:
-    """Allow secondary_language only for language practice blueprint requests."""
+    """Enforce secondary language rules by blueprint context."""
+    if str(self.blueprint or "") == "languagepractice" and self.secondary_language is None:
+      raise ValueError("secondary_language is required when blueprint is languagepractice.")
     if self.secondary_language is not None and str(self.blueprint or "") != "languagepractice":
       raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")
     return self

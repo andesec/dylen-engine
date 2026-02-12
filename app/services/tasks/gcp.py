@@ -31,7 +31,8 @@ class CloudTasksEnqueuer(TaskEnqueuer):
 
     url = f"{self.settings.internal_service_url}/internal/tasks/process-job"
     headers = {"Content-Type": "application/json"}
-    headers["authorization"] = f"Bearer {self.settings.task_secret}"
+    # Keep Authorization available for Cloud Run OIDC and send shared-secret in a separate header.
+    headers["X-Dylen-Task-Secret"] = self.settings.task_secret
 
     http_request: dict[str, object] = {"http_method": tasks_v2.HttpMethod.POST, "url": url, "headers": headers, "body": json.dumps({"job_id": job_id}).encode()}
     if self.settings.cloud_run_invoker_service_account:
@@ -65,7 +66,8 @@ class CloudTasksEnqueuer(TaskEnqueuer):
     payload = {"lesson_id": lesson_id, "job_id": job_id, "params": params, "user_id": user_id}
 
     headers = {"Content-Type": "application/json"}
-    headers["authorization"] = f"Bearer {self.settings.task_secret}"
+    # Keep Authorization available for Cloud Run OIDC and send shared-secret in a separate header.
+    headers["X-Dylen-Task-Secret"] = self.settings.task_secret
 
     task = {"http_request": {"http_method": tasks_v2.HttpMethod.POST, "url": url, "headers": headers, "body": json.dumps(payload).encode()}}
 
