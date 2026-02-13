@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 
 import firebase_admin
@@ -19,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("scripts.ensure_superadmin_user")
 
-SUPERADMIN_EMAIL = "dylen.app@gmail.com"
+SUPERADMIN_EMAIL = (os.getenv("DYLEN_SUPERADMIN_EMAIL") or "dylen.app@gmail.com").strip()
 SUPERADMIN_PROVIDER = "google.com"
 SUPERADMIN_ROLE_NAME = "Super Admin"
 SUPERADMIN_TIER_NAME = "Pro"

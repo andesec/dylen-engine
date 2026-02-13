@@ -19,6 +19,7 @@ Usage:
     [--cloud-tasks-queue <queue_name>] \
     [--cloud-tasks-invoker-sa <service_account_email>] \
     [--illustration-bucket <gcs_bucket_name>] \
+    [--export-bucket <gcs_bucket_name>] \
     --env-file <path_to_env_file> \
     [--allowed-origins <csv_origins>] \
     [--base-url <public_base_url>] \
@@ -38,7 +39,13 @@ Usage:
     [--skip-env-sync] \
     [--skip-secret-sync] \
     [--skip-auth-login] \
-    [--skip-health-check]
+    [--skip-health-check] \
+    [--allow-unauthenticated] \
+    [--no-allow-unauthenticated] \
+    [--run-min-instances <number>] \
+    [--run-max-instances <number>] \
+    [--run-cpu <vCPU>] \
+    [--run-memory <memory_limit>]
 
 Example:
   scripts/deploy_stage_now.sh \
@@ -49,13 +56,14 @@ Example:
     --service dylen-engine-stage \
     --migrate-job dylen-engine-stage-migrate \
     --run-sa sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com \
-    --cloudsql-instance dylen-stage-485900:us-central1:dylen-stage \
+    --cloudsql-instance dylen-stage-485900:us-central1:dylen-stage-e \
     --db-name dylen-stage \
     --db-user dylen-stage-user \
     --db-password-secret STAGE_DB_PASSWORD \
     --cloud-tasks-queue dylen-jobs-queue \
     --cloud-tasks-invoker-sa sa-cloud-tasks-invoker@dylen-stage-485900.iam.gserviceaccount.com \
     --illustration-bucket dylen-stage-illustrations \
+    --export-bucket dylen-stage-data-transfer \
     --env-file .env-stage \
     --org-id 123456789012 \
     --environment-tag-short-name staging \
@@ -84,6 +92,7 @@ DB_PASSWORD_SECRET=""
 CLOUD_TASKS_QUEUE_NAME=""
 CLOUD_TASKS_INVOKER_SA=""
 ILLUSTRATION_BUCKET=""
+EXPORT_BUCKET=""
 ENV_FILE=""
 ALLOWED_ORIGINS=""
 BASE_URL_OVERRIDE=""
@@ -104,6 +113,11 @@ SKIP_STORAGE_SETUP="0"
 SKIP_AUTH_LOGIN="0"
 SKIP_HEALTH_CHECK="0"
 ALLOW_UNKNOWN_ENV="0"
+RUN_MIN_INSTANCES=""
+RUN_MAX_INSTANCES=""
+RUN_CPU=""
+RUN_MEMORY=""
+ALLOW_UNAUTHENTICATED="1"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -161,6 +175,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --illustration-bucket)
       ILLUSTRATION_BUCKET="$2"
+      shift 2
+      ;;
+    --export-bucket)
+      EXPORT_BUCKET="$2"
       shift 2
       ;;
     --env-file)
@@ -243,6 +261,30 @@ while [[ $# -gt 0 ]]; do
       SKIP_HEALTH_CHECK="1"
       shift 1
       ;;
+    --allow-unauthenticated)
+      ALLOW_UNAUTHENTICATED="1"
+      shift 1
+      ;;
+    --no-allow-unauthenticated)
+      ALLOW_UNAUTHENTICATED="0"
+      shift 1
+      ;;
+    --run-min-instances)
+      RUN_MIN_INSTANCES="$2"
+      shift 2
+      ;;
+    --run-max-instances)
+      RUN_MAX_INSTANCES="$2"
+      shift 2
+      ;;
+    --run-cpu)
+      RUN_CPU="$2"
+      shift 2
+      ;;
+    --run-memory)
+      RUN_MEMORY="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -303,13 +345,30 @@ if [[ -z "$CLOUD_TASKS_INVOKER_SA" ]]; then CLOUD_TASKS_INVOKER_SA="$(read_env_v
 if [[ -z "$CLOUD_TASKS_INVOKER_SA" ]]; then CLOUD_TASKS_INVOKER_SA="$(read_env_var "$ENV_FILE" "DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT" || true)"; fi
 if [[ -z "$ILLUSTRATION_BUCKET" ]]; then ILLUSTRATION_BUCKET="$(read_env_var "$ENV_FILE" "DEPLOY_ILLUSTRATION_BUCKET" || true)"; fi
 if [[ -z "$ILLUSTRATION_BUCKET" ]]; then ILLUSTRATION_BUCKET="$(read_env_var "$ENV_FILE" "DYLEN_ILLUSTRATION_BUCKET" || true)"; fi
+if [[ -z "$EXPORT_BUCKET" ]]; then EXPORT_BUCKET="$(read_env_var "$ENV_FILE" "DEPLOY_EXPORT_BUCKET" || true)"; fi
+if [[ -z "$EXPORT_BUCKET" ]]; then EXPORT_BUCKET="$(read_env_var "$ENV_FILE" "DYLEN_EXPORT_BUCKET" || true)"; fi
 if [[ -z "$ALLOWED_ORIGINS" ]]; then ALLOWED_ORIGINS="$(read_env_var "$ENV_FILE" "DYLEN_ALLOWED_ORIGINS" || true)"; fi
 if [[ -z "$BASE_URL_OVERRIDE" ]]; then BASE_URL_OVERRIDE="$(read_env_var "$ENV_FILE" "DYLEN_BASE_URL" || true)"; fi
 if [[ -z "$INTERNAL_SERVICE_URL_OVERRIDE" ]]; then INTERNAL_SERVICE_URL_OVERRIDE="$(read_env_var "$ENV_FILE" "DYLEN_INTERNAL_SERVICE_URL" || true)"; fi
+FIREBASE_PROJECT_ID_VALUE="$(read_env_var "$ENV_FILE" "FIREBASE_PROJECT_ID" || true)"
 if [[ -z "$DYLEN_ENV_VALUE" ]]; then DYLEN_ENV_VALUE="$(read_env_var "$ENV_FILE" "DYLEN_ENV" || true)"; fi
 if [[ -z "$DYLEN_ENV_VALUE" ]]; then DYLEN_ENV_VALUE="stage"; fi
 if [[ -z "$TAG" ]]; then TAG="$(read_env_var "$ENV_FILE" "DEPLOY_TAG" || true)"; fi
 if [[ -z "$TAG" ]]; then TAG="$(git rev-parse --short=12 HEAD)"; fi
+if [[ -z "$RUN_MIN_INSTANCES" ]]; then RUN_MIN_INSTANCES="$(read_env_var "$ENV_FILE" "DEPLOY_RUN_MIN_INSTANCES" || true)"; fi
+if [[ -z "$RUN_MIN_INSTANCES" ]]; then RUN_MIN_INSTANCES="0"; fi
+if [[ -z "$RUN_MAX_INSTANCES" ]]; then RUN_MAX_INSTANCES="$(read_env_var "$ENV_FILE" "DEPLOY_RUN_MAX_INSTANCES" || true)"; fi
+if [[ -z "$RUN_MAX_INSTANCES" ]]; then RUN_MAX_INSTANCES="5"; fi
+if [[ -z "$RUN_CPU" ]]; then RUN_CPU="$(read_env_var "$ENV_FILE" "DEPLOY_RUN_CPU" || true)"; fi
+if [[ -z "$RUN_CPU" ]]; then RUN_CPU="1"; fi
+if [[ -z "$RUN_MEMORY" ]]; then RUN_MEMORY="$(read_env_var "$ENV_FILE" "DEPLOY_RUN_MEMORY" || true)"; fi
+if [[ -z "$RUN_MEMORY" ]]; then RUN_MEMORY="512Mi"; fi
+if [[ -z "$ALLOW_UNAUTHENTICATED" ]]; then ALLOW_UNAUTHENTICATED="$(read_env_var "$ENV_FILE" "DEPLOY_ALLOW_UNAUTHENTICATED" || true)"; fi
+if [[ -z "$ALLOW_UNAUTHENTICATED" ]]; then ALLOW_UNAUTHENTICATED="1"; fi
+if [[ "$ALLOW_UNAUTHENTICATED" != "0" && "$ALLOW_UNAUTHENTICATED" != "1" ]]; then
+  echo "DEPLOY_ALLOW_UNAUTHENTICATED must be 0 or 1. Got: $ALLOW_UNAUTHENTICATED" >&2
+  exit 1
+fi
 
 required_args=(
   "PROJECT_ID:$PROJECT_ID"
@@ -325,6 +384,8 @@ required_args=(
   "DB_PASSWORD_SECRET:$DB_PASSWORD_SECRET"
   "CLOUD_TASKS_QUEUE_NAME:$CLOUD_TASKS_QUEUE_NAME"
   "ILLUSTRATION_BUCKET:$ILLUSTRATION_BUCKET"
+  "EXPORT_BUCKET:$EXPORT_BUCKET"
+  "FIREBASE_PROJECT_ID_VALUE:$FIREBASE_PROJECT_ID_VALUE"
 )
 
 for kv in "${required_args[@]}"; do
@@ -366,9 +427,11 @@ echo "DB_PASSWORD_SECRET=$DB_PASSWORD_SECRET"
 echo "CLOUD_TASKS_QUEUE_NAME=$CLOUD_TASKS_QUEUE_NAME"
 echo "CLOUD_TASKS_INVOKER_SA=${CLOUD_TASKS_INVOKER_SA:-<not_set>}"
 echo "ILLUSTRATION_BUCKET=$ILLUSTRATION_BUCKET"
+echo "EXPORT_BUCKET=$EXPORT_BUCKET"
 echo "ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-<not_overridden>}"
 echo "BASE_URL_OVERRIDE=${BASE_URL_OVERRIDE:-<auto>}"
 echo "INTERNAL_SERVICE_URL_OVERRIDE=${INTERNAL_SERVICE_URL_OVERRIDE:-<auto>}"
+echo "FIREBASE_PROJECT_ID_VALUE=${FIREBASE_PROJECT_ID_VALUE:-<missing>}"
 echo "DYLEN_ENV_VALUE=$DYLEN_ENV_VALUE"
 echo "ENVIRONMENT_TAG_VALUE_ID=${ENVIRONMENT_TAG_VALUE_ID:-<resolve_from_org>}"
 echo "ORG_ID=${ORG_ID:-<not_set>}"
@@ -385,6 +448,11 @@ echo "SKIP_STORAGE_SETUP=$SKIP_STORAGE_SETUP"
 echo "SKIP_AUTH_LOGIN=$SKIP_AUTH_LOGIN"
 echo "SKIP_HEALTH_CHECK=$SKIP_HEALTH_CHECK"
 echo "ALLOW_UNKNOWN_ENV=$ALLOW_UNKNOWN_ENV"
+echo "RUN_MIN_INSTANCES=$RUN_MIN_INSTANCES"
+echo "RUN_MAX_INSTANCES=$RUN_MAX_INSTANCES"
+echo "RUN_CPU=$RUN_CPU"
+echo "RUN_MEMORY=$RUN_MEMORY"
+echo "ALLOW_UNAUTHENTICATED=$ALLOW_UNAUTHENTICATED"
 
 upsert_env_var() {
   local file="$1"
@@ -461,14 +529,20 @@ else
 fi
 
 if [[ "$SKIP_STORAGE_SETUP" != "1" ]]; then
-  log_step "Ensure illustration bucket exists + runtime SA has access"
+  log_step "Ensure storage buckets exist + runtime SA has access"
   if gcloud storage buckets describe "gs://${ILLUSTRATION_BUCKET}" --project "$PROJECT_ID" >/dev/null 2>&1; then
     echo "Illustration bucket already exists: gs://${ILLUSTRATION_BUCKET}"
   else
     run_cmd gcloud storage buckets create "gs://${ILLUSTRATION_BUCKET}" --project "$PROJECT_ID" --location "$REGION" --uniform-bucket-level-access
   fi
-  # Ensure runtime SA can upload/download illustration assets.
+  if gcloud storage buckets describe "gs://${EXPORT_BUCKET}" --project "$PROJECT_ID" >/dev/null 2>&1; then
+    echo "Export bucket already exists: gs://${EXPORT_BUCKET}"
+  else
+    run_cmd gcloud storage buckets create "gs://${EXPORT_BUCKET}" --project "$PROJECT_ID" --location "$REGION" --uniform-bucket-level-access
+  fi
+  # Ensure runtime SA can upload/download illustration and export assets.
   run_cmd gcloud storage buckets add-iam-policy-binding "gs://${ILLUSTRATION_BUCKET}" --member "serviceAccount:${RUN_SA}" --role "roles/storage.objectAdmin" --project "$PROJECT_ID"
+  run_cmd gcloud storage buckets add-iam-policy-binding "gs://${EXPORT_BUCKET}" --member "serviceAccount:${RUN_SA}" --role "roles/storage.objectAdmin" --project "$PROJECT_ID"
 else
   log_step "Skip storage setup (requested)"
 fi
@@ -577,8 +651,15 @@ upsert_env_var "$ENV_FILE" "DEPLOY_DB_PASSWORD_SECRET" "$DB_PASSWORD_SECRET"
 upsert_env_var "$ENV_FILE" "DEPLOY_CLOUD_TASKS_QUEUE_NAME" "$CLOUD_TASKS_QUEUE_NAME"
 upsert_env_var "$ENV_FILE" "DEPLOY_CLOUD_TASKS_INVOKER_SA" "$CLOUD_TASKS_INVOKER_SA"
 upsert_env_var "$ENV_FILE" "DEPLOY_ILLUSTRATION_BUCKET" "$ILLUSTRATION_BUCKET"
+upsert_env_var "$ENV_FILE" "DEPLOY_EXPORT_BUCKET" "$EXPORT_BUCKET"
+upsert_env_var "$ENV_FILE" "DYLEN_EXPORT_BUCKET" "$EXPORT_BUCKET"
 upsert_env_var "$ENV_FILE" "DEPLOY_TAG" "$TAG"
 upsert_env_var "$ENV_FILE" "DYLEN_ENV" "$DYLEN_ENV_VALUE"
+upsert_env_var "$ENV_FILE" "DEPLOY_RUN_MIN_INSTANCES" "$RUN_MIN_INSTANCES"
+upsert_env_var "$ENV_FILE" "DEPLOY_RUN_MAX_INSTANCES" "$RUN_MAX_INSTANCES"
+upsert_env_var "$ENV_FILE" "DEPLOY_RUN_CPU" "$RUN_CPU"
+upsert_env_var "$ENV_FILE" "DEPLOY_RUN_MEMORY" "$RUN_MEMORY"
+upsert_env_var "$ENV_FILE" "DEPLOY_ALLOW_UNAUTHENTICATED" "$ALLOW_UNAUTHENTICATED"
 if [[ -n "$ALLOWED_ORIGINS" ]]; then
   upsert_env_var "$ENV_FILE" "DYLEN_ALLOWED_ORIGINS" "$ALLOWED_ORIGINS"
 fi
@@ -592,16 +673,8 @@ else
 fi
 
 if [[ "$SKIP_SECRETS_STAGE" == "1" ]]; then
-  log_step "Update Cloud Tasks secrets directly (secrets stage skipped)"
-  upsert_secret_value "$PROJECT_ID" "DYLEN_TASK_SERVICE_PROVIDER" "gcp"
-  upsert_secret_value "$PROJECT_ID" "DYLEN_CLOUD_TASKS_QUEUE_PATH" "$DYLEN_CLOUD_TASKS_QUEUE_PATH_VALUE"
-  upsert_secret_value "$PROJECT_ID" "DYLEN_BASE_URL" "$DYLEN_BASE_URL_VALUE"
-  upsert_secret_value "$PROJECT_ID" "DYLEN_INTERNAL_SERVICE_URL" "$DYLEN_INTERNAL_SERVICE_URL_VALUE"
+  log_step "Update required sensitive secrets directly (secrets stage skipped)"
   upsert_secret_value "$PROJECT_ID" "DYLEN_TASK_SECRET" "$DYLEN_TASK_SECRET_VALUE"
-  upsert_secret_value "$PROJECT_ID" "DYLEN_ILLUSTRATION_BUCKET" "$ILLUSTRATION_BUCKET"
-  if [[ -n "$CLOUD_TASKS_INVOKER_SA" ]]; then
-    upsert_secret_value "$PROJECT_ID" "DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT" "$CLOUD_TASKS_INVOKER_SA"
-  fi
 fi
 
 if [[ "$SKIP_SECRETS_STAGE" == "1" ]]; then
@@ -609,32 +682,24 @@ if [[ "$SKIP_SECRETS_STAGE" == "1" ]]; then
 elif [[ "$SKIP_ENV_SYNC" == "1" || "$SKIP_SECRET_SYNC" == "1" ]]; then
   log_step "Skip env sync step (requested)"
 elif [[ "$SKIP_SECRET_SYNC" != "1" ]]; then
-  sync_extra_args=()
-  if [[ "$ALLOW_UNKNOWN_ENV" == "1" ]]; then
-    sync_extra_args+=(--allow-unknown)
-  fi
-
   log_step "Validate env contract against .env file (dry run)"
-  run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" --dry-run "${sync_extra_args[@]}"
+  # .env deploy files intentionally include DEPLOY_* metadata keys; keep sync resilient to those extras.
+  run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" --dry-run --allow-unknown
 
   log_step "Sync .env values into Secret Manager"
-  run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" "${sync_extra_args[@]}"
+  run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" --allow-unknown
 else
   log_step "Skip secret sync (requested)"
 fi
 
 if [[ "$SKIP_SECRETS_STAGE" != "1" ]]; then
   log_step "Verify required Secret Manager keys exist"
-  # Keep this list aligned with app/core/env_contract.py required service keys.
+  # Verify only sensitive keys that are still sourced via --set-secrets.
   required_secret_keys=(
-    "DYLEN_ENV"
-    "DYLEN_ALLOWED_ORIGINS"
     "DYLEN_PG_DSN"
-    "GCP_PROJECT_ID"
-    "GCP_LOCATION"
-    "FIREBASE_PROJECT_ID"
-    "DYLEN_ILLUSTRATION_BUCKET"
     "GEMINI_API_KEY"
+    "DYLEN_MAILERSEND_API_KEY"
+    "DYLEN_TASK_SECRET"
   )
   for key in "${required_secret_keys[@]}"; do
     run_cmd gcloud secrets describe "$key" --project "$PROJECT_ID" >/dev/null
@@ -642,17 +707,11 @@ if [[ "$SKIP_SECRETS_STAGE" != "1" ]]; then
   done
 fi
 
-if [[ "$SKIP_SECRETS_STAGE" != "1" && -n "$ALLOWED_ORIGINS" ]]; then
-  log_step "Override DYLEN_ALLOWED_ORIGINS secret from --allowed-origins"
-  echo "+ gcloud secrets versions add DYLEN_ALLOWED_ORIGINS --project $PROJECT_ID --data-file=-"
-  printf '%s' "$ALLOWED_ORIGINS" | gcloud secrets versions add DYLEN_ALLOWED_ORIGINS --project "$PROJECT_ID" --data-file=-
-fi
-
 log_step "Submit stage Cloud Build deployment"
 run_cmd gcloud builds submit \
   --project "$PROJECT_ID" \
   --config cloudbuild-stage.migrate.yml \
-  --substitutions "_REGION=$REGION,_AR_REPO=$AR_REPO,_IMAGE=$IMAGE,_TAG=$TAG,_SERVICE=$SERVICE,_MIGRATE_JOB=$MIGRATE_JOB,_RUN_SA=$RUN_SA,_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE,_CLOUD_RUN_INVOKER_SA=$CLOUD_TASKS_INVOKER_SA"
+  --substitutions "^|^_REGION=$REGION|_AR_REPO=$AR_REPO|_IMAGE=$IMAGE|_TAG=$TAG|_SERVICE=$SERVICE|_MIGRATE_JOB=$MIGRATE_JOB|_RUN_SA=$RUN_SA|_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE|_CLOUD_RUN_INVOKER_SA=$CLOUD_TASKS_INVOKER_SA|_EXPORT_BUCKET=$EXPORT_BUCKET|_DYLEN_ENV=$DYLEN_ENV_VALUE|_DYLEN_ALLOWED_ORIGINS=$ALLOWED_ORIGINS|_GCP_PROJECT_ID_VALUE=$PROJECT_ID|_GCP_LOCATION_VALUE=$REGION|_FIREBASE_PROJECT_ID_VALUE=$FIREBASE_PROJECT_ID_VALUE|_ILLUSTRATION_BUCKET=$ILLUSTRATION_BUCKET|_DYLEN_TASK_SERVICE_PROVIDER=gcp|_DYLEN_CLOUD_TASKS_QUEUE_PATH=$DYLEN_CLOUD_TASKS_QUEUE_PATH_VALUE|_DYLEN_BASE_URL=$DYLEN_BASE_URL_VALUE|_DYLEN_INTERNAL_SERVICE_URL=$DYLEN_INTERNAL_SERVICE_URL_VALUE|_RUN_MIN_INSTANCES=$RUN_MIN_INSTANCES|_RUN_MAX_INSTANCES=$RUN_MAX_INSTANCES|_RUN_CPU=$RUN_CPU|_RUN_MEMORY=$RUN_MEMORY|_ALLOW_UNAUTHENTICATED=$ALLOW_UNAUTHENTICATED"
 
 log_step "Resolve stage URL"
 STAGE_URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"

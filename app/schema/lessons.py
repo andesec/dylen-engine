@@ -59,7 +59,7 @@ class Lesson(Base):
   latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
   idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
   tags: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
-  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="false")
 
   sections: Mapped[list[Section]] = relationship("Section", back_populates="lesson", cascade="all, delete-orphan")
 
@@ -128,7 +128,7 @@ class SubsectionWidget(Base):
   widget_index: Mapped[int] = mapped_column(Integer, nullable=False)
   widget_type: Mapped[SubsectionWidgetType] = mapped_column(SAEnum(SubsectionWidgetType, name="subsection_widget_type", values_callable=_subsection_widget_type_values, validate_strings=True), nullable=False)
   status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
-  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="false")
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -142,7 +142,7 @@ class InputLine(Base):
   creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
   ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
   wordlist: Mapped[str | None] = mapped_column(Text, nullable=True)
-  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="false")
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -154,6 +154,6 @@ class FreeText(Base):
   creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
   ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
   wordlist: Mapped[str | None] = mapped_column(Text, nullable=True)
-  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+  is_archived: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="false")
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

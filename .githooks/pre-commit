@@ -142,6 +142,10 @@ git_add_migration_versions
 python3 scripts/db_check_linear_history.py
 
 if [[ "${DYLEN_MIGRATION_HOOK_STRICT:-}" == "1" ]]; then
-  make db-check-drift
-  make db-check-seed-data
+  if [[ -n "${DYLEN_PG_DSN:-}" || -n "${DGS_PG_DSN:-}" ]]; then
+    make db-check-drift
+    make db-check-seed-data
+  else
+    echo "WARN: DYLEN_PG_DSN (or DGS_PG_DSN) not set; skipping drift/seed checks."
+  fi
 fi

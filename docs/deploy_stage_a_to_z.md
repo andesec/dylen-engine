@@ -75,7 +75,7 @@ scripts/deploy_stage_now.sh \
   --service dylen-engine-stage \
   --migrate-job dylen-engine-stage-migrate \
   --run-sa sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com \
-  --cloudsql-instance dylen-stage-485900:us-central1:dylen-stage \
+  --cloudsql-instance dylen-stage-485900:us-central1:dylen-stage-e \
   --db-name dylen-stage \
   --db-user dylen-stage-user \
   --db-password-secret STAGE_DB_PASSWORD \
@@ -116,7 +116,7 @@ Run Cloud Build directly:
 gcloud builds submit \
   --project dylen-stage-485900 \
   --config cloudbuild-stage.migrate.yml \
-  --substitutions "_REGION=us-central1,_AR_REPO=dylen-stage,_IMAGE=app,_TAG=$(git rev-parse --short=12 HEAD),_SERVICE=dylen-engine-stage,_MIGRATE_JOB=dylen-engine-stage-migrate,_RUN_SA=sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com,_CLOUDSQL_INSTANCE=dylen-stage-485900:us-central1:dylen-stage"
+  --substitutions "_REGION=us-central1,_AR_REPO=dylen-stage,_IMAGE=app,_TAG=$(git rev-parse --short=12 HEAD),_SERVICE=dylen-engine-stage,_MIGRATE_JOB=dylen-engine-stage-migrate,_RUN_SA=sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com,_CLOUDSQL_INSTANCE=dylen-stage-485900:us-central1:dylen-stage-e"
 ```
 
 What this does:
@@ -195,7 +195,7 @@ gcloud run deploy dylen-engine-stage \
   --image "us-central1-docker.pkg.dev/dylen-stage-485900/dylen-stage/app@sha256:<KNOWN_GOOD_DIGEST>" \
   --service-account "sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com" \
   --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_EMAIL_NOTIFICATIONS_ENABLED=0" \
-  --set-cloudsql-instances "dylen-stage-485900:us-central1:dylen-stage" \
+  --set-cloudsql-instances "dylen-stage-485900:us-central1:dylen-stage-e" \
   --set-secrets "DYLEN_ENV=DYLEN_ENV:latest,DYLEN_ALLOWED_ORIGINS=DYLEN_ALLOWED_ORIGINS:latest,DYLEN_PG_DSN=DYLEN_PG_DSN:latest,DATABASE_URL=DYLEN_PG_DSN:latest,GCP_PROJECT_ID=GCP_PROJECT_ID:latest,GCP_LOCATION=GCP_LOCATION:latest,FIREBASE_PROJECT_ID=FIREBASE_PROJECT_ID:latest,DYLEN_ILLUSTRATION_BUCKET=DYLEN_ILLUSTRATION_BUCKET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
   --port 8002 \
   --allow-unauthenticated

@@ -22,7 +22,7 @@ class FensterWidget(Base):
   public_id: Mapped[str] = mapped_column(String, nullable=False, index=True, unique=True)
   creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
   status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
-  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
   type: Mapped[FensterWidgetType] = mapped_column(Enum(FensterWidgetType, name="fensterwidgettype", create_type=False), nullable=False)
   content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # brotli compressed content
   url: Mapped[str | None] = mapped_column(String, nullable=True)  # cdn url

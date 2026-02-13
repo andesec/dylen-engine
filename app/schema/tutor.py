@@ -23,6 +23,6 @@ class Tutor(Base):
   text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
   audio_data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
   status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
-  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

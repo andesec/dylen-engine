@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from app.schema.quotas import SubscriptionTier, UserUsageMetrics
 from app.schema.sql import AuthMethod, Role, User, UserStatus
 from app.schema.users import OnboardingRequest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,13 +35,13 @@ class UserListFilters:
   role_id: uuid.UUID | None = None
   sort_by: str = "id"
   sort_order: str = "desc"
-  with_discarded: bool = False
+  with_archived: bool = False
 
 
 async def get_user_by_firebase_uid(session: AsyncSession, firebase_uid: str) -> User | None:
   """Fetch a user by Firebase UID to support auth and session validation."""
   # Use a direct lookup to keep auth path predictable.
-  stmt = select(User).where(User.firebase_uid == firebase_uid, User.is_discarded.is_(False))
+  stmt = select(User).where(User.firebase_uid == firebase_uid, User.is_archived.is_(False))
   result = await session.execute(stmt)
   return result.scalar_one_or_none()
 
@@ -265,8 +265,8 @@ async def list_users(session: AsyncSession, *, org_id: uuid.UUID | None, filters
   from app.schema.sql import Organization
 
   stmt = select(User, Role.name, Organization.name).outerjoin(Role, Role.id == User.role_id).outerjoin(Organization, Organization.id == User.org_id)
-  if not filters.with_discarded:
-    stmt = stmt.where(User.is_discarded.is_(False))
+  if not filters.with_archived:
+    stmt = stmt.where(User.is_archived.is_(False))
 
   # Build base query scoped by tenant when required.
   if org_id:
@@ -306,8 +306,8 @@ async def list_users(session: AsyncSession, *, org_id: uuid.UUID | None, filters
 
   # Compute total using the same filter for pagination metadata.
   count_stmt = select(func.count(User.id))
-  if not filters.with_discarded:
-    count_stmt = count_stmt.where(User.is_discarded.is_(False))
+  if not filters.with_archived:
+    count_stmt = count_stmt.where(User.is_archived.is_(False))
   if org_id:
     count_stmt = count_stmt.where(User.org_id == org_id)
   if filters.email:
@@ -333,13 +333,105 @@ async def delete_user(session: AsyncSession, user_id: uuid.UUID) -> bool:
   return True
 
 
-async def discard_user(session: AsyncSession, *, user: User, discarded_by: uuid.UUID | None) -> User:
+async def delete_user_and_reassign_content(session: AsyncSession, *, user_id: uuid.UUID, superadmin_email: str) -> bool:
+  """Delete a user after reassigning owned content to the superadmin account."""
+  if not superadmin_email:
+    raise ValueError("superadmin_email is required for reassignment.")
+
+  user = await session.get(User, user_id)
+  if not user:
+    return False
+
+  superadmin_result = await session.execute(select(User).where(User.email == superadmin_email))
+  superadmin = superadmin_result.scalar_one_or_none()
+  if superadmin is None:
+    raise RuntimeError("Superadmin user not found.")
+
+  if superadmin.id == user.id:
+    raise ValueError("Refusing to delete the superadmin user.")
+
+  old_user_id = str(user.id)
+  new_user_id = str(superadmin.id)
+
+  from app.schema.data_transfer import DataTransferRun
+  from app.schema.email_delivery_logs import EmailDeliveryLog
+  from app.schema.feature_flags import UserFeatureFlagOverride
+  from app.schema.fenster import FensterWidget
+  from app.schema.illustrations import Illustration
+  from app.schema.jobs import Job
+  from app.schema.lesson_requests import LessonRequest
+  from app.schema.lessons import FreeText, InputLine, Lesson
+  from app.schema.notifications import InAppNotification
+  from app.schema.quotas import UserQuotaBucket, UserQuotaReservation, UserTierOverride, UserUsageLog, UserUsageMetrics
+  from app.schema.runtime_config import RuntimeConfigValue
+  from app.schema.sql import LLMAuditLog
+  from app.schema.tutor import Tutor
+  from app.schema.widgets_content import (
+    AsciiDiagramWidget,
+    ChecklistWidget,
+    CodeEditorWidget,
+    CompareWidget,
+    FillBlankWidget,
+    FlipcardsWidget,
+    InteractiveTerminalWidget,
+    MarkdownWidget,
+    McqsWidget,
+    StepFlowWidget,
+    SwipeCardWidget,
+    TableDataWidget,
+    TerminalDemoWidget,
+    TranslationWidget,
+    TreeviewWidget,
+  )
+
+  await session.execute(update(Lesson).where(Lesson.user_id == old_user_id).values(user_id=new_user_id))
+  await session.execute(update(LessonRequest).where(LessonRequest.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(Job).where(Job.user_id == old_user_id).values(user_id=new_user_id))
+  await session.execute(update(MarkdownWidget).where(MarkdownWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(FlipcardsWidget).where(FlipcardsWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(TranslationWidget).where(TranslationWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(FillBlankWidget).where(FillBlankWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(TableDataWidget).where(TableDataWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(CompareWidget).where(CompareWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(SwipeCardWidget).where(SwipeCardWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(StepFlowWidget).where(StepFlowWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(AsciiDiagramWidget).where(AsciiDiagramWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(ChecklistWidget).where(ChecklistWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(InteractiveTerminalWidget).where(InteractiveTerminalWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(TerminalDemoWidget).where(TerminalDemoWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(CodeEditorWidget).where(CodeEditorWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(TreeviewWidget).where(TreeviewWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(McqsWidget).where(McqsWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(Tutor).where(Tutor.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(Illustration).where(Illustration.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(FensterWidget).where(FensterWidget.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(InputLine).where(InputLine.creator_id == old_user_id).values(creator_id=new_user_id))
+  await session.execute(update(FreeText).where(FreeText.creator_id == old_user_id).values(creator_id=new_user_id))
+
+  await session.execute(delete(UserFeatureFlagOverride).where(UserFeatureFlagOverride.user_id == user.id))
+  await session.execute(delete(UserTierOverride).where(UserTierOverride.user_id == user.id))
+  await session.execute(delete(UserUsageLog).where(UserUsageLog.user_id == user.id))
+  await session.execute(delete(UserQuotaReservation).where(UserQuotaReservation.user_id == user.id))
+  await session.execute(delete(UserQuotaBucket).where(UserQuotaBucket.user_id == user.id))
+  await session.execute(delete(UserUsageMetrics).where(UserUsageMetrics.user_id == user.id))
+  await session.execute(delete(InAppNotification).where(InAppNotification.user_id == user.id))
+  await session.execute(delete(RuntimeConfigValue).where(RuntimeConfigValue.user_id == user.id))
+  await session.execute(delete(EmailDeliveryLog).where(EmailDeliveryLog.user_id == user.id))
+  await session.execute(delete(DataTransferRun).where(DataTransferRun.requested_by == user.id))
+  await session.execute(delete(LLMAuditLog).where(LLMAuditLog.user_id == user.id))
+
+  await session.delete(user)
+  await session.commit()
+  return True
+
+
+async def archive_user(session: AsyncSession, *, user: User, archived_by: uuid.UUID | None) -> User:
   """Soft-delete a user so it is hidden while data remains recoverable."""
-  if user.is_discarded:
+  if user.is_archived:
     return user
-  user.is_discarded = True
-  user.discarded_at = datetime.datetime.now(datetime.UTC)
-  user.discarded_by = discarded_by
+  user.is_archived = True
+  user.archived_at = datetime.datetime.now(datetime.UTC)
+  user.archived_by = archived_by
   user.status = UserStatus.DISABLED
   session.add(user)
   await session.commit()
@@ -347,13 +439,13 @@ async def discard_user(session: AsyncSession, *, user: User, discarded_by: uuid.
   return user
 
 
-async def restore_discarded_user(session: AsyncSession, *, user: User) -> User:
-  """Restore a discarded user to normal visibility."""
-  if not user.is_discarded:
+async def restore_archived_user(session: AsyncSession, *, user: User) -> User:
+  """Restore an archived user to normal visibility."""
+  if not user.is_archived:
     return user
-  user.is_discarded = False
-  user.discarded_at = None
-  user.discarded_by = None
+  user.is_archived = False
+  user.archived_at = None
+  user.archived_by = None
   if user.status == UserStatus.DISABLED:
     user.status = UserStatus.PENDING
   session.add(user)

@@ -114,9 +114,9 @@ class User(Base):
   primary_language: Mapped[str | None] = mapped_column(String, nullable=True)
   secondary_language: Mapped[str | None] = mapped_column(String, nullable=True)
   onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-  is_discarded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-  discarded_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-  discarded_by: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+  is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+  archived_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+  archived_by: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
 
   accepted_terms_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
   accepted_privacy_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
