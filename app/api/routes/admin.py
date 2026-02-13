@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.ai.utils.cost import PricingTable
 from app.api.models import JobStatusResponse
 from app.api.msgspec_utils import encode_msgspec_response
 from app.config import Settings, get_settings
@@ -22,13 +23,14 @@ from app.schema.quotas import SubscriptionTier, UserTierOverride
 from app.schema.sql import Role, RoleLevel, User, UserStatus
 from app.services.feature_flags import delete_user_feature_flag_overrides, get_feature_flag_by_key, is_feature_enabled, list_active_user_feature_overrides, set_user_feature_flag_override
 from app.services.jobs import resume_job_from_failure_admin, trigger_job_processing
+from app.services.llm_pricing import load_pricing_table
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, get_role_by_name, list_permission_slugs_for_role, set_role_permissions
 from app.services.section_shorthand_backfill import backfill_section_shorthand
 from app.services.users import UserListFilters, delete_user, discard_user, get_user_by_id, get_user_subscription_tier, get_user_tier_name, list_users, restore_discarded_user, set_user_subscription_tier, update_user_role, update_user_status
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
-from app.storage.postgres_audit_repo import LlmAuditRecord, PostgresLlmAuditRepository
+from app.storage.postgres_audit_repo import PostgresLlmAuditRepository
 from app.storage.postgres_jobs_repo import PostgresJobsRepository
 from app.storage.postgres_lessons_repo import PostgresLessonsRepository
 from app.utils.ids import generate_job_id
@@ -36,6 +38,7 @@ from app.utils.ids import generate_job_id
 router = APIRouter()
 
 T = TypeVar("T")
+LlmPricingTarget = Literal["job", "lesson", "section", "illustration", "tutor", "fenster"]
 
 
 class PaginatedResponse[T](BaseModel):
@@ -52,6 +55,89 @@ class MsgspecPaginatedResponse(msgspec.Struct):
   total: int
   limit: int
   offset: int
+
+
+class LlmPricingCall(BaseModel):
+  record_id: int
+  started_at: datetime.datetime
+  provider: str
+  model: str
+  prompt_tokens: int
+  completion_tokens: int
+  total_tokens: int
+  cost_usd: float
+  cost_missing: bool
+  status: str
+  job_id: str | None
+  lesson_id: str | None
+  section_id: int | None
+  illustration_id: int | None
+  tutor_id: int | None
+  fenster_id: str | None
+  fenster_public_id: str | None
+
+
+class LlmPricingSummary(BaseModel):
+  target_type: str
+  target_id: str
+  total_cost_usd: float
+  total_prompt_tokens: int
+  total_completion_tokens: int
+  total_tokens: int
+  call_count: int
+  cost_missing_count: int
+
+
+class LlmPricingResponse(BaseModel):
+  summary: LlmPricingSummary
+  calls: list[LlmPricingCall]
+
+
+class LlmJobCostRecord(BaseModel):
+  job_id: str
+  total_cost_usd: float
+  total_tokens: int
+  call_count: int
+  cost_missing_count: int
+
+
+class LlmJobCostsResponse(BaseModel):
+  items: list[LlmJobCostRecord]
+
+
+class LlmPricingQuery(BaseModel):
+  target_type: LlmPricingTarget
+  target_id: str = Field(..., min_length=1)
+  start_at: str | None = None
+  end_at: str | None = None
+  include_calls: bool = True
+
+
+class LlmAuditCallWithCost(BaseModel):
+  """Audit record with calculated cost data integrated."""
+
+  record_id: int
+  timestamp_request: datetime.datetime
+  timestamp_response: datetime.datetime | None
+  started_at: datetime.datetime
+  duration_ms: int
+  agent: str
+  provider: str
+  model: str
+  lesson_topic: str | None
+  request_payload: str
+  response_payload: str | None
+  prompt_tokens: int | None
+  completion_tokens: int | None
+  total_tokens: int | None
+  request_type: str
+  purpose: str | None
+  call_index: str | None
+  job_id: str | None
+  status: str
+  error_message: str | None
+  cost_usd: float
+  cost_missing: bool
 
 
 # Helpers to get repos (could be true dependencies in future)
@@ -71,6 +157,52 @@ def get_audit_repo() -> PostgresLlmAuditRepository:
   """Provide an audit repository so handlers can focus on orchestration logic."""
   # Construct the concrete repository here to keep handlers thin and swappable.
   return PostgresLlmAuditRepository()
+
+
+def _parse_iso_datetime(value: str | None) -> datetime.datetime | None:
+  """Parse ISO datetime query params into timezone-aware objects."""
+  # Treat empty values as unset to keep filters optional.
+  if value is None:
+    return None
+
+  # Normalize optional string inputs before parsing.
+  normalized = value.strip()
+  if normalized == "":
+    return None
+
+  if normalized.endswith("Z"):
+    normalized = f"{normalized[:-1]}+00:00"
+
+  try:
+    return datetime.datetime.fromisoformat(normalized)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid datetime format.") from exc
+
+
+def _calculate_call_cost(prompt_tokens: int, completion_tokens: int, provider: str, model: str, pricing_table: PricingTable) -> tuple[float, bool]:
+  """Estimate per-call cost using database-backed pricing."""
+  # Normalize pricing lookup keys so provider/model matching is stable.
+  normalized_provider = str(provider or "").strip().lower()
+  normalized_model = str(model or "").strip()
+  provider_rates = pricing_table.get(normalized_provider, {})
+  rates = provider_rates.get(normalized_model)
+  if rates is None:
+    return (0.0, True)
+
+  price_in, price_out = rates
+  call_cost = (prompt_tokens / 1_000_000) * price_in
+  call_cost += (completion_tokens / 1_000_000) * price_out
+  return (round(call_cost, 6), False)
+
+
+def _resolve_total_tokens(prompt_tokens: int, completion_tokens: int, total_tokens: int | None) -> int:
+  """Normalize total tokens when audit rows omit a precomputed total."""
+  # Respect stored totals when present.
+  if total_tokens is not None:
+    return int(total_tokens)
+
+  # Fall back to prompt + completion tokens for missing totals.
+  return int(prompt_tokens + completion_tokens)
 
 
 async def check_tenant_permissions(db_session: AsyncSession, current_user: User, target_org_id: uuid.UUID | None = None) -> Role:
@@ -260,11 +392,6 @@ class UserPromoResponse(BaseModel):
 
 class MaintenanceJobResponse(BaseModel):
   job_id: str
-
-
-class ResumeJobFromFailureRequest(BaseModel):
-  sections: list[int] | None = None
-  agents: list[Literal["planner", "section_builder", "illustration", "tutor", "fenster_builder"]] | None = None
 
 
 class SectionShorthandBackfillRequest(BaseModel):
@@ -927,12 +1054,11 @@ async def list_jobs(
 @router.post("/jobs/{job_id}/resume-from-failure", response_model=JobStatusResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:jobs_read"))])
 async def resume_job_from_failure(
   job_id: str,
-  request: ResumeJobFromFailureRequest,
   background_tasks: BackgroundTasks,
   settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> JobStatusResponse:
   """Fork a new resumable lesson-pipeline job from a failed job id."""
-  return await resume_job_from_failure_admin(job_id=job_id, settings=settings, background_tasks=background_tasks, sections=request.sections, agents=request.agents)
+  return await resume_job_from_failure_admin(job_id=job_id, settings=settings, background_tasks=background_tasks, sections=None, agents=None)
 
 
 @router.get("/lessons", response_model=PaginatedResponse[LessonRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:lessons_read"))])
@@ -948,7 +1074,7 @@ async def list_lessons(
   return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
 
 
-@router.get("/llm-calls", response_model=PaginatedResponse[LlmAuditRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:llm_calls_read"))])
+@router.get("/llm-calls", response_model=PaginatedResponse[LlmAuditCallWithCost], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:llm_calls_read"))])
 async def list_llm_calls(
   page: int = Query(1, ge=1),
   limit: int = Query(20, ge=1, le=100),
@@ -960,14 +1086,183 @@ async def list_llm_calls(
   request_type: str | None = None,
   sort_by: str = Query("started_at"),
   sort_order: str = Query("desc"),
-) -> PaginatedResponse[LlmAuditRecord]:
-  """List LLM audit records with pagination, filtering, and sorting to keep admin views efficient."""
+  db_session: AsyncSession = Depends(get_db),
+) -> PaginatedResponse[LlmAuditCallWithCost]:
+  """List LLM audit records with pagination, filtering, sorting, and cost data integrated."""
   # Resolve the repository here to keep handler orchestration focused.
   repo = get_audit_repo()
   # Fetch results and totals together for consistent pagination output.
   items, total = await repo.list_records(page=page, limit=limit, job_id=job_id, agent=agent, status=status, provider=provider, model=model, request_type=request_type, sort_by=sort_by, sort_order=sort_order)
+
+  # Load pricing table to calculate costs for each audit record.
+  pricing_table = await load_pricing_table(db_session)
+
+  # Convert audit records to response model with cost data.
+  items_with_cost: list[LlmAuditCallWithCost] = []
+  for item in items:
+    prompt_tokens = int(item.prompt_tokens or 0)
+    completion_tokens = int(item.completion_tokens or 0)
+    call_cost, cost_missing = _calculate_call_cost(prompt_tokens, completion_tokens, item.provider, item.model, pricing_table)
+
+    items_with_cost.append(
+      LlmAuditCallWithCost(
+        record_id=item.record_id,
+        timestamp_request=item.timestamp_request,
+        timestamp_response=item.timestamp_response,
+        started_at=item.started_at,
+        duration_ms=item.duration_ms,
+        agent=item.agent,
+        provider=item.provider,
+        model=item.model,
+        lesson_topic=item.lesson_topic,
+        request_payload=item.request_payload,
+        response_payload=item.response_payload,
+        prompt_tokens=item.prompt_tokens,
+        completion_tokens=item.completion_tokens,
+        total_tokens=item.total_tokens,
+        request_type=item.request_type,
+        purpose=item.purpose,
+        call_index=item.call_index,
+        job_id=item.job_id,
+        status=item.status,
+        error_message=item.error_message,
+        cost_usd=call_cost,
+        cost_missing=cost_missing,
+      )
+    )
+
   # Return a typed pagination envelope that callers can rely on.
-  return PaginatedResponse(items=items, total=total, limit=limit, offset=(page - 1) * limit)
+  return PaginatedResponse(items=items_with_cost, total=total, limit=limit, offset=(page - 1) * limit)
+
+
+@router.get("/llm-pricing", response_model=LlmPricingResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:llm_calls_read"))])
+async def get_llm_pricing(params: LlmPricingQuery = Depends(), db_session: AsyncSession = Depends(get_db)) -> LlmPricingResponse:  # noqa: B008
+  """Aggregate LLM pricing by a target type and id."""
+  # Parse optional date filters before querying audit rows.
+  parsed_start = _parse_iso_datetime(params.start_at)
+  parsed_end = _parse_iso_datetime(params.end_at)
+  if parsed_start is not None and parsed_end is not None and parsed_start > parsed_end:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="start_at must be before end_at.")
+
+  # Fetch audit rows that match the requested target.
+  repo = get_audit_repo()
+  try:
+    rows = await repo.list_pricing_rows_for_target(target_type=params.target_type, target_id=params.target_id, start_at=parsed_start, end_at=parsed_end)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+  # Load active pricing configuration for cost calculations.
+  pricing_table = await load_pricing_table(db_session)
+
+  total_cost = 0.0
+  total_prompt_tokens = 0
+  total_completion_tokens = 0
+  total_tokens = 0
+  cost_missing_count = 0
+  calls: list[LlmPricingCall] = []
+
+  # Accumulate totals and optional per-call rows.
+  for row in rows:
+    prompt_tokens = int(row.prompt_tokens or 0)
+    completion_tokens = int(row.completion_tokens or 0)
+    resolved_total = _resolve_total_tokens(prompt_tokens, completion_tokens, row.total_tokens)
+    call_cost, cost_missing = _calculate_call_cost(prompt_tokens, completion_tokens, row.provider, row.model, pricing_table)
+    total_cost += call_cost
+    total_prompt_tokens += prompt_tokens
+    total_completion_tokens += completion_tokens
+    total_tokens += resolved_total
+    if cost_missing:
+      cost_missing_count += 1
+
+    if params.include_calls:
+      # Assemble the call payload to keep the constructor call short.
+      call_payload = {
+        "record_id": row.record_id,
+        "started_at": row.started_at,
+        "provider": row.provider,
+        "model": row.model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": resolved_total,
+        "cost_usd": call_cost,
+        "cost_missing": cost_missing,
+        "status": row.status,
+        "job_id": row.job_id,
+        "lesson_id": row.lesson_id,
+        "section_id": row.section_id,
+        "illustration_id": row.illustration_id,
+        "tutor_id": row.tutor_id,
+        "fenster_id": row.fenster_id,
+        "fenster_public_id": row.fenster_public_id,
+      }
+      calls.append(LlmPricingCall(**call_payload))
+
+  # Summarize the aggregate cost and usage totals.
+  # Build the summary payload to keep the constructor call short.
+  summary_payload = {
+    "target_type": params.target_type,
+    "target_id": params.target_id,
+    "total_cost_usd": round(total_cost, 6),
+    "total_prompt_tokens": total_prompt_tokens,
+    "total_completion_tokens": total_completion_tokens,
+    "total_tokens": total_tokens,
+    "call_count": len(rows),
+    "cost_missing_count": cost_missing_count,
+  }
+  summary = LlmPricingSummary(**summary_payload)
+  return LlmPricingResponse(summary=summary, calls=calls)
+
+
+@router.get("/llm-pricing/jobs", response_model=LlmJobCostsResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:llm_calls_read"))])
+async def get_llm_job_costs(job_ids: list[str] = Query(...), start_at: str | None = None, end_at: str | None = None, db_session: AsyncSession = Depends(get_db)) -> LlmJobCostsResponse:  # noqa: B008
+  """Return aggregated LLM pricing totals for a list of job ids."""
+  # Parse optional date filters before querying audit rows.
+  parsed_start = _parse_iso_datetime(start_at)
+  parsed_end = _parse_iso_datetime(end_at)
+  if parsed_start is not None and parsed_end is not None and parsed_start > parsed_end:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="start_at must be before end_at.")
+
+  # Fetch audit rows for the requested job ids.
+  repo = get_audit_repo()
+  rows = await repo.list_pricing_rows_for_jobs(job_ids=job_ids, start_at=parsed_start, end_at=parsed_end)
+
+  # Load active pricing configuration for cost calculations.
+  pricing_table = await load_pricing_table(db_session)
+
+  # Seed totals with requested job ids to keep ordering stable.
+  totals_by_job: dict[str, dict[str, int | float]] = {}
+  for job_id in job_ids:
+    totals_by_job[job_id] = {"total_cost": 0.0, "total_tokens": 0, "call_count": 0, "cost_missing": 0}
+
+  # Accumulate totals from each audit row.
+  for row in rows:
+    if row.job_id is None:
+      continue
+
+    if row.job_id not in totals_by_job:
+      totals_by_job[row.job_id] = {"total_cost": 0.0, "total_tokens": 0, "call_count": 0, "cost_missing": 0}
+
+    prompt_tokens = int(row.prompt_tokens or 0)
+    completion_tokens = int(row.completion_tokens or 0)
+    resolved_total = _resolve_total_tokens(prompt_tokens, completion_tokens, row.total_tokens)
+    call_cost, cost_missing = _calculate_call_cost(prompt_tokens, completion_tokens, row.provider, row.model, pricing_table)
+    totals_by_job[row.job_id]["total_cost"] = float(totals_by_job[row.job_id]["total_cost"]) + call_cost
+    totals_by_job[row.job_id]["total_tokens"] = int(totals_by_job[row.job_id]["total_tokens"]) + resolved_total
+    totals_by_job[row.job_id]["call_count"] = int(totals_by_job[row.job_id]["call_count"]) + 1
+    if cost_missing:
+      totals_by_job[row.job_id]["cost_missing"] = int(totals_by_job[row.job_id]["cost_missing"]) + 1
+
+  # Serialize totals in the same order as requested.
+  items: list[LlmJobCostRecord] = []
+  for job_id in job_ids:
+    totals = totals_by_job.get(job_id)
+    if totals is None:
+      continue
+    # Assemble the job totals payload to keep the constructor call short.
+    job_payload = {"job_id": job_id, "total_cost_usd": round(float(totals["total_cost"]), 6), "total_tokens": int(totals["total_tokens"]), "call_count": int(totals["call_count"]), "cost_missing_count": int(totals["cost_missing"])}
+    items.append(LlmJobCostRecord(**job_payload))
+
+  return LlmJobCostsResponse(items=items)
 
 
 @router.post("/sections/backfill-shorthand", response_model=SectionShorthandBackfillResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("admin:artifacts_read"))])

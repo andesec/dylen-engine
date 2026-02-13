@@ -66,7 +66,7 @@ async def run_seed(connection: AsyncConnection) -> None:
     return
 
   # Add global defaults for research model configuration
-  # Set ai.research.model to use gemini-2.0-flash-exp for synthesis
+  # Set ai.research.model to use gemini-2.0-flash for synthesis
   await connection.execute(
     text(
       """
@@ -76,10 +76,10 @@ async def run_seed(connection: AsyncConnection) -> None:
       DO UPDATE SET value_json = EXCLUDED.value_json
       """
     ),
-    {"id": uuid.uuid4(), "key": "ai.research.model", "value_json": json.dumps("gemini/gemini-2.0-flash-exp")},
+    {"id": uuid.uuid4(), "key": "ai.research.model", "value_json": json.dumps("gemini/gemini-2.0-flash")},
   )
 
-  # Set ai.research.router_model to use gemini-2.0-flash-exp for classification
+  # Set ai.research.router_model to use gemini-2.0-flash for classification
   await connection.execute(
     text(
       """
@@ -89,5 +89,5 @@ async def run_seed(connection: AsyncConnection) -> None:
       DO UPDATE SET value_json = EXCLUDED.value_json
       """
     ),
-    {"id": uuid.uuid4(), "key": "ai.research.router_model", "value_json": json.dumps("gemini/gemini-2.0-flash-exp")},
+    {"id": uuid.uuid4(), "key": "ai.research.router_model", "value_json": json.dumps("gemini/gemini-2.0-flash")},
   )

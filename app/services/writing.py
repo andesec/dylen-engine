@@ -8,7 +8,9 @@ from typing import Any
 
 from app.ai.agents.prompts import _load_prompt
 from app.ai.router import get_model_for_mode
+from app.ai.utils.cost import calculate_total_cost
 from app.schema.lessons import FreeText, InputLine, Lesson, Section, Subsection, SubsectionWidget
+from app.services.llm_pricing import load_pricing_table
 from app.telemetry.context import llm_call_context
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +35,7 @@ class WritingCheckService:
     self._provider = provider
     self._model_name = model
 
-  async def check_response(self, *, session: AsyncSession, text: str, requester_user_id: str, widget_id: str | None = None, criteria: dict[str, Any] | None = None) -> WritingCheckResult:
+  async def check_response(self, *, session: AsyncSession, text: str, requester_user_id: str, widget_id: str | None = None, criteria: dict[str, Any] | None = None, runtime_config: dict[str, Any] | None = None) -> WritingCheckResult:
     ai_prompt = None
     wordlist = None
 
@@ -97,32 +99,13 @@ class WritingCheckService:
 
       content = res.content
 
-      total_cost = self._calculate_total_cost(usage)
+      # Load active pricing data for cost estimates.
+      pricing_table = await load_pricing_table(session)
+      total_cost = calculate_total_cost(usage, pricing_table, provider=self._provider)
 
       return WritingCheckResult(ok=content.get("ok", False), issues=content.get("issues", []), feedback=content.get("feedback", ""), logs=[f"Writing check completed with status: {content.get('ok')}"], usage=usage, total_cost=total_cost)
     except Exception as e:
       return WritingCheckResult(ok=False, issues=[f"Evaluation error: {str(e)}"], feedback="We encountered an error while evaluating your response.", logs=[f"Error during writing check: {str(e)}"], usage=[], total_cost=0.0)
-
-  def _calculate_total_cost(self, usage: list[dict[str, Any]]) -> float:
-    """Estimate total cost based on token usage. Simplified prices."""
-    PRICES = {  # noqa: N806
-      "openai/gpt-4o-mini": (0.15, 0.60),
-      "openai/gpt-4o": (5.0, 15.0),
-      "gemini-2.0-flash": (0.075, 0.30),
-      "gemini-2.0-flash-exp": (0.075, 0.30),
-    }
-    total = 0.0
-
-    # Accumulate token costs for each model entry.
-    for entry in usage:
-      model = entry.get("model", "")
-      p_in, p_out = PRICES.get(model, (0.5, 1.5))
-      in_tokens = entry.get("prompt_tokens", 0)
-      out_tokens = entry.get("completion_tokens", 0)
-      total += (in_tokens / 1_000_000) * p_in
-      total += (out_tokens / 1_000_000) * p_out
-
-    return total
 
   def _render_prompt(self, text: str, ai_prompt: str, wordlist: str | None = None) -> str:
     template = _load_prompt("writing_check.md")

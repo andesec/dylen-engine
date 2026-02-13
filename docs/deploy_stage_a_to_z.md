@@ -28,7 +28,6 @@ Create/update `.env-stage` with at least the required keys:
 - `FIREBASE_PROJECT_ID=dylen-stage-485900`
 - `DYLEN_ILLUSTRATION_BUCKET=dylen-stage-illustrations`
 - `GEMINI_API_KEY=...`
-- `OPENROUTER_API_KEY=...`
 
 ## C. Sync `.env-stage` to Secret Manager
 
@@ -58,7 +57,7 @@ uv run python scripts/gcp_sync_env_to_secrets.py \
 Quick secret presence check:
 
 ```bash
-for s in DYLEN_ENV DYLEN_ALLOWED_ORIGINS DYLEN_PG_DSN GCP_PROJECT_ID GCP_LOCATION FIREBASE_PROJECT_ID DYLEN_ILLUSTRATION_BUCKET GEMINI_API_KEY OPENROUTER_API_KEY; do
+for s in DYLEN_ENV DYLEN_ALLOWED_ORIGINS DYLEN_PG_DSN GCP_PROJECT_ID GCP_LOCATION FIREBASE_PROJECT_ID DYLEN_ILLUSTRATION_BUCKET GEMINI_API_KEY; do
   gcloud secrets describe "$s" --project dylen-stage-485900 >/dev/null && echo "OK $s" || echo "MISSING $s"
 done
 ```
@@ -197,7 +196,7 @@ gcloud run deploy dylen-engine-stage \
   --service-account "sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com" \
   --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_EMAIL_NOTIFICATIONS_ENABLED=0" \
   --set-cloudsql-instances "dylen-stage-485900:us-central1:dylen-stage" \
-  --set-secrets "DYLEN_ENV=DYLEN_ENV:latest,DYLEN_ALLOWED_ORIGINS=DYLEN_ALLOWED_ORIGINS:latest,DYLEN_PG_DSN=DYLEN_PG_DSN:latest,DATABASE_URL=DYLEN_PG_DSN:latest,GCP_PROJECT_ID=GCP_PROJECT_ID:latest,GCP_LOCATION=GCP_LOCATION:latest,FIREBASE_PROJECT_ID=FIREBASE_PROJECT_ID:latest,DYLEN_ILLUSTRATION_BUCKET=DYLEN_ILLUSTRATION_BUCKET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest" \
+  --set-secrets "DYLEN_ENV=DYLEN_ENV:latest,DYLEN_ALLOWED_ORIGINS=DYLEN_ALLOWED_ORIGINS:latest,DYLEN_PG_DSN=DYLEN_PG_DSN:latest,DATABASE_URL=DYLEN_PG_DSN:latest,GCP_PROJECT_ID=GCP_PROJECT_ID:latest,GCP_LOCATION=GCP_LOCATION:latest,FIREBASE_PROJECT_ID=FIREBASE_PROJECT_ID:latest,DYLEN_ILLUSTRATION_BUCKET=DYLEN_ILLUSTRATION_BUCKET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" \
   --port 8002 \
   --allow-unauthenticated
 ```

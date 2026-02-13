@@ -23,7 +23,6 @@ _PROVIDER_HINTS: tuple[str, ...] = (
   "service unavailable",
   "bad gateway",
   "gateway",
-  "openrouter",
   "gemini",
   "internal server error",
   "overloaded",

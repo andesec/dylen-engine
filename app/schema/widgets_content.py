@@ -16,7 +16,6 @@ class _WidgetContentBase(Base):
 
   id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
   creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-  status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
   is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
   payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

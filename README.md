@@ -40,7 +40,6 @@ Required:
 
 Provider secrets (required when wiring real providers or deploying with SAM):
 
-- `OPENROUTER_API_KEY`: API key for the OpenRouter provider.
 - `GEMINI_API_KEY`: API key for the Gemini provider.
 
 Storage and tuning:
@@ -49,7 +48,7 @@ Storage and tuning:
 - `DYLEN_MAX_TOPIC_LENGTH`: Max topic length (default: `200`).
 - `DYLEN_GATHERER_PROVIDER`: Provider for the gatherer step (default: `gemini`).
 - `DYLEN_GATHERER_MODEL`: Optional model override for the gatherer step.
-- `DYLEN_STRUCTURER_PROVIDER`: Provider for the structurer step (default: `openrouter`).
+- `DYLEN_STRUCTURER_PROVIDER`: Provider for the structurer step (default: `gemini`).
 - `DYLEN_STRUCTURER_MODEL`: Default model for the structurer step.
 - `DYLEN_STRUCTURER_MODEL_FAST`: Optional override when `mode=fast`.
 - `DYLEN_STRUCTURER_MODEL_BALANCED`: Optional override when `mode=balanced`.

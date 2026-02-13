@@ -305,18 +305,13 @@ These are stored in GCP Secret Manager and accessed by Cloud Run:
 ### Step 12: Create Application Secrets
 
 ```bash
-# OpenRouter API Key
-echo -n "your-openrouter-api-key" | gcloud secrets create openrouter-api-key \
-  --data-file=- \
-  --replication-policy="automatic"
-
 # Gemini API Key
 echo -n "your-gemini-api-key" | gcloud secrets create gemini-api-key \
   --data-file=- \
   --replication-policy="automatic"
 
 # Grant Cloud Run service account access to secrets
-for secret in dylen-db-password openrouter-api-key gemini-api-key; do
+for secret in dylen-db-password gemini-api-key; do
   gcloud secrets add-iam-policy-binding $secret \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="roles/secretmanager.secretAccessor"
@@ -357,7 +352,7 @@ gcloud run deploy dylen-engine \
   --service-account=$SA_EMAIL \
   --add-cloudsql-instances=$SQL_CONNECTION_NAME \
   --set-env-vars="DYLEN_PG_DSN=/cloudsql/${SQL_CONNECTION_NAME}" \
-  --set-secrets="OPENROUTER_API_KEY=openrouter-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
+  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" \
   --allow-unauthenticated \
   --memory=512Mi \
   --cpu=1 \

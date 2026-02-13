@@ -140,7 +140,7 @@ class PostgresLessonsRepository(LessonsRepository):
       if not records:
         created_records: list[InputLineRecord] = []
       else:
-        db_widgets = [InputLine(creator_id=r.creator_id, ai_prompt=r.ai_prompt, wordlist=r.wordlist, status="pending", is_archived=False) for r in records]
+        db_widgets = [InputLine(creator_id=r.creator_id, ai_prompt=r.ai_prompt, wordlist=r.wordlist, is_archived=False) for r in records]
         session.add_all(db_widgets)
         await session.flush()
         created_records = [InputLineRecord(id=widget.id, creator_id=widget.creator_id, ai_prompt=widget.ai_prompt, wordlist=widget.wordlist, created_at=str(widget.created_at)) for widget in db_widgets]
@@ -153,7 +153,7 @@ class PostgresLessonsRepository(LessonsRepository):
       if not records:
         created_records: list[FreeTextRecord] = []
       else:
-        db_widgets = [FreeText(creator_id=r.creator_id, ai_prompt=r.ai_prompt, wordlist=r.wordlist, status="pending", is_archived=False) for r in records]
+        db_widgets = [FreeText(creator_id=r.creator_id, ai_prompt=r.ai_prompt, wordlist=r.wordlist, is_archived=False) for r in records]
         session.add_all(db_widgets)
         await session.flush()
         created_records = [FreeTextRecord(id=widget.id, creator_id=widget.creator_id, ai_prompt=widget.ai_prompt, wordlist=widget.wordlist, created_at=str(widget.created_at)) for widget in db_widgets]
@@ -457,7 +457,7 @@ class PostgresLessonsRepository(LessonsRepository):
     if model_cls is None:
       raise RuntimeError(f"Unsupported widget type for persistence: {widget_type}")
     async with self._session_factory() as session:
-      row = model_cls(creator_id=creator_id, status="pending", is_archived=False, payload_json=payload_json)
+      row = model_cls(creator_id=creator_id, is_archived=False, payload_json=payload_json)
       session.add(row)
       await session.commit()
       await session.refresh(row)

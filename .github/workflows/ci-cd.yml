@@ -342,7 +342,7 @@ jobs:
             --service-account=${{ secrets.GCP_CLOUD_RUN_SERVICE_ACCOUNT }} \
             --add-cloudsql-instances=${{ secrets.GCP_CLOUD_SQL_INSTANCE }} \
             --set-env-vars="INSTANCE_CONNECTION_NAME=${{ secrets.GCP_CLOUD_SQL_INSTANCE }}" \
-            --set-secrets="DYLEN_PG_DSN=dylen-db-connection-string:latest,OPENROUTER_API_KEY=openrouter-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
+            --set-secrets="DYLEN_PG_DSN=dylen-db-connection-string:latest,GEMINI_API_KEY=gemini-api-key:latest" \
             --allow-unauthenticated \
             --memory=512Mi \
             --cpu=1 \

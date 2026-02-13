@@ -635,7 +635,6 @@ if [[ "$SKIP_SECRETS_STAGE" != "1" ]]; then
     "FIREBASE_PROJECT_ID"
     "DYLEN_ILLUSTRATION_BUCKET"
     "GEMINI_API_KEY"
-    "OPENROUTER_API_KEY"
   )
   for key in "${required_secret_keys[@]}"; do
     run_cmd gcloud secrets describe "$key" --project "$PROJECT_ID" >/dev/null
