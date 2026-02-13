@@ -28,13 +28,13 @@ class VertexAIModel(AIModel):
     try:
       response = await self._client.aio.models.generate_content(model=self.name, contents=prompt)
 
-      logger.info("Vertex AI response:\n%s", response.text)
-
-      # Extract usage metadata if available
+      # Extract usage IMMEDIATELY after API call, before any processing that might fail.
       usage = None
       if response.usage_metadata:
         usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
       self.last_usage = usage
+
+      logger.info("Vertex AI response:\n%s", response.text)
 
       return SimpleModelResponse(content=response.text, usage=usage)
     except Exception as e:
@@ -46,13 +46,13 @@ class VertexAIModel(AIModel):
       # For Vertex AI structured output, we can use response_schema
       response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
 
-      logger.info("Vertex AI structured response (raw):\n%s", response.text)
-
-      # Extract usage metadata
+      # Extract usage IMMEDIATELY after API call, before any processing that might fail.
       usage = None
       if response.usage_metadata:
         usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
       self.last_usage = usage
+
+      logger.info("Vertex AI structured response (raw):\n%s", response.text)
 
       # Parse the JSON response
       content = parse_json_with_fallback(response.text)

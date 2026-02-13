@@ -38,11 +38,7 @@ def _resolve_section_title(section_struct: Any, section_json: dict[str, Any], fa
 
 
 def _prune_none_values(value: Any) -> Any:
-  """Remove `None` values recursively so widget items only keep active keys."""
-  if isinstance(value, dict):
-    return {k: _prune_none_values(v) for k, v in value.items() if v is not None}
-  if isinstance(value, list):
-    return [_prune_none_values(item) for item in value]
+  """Preserve `None` placeholders to keep fixed-position payloads intact."""
   return value
 
 
@@ -173,6 +169,14 @@ def _normalize_allowed_widgets(widget_names: list[str] | None) -> list[str] | No
   return normalized_widgets
 
 
+def _collect_planned_widgets(section: PlanSection) -> list[str]:
+  """Collect planner widget keys in order across all subsections."""
+  planned: list[str] = []
+  for subsection in section.subsections:
+    planned.extend(subsection.planned_widgets or [])
+  return planned
+
+
 class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
   """Collect and structure a planned section in a single call."""
 
@@ -294,15 +298,15 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
       else:
         allowed_widgets = None
 
-      # Determine schema model used only for provider-side structured output.
-      if allowed_widgets:
-        from app.schema.selective_schema import create_selective_section
-
-        schema_model = create_selective_section(allowed_widgets)
-      else:
-        from app.schema.widget_models import Section
-
-        schema_model = Section
+      planned_widgets = _collect_planned_widgets(input_data)
+      if planned_widgets:
+        planned_allowed = _normalize_allowed_widgets(planned_widgets)
+        if allowed_widgets:
+          allowed_set = set(allowed_widgets)
+          planned_allowed = [widget for widget in planned_allowed if widget in allowed_set]
+          if "markdown" not in planned_allowed:
+            planned_allowed.append("markdown")
+        allowed_widgets = planned_allowed
 
       purpose = f"build_section_{input_data.section_number}_of_{request.depth}"
       call_index = f"{input_data.section_number}/{request.depth}"
@@ -313,10 +317,13 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           # 1. Generate and Sanitize Schema explicitly
           section_struct = None
           try:
-            raw_schema = msgspec.json.schema(schema_model)
-            final_schema = self._schema_service.sanitize_schema(raw_schema, provider_name="gemini")
+            from app.schema.schema_builder import build_section_schema
+            from app.schema.widget_models import get_widget_shorthand_names
+
+            widget_set = allowed_widgets or get_widget_shorthand_names()
+            final_schema = build_section_schema(widget_set)
           except Exception as e:
-            logger.error(f"Failed to generate schema for {schema_model}: {e}")
+            logger.error("Failed to generate schema for section builder: %s", e)
             raise
 
           try:

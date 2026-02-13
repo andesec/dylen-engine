@@ -23,11 +23,7 @@ Errors = list[str]
 
 
 def _prune_none_values(value: Any) -> Any:
-  """Remove `None` values recursively from repaired payload fragments."""
-  if isinstance(value, dict):
-    return {k: _prune_none_values(v) for k, v in value.items() if v is not None}
-  if isinstance(value, list):
-    return [_prune_none_values(item) for item in value]
+  """Preserve `None` placeholders to keep fixed-position payloads intact."""
   return value
 
 

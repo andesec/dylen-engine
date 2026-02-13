@@ -251,20 +251,31 @@ def serialize_response(value: Any) -> str | None:
   # Preserve strings as-is to avoid unnecessary encoding.
 
   if isinstance(value, str):
-    return value
-
+    serialized = value
   # Fall back to string conversion when JSON encoding fails.
+  else:
+    try:
+      serialized = json.dumps(value, ensure_ascii=True)
+    except (TypeError, ValueError):
+      serialized = str(value)
 
-  try:
-    return json.dumps(value, ensure_ascii=True)
-
-  except (TypeError, ValueError):
-    return str(value)
+  # Truncate very long responses to avoid database issues.
+  return _truncate_response(serialized)
 
 
 def utc_now() -> datetime:
   """Return a UTC timestamp for audit records."""
   return datetime.now(tz=UTC)
+
+
+def _truncate_response(text: str, max_length: int = 50000) -> str:
+  """Truncate response payloads that exceed database limits."""
+  if len(text) <= max_length:
+    return text
+
+  truncated = text[:max_length]
+  suffix = f"\n\n[TRUNCATED: Original length {len(text)} chars, truncated to {max_length} chars]"
+  return truncated + suffix
 
 
 def _scrub_pii(text: str | None) -> str | None:

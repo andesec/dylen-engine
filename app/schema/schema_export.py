@@ -27,27 +27,23 @@ def _get_type_schema(type_hint: Any) -> dict[str, Any]:
   if isinstance(type_hint, msgspec.inspect.Metadata):
     # Extract the actual type and constraints
     schema = _get_type_schema(type_hint.type)
-    if type_hint.min_length is not None:
-      if schema.get("type") == "array":
-        schema["minItems"] = type_hint.min_length
-      elif schema.get("type") == "string":
-        schema["minLength"] = type_hint.min_length
-    if type_hint.max_length is not None:
-      if schema.get("type") == "array":
-        schema["maxItems"] = type_hint.max_length
-      elif schema.get("type") == "string":
-        schema["maxLength"] = type_hint.max_length
+    pattern = getattr(type_hint, "pattern", None)
+    ge = getattr(type_hint, "ge", None)
+    le = getattr(type_hint, "le", None)
+    extra_json_schema = getattr(type_hint, "extra_json_schema", None)
+    if pattern is not None and schema.get("type") == "string":
+      schema["pattern"] = pattern
+    if ge is not None and schema.get("type") in {"integer", "number"}:
+      schema["minimum"] = ge
+    if le is not None and schema.get("type") in {"integer", "number"}:
+      schema["maximum"] = le
     # Add extra JSON schema properties
-    if type_hint.extra_json_schema:
-      schema.update(type_hint.extra_json_schema)
+    if extra_json_schema:
+      schema.update(extra_json_schema)
     return schema
 
   if isinstance(type_hint, msgspec.inspect.StrType):
     schema = {"type": "string"}
-    if type_hint.min_length is not None:
-      schema["minLength"] = type_hint.min_length
-    if type_hint.max_length is not None:
-      schema["maxLength"] = type_hint.max_length
     if type_hint.pattern is not None:
       schema["pattern"] = type_hint.pattern
     return schema
@@ -177,7 +173,7 @@ def _extract_meta_constraints(annotation: Any) -> dict[str, Any]:
 
   # Check if this is an Annotated type
   origin = get_origin(annotation)
-  if origin is not type(Annotated):
+  if origin is not Annotated:
     return constraints
 
   args = get_args(annotation)
@@ -188,10 +184,6 @@ def _extract_meta_constraints(annotation: Any) -> dict[str, Any]:
   for metadata in args[1:]:
     if isinstance(metadata, msgspec.Meta):
       # Extract constraints
-      if hasattr(metadata, "min_length") and metadata.min_length is not None:
-        constraints["minLength"] = metadata.min_length
-      if hasattr(metadata, "max_length") and metadata.max_length is not None:
-        constraints["maxLength"] = metadata.max_length
       if hasattr(metadata, "pattern") and metadata.pattern is not None:
         constraints["pattern"] = metadata.pattern
       if hasattr(metadata, "ge") and metadata.ge is not None:
