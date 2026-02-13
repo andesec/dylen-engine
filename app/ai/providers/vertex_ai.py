@@ -116,7 +116,7 @@ class VertexAIModel(AIModel):
 
 class VertexAIProvider(Provider):
   _DEFAULT_MODEL: Final[str] = "gemini-2.0-flash"
-  _AVAILABLE_MODELS: Final[set[str]] = {"gemini-2.0-flash-001", "gemini-2.0-flash", "gemini-2.5-pro", "gemini-3.0-pro", "gemini-3.0-flash", "gemini-pro-latest"}
+  _AVAILABLE_MODELS: Final[set[str]] = {"gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-image"}
 
   def __init__(self) -> None:
     self.name = "vertexai"

@@ -16,7 +16,6 @@ This is a quick reference for all environment variables after the refactoring.
 
 ### API Keys (Secrets)
 - `GEMINI_API_KEY` - Google Gemini API key (required)
-- `OPENROUTER_API_KEY` - OpenRouter API key (required)
 
 ### Firebase/GCP
 - `GCP_PROJECT_ID` - GCP project ID (required)
@@ -124,12 +123,6 @@ FIREBASE_SERVICE_ACCOUNT_JSON_PATH=/path/to/serviceAccountKey.json
 # Note: In GCP, use Application Default Credentials instead
 ```
 
-### OpenRouter Attribution (Optional)
-```bash
-OPENROUTER_HTTP_REFERER=https://your-app.example
-OPENROUTER_TITLE=YourAppName
-```
-
 ### Dev/Test: Dummy Responses
 ```bash
 # Set to true to use fixture files instead of API calls
@@ -214,7 +207,6 @@ DYLEN_ENV=development
 DYLEN_ALLOWED_ORIGINS=http://localhost:3000
 DYLEN_PG_DSN=postgresql://user:pass@localhost:5432/dylen_dev
 GEMINI_API_KEY=your_dev_key
-OPENROUTER_API_KEY=your_openrouter_key
 GCP_PROJECT_ID=dylen-dev
 GCP_LOCATION=us-central1
 FIREBASE_PROJECT_ID=dylen-dev
@@ -228,7 +220,6 @@ DYLEN_ENV=stage
 DYLEN_ALLOWED_ORIGINS=https://stage.dylen.app
 DYLEN_PG_DSN=postgresql://...@/dylen-stage?host=/cloudsql/...
 GEMINI_API_KEY=...
-OPENROUTER_API_KEY=...
 GCP_PROJECT_ID=dylen-stage-485900
 GCP_LOCATION=us-central1
 FIREBASE_PROJECT_ID=dylen-stage-485900
@@ -245,7 +236,6 @@ DYLEN_ENV=production
 DYLEN_ALLOWED_ORIGINS=https://app.dylen.app,https://dylen.app
 DYLEN_PG_DSN=postgresql://...@/dylen-prod?host=/cloudsql/...
 GEMINI_API_KEY=...
-OPENROUTER_API_KEY=...
 GCP_PROJECT_ID=dylen-prod
 GCP_LOCATION=us-central1
 FIREBASE_PROJECT_ID=dylen-prod
@@ -256,4 +246,3 @@ DYLEN_BASE_URL=https://api.dylen.app
 DYLEN_EMAIL_NOTIFICATIONS_ENABLED=true
 DYLEN_PUSH_NOTIFICATIONS_ENABLED=true
 ```
-

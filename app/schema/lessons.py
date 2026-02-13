@@ -1,12 +1,41 @@
 from __future__ import annotations
 
 import datetime
+from enum import Enum as PyEnum
 
 from sqlalchemy import ARRAY, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+
+class SubsectionWidgetType(str, PyEnum):
+  MARKDOWN = "markdown"
+  FLIPCARDS = "flipcards"
+  TR = "tr"
+  FILLBLANK = "fillblank"
+  TABLE = "table"
+  COMPARE = "compare"
+  SWIPECARDS = "swipecards"
+  FREETEXT = "freeText"
+  INPUTLINE = "inputLine"
+  STEPFLOW = "stepFlow"
+  ASCIIDIAGRAM = "asciiDiagram"
+  CHECKLIST = "checklist"
+  INTERACTIVETERMINAL = "interactiveTerminal"
+  TERMINALDEMO = "terminalDemo"
+  CODEEDITOR = "codeEditor"
+  TREEVIEW = "treeview"
+  MCQS = "mcqs"
+  FENSTER = "fenster"
+  ILLUSTRATION = "illustration"
+
+
+def _subsection_widget_type_values(enum_cls: type[PyEnum]) -> list[str]:
+  """Persist enum values (e.g. `markdown`) instead of enum names (e.g. `MARKDOWN`)."""
+  return [str(member.value) for member in enum_cls]
 
 
 class Lesson(Base):
@@ -97,7 +126,7 @@ class SubsectionWidget(Base):
   subsection_id: Mapped[int] = mapped_column(ForeignKey("subsections.id", ondelete="CASCADE"), nullable=False, index=True)
   widget_id: Mapped[str | None] = mapped_column(String, nullable=True)
   widget_index: Mapped[int] = mapped_column(Integer, nullable=False)
-  widget_type: Mapped[str] = mapped_column(String, nullable=False)
+  widget_type: Mapped[SubsectionWidgetType] = mapped_column(SAEnum(SubsectionWidgetType, name="subsection_widget_type", values_callable=_subsection_widget_type_values, validate_strings=True), nullable=False)
   status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
   is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -113,7 +142,6 @@ class InputLine(Base):
   creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
   ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
   wordlist: Mapped[str | None] = mapped_column(Text, nullable=True)
-  status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
   is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -126,7 +154,6 @@ class FreeText(Base):
   creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
   ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
   wordlist: Mapped[str | None] = mapped_column(Text, nullable=True)
-  status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
   is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

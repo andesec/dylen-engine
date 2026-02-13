@@ -169,7 +169,7 @@ All model configs in DB use combined format: `"provider/model"`
 **Examples:**
 - `"gemini/gemini-2.5-pro"` → Gemini provider, model gemini-2.5-pro
 - `"anthropic/claude-3-sonnet"` → Anthropic provider, model claude-3-sonnet
-- `"openrouter/openai/gpt-4-turbo"` → OpenRouter provider, model openai/gpt-4-turbo
+- `"vertexai/vertex-gemini-3.0-pro"` → Vertex AI provider, model vertex-gemini-3.0-pro
 
 Helpers automatically split and handle cases where format is missing (returns default provider).
 

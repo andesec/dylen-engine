@@ -25,32 +25,18 @@ class SectionBuilderModel(str, Enum):
 
   GEMINI_25_FLASH = "gemini-2.5-flash"
   GEMINI_25_PRO = "gemini-2.5-pro"
-  XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash:free"
-  DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
-  LLAMA_31_405B = "meta-llama/llama-3.1-405b-instruct:free"
-  GPT_OSS_120B = "openai/gpt-oss-120b:free"
-  GEMMA_3_27B = "google/gemma-3-27b-it:free"
-  GPT_OSS_20B = "openai/gpt-oss-20b:free"
-  LLAMA_33_70B = "meta-llama/llama-3.3-70b-instruct:free"
 
 
 class PlannerModel(str, Enum):
   """Model options for the planning agent."""
 
+  GEMINI_25_FLASH = "gemini-2.5-flash"
   GEMINI_25_PRO = "gemini-2.5-pro"
-  GEMINI_PRO_LATEST = "gemini-pro-latest"
-  GPT_OSS_120B = "openai/gpt-oss-120b:free"
-  XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash:free"
-  LLAMA_31_405B = "meta-llama/llama-3.1-405b-instruct:free"
-  DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
 
 
 class RepairerModel(str, Enum):
   """Model options for the repair agent."""
 
-  GPT_OSS_20B = "openai/gpt-oss-20b:free"
-  GEMMA_3_27B = "google/gemma-3-27b-it:free"
-  DEEPSEEK_R1_0528 = "deepseek/deepseek-r1-0528:free"
   GEMINI_25_FLASH = "gemini-2.5-flash"
 
 

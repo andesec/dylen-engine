@@ -3,32 +3,17 @@ from __future__ import annotations
 from app.api.models import PlannerModel, RepairerModel, SectionBuilderModel
 
 _GEMINI_PROVIDER = "gemini"
-_OPENROUTER_PROVIDER = "openrouter"
 _VERTEXAI_PROVIDER = "vertexai"
 _VERTEX_MODEL_PREFIX = "vertex-"
 
 _GEMINI_SECTION_BUILDER_MODELS = {SectionBuilderModel.GEMINI_25_FLASH, SectionBuilderModel.GEMINI_25_PRO}
 
-_OPENROUTER_SECTION_BUILDER_MODELS = {
-  SectionBuilderModel.XIAOMI_MIMO_V2_FLASH,
-  SectionBuilderModel.DEEPSEEK_R1_0528,
-  SectionBuilderModel.LLAMA_31_405B,
-  SectionBuilderModel.GPT_OSS_120B,
-  SectionBuilderModel.GPT_OSS_20B,
-  SectionBuilderModel.LLAMA_33_70B,
-  SectionBuilderModel.GEMMA_3_27B,
-}
-
-_GEMINI_PLANNER_MODELS = {PlannerModel.GEMINI_25_PRO, PlannerModel.GEMINI_PRO_LATEST}
-
-_OPENROUTER_PLANNER_MODELS = {PlannerModel.GPT_OSS_120B, PlannerModel.XIAOMI_MIMO_V2_FLASH, PlannerModel.LLAMA_31_405B, PlannerModel.DEEPSEEK_R1_0528}
+_GEMINI_PLANNER_MODELS = {PlannerModel.GEMINI_25_FLASH, PlannerModel.GEMINI_25_PRO}
 
 _GEMINI_REPAIRER_MODELS = {RepairerModel.GEMINI_25_FLASH}
 
-_OPENROUTER_REPAIRER_MODELS = {RepairerModel.GPT_OSS_20B, RepairerModel.GEMMA_3_27B, RepairerModel.DEEPSEEK_R1_0528}
-
-DEFAULT_SECTION_BUILDER_MODEL = SectionBuilderModel.GEMINI_25_PRO.value
-DEFAULT_PLANNER_MODEL = PlannerModel.GEMINI_25_PRO.value
+DEFAULT_SECTION_BUILDER_MODEL = SectionBuilderModel.GEMINI_25_FLASH.value
+DEFAULT_PLANNER_MODEL = PlannerModel.GEMINI_25_FLASH.value
 DEFAULT_REPAIRER_MODEL = RepairerModel.GEMINI_25_FLASH.value
 
 
@@ -47,8 +32,6 @@ def _provider_for_section_builder_model(model_name: str | None, fallback_provide
     return _VERTEXAI_PROVIDER
   if model_name in {model.value for model in _GEMINI_SECTION_BUILDER_MODELS}:
     return _GEMINI_PROVIDER
-  if model_name in {model.value for model in _OPENROUTER_SECTION_BUILDER_MODELS}:
-    return _OPENROUTER_PROVIDER
   return fallback_provider
 
 
@@ -63,13 +46,9 @@ def _provider_for_model_hint(model_name: str | None, fallback_provider: str) -> 
     return _VERTEXAI_PROVIDER
 
   gemini_models = {model.value for model in _GEMINI_SECTION_BUILDER_MODELS} | {model.value for model in _GEMINI_PLANNER_MODELS} | {model.value for model in _GEMINI_REPAIRER_MODELS}
-  openrouter_models = {model.value for model in _OPENROUTER_SECTION_BUILDER_MODELS} | {model.value for model in _OPENROUTER_PLANNER_MODELS} | {model.value for model in _OPENROUTER_REPAIRER_MODELS}
 
   if model_name in gemini_models:
     return _GEMINI_PROVIDER
-
-  if model_name in openrouter_models:
-    return _OPENROUTER_PROVIDER
 
   return fallback_provider
 

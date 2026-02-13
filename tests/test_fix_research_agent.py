@@ -13,7 +13,7 @@ def anyio_backend():
 @pytest.fixture
 def mock_settings():
   with patch("app.ai.agents.research.get_settings") as mock:
-    mock.return_value = MagicMock(gemini_api_key="fake-key", research_router_model="gemini-1.5-flash-test", research_search_max_results=10, research_model="gemini-fake", app_id="test-app")
+    mock.return_value = MagicMock(gemini_api_key="fake-key", research_router_model="gemini-2.0-flash-test", research_search_max_results=10, research_model="gemini-fake", app_id="test-app")
     yield mock.return_value
 
 
@@ -44,7 +44,7 @@ async def test_initialization_uses_settings(mock_settings, mock_gemini_provider,
   agent = ResearchAgent()
 
   # Check if settings were used
-  assert agent.router_model_name == "gemini-1.5-flash-test"
+  assert agent.router_model_name == "gemini-2.0-flash-test"
   assert agent.search_max_results == 10
 
   # Check GeminiProvider init with key

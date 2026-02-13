@@ -76,7 +76,6 @@ _RUNTIME_CONFIG_DEFINITIONS: dict[str, RuntimeConfigDefinition] = {
   "ai.writing.model": RuntimeConfigDefinition(key="ai.writing.model", value_type="str", description="Default model for writing checks (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "ai.tutor.model": RuntimeConfigDefinition(key="ai.tutor.model", value_type="str", description="Default model for tutor (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "ai.illustration.model": RuntimeConfigDefinition(key="ai.illustration.model", value_type="str", description="Default model for illustration (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
-  "ai.visualizer.model": RuntimeConfigDefinition(key="ai.visualizer.model", value_type="str", description="Legacy alias for ai.illustration.model (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "ai.youtube.model": RuntimeConfigDefinition(key="ai.youtube.model", value_type="str", description="Default model for YouTube capture (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "ai.research.model": RuntimeConfigDefinition(key="ai.research.model", value_type="str", description="Default model for research discovery (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
   "ai.research.router_model": RuntimeConfigDefinition(key="ai.research.router_model", value_type="str", description="Default router model for research intent classification (provider/model).", allowed_scopes=_SCOPES_GLOBAL_TIER_TENANT),
@@ -218,9 +217,9 @@ def _env_fallback(settings: Settings, key: str) -> Any:
   if key == "lessons.repair_overlong_markdown":
     return False
   if key == "ai.section_builder.model":
-    return "gemini/gemini-2.5-pro"
+    return "gemini/gemini-2.5-flash"
   if key == "ai.planner.model":
-    return "gemini/gemini-2.5-pro"
+    return "gemini/gemini-2.5-flash"
   if key == "ai.outcomes.model":
     return "gemini/gemini-2.5-flash"
   if key == "ai.repair.model":
@@ -235,14 +234,13 @@ def _env_fallback(settings: Settings, key: str) -> Any:
     return "gemini/gemini-2.5-flash"
   if key == "ai.illustration.model":
     return "gemini/gemini-2.5-flash-image"
-  if key == "ai.visualizer.model":
-    return "gemini/gemini-2.5-flash-image"
   if key == "ai.youtube.model":
     return "gemini/gemini-2.0-flash"
   if key == "ai.research.model":
-    return "gemini/gemini-1.5-pro"
+    return "gemini/gemini-2.0-flash"
   if key == "ai.research.router_model":
-    return "gemini/gemini-1.5-flash"
+    return "gemini/gemini-2.0-flash"
+
   if key == "email.from_address":
     return str(settings.email_from_address or "")
   if key == "email.from_name":
@@ -362,7 +360,7 @@ def _parse_provider_model(value: str | None, default_provider: str, default_mode
   """Parse 'provider/model' format or return defaults.
 
   How/Why:
-    - DB stores models as "provider/model" format (e.g., "gemini/gemini-2.5-pro")
+    - DB stores models as "provider/model" format (e.g., "gemini/gemini-2.5-flash")
     - This helper splits them and provides sensible defaults when missing
     - Callers get (provider, model) tuple directly without worrying about format
   """
@@ -393,7 +391,7 @@ def get_model_provider_and_name(runtime_config: dict[str, Any], config_key: str,
       runtime_config,
       "ai.section_builder.model",
       default_provider="gemini",
-      default_model="gemini-2.5-pro"
+      default_model="gemini-2.5-flash"
     )
   """
   value = runtime_config.get(config_key)
@@ -402,12 +400,12 @@ def get_model_provider_and_name(runtime_config: dict[str, Any], config_key: str,
 
 def get_section_builder_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
   """Get (provider, model) for section builder."""
-  return get_model_provider_and_name(runtime_config, "ai.section_builder.model", "gemini", "gemini-2.5-pro")
+  return get_model_provider_and_name(runtime_config, "ai.section_builder.model", "gemini", "gemini-2.5-flash")
 
 
 def get_planner_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
   """Get (provider, model) for planner."""
-  return get_model_provider_and_name(runtime_config, "ai.planner.model", "gemini", "gemini-2.5-pro")
+  return get_model_provider_and_name(runtime_config, "ai.planner.model", "gemini", "gemini-2.5-flash")
 
 
 def get_outcomes_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
@@ -437,10 +435,6 @@ def get_tutor_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
 
 def get_illustration_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
   """Get (provider, model) for illustration/visualization."""
-  fallback_value = runtime_config.get("ai.visualizer.model")
-  if runtime_config.get("ai.illustration.model") is None and fallback_value is not None:
-    return _parse_provider_model(str(fallback_value), "gemini", "gemini-2.5-flash-image")
-
   return get_model_provider_and_name(runtime_config, "ai.illustration.model", "gemini", "gemini-2.5-flash-image")
 
 
@@ -451,9 +445,9 @@ def get_youtube_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
 
 def get_research_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
   """Get (provider, model) for research discovery."""
-  return get_model_provider_and_name(runtime_config, "ai.research.model", "gemini", "gemini-1.5-pro")
+  return get_model_provider_and_name(runtime_config, "ai.research.model", "gemini", "gemini-2.0-flash")
 
 
 def get_research_router_model(runtime_config: dict[str, Any]) -> tuple[str, str]:
   """Get (provider, model) for research router/classifier."""
-  return get_model_provider_and_name(runtime_config, "ai.research.router_model", "gemini", "gemini-1.5-flash")
+  return get_model_provider_and_name(runtime_config, "ai.research.router_model", "gemini", "gemini-2.0-flash")

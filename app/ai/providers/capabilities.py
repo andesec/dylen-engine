@@ -20,6 +20,4 @@ def get_provider_capabilities(provider_name: str) -> ProviderCapabilities:
   name = provider_name.lower()
   if name == "gemini":
     return ProviderCapabilities(supports_json_schema=True, max_schema_depth=8, max_enum_size=50)
-  if name == "openrouter":
-    return ProviderCapabilities(supports_json_schema=True, max_schema_depth=10, max_enum_size=100)
   return ProviderCapabilities(supports_json_schema=False)

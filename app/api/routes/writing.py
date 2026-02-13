@@ -78,7 +78,7 @@ async def create_writing_check(  # noqa: B008
     provider, model_name = get_writing_model(runtime_config)
 
     service = WritingCheckService(provider=provider, model=model_name or None)
-    result = await service.check_response(session=db_session, text=request.text, requester_user_id=str(current_user.id), widget_id=request.widget_id, criteria=request.criteria)
+    result = await service.check_response(session=db_session, text=request.text, requester_user_id=str(current_user.id), widget_id=request.widget_id, criteria=request.criteria, runtime_config=runtime_config)
 
     # Commit quota on successful LLM call (even if the check itself found issues with the writing)
     await commit_quota_reservation(db_session, user_id=current_user.id, metric_key="writing.check", period=QuotaPeriod.MONTH, quantity=1, limit=writing_checks_per_month, job_id=job_id, metadata={"job_id": job_id})

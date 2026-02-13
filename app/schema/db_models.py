@@ -12,6 +12,7 @@ import app.schema.fenster  # noqa: F401
 import app.schema.illustrations  # noqa: F401
 import app.schema.jobs  # noqa: F401
 import app.schema.lessons  # noqa: F401
+import app.schema.llm_pricing  # noqa: F401
 import app.schema.notifications  # noqa: F401
 import app.schema.push_subscriptions  # noqa: F401
 import app.schema.quotas  # noqa: F401

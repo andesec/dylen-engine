@@ -47,7 +47,6 @@ These remain in `.env` files as they are secrets, deployment identifiers, or dev
 
 ### API Keys
 - `GEMINI_API_KEY`
-- `OPENROUTER_API_KEY`
 - `TAVILY_API_KEY`
 - `DYLEN_MAILERSEND_API_KEY`
 - `DYLEN_PUSH_VAPID_PRIVATE_KEY`
@@ -70,7 +69,6 @@ These remain in `.env` files as they are secrets, deployment identifiers, or dev
 
 ### Security Boundaries
 - `DYLEN_ALLOWED_ORIGINS`
-- `OPENROUTER_HTTP_REFERER`
 - `DYLEN_TASK_SECRET`
 
 ### Export/Import (Actually Used)
@@ -174,4 +172,3 @@ The following settings are now exclusively managed via the `runtime_config_value
 - [ ] Verify export/import functionality still works
 - [ ] Verify research agent works with new model configuration
 - [ ] Run full integration test suite
-

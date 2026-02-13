@@ -38,6 +38,7 @@ from app.schema.quotas import QuotaPeriod
 from app.schema.service import SchemaService
 from app.services.data_transfer_bundle import execute_export_run, execute_hydrate_run
 from app.services.feature_flags import resolve_feature_flag_decision
+from app.services.llm_pricing import load_pricing_table
 from app.services.maintenance import archive_old_lessons
 from app.services.quota_buckets import QuotaExceededError, get_quota_snapshot
 from app.services.runtime_config import get_fenster_model, get_illustration_model, get_planner_model, get_repair_model, get_section_builder_model, get_tutor_model, resolve_effective_runtime_config
@@ -712,6 +713,7 @@ class JobProcessor:
 
       # Insert DB
       fenster_resource_id = ""
+      pricing_table: dict[str, dict[str, tuple[float, float]]] = {}
       session_factory = get_session_factory()
       if session_factory:
         async with session_factory() as session:
@@ -732,12 +734,14 @@ class JobProcessor:
             existing_widget.content = compressed
             existing_widget.url = None
             session.add(existing_widget)
+          pricing_table = await load_pricing_table(session)
           await session.commit()
+
       if section_id > 0:
         await _update_subsection_widget_status(section_id=section_id, widget_types=("fenster",), status="completed", widget_id=fenster_resource_id, public_ids=widget_public_ids)
 
-      # Calculate cost
-      total_cost = calculate_total_cost(usage_list)
+      # Calculate cost using database-backed pricing.
+      total_cost = calculate_total_cost(usage_list, pricing_table, provider=provider)
       cost_summary = _summarize_cost(usage_list, total_cost)
       await tracker.set_cost(cost_summary)
 
@@ -794,19 +798,25 @@ class JobProcessor:
       session_factory = get_session_factory()
       runtime_config: dict[str, Any] = {}
       tutor_mode_enabled = False
-      if session_factory and job.user_id:
-        try:
-          parsed_user_id = uuid.UUID(str(job.user_id))
-        except ValueError:
-          parsed_user_id = None
-        if parsed_user_id is not None:
-          async with session_factory() as session:
+      pricing_table: dict[str, dict[str, tuple[float, float]]] = {}
+      if session_factory:
+        parsed_user_id = None
+        if job.user_id:
+          try:
+            parsed_user_id = uuid.UUID(str(job.user_id))
+          except ValueError:
+            parsed_user_id = None
+
+        async with session_factory() as session:
+          if parsed_user_id is not None:
             user = await get_user_by_id(session, parsed_user_id)
             if user is not None:
               tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
               runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
               decision = await resolve_feature_flag_decision(session, key="feature.tutor.mode", org_id=user.org_id, subscription_tier_id=tier_id, user_id=user.id)
               tutor_mode_enabled = bool(decision.enabled)
+
+          pricing_table = await load_pricing_table(session)
 
       if not tutor_mode_enabled:
         completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -848,7 +858,7 @@ class JobProcessor:
               await session.commit()
 
       # Cost
-      total_cost = calculate_total_cost(usage_list)
+      total_cost = calculate_total_cost(usage_list, pricing_table, provider=provider)
       cost_summary = _summarize_cost(usage_list, total_cost)
       await tracker.set_cost(cost_summary)
 
@@ -901,6 +911,26 @@ class JobProcessor:
       session_factory = get_session_factory()
       if session_factory is None:
         raise RuntimeError("Database session factory unavailable.")
+
+      # Resolve runtime config for pricing and model overrides.
+      runtime_config: dict[str, Any] = {}
+      pricing_table: dict[str, dict[str, tuple[float, float]]] = {}
+      parsed_user_id = None
+      if job.user_id:
+        try:
+          parsed_user_id = uuid.UUID(str(job.user_id))
+        except ValueError:
+          parsed_user_id = None
+
+      async with session_factory() as session:
+        if parsed_user_id is not None:
+          user = await get_user_by_id(session, parsed_user_id)
+          if user is not None:
+            tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+            runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
+
+        pricing_table = await load_pricing_table(session)
+
       storage_client = build_storage_client(self._settings)
 
       # Resolve section row first to support idempotency checks and fallback metadata.
@@ -926,7 +956,7 @@ class JobProcessor:
         if existing_illustration_id is not None:
           existing_illustration = await session.get(Illustration, existing_illustration_id)
           if existing_illustration is not None and existing_illustration.status == "completed" and await storage_client.exists(existing_illustration.storage_object_name):
-            total_cost = calculate_total_cost([])
+            total_cost = calculate_total_cost([], pricing_table)
             cost_summary = _summarize_cost([], total_cost)
             await tracker.set_cost(cost_summary)
             completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -954,18 +984,6 @@ class JobProcessor:
             return updated
 
       # Resolve runtime-configured provider/model for the illustration agent.
-      runtime_config: dict[str, Any] = {}
-      if job.user_id:
-        try:
-          parsed_user_id = uuid.UUID(str(job.user_id))
-        except ValueError:
-          parsed_user_id = None
-        if parsed_user_id is not None:
-          async with session_factory() as session:
-            user = await get_user_by_id(session, parsed_user_id)
-            if user is not None:
-              tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
-              runtime_config = await resolve_effective_runtime_config(session, settings=self._settings, org_id=user.org_id, subscription_tier_id=tier_id, user_id=None)
       provider, model_name = get_illustration_model(runtime_config)
       model_instance = get_model_for_mode(provider, model_name or None, agent="illustration")
       schema_service = SchemaService()
@@ -1044,7 +1062,7 @@ class JobProcessor:
       finalized_success = True
       await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed", widget_id=str(illustration_row.public_id))
 
-      total_cost = calculate_total_cost(usage_list)
+      total_cost = calculate_total_cost(usage_list, pricing_table, provider=provider)
       cost_summary = _summarize_cost(usage_list, total_cost)
       await tracker.set_cost(cost_summary)
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

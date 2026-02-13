@@ -110,6 +110,35 @@ async def _apply_in_place_retry_filters(*, repo: Any, record: JobRecord, payload
     await upsert_checkpoint_fn(job_id=record.job_id, stage=stage, section_index=section_index, state=next_state, artifact_refs_json=checkpoint.artifact_refs_json, attempt_count=int(checkpoint.attempt_count), last_error=None)
 
 
+async def _infer_resume_scope_from_source(*, source: JobRecord) -> tuple[list[int] | None, list[str] | None]:
+  """Infer the narrowest resume scope from a failed source job."""
+  target_agent = str(source.target_agent or "").strip()
+  if target_agent not in _LESSON_RESUMABLE_AGENTS:
+    return None, None
+  inferred_agents = [target_agent]
+  if target_agent == "planner":
+    return None, inferred_agents
+  wrapped_payload = source.request.get("payload") if isinstance(source.request.get("payload"), dict) else source.request
+  for key in ("section_number", "section_index"):
+    raw_value = wrapped_payload.get(key)
+    if raw_value is None:
+      continue
+    try:
+      section_index = int(raw_value)
+    except (TypeError, ValueError):
+      continue
+    if section_index > 0:
+      return [section_index], inferred_agents
+  if source.section_id is not None:
+    session_factory = get_session_factory()
+    if session_factory is not None:
+      async with session_factory() as session:
+        section_row = await session.get(Section, int(source.section_id))
+        if section_row is not None:
+          return [int(section_row.order_index)], inferred_agents
+  return None, inferred_agents
+
+
 async def _resolve_latest_record(record: JobRecord, settings: Settings) -> JobRecord:
   repo = _get_jobs_repo(settings)
   current = record
@@ -235,6 +264,11 @@ async def resume_job_from_failure_admin(*, job_id: str, settings: Settings, back
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only failed or canceled jobs can be resumed.")
   if str(source.job_kind) != "lesson" or str(source.target_agent or "") not in _LESSON_RESUMABLE_AGENTS:
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Resume-from-failure supports lesson pipeline jobs only.")
+  if sections is not None or agents is not None:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Resume filters are not supported. Provide only job_id to resume the failed agent job.")
+  inferred_sections, inferred_agents = await _infer_resume_scope_from_source(source=source)
+  effective_sections = inferred_sections
+  effective_agents = inferred_agents
   session_factory = get_session_factory()
   if session_factory is not None:
     async with session_factory() as session:
@@ -244,10 +278,10 @@ async def resume_job_from_failure_admin(*, job_id: str, settings: Settings, back
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
   resume_job_id = generate_job_id()
   resume_request = dict(source.request or {})
-  if sections is not None:
-    resume_request["_resume_sections"] = [int(item) for item in sections]
-  if agents is not None:
-    resume_request["_resume_agents"] = [str(item) for item in agents]
+  if effective_sections is not None:
+    resume_request["_resume_sections"] = [int(item) for item in effective_sections]
+  if effective_agents is not None:
+    resume_request["_resume_agents"] = [str(item) for item in effective_agents]
   resumed = JobRecord(
     job_id=resume_job_id,
     root_job_id=str(source.root_job_id or source.job_id),
@@ -270,7 +304,7 @@ async def resume_job_from_failure_admin(*, job_id: str, settings: Settings, back
   except IntegrityError as exc:
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Active resume job already exists for this source job.") from exc
   await repo.update_job(source.job_id, status="superseded", superseded_by_job_id=resume_job_id, completed_at=timestamp, logs=[f"Job superseded by resume job {resume_job_id}."])
-  await _seed_resume_checkpoints(job=resumed, settings=settings, section_filters=sections, agent_filters=agents)
+  await _seed_resume_checkpoints(job=resumed, settings=settings, section_filters=effective_sections, agent_filters=effective_agents)
   trigger_job_processing(background_tasks, resume_job_id, settings, auto_process=True)
   child_jobs = await _resolve_child_jobs(resumed, settings)
   return _job_status_from_record(resumed, child_jobs=child_jobs, requested_job_id=job_id, resolved_job_id=resume_job_id, superseded_job_id=source.job_id, follow_from_job_id=resume_job_id)

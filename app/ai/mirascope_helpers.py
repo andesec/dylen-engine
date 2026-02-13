@@ -13,7 +13,7 @@ from app.schema.selective_schema import create_selective_section, get_outcomes_s
 OutcomesSection = get_outcomes_section()
 
 
-@gemini.call(model="gemini-2.0-flash-exp", response_model=OutcomesSection)
+@gemini.call(model="gemini-2.0-flash", response_model=OutcomesSection)
 @prompt_template(
   """
     Generate learning outcomes for: {topic}
@@ -35,7 +35,7 @@ def generate_outcomes(topic: str): ...
 SectionBuilderSection = get_section_builder_section()
 
 
-@gemini.call(model="gemini-2.0-flash-exp", response_model=SectionBuilderSection)
+@gemini.call(model="gemini-2.0-flash", response_model=SectionBuilderSection)
 @prompt_template(
   """
     Generate an educational section about {topic}.
@@ -66,7 +66,7 @@ def generate_custom_section(topic: str, widget_types: list[str]):
   # Create a custom Section class with only specified widgets
   custom_section = create_selective_section(widget_types)
 
-  @gemini.call(model="gemini-2.0-flash-exp", response_model=custom_section)
+  @gemini.call(model="gemini-2.0-flash", response_model=custom_section)
   @prompt_template(
     """
         Generate an educational section about {topic}.

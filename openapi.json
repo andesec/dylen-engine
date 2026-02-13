@@ -1686,7 +1686,8 @@
         "title": "LessonRecordResponse",
         "type": "object"
       },
-      "LlmAuditRecord": {
+      "LlmAuditCallWithCost": {
+        "description": "Audit record with calculated cost data integrated.",
         "properties": {
           "agent": {
             "title": "Agent",
@@ -1713,6 +1714,14 @@
               }
             ],
             "title": "Completion Tokens"
+          },
+          "cost_missing": {
+            "title": "Cost Missing",
+            "type": "boolean"
+          },
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "number"
           },
           "duration_ms": {
             "title": "Duration Ms",
@@ -1862,9 +1871,271 @@
           "call_index",
           "job_id",
           "status",
-          "error_message"
+          "error_message",
+          "cost_usd",
+          "cost_missing"
         ],
-        "title": "LlmAuditRecord",
+        "title": "LlmAuditCallWithCost",
+        "type": "object"
+      },
+      "LlmJobCostRecord": {
+        "properties": {
+          "call_count": {
+            "title": "Call Count",
+            "type": "integer"
+          },
+          "cost_missing_count": {
+            "title": "Cost Missing Count",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "total_cost_usd",
+          "total_tokens",
+          "call_count",
+          "cost_missing_count"
+        ],
+        "title": "LlmJobCostRecord",
+        "type": "object"
+      },
+      "LlmJobCostsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LlmJobCostRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "LlmJobCostsResponse",
+        "type": "object"
+      },
+      "LlmPricingCall": {
+        "properties": {
+          "completion_tokens": {
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "cost_missing": {
+            "title": "Cost Missing",
+            "type": "boolean"
+          },
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "fenster_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fenster Id"
+          },
+          "fenster_public_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fenster Public Id"
+          },
+          "illustration_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Illustration Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Id"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "integer"
+          },
+          "section_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Id"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "tutor_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Id"
+          }
+        },
+        "required": [
+          "record_id",
+          "started_at",
+          "provider",
+          "model",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "cost_usd",
+          "cost_missing",
+          "status",
+          "job_id",
+          "lesson_id",
+          "section_id",
+          "illustration_id",
+          "tutor_id",
+          "fenster_id",
+          "fenster_public_id"
+        ],
+        "title": "LlmPricingCall",
+        "type": "object"
+      },
+      "LlmPricingResponse": {
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/LlmPricingCall"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/LlmPricingSummary"
+          }
+        },
+        "required": [
+          "summary",
+          "calls"
+        ],
+        "title": "LlmPricingResponse",
+        "type": "object"
+      },
+      "LlmPricingSummary": {
+        "properties": {
+          "call_count": {
+            "title": "Call Count",
+            "type": "integer"
+          },
+          "cost_missing_count": {
+            "title": "Cost Missing Count",
+            "type": "integer"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "target_type": {
+            "title": "Target Type",
+            "type": "string"
+          },
+          "total_completion_tokens": {
+            "title": "Total Completion Tokens",
+            "type": "integer"
+          },
+          "total_cost_usd": {
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_prompt_tokens": {
+            "title": "Total Prompt Tokens",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_type",
+          "target_id",
+          "total_cost_usd",
+          "total_prompt_tokens",
+          "total_completion_tokens",
+          "total_tokens",
+          "call_count",
+          "cost_missing_count"
+        ],
+        "title": "LlmPricingSummary",
         "type": "object"
       },
       "LoginRequest": {
@@ -2335,11 +2606,11 @@
         "title": "PaginatedResponse[LessonRecord]",
         "type": "object"
       },
-      "PaginatedResponse_LlmAuditRecord_": {
+      "PaginatedResponse_LlmAuditCallWithCost_": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/LlmAuditRecord"
+              "$ref": "#/components/schemas/LlmAuditCallWithCost"
             },
             "title": "Items",
             "type": "array"
@@ -2363,7 +2634,7 @@
           "limit",
           "offset"
         ],
-        "title": "PaginatedResponse[LlmAuditRecord]",
+        "title": "PaginatedResponse[LlmAuditCallWithCost]",
         "type": "object"
       },
       "PaginatedResponse_UserRecord_": {
@@ -3220,47 +3491,6 @@
           "tutor_voice_tier"
         ],
         "title": "ResolvedQuota",
-        "type": "object"
-      },
-      "ResumeJobFromFailureRequest": {
-        "properties": {
-          "agents": {
-            "anyOf": [
-              {
-                "items": {
-                  "enum": [
-                    "planner",
-                    "section_builder",
-                    "illustration",
-                    "tutor",
-                    "fenster_builder"
-                  ],
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agents"
-          },
-          "sections": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sections"
-          }
-        },
-        "title": "ResumeJobFromFailureRequest",
         "type": "object"
       },
       "RoleCreateRequest": {
@@ -5932,16 +6162,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResumeJobFromFailureRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "content": {
@@ -6123,7 +6343,7 @@
     },
     "/admin/llm-calls": {
       "get": {
-        "description": "List LLM audit records with pagination, filtering, and sorting to keep admin views efficient.",
+        "description": "List LLM audit records with pagination, filtering, sorting, and cost data integrated.",
         "operationId": "list_llm_calls_admin_llm_calls_get",
         "parameters": [
           {
@@ -6271,7 +6491,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_LlmAuditRecord_"
+                  "$ref": "#/components/schemas/PaginatedResponse_LlmAuditCallWithCost_"
                 }
               }
             },
@@ -6294,6 +6514,197 @@
           }
         ],
         "summary": "List Llm Calls",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/llm-pricing": {
+      "get": {
+        "description": "Aggregate LLM pricing by a target type and id.",
+        "operationId": "get_llm_pricing_admin_llm_pricing_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "target_type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "job",
+                "lesson",
+                "section",
+                "illustration",
+                "tutor",
+                "fenster"
+              ],
+              "title": "Target Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Target Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Calls",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmPricingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Llm Pricing",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/llm-pricing/jobs": {
+      "get": {
+        "description": "Return aggregated LLM pricing totals for a list of job ids.",
+        "operationId": "get_llm_job_costs_admin_llm_pricing_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "job_ids",
+            "required": true,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Job Ids",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmJobCostsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Llm Job Costs",
         "tags": [
           "admin"
         ]
@@ -7966,6 +8377,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-dylen-task-secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dylen-Task-Secret"
+            }
           }
         ],
         "requestBody": {
@@ -9242,6 +9669,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-dylen-task-secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dylen-Task-Secret"
             }
           }
         ],
