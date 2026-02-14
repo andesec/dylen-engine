@@ -131,6 +131,19 @@ security-container:
 .PHONY: security-dast
 security-dast:
 	@echo "Starting application for DAST scan..."
+	@if [ ! -f .env ]; then \
+		echo "Creating .env from .env.example for CI/CD..."; \
+		cp .env.example .env; \
+	fi
+	@mkdir -p secrets/certs
+	@if [ ! -f secrets/certs/origin.key ] || [ ! -f secrets/certs/origin.crt ]; then \
+		echo "Generating self-signed certificates for DAST..."; \
+		openssl req -x509 -newkey rsa:4096 -nodes -keyout secrets/certs/origin.key -out secrets/certs/origin.crt -days 365 -subj "/CN=localhost" 2>/dev/null; \
+	fi
+	@if [ ! -f secrets/service-account.json ]; then \
+		echo "Creating dummy service-account.json for DAST..."; \
+		echo '{"type":"service_account","project_id":"dummy"}' > secrets/service-account.json; \
+	fi
 	@docker compose up -d
 	@echo "Waiting for application to be ready..."
 	@sleep 15
@@ -140,7 +153,7 @@ security-dast:
 		-v $(PWD)/.zap:/zap/wrk:rw \
 		-v $(PWD)/reports:/zap/reports:rw \
 		ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-		-t http://localhost:8002 \
+		-t https://localhost:8002 \
 		-c .zap/rules.tsv \
 		-r /zap/reports/zap-report.html \
 		-J /zap/reports/zap-report.json || true

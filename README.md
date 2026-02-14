@@ -6,7 +6,8 @@ Data Generation Service for Dylen. A service that uses AI to generate JSON conte
 
 - Python 3.11+
 - [Make](https://www.gnu.org/software/make/)
-- [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html) (required for `sam-local`)
+- [Docker](https://docs.docker.com/get-docker/) for local development and containerization
+- [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) (optional, for GCP deployments)
 
 ## Setup
 
@@ -38,7 +39,7 @@ Required:
 
 - `DYLEN_ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins (no `*`).
 
-Provider secrets (required when wiring real providers or deploying with SAM):
+Provider secrets (required when wiring real providers or deploying to GCP):
 
 - `GEMINI_API_KEY`: API key for the Gemini provider.
 
@@ -58,19 +59,78 @@ Storage and tuning:
 
 See [docs/database_migrations.md](docs/database_migrations.md) for details on managing database schema changes.
 
-## Running locally
+## Running the application
 
-Use Uvicorn to serve the FastAPI app with reload enabled:
+### Local development (recommended)
 
-```bash
-cd dylen-engine
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Alternatively, from the repository root you can run:
+The easiest way to run the application locally is using the `make dev` command, which:
+- Starts PostgreSQL and initializes the database using Docker Compose
+- Runs the FastAPI application with hot-reload enabled
+- Exposes the API on port 8080 (configurable via `PORT` environment variable)
 
 ```bash
 make dev
+```
+
+The application will be available at `http://localhost:8080`. API documentation is available at:
+- Swagger UI: `http://localhost:8080/docs`
+- ReDoc: `http://localhost:8080/redoc`
+
+To stop the services:
+```bash
+make dev-stop
+```
+
+### Running with Docker Compose (full stack)
+
+To run the entire application stack in containers (including the app, PostgreSQL, and GCS emulator):
+
+```bash
+docker compose up -d --build
+```
+
+This configuration:
+- Runs the app on port 8002 with HTTPS (requires SSL certificates in `secrets/certs/`)
+- Starts PostgreSQL with automatic initialization
+- Starts a local GCS emulator for storage testing
+- Automatically applies database migrations on startup
+
+Access the application at `https://localhost:8002`.
+
+To view logs:
+```bash
+docker compose logs -f app
+```
+
+To stop and remove containers:
+```bash
+docker compose down
+```
+
+### Debug mode
+
+For debugging with breakpoints (e.g., in PyCharm or VS Code):
+
+```bash
+docker compose -f docker-compose.debug.yml up -d --build
+./scripts/wait_for_debugger.sh
+```
+
+This starts the application in debug mode, allowing you to attach a debugger from your IDE.
+
+### Manual run (advanced)
+
+If you prefer to run the app directly without Docker for the application:
+
+```bash
+# Ensure Postgres is running (via Docker)
+docker compose up -d postgres postgres-init
+
+# Activate virtual environment
+source .venv/bin/activate
+
+# Run with uvicorn
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
 ## Quality checks
@@ -83,6 +143,54 @@ make lint
 make typecheck
 make test
 ```
+
+## Security scanning
+
+The project includes comprehensive security scanning capabilities:
+
+### Software Composition Analysis (SCA)
+Scan dependencies for known vulnerabilities:
+```bash
+make security-sca
+```
+Requires [Snyk CLI](https://docs.snyk.io/snyk-cli/install-the-snyk-cli) to be installed.
+
+### Static Application Security Testing (SAST)
+Run static code analysis for security vulnerabilities:
+```bash
+make security-sast        # Run both Bandit and Semgrep
+make security-sast-bandit # Python-specific security issues
+make security-sast-semgrep # Multi-language security patterns
+```
+
+### Container Security
+Scan the Docker image for vulnerabilities:
+```bash
+make security-container
+```
+Requires [Snyk CLI](https://docs.snyk.io/snyk-cli/install-the-snyk-cli) to be installed.
+
+### Dynamic Application Security Testing (DAST)
+Run OWASP ZAP security scan against the running application:
+```bash
+make security-dast
+```
+This target automatically:
+- Creates `.env` from `.env.example` if missing
+- Generates self-signed SSL certificates
+- Creates dummy service account for testing
+- Starts the application with Docker Compose
+- Runs OWASP ZAP baseline scan
+- Stops the application and cleans up
+
+Results are saved to `reports/zap-report.html` and `reports/zap-report.json`.
+
+### Run all security scans
+```bash
+make security-all  # Runs SCA, SAST, and Container scans
+```
+
+**Note**: All security reports are saved to the `reports/` directory, which is excluded from version control.
 
 ## Legal
 
