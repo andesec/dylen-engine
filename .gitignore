@@ -232,6 +232,7 @@ __marimo__/
 postgres-data/
 
 logs/
+.env-stage
 
 # Backups
 backups/

@@ -17,7 +17,7 @@ install:
 
 dev: openapi
 	@echo "Starting Postgres..."
-	@docker-compose up -d postgres postgres-init
+	@docker compose up -d postgres postgres-init
 	@echo "Waiting for Postgres to be ready..."
 	@sleep 5
 	@set -a; [ -f .env ] && . ./.env; set +a; \
@@ -27,7 +27,7 @@ dev: openapi
 
 dev-stop:
 	@echo "Stopping Docker services..."
-	@docker-compose down
+	@docker compose down
 
 format:
 	uv run ruff format .
@@ -131,22 +131,43 @@ security-container:
 .PHONY: security-dast
 security-dast:
 	@echo "Starting application for DAST scan..."
-	@docker-compose up -d
+	@if [ ! -f .env ]; then \
+		echo "Creating .env from .env.example for CI/CD..."; \
+		cp .env.example .env; \
+	fi
+	@mkdir -p secrets/certs
+	@if [ ! -f secrets/certs/origin.key ] || [ ! -f secrets/certs/origin.crt ]; then \
+		echo "Generating self-signed certificates for DAST..."; \
+		openssl req -x509 -newkey rsa:4096 -nodes -keyout secrets/certs/origin.key -out secrets/certs/origin.crt -days 365 -subj "/CN=localhost" 2>/dev/null; \
+	fi
+	@if [ ! -f secrets/service-account.json ]; then \
+		echo "Creating dummy service-account.json for DAST..."; \
+		echo '{"type":"service_account","project_id":"dummy"}' > secrets/service-account.json; \
+	fi
+	@docker compose up -d
 	@echo "Waiting for application to be ready..."
-	@sleep 15
+	@echo "Checking application health..."
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+		if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:8002/health | grep -q "200"; then \
+			echo "Application is ready!"; \
+			break; \
+		fi; \
+		echo "Waiting... ($$i/12)"; \
+		sleep 5; \
+	done
 	@echo "Running OWASP ZAP baseline scan..."
 	@mkdir -p reports
+	@chmod 777 reports
 	docker run --rm --network host \
-		-v $(PWD)/.zap:/zap/wrk:rw \
-		-v $(PWD)/reports:/zap/reports:rw \
+		-v $(PWD)/reports:/zap/wrk:rw \
 		ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-		-t http://localhost:8002 \
-		-c .zap/rules.tsv \
-		-r /zap/reports/zap-report.html \
-		-J /zap/reports/zap-report.json || true
+		-t https://localhost:8002 \
+		-I \
+		-r zap-report.html \
+		-J zap-report.json || true
 	@echo "DAST scan complete. Report saved to reports/zap-report.html"
 	@echo "Stopping application..."
-	@docker-compose down
+	@docker compose down
 
 .PHONY: security-all
 security-all: security-sca security-sast security-container
@@ -206,7 +227,7 @@ migration:
 migration-auto:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration-auto m='message'"; exit 1; fi
 	@echo "Ensuring local Postgres is running..."
-	@docker-compose up -d postgres postgres-init
+	@docker compose up -d postgres postgres-init
 	@echo "Waiting for Postgres to be ready..."
 	@sleep 5
 	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python scripts/db_migration_autogen.py --message "$(m)"
@@ -214,7 +235,7 @@ migration-auto:
 migration-squash:
 	@if [ -z "$(m)" ]; then echo "Error: migration message required. Usage: make migration-squash m='message'"; exit 1; fi
 	@echo "Ensuring local Postgres is running..."
-	@docker-compose up -d postgres postgres-init
+	@docker compose up -d postgres postgres-init
 	@echo "Waiting for Postgres to be ready..."
 	@sleep 5
 	@uv run python scripts/dotenv_run.py --dotenv-file .env -- python scripts/db_migration_squash.py --message "$(m)" --base-ref "$(MIGRATION_BASE_REF)" --yes

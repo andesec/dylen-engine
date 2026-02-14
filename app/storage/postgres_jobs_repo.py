@@ -15,8 +15,28 @@ from app.schema.jobs import Job, JobCheckpoint, JobEvent
 from app.storage.jobs_repo import JobCheckpointRecord, JobsRepository
 
 
-def _now_iso() -> str:
-  return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _now_utc() -> datetime:
+  return datetime.now(UTC)
+
+
+def _to_datetime(value: datetime | str | None) -> datetime | None:
+  if value is None:
+    return None
+  if isinstance(value, datetime):
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+  text = value.strip()
+  if text == "":
+    return None
+  if text.endswith("Z"):
+    text = f"{text[:-1]}+00:00"
+  parsed = datetime.fromisoformat(text)
+  return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _to_iso_z(value: datetime | None) -> str | None:
+  if value is None:
+    return None
+  return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class PostgresJobsRepository(JobsRepository):
@@ -45,9 +65,9 @@ class PostgresJobsRepository(JobsRepository):
         target_agent=record.target_agent,
         result_json=record.result_json,
         error_json=record.error_json,
-        created_at=record.created_at,
-        updated_at=record.updated_at,
-        completed_at=record.completed_at,
+        created_at=_to_datetime(record.created_at) or _now_utc(),
+        updated_at=_to_datetime(record.updated_at) or _now_utc(),
+        completed_at=_to_datetime(record.completed_at),
         idempotency_key=str(record.idempotency_key or f"{record.job_id}:{record.job_kind}"),
       )
       session.add(job)
@@ -156,10 +176,10 @@ class PostgresJobsRepository(JobsRepository):
       if error_json is not None:
         row.error_json = error_json
       if started_at is not None:
-        row.started_at = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        row.started_at = _to_datetime(started_at)
       if completed_at is not None:
-        row.completed_at = completed_at
-      row.updated_at = updated_at or _now_iso()
+        row.completed_at = _to_datetime(completed_at)
+      row.updated_at = _to_datetime(updated_at) or _now_utc()
       session.add(row)
       await session.flush()
       if logs:
@@ -359,8 +379,8 @@ class PostgresJobsRepository(JobsRepository):
       job_kind=row.job_kind,
       request=row.request_json,
       status=row.status,
-      created_at=row.created_at,
-      updated_at=row.updated_at,
+      created_at=_to_iso_z(row.created_at) or "",
+      updated_at=_to_iso_z(row.updated_at) or "",
       parent_job_id=row.parent_job_id,
       resume_source_job_id=row.resume_source_job_id,
       superseded_by_job_id=row.superseded_by_job_id,
@@ -370,7 +390,7 @@ class PostgresJobsRepository(JobsRepository):
       logs=logs,
       result_json=row.result_json,
       error_json=row.error_json,
-      started_at=row.started_at.isoformat() if row.started_at is not None else None,
-      completed_at=row.completed_at,
+      started_at=_to_iso_z(row.started_at),
+      completed_at=_to_iso_z(row.completed_at),
       idempotency_key=row.idempotency_key,
     )

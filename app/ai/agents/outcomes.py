@@ -8,7 +8,7 @@ from typing import Any, cast
 from pydantic import ValidationError
 
 from app.ai.agents.base import BaseAgent
-from app.ai.agents.prompts import _build_prompt_widgets, _load_prompt
+from app.ai.agents.prompts import _load_prompt
 from app.ai.errors import is_output_error
 from app.ai.pipeline.contracts import JobContext
 from app.schema.outcomes import OutcomesAgentInput, OutcomesAgentResponse
@@ -26,21 +26,19 @@ def _normalize_optional_text(value: str | None) -> str:
 
 def _render_prompt(input_data: OutcomesAgentInput) -> str:
   """Render the outcomes prompt with concrete request inputs."""
-  template = _load_prompt("outcomes_agent.md")
-  # Always include markdown because backend rendering depends on it.
-  widgets = ", ".join(_build_prompt_widgets(input_data.widgets))
+  template = _load_prompt("outcomes_agent_improved.md")
   teaching_style = ", ".join(input_data.teaching_style) if input_data.teaching_style else "-"
-  blueprint = _normalize_optional_text(input_data.blueprint)
   learner_level = _normalize_optional_text(input_data.learner_level)
+  secondary_language = _normalize_optional_text(input_data.secondary_language)
+
   rendered = template
   rendered = rendered.replace("{{TOPIC}}", _normalize_optional_text(input_data.topic))
   rendered = rendered.replace("{{DETAILS}}", _normalize_optional_text(input_data.details))
   rendered = rendered.replace("{{LEARNER_LEVEL}}", learner_level)
   rendered = rendered.replace("{{TEACHING_STYLE}}", teaching_style)
-  rendered = rendered.replace("{{BLUEPRINT}}", blueprint)
   rendered = rendered.replace("{{DEPTH}}", _normalize_optional_text(input_data.depth))
   rendered = rendered.replace("{{PRIMARY_LANGUAGE}}", _normalize_optional_text(input_data.lesson_language))
-  rendered = rendered.replace("{{WIDGETS}}", widgets)
+  rendered = rendered.replace("{{SECONDARY_LANGUAGE}}", secondary_language)
   rendered = rendered.replace("{{MAX_OUTCOMES}}", str(int(input_data.max_outcomes)))
   return rendered
 

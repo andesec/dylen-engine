@@ -34,7 +34,6 @@ substitutions:
   _RUN_MAX_INSTANCES: "5"
   _RUN_CPU: "1"
   _RUN_MEMORY: "512Mi"
-  _ALLOW_UNAUTHENTICATED: "1"
 
   _SECRET_DYLEN_PG_DSN: "DYLEN_PG_DSN"
   _SECRET_GEMINI_API_KEY: "GEMINI_API_KEY"
@@ -173,14 +172,9 @@ steps:
           --set-secrets "DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest,DYLEN_MAILERSEND_API_KEY=${_SECRET_DYLEN_MAILERSEND_API_KEY}:latest,DYLEN_TASK_SECRET=${_SECRET_DYLEN_TASK_SECRET}:latest" \
           --port 8002
 
-        if [ "${_ALLOW_UNAUTHENTICATED}" = "1" ]; then
-          gcloud run services add-iam-policy-binding "${_SERVICE}" \
-            --region "${_REGION}" \
-            --member "allUsers" \
-            --role "roles/run.invoker"
-        else
-          echo "Skipping allUsers invoker binding because _ALLOW_UNAUTHENTICATED=${_ALLOW_UNAUTHENTICATED}"
-        fi
+        # IAM binding moved to deploy script to avoid permission issues
+        # The deploy script handles both allUsers and Cloud Tasks invoker bindings
+        echo "Service deployed. IAM bindings will be set by deployment script."
 
   # Step 6: verify effective env
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"

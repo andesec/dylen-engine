@@ -80,6 +80,7 @@ def setup_logging(settings: Settings) -> Path:
 
   # Suppress noisy libraries
   logging.getLogger("cachecontrol").setLevel(logging.WARNING)
+  logging.getLogger("google.auth").setLevel(logging.WARNING)
 
   logging.basicConfig(level=logging.DEBUG, handlers=[stream_handler, file_handler], force=True)
   root = logging.getLogger()

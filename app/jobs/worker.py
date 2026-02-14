@@ -244,34 +244,49 @@ class JobProcessor:
     """Queue downstream section agents for unfinished checkpoints only."""
     if db_section_id is None:
       return
+    tutor_mode_enabled = await self._is_feature_enabled_for_user(user_id=job.user_id, feature_key="feature.tutor.mode")
+    image_generation_enabled = await self._is_feature_enabled_for_user(user_id=job.user_id, feature_key="feature.image_generation")
     removed_widget_refs: list[str] = []
     if not await self._checkpoint_is_done(job=job, stage="illustration", section_index=section_number):
-      try:
-        await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="illustration", section_index=section_number, state="pending", artifact_refs_json={"section_id": db_section_id})
-        await self._create_child_job(
-          parent_job=updated_parent,
-          target_agent="illustration",
-          payload={"section_index": section_number, "section_id": db_section_id, "lesson_id": lesson_id, "topic": topic, "section_data": section_payload},
-          lesson_id=lesson_id,
-          section_id=db_section_id,
-        )
-      except QuotaExceededError:
-        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Illustration job skipped for section {section_number}: quota unavailable."])
+      if not image_generation_enabled:
+        await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="illustration", section_index=section_number, state="done", artifact_refs_json={"section_id": db_section_id, "skipped": True, "reason": "feature_disabled"})
+        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Illustration job skipped for section {section_number}: feature.image_generation disabled."])
         removed_widget_refs.append(f"{section_number}.1.1.illustration")
         section_payload.pop("illustration", None)
+      else:
+        try:
+          await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="illustration", section_index=section_number, state="pending", artifact_refs_json={"section_id": db_section_id})
+          await self._create_child_job(
+            parent_job=updated_parent,
+            target_agent="illustration",
+            payload={"section_index": section_number, "section_id": db_section_id, "lesson_id": lesson_id, "topic": topic, "section_data": section_payload},
+            lesson_id=lesson_id,
+            section_id=db_section_id,
+          )
+        except QuotaExceededError:
+          await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="illustration", section_index=section_number, state="done", artifact_refs_json={"section_id": db_section_id, "skipped": True, "reason": "quota_unavailable"})
+          await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Illustration job skipped for section {section_number}: quota unavailable."])
+          removed_widget_refs.append(f"{section_number}.1.1.illustration")
+          section_payload.pop("illustration", None)
     if not await self._checkpoint_is_done(job=job, stage="tutor", section_index=section_number):
-      try:
-        await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="tutor", section_index=section_number, state="pending", artifact_refs_json={"section_id": db_section_id})
-        await self._create_child_job(
-          parent_job=updated_parent,
-          target_agent="tutor",
-          payload={"section_index": section_number, "section_id": db_section_id, "topic": topic, "section_data": section_payload, "learning_data_points": section_payload.get("learning_data_points", [])},
-          lesson_id=lesson_id,
-          section_id=db_section_id,
-        )
-      except QuotaExceededError:
-        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Tutor job skipped for section {section_number}: quota unavailable."])
+      if not tutor_mode_enabled:
+        await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="tutor", section_index=section_number, state="done", artifact_refs_json={"section_id": db_section_id, "skipped": True, "reason": "feature_disabled"})
+        await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Tutor job skipped for section {section_number}: feature.tutor.mode disabled."])
         removed_widget_refs.append(f"{section_number}.1.1.tutor")
+      else:
+        try:
+          await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="tutor", section_index=section_number, state="pending", artifact_refs_json={"section_id": db_section_id})
+          await self._create_child_job(
+            parent_job=updated_parent,
+            target_agent="tutor",
+            payload={"section_index": section_number, "section_id": db_section_id, "topic": topic, "section_data": section_payload, "learning_data_points": section_payload.get("learning_data_points", [])},
+            lesson_id=lesson_id,
+            section_id=db_section_id,
+          )
+        except QuotaExceededError:
+          await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="tutor", section_index=section_number, state="done", artifact_refs_json={"section_id": db_section_id, "skipped": True, "reason": "quota_unavailable"})
+          await self._jobs_repo.update_job(job.job_id, logs=tracker.logs + [f"Tutor job skipped for section {section_number}: quota unavailable."])
+          removed_widget_refs.append(f"{section_number}.1.1.tutor")
     if _section_contains_fenster(section_payload) and not await self._checkpoint_is_done(job=job, stage="fenster_builder", section_index=section_number):
       await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage="fenster_builder", section_index=section_number, state="pending", artifact_refs_json={"section_id": db_section_id})
       fenster_widget_ids = _extract_widget_public_ids(section_payload, widget_type="fenster")
@@ -308,6 +323,29 @@ class JobProcessor:
             section_row.content_shorthand = build_section_shorthand_content(section_payload)
             session.add(section_row)
             await session.commit()
+
+  async def _is_feature_enabled_for_user(self, *, user_id: str | None, feature_key: str) -> bool:
+    """Resolve a feature-flag decision for a job user."""
+    if not user_id:
+      return False
+    session_factory = get_session_factory()
+    if session_factory is None:
+      return False
+    try:
+      parsed_user_id = uuid.UUID(str(user_id))
+    except ValueError:
+      return False
+    try:
+      async with session_factory() as session:
+        user = await get_user_by_id(session, parsed_user_id)
+        if user is None:
+          return False
+        tier_id, _tier_name = await get_user_subscription_tier(session, user.id)
+        decision = await resolve_feature_flag_decision(session, key=feature_key, org_id=user.org_id, subscription_tier_id=tier_id, user_id=user.id)
+        return bool(decision.enabled)
+    except Exception:  # noqa: BLE001
+      self._logger.error("Feature-flag lookup failed for key=%s user_id=%s", feature_key, user_id, exc_info=True)
+      return False
 
   async def _process_planner_job(self, job: JobRecord) -> JobRecord | None:
     """Execute planner-only work and fan out one section-builder job per section."""
