@@ -111,7 +111,7 @@ def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[Widg
         field_name = field_name1 or field_name2
         if not field_name:
           continue
-          
+
         position = int(pos_str) - 1  # Convert to 0-indexed
         if is_shorthand:
           shorthand_positions[position] = field_name
