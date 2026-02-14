@@ -33,23 +33,6 @@ async def ensure_superadmin_user(*, email: str = SUPERADMIN_EMAIL) -> None:
   if session_factory is None:
     raise RuntimeError("Database session factory unavailable (DYLEN_PG_DSN missing).")
 
-  async with session_factory() as session:
-    # **OPTIMIZATION**: Check database first - if user exists with correct role, skip Firebase calls.
-    # This reduces cold start time by avoiding expensive Firebase API calls in the common case.
-    existing_user_result = await session.execute(select(User).where(User.email == email))
-    existing_user = existing_user_result.scalar_one_or_none()
-
-    role_result = await session.execute(select(Role).where(Role.name == SUPERADMIN_ROLE_NAME))
-    superadmin_role = role_result.scalar_one_or_none()
-    if superadmin_role is None:
-      raise RuntimeError("Super Admin role not found; run seed scripts.")
-
-    # If user exists with correct role and approved status, skip Firebase bootstrap.
-    if existing_user and existing_user.role_id == superadmin_role.id and existing_user.status == UserStatus.APPROVED:
-      logger.debug("Superadmin user already exists with correct role; skipping Firebase bootstrap.")
-      return
-
-  # User doesn't exist or needs setup - proceed with full Firebase + DB reconciliation.
   # Initialize Firebase Admin SDK before issuing identity lookups.
   initialize_firebase()
 
@@ -80,7 +63,12 @@ async def ensure_superadmin_user(*, email: str = SUPERADMIN_EMAIL) -> None:
 
   # Re-open session for user creation/update.
   async with session_factory() as session:
-    # Load the required tier records used by the bootstrap identity (role already loaded above).
+    # Load the required role and tier records used by the bootstrap identity.
+    role_result = await session.execute(select(Role).where(Role.name == SUPERADMIN_ROLE_NAME))
+    superadmin_role = role_result.scalar_one_or_none()
+    if superadmin_role is None:
+      raise RuntimeError("Super Admin role not found; run seed scripts.")
+
     tier_result = await session.execute(select(SubscriptionTier).where(SubscriptionTier.name == SUPERADMIN_TIER_NAME))
     pro_tier = tier_result.scalar_one_or_none()
     if pro_tier is None:

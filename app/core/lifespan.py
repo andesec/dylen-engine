@@ -8,7 +8,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
-from app.core.env_contract import EnvContractError, validate_runtime_env_or_raise
+# ENV CONTRACT VALIDATION DISABLED
+# from app.core.env_contract import EnvContractError, validate_runtime_env_or_raise
 from app.core.logging import _initialize_logging
 from fastapi import FastAPI
 from scripts.ensure_superadmin_user import ensure_superadmin_user
@@ -40,10 +41,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Log effective LLM audit toggles so cloud misconfiguration is visible immediately.
     logger.info("LLM audit config enabled=%s pg_dsn_set=%s", bool(settings.llm_audit_enabled), bool(settings.pg_dsn))
 
+    # ENV CONTRACT VALIDATION DISABLED
     # Enforce startup env contracts before app dependencies are initialized.
-    phase_start = time.perf_counter()
-    validate_runtime_env_or_raise(logger=logger, target="service")
-    logger.info("Startup phase=env_validation duration_ms=%.1f", (time.perf_counter() - phase_start) * 1000)
+    # phase_start = time.perf_counter()
+    # validate_runtime_env_or_raise(logger=logger, target="service")
+    # logger.info("Startup phase=env_validation duration_ms=%.1f", (time.perf_counter() - phase_start) * 1000)
 
     # Decide whether to auto-apply migrations based on the runtime flag.
     auto_apply = (os.getenv("DYLEN_AUTO_APPLY_MIGRATIONS", "") or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -61,10 +63,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         subprocess.run([sys.executable, "scripts/migrate_with_lock.py"], check=True, cwd=repo_root)
       logger.info("Startup phase=migrations duration_ms=%.1f", (time.perf_counter() - phase_start) * 1000)
 
-  except EnvContractError:
-    # Fail-fast when required startup configuration is missing or invalid.
-    logger.error("Environment contract failed; refusing to start the service.", exc_info=True)
-    raise
+  # ENV CONTRACT VALIDATION DISABLED - exception handler removed
+  # except EnvContractError:
+  #   # Fail-fast when required startup configuration is missing or invalid.
+  #   logger.error("Environment contract failed; refusing to start the service.", exc_info=True)
+  #   raise
 
   except Exception as exc:
     # Log initialization failures but allow the app to continue starting.

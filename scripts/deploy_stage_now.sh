@@ -4,10 +4,6 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  # Interactive (prompts for mode + env/secrets behavior):
-  scripts/deploy_stage_now.sh
-
-  # Explicit flags:
   scripts/deploy_stage_now.sh \
     --project-id <gcp_project_id> \
     --region <gcp_region> \
@@ -42,9 +38,8 @@ Usage:
     [--skip-storage-setup] \
     [--skip-env-sync] \
     [--skip-secret-sync] \
-    [--skip-auth-login] \
+    [--auth-login] \
     [--skip-health-check] \
-    [--use-cloud-build] \
     [--allow-unauthenticated] \
     [--no-allow-unauthenticated] \
     [--run-min-instances <number>] \
@@ -61,7 +56,7 @@ Example:
     --service dylen-engine-stage \
     --migrate-job dylen-engine-stage-migrate \
     --run-sa sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com \
-    --cloudsql-instance dylen-stage-485900:us-central1:dylen-stage-e \
+    --cloudsql-instance dylen-stage-485900:us-central1:dylen-stage \
     --db-name dylen-stage \
     --db-user dylen-stage-user \
     --db-password-secret STAGE_DB_PASSWORD \
@@ -115,7 +110,7 @@ SKIP_DSN_SECRET_UPDATE="0"
 SKIP_FIREBASE_SA_SETUP="0"
 SKIP_CLOUD_TASKS_SETUP="0"
 SKIP_STORAGE_SETUP="0"
-SKIP_AUTH_LOGIN="0"
+SKIP_AUTH_LOGIN="1"
 SKIP_HEALTH_CHECK="0"
 ALLOW_UNKNOWN_ENV="0"
 RUN_MIN_INSTANCES=""
@@ -123,80 +118,6 @@ RUN_MAX_INSTANCES=""
 RUN_CPU=""
 RUN_MEMORY=""
 ALLOW_UNAUTHENTICATED="1"
-USE_CLOUD_BUILD="0"
-
-prompt_yes_no() {
-  local prompt="$1"
-  local default_answer="$2"
-  local suffix=""
-  local answer=""
-  if [[ "$default_answer" == "y" ]]; then
-    suffix="Y/n"
-  else
-    suffix="y/N"
-  fi
-
-  read -r -p "${prompt} [${suffix}]: " answer
-  answer="${answer:-$default_answer}"
-  case "${answer,,}" in
-    y|yes) return 0 ;;
-    n|no) return 1 ;;
-    *) return 1 ;;
-  esac
-}
-
-if [[ $# -eq 0 ]]; then
-  if [[ ! -t 0 ]]; then
-    echo "No arguments provided and no interactive terminal available." >&2
-    usage
-    exit 1
-  fi
-
-  echo "No arguments provided. Starting interactive deploy setup."
-  read -r -p "Env file path [.env-stage]: " ENV_FILE
-  ENV_FILE="${ENV_FILE:-.env-stage}"
-
-  while [[ ! -f "$ENV_FILE" ]]; do
-    echo "Env file not found: $ENV_FILE"
-    read -r -p "Enter a valid env file path: " ENV_FILE
-  done
-
-  echo ""
-  echo "Select deployment mode:"
-  echo "  1) Local-first (build/push locally, run migration job, then deploy service)"
-  echo "  2) Cloud Build fallback (existing remote build/deploy path)"
-  read -r -p "Mode [1]: " deploy_mode_choice
-  deploy_mode_choice="${deploy_mode_choice:-1}"
-  if [[ "$deploy_mode_choice" == "2" ]]; then
-    USE_CLOUD_BUILD="1"
-  fi
-
-  if prompt_yes_no "Run gcloud auth login interactively now?" "n"; then
-    SKIP_AUTH_LOGIN="0"
-  else
-    SKIP_AUTH_LOGIN="1"
-  fi
-
-  if prompt_yes_no "Sync env + secrets to Secret Manager?" "y"; then
-    SKIP_ENV_SYNC="0"
-    SKIP_SECRET_SYNC="0"
-  else
-    SKIP_ENV_SYNC="1"
-    SKIP_SECRET_SYNC="1"
-  fi
-
-  if prompt_yes_no "Update DYLEN_PG_DSN secret from derived DSN?" "y"; then
-    SKIP_DSN_SECRET_UPDATE="0"
-  else
-    SKIP_DSN_SECRET_UPDATE="1"
-  fi
-
-  if prompt_yes_no "Run health check after deploy?" "y"; then
-    SKIP_HEALTH_CHECK="0"
-  else
-    SKIP_HEALTH_CHECK="1"
-  fi
-fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -336,12 +257,12 @@ while [[ $# -gt 0 ]]; do
       SKIP_AUTH_LOGIN="1"
       shift 1
       ;;
-    --skip-health-check)
-      SKIP_HEALTH_CHECK="1"
+    --auth-login)
+      SKIP_AUTH_LOGIN="0"
       shift 1
       ;;
-    --use-cloud-build)
-      USE_CLOUD_BUILD="1"
+    --skip-health-check)
+      SKIP_HEALTH_CHECK="1"
       shift 1
       ;;
     --allow-unauthenticated)
@@ -433,9 +354,9 @@ if [[ -z "$EXPORT_BUCKET" ]]; then EXPORT_BUCKET="$(read_env_var "$ENV_FILE" "DY
 if [[ -z "$ALLOWED_ORIGINS" ]]; then ALLOWED_ORIGINS="$(read_env_var "$ENV_FILE" "DYLEN_ALLOWED_ORIGINS" || true)"; fi
 if [[ -z "$BASE_URL_OVERRIDE" ]]; then BASE_URL_OVERRIDE="$(read_env_var "$ENV_FILE" "DYLEN_BASE_URL" || true)"; fi
 if [[ -z "$INTERNAL_SERVICE_URL_OVERRIDE" ]]; then INTERNAL_SERVICE_URL_OVERRIDE="$(read_env_var "$ENV_FILE" "DYLEN_INTERNAL_SERVICE_URL" || true)"; fi
-FIREBASE_PROJECT_ID_VALUE="$(read_env_var "$ENV_FILE" "FIREBASE_PROJECT_ID" || true)"
 if [[ -z "$DYLEN_ENV_VALUE" ]]; then DYLEN_ENV_VALUE="$(read_env_var "$ENV_FILE" "DYLEN_ENV" || true)"; fi
 if [[ -z "$DYLEN_ENV_VALUE" ]]; then DYLEN_ENV_VALUE="stage"; fi
+FIREBASE_PROJECT_ID_VALUE="$(read_env_var "$ENV_FILE" "FIREBASE_PROJECT_ID" || true)"
 if [[ -z "$TAG" ]]; then TAG="$(read_env_var "$ENV_FILE" "DEPLOY_TAG" || true)"; fi
 if [[ -z "$TAG" ]]; then TAG="$(git rev-parse --short=12 HEAD)"; fi
 if [[ -z "$RUN_MIN_INSTANCES" ]]; then RUN_MIN_INSTANCES="$(read_env_var "$ENV_FILE" "DEPLOY_RUN_MIN_INSTANCES" || true)"; fi
@@ -536,7 +457,6 @@ echo "RUN_MAX_INSTANCES=$RUN_MAX_INSTANCES"
 echo "RUN_CPU=$RUN_CPU"
 echo "RUN_MEMORY=$RUN_MEMORY"
 echo "ALLOW_UNAUTHENTICATED=$ALLOW_UNAUTHENTICATED"
-echo "USE_CLOUD_BUILD=$USE_CLOUD_BUILD"
 
 upsert_env_var() {
   local file="$1"
@@ -757,8 +677,16 @@ else
 fi
 
 if [[ "$SKIP_SECRETS_STAGE" == "1" ]]; then
-  log_step "Update required sensitive secrets directly (secrets stage skipped)"
+  log_step "Update Cloud Tasks secrets directly (secrets stage skipped)"
+  upsert_secret_value "$PROJECT_ID" "DYLEN_TASK_SERVICE_PROVIDER" "gcp"
+  upsert_secret_value "$PROJECT_ID" "DYLEN_CLOUD_TASKS_QUEUE_PATH" "$DYLEN_CLOUD_TASKS_QUEUE_PATH_VALUE"
+  upsert_secret_value "$PROJECT_ID" "DYLEN_BASE_URL" "$DYLEN_BASE_URL_VALUE"
+  upsert_secret_value "$PROJECT_ID" "DYLEN_INTERNAL_SERVICE_URL" "$DYLEN_INTERNAL_SERVICE_URL_VALUE"
   upsert_secret_value "$PROJECT_ID" "DYLEN_TASK_SECRET" "$DYLEN_TASK_SECRET_VALUE"
+  upsert_secret_value "$PROJECT_ID" "DYLEN_ILLUSTRATION_BUCKET" "$ILLUSTRATION_BUCKET"
+  if [[ -n "$CLOUD_TASKS_INVOKER_SA" ]]; then
+    upsert_secret_value "$PROJECT_ID" "DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT" "$CLOUD_TASKS_INVOKER_SA"
+  fi
 fi
 
 if [[ "$SKIP_SECRETS_STAGE" == "1" ]]; then
@@ -766,24 +694,30 @@ if [[ "$SKIP_SECRETS_STAGE" == "1" ]]; then
 elif [[ "$SKIP_ENV_SYNC" == "1" || "$SKIP_SECRET_SYNC" == "1" ]]; then
   log_step "Skip env sync step (requested)"
 elif [[ "$SKIP_SECRET_SYNC" != "1" ]]; then
+  # Always allow DEPLOY_* vars (deployment metadata, not runtime secrets).
+  sync_extra_args=(--allow-unknown)
+
   log_step "Validate env contract against .env file (dry run)"
-  # .env deploy files intentionally include DEPLOY_* metadata keys; keep sync resilient to those extras.
-  run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" --dry-run --allow-unknown
+  run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" --dry-run ${sync_extra_args[@]+"${sync_extra_args[@]}"}
 
   log_step "Sync .env values into Secret Manager"
-  run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" --allow-unknown
+  run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" ${sync_extra_args[@]+"${sync_extra_args[@]}"}
 else
   log_step "Skip secret sync (requested)"
 fi
 
 if [[ "$SKIP_SECRETS_STAGE" != "1" ]]; then
   log_step "Verify required Secret Manager keys exist"
-  # Verify only sensitive keys that are still sourced via --set-secrets.
+  # Keep this list aligned with app/core/env_contract.py required service keys.
   required_secret_keys=(
+    "DYLEN_ENV"
+    "DYLEN_ALLOWED_ORIGINS"
     "DYLEN_PG_DSN"
+    "GCP_PROJECT_ID"
+    "GCP_LOCATION"
+    "FIREBASE_PROJECT_ID"
+    "DYLEN_ILLUSTRATION_BUCKET"
     "GEMINI_API_KEY"
-    "DYLEN_MAILERSEND_API_KEY"
-    "DYLEN_TASK_SECRET"
   )
   for key in "${required_secret_keys[@]}"; do
     run_cmd gcloud secrets describe "$key" --project "$PROJECT_ID" >/dev/null
@@ -791,103 +725,22 @@ if [[ "$SKIP_SECRETS_STAGE" != "1" ]]; then
   done
 fi
 
+if [[ "$SKIP_SECRETS_STAGE" != "1" && -n "$ALLOWED_ORIGINS" ]]; then
+  log_step "Override DYLEN_ALLOWED_ORIGINS secret from --allowed-origins"
+  echo "+ gcloud secrets versions add DYLEN_ALLOWED_ORIGINS --project $PROJECT_ID --data-file=-"
+  printf '%s' "$ALLOWED_ORIGINS" | gcloud secrets versions add DYLEN_ALLOWED_ORIGINS --project "$PROJECT_ID" --data-file=-
+fi
+
 COMMON_RUNTIME_ENV_VARS="DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT=${CLOUD_TASKS_INVOKER_SA},DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${EXPORT_BUCKET},DYLEN_ENV=${DYLEN_ENV_VALUE},DYLEN_ALLOWED_ORIGINS=${ALLOWED_ORIGINS},GCP_PROJECT_ID=${PROJECT_ID},GCP_LOCATION=${REGION},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID_VALUE},DYLEN_ILLUSTRATION_BUCKET=${ILLUSTRATION_BUCKET},DYLEN_TASK_SERVICE_PROVIDER=gcp,DYLEN_CLOUD_TASKS_QUEUE_PATH=${DYLEN_CLOUD_TASKS_QUEUE_PATH_VALUE},DYLEN_BASE_URL=${DYLEN_BASE_URL_VALUE},DYLEN_INTERNAL_SERVICE_URL=${DYLEN_INTERNAL_SERVICE_URL_VALUE}"
 MIGRATOR_ENV_VARS="DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,${COMMON_RUNTIME_ENV_VARS}"
 SERVICE_ENV_VARS="DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_EMAIL_NOTIFICATIONS_ENABLED=0,${COMMON_RUNTIME_ENV_VARS}"
 SHARED_SECRET_BINDINGS="DYLEN_PG_DSN=DYLEN_PG_DSN:latest,DATABASE_URL=DYLEN_PG_DSN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,DYLEN_MAILERSEND_API_KEY=DYLEN_MAILERSEND_API_KEY:latest,DYLEN_TASK_SECRET=DYLEN_TASK_SECRET:latest"
 
-if [[ "$USE_CLOUD_BUILD" == "1" ]]; then
-  log_step "Submit stage Cloud Build deployment (fallback mode)"
-  run_cmd gcloud builds submit \
-    --project "$PROJECT_ID" \
-    --config cloudbuild-stage.migrate.yml \
-    --substitutions "^|^_REGION=$REGION|_AR_REPO=$AR_REPO|_IMAGE=$IMAGE|_TAG=$TAG|_SERVICE=$SERVICE|_MIGRATE_JOB=$MIGRATE_JOB|_RUN_SA=$RUN_SA|_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE|_CLOUD_RUN_INVOKER_SA=$CLOUD_TASKS_INVOKER_SA|_EXPORT_BUCKET=$EXPORT_BUCKET|_DYLEN_ENV=$DYLEN_ENV_VALUE|_DYLEN_ALLOWED_ORIGINS=$ALLOWED_ORIGINS|_GCP_PROJECT_ID_VALUE=$PROJECT_ID|_GCP_LOCATION_VALUE=$REGION|_FIREBASE_PROJECT_ID_VALUE=$FIREBASE_PROJECT_ID_VALUE|_ILLUSTRATION_BUCKET=$ILLUSTRATION_BUCKET|_DYLEN_TASK_SERVICE_PROVIDER=gcp|_DYLEN_CLOUD_TASKS_QUEUE_PATH=$DYLEN_CLOUD_TASKS_QUEUE_PATH_VALUE|_DYLEN_BASE_URL=$DYLEN_BASE_URL_VALUE|_DYLEN_INTERNAL_SERVICE_URL=$DYLEN_INTERNAL_SERVICE_URL_VALUE|_RUN_MIN_INSTANCES=$RUN_MIN_INSTANCES|_RUN_MAX_INSTANCES=$RUN_MAX_INSTANCES|_RUN_CPU=$RUN_CPU|_RUN_MEMORY=$RUN_MEMORY|_ALLOW_UNAUTHENTICATED=$ALLOW_UNAUTHENTICATED"
-else
-  log_step "Build and push container image locally"
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "docker command not found. Install Docker or re-run with --use-cloud-build." >&2
-    exit 1
-  fi
-
-  if gcloud artifacts repositories describe "$AR_REPO" --location "$REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then
-    echo "Artifact Registry repo already exists: $AR_REPO"
-  else
-    run_cmd gcloud artifacts repositories create "$AR_REPO" --location "$REGION" --repository-format docker --project "$PROJECT_ID"
-  fi
-
-  IMAGE_TAGGED="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE}:${TAG}"
-  run_cmd gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-  run_cmd docker build --target production -t "$IMAGE_TAGGED" .
-  run_cmd docker push "$IMAGE_TAGGED"
-
-  log_step "Resolve immutable image digest and tag stage-current"
-  IMAGE_DIGEST=""
-  for attempt in $(seq 1 12); do
-    IMAGE_DIGEST="$(gcloud artifacts docker images describe "$IMAGE_TAGGED" --format='value(image_summary.digest)' 2>/dev/null || true)"
-    if [[ -n "$IMAGE_DIGEST" ]]; then
-      break
-    fi
-    echo "Digest not available yet (attempt ${attempt}/12); retrying in 5s..."
-    sleep 5
-  done
-  if [[ -z "$IMAGE_DIGEST" ]]; then
-    echo "Failed to resolve image digest for $IMAGE_TAGGED" >&2
-    exit 1
-  fi
-  IMAGE_REF="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE}@${IMAGE_DIGEST}"
-  run_cmd gcloud artifacts docker tags add "$IMAGE_REF" "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE}:stage-current"
-  echo "Resolved stage image ref: $IMAGE_REF"
-
-  log_step "Create/update migration job with local image (run first)"
-  if gcloud run jobs describe "$MIGRATE_JOB" --region "$REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then
-    run_cmd gcloud run jobs update "$MIGRATE_JOB" \
-      --region "$REGION" \
-      --project "$PROJECT_ID" \
-      --image "$IMAGE_REF" \
-      --service-account "$RUN_SA" \
-      --set-env-vars "$MIGRATOR_ENV_VARS" \
-      --set-cloudsql-instances "$CLOUDSQL_INSTANCE" \
-      --set-secrets "$SHARED_SECRET_BINDINGS" \
-      --command "python" \
-      --args "scripts/migrate_with_lock.py"
-  else
-    run_cmd gcloud run jobs create "$MIGRATE_JOB" \
-      --region "$REGION" \
-      --project "$PROJECT_ID" \
-      --image "$IMAGE_REF" \
-      --service-account "$RUN_SA" \
-      --set-env-vars "$MIGRATOR_ENV_VARS" \
-      --set-cloudsql-instances "$CLOUDSQL_INSTANCE" \
-      --set-secrets "$SHARED_SECRET_BINDINGS" \
-      --command "python" \
-      --args "scripts/migrate_with_lock.py"
-  fi
-
-  log_step "Execute migration job (deployment blocked on failure)"
-  run_cmd gcloud run jobs execute "$MIGRATE_JOB" --region "$REGION" --project "$PROJECT_ID" --wait
-
-  log_step "Deploy Cloud Run service from local image digest"
-  run_cmd gcloud run deploy "$SERVICE" \
-    --region "$REGION" \
-    --project "$PROJECT_ID" \
-    --image "$IMAGE_REF" \
-    --service-account "$RUN_SA" \
-    --min-instances "$RUN_MIN_INSTANCES" \
-    --max-instances "$RUN_MAX_INSTANCES" \
-    --cpu "$RUN_CPU" \
-    --memory "$RUN_MEMORY" \
-    --set-env-vars "$SERVICE_ENV_VARS" \
-    --set-cloudsql-instances "$CLOUDSQL_INSTANCE" \
-    --set-secrets "$SHARED_SECRET_BINDINGS" \
-    --port 8002
-
-  if [[ "$ALLOW_UNAUTHENTICATED" == "1" ]]; then
-    log_step "Allow unauthenticated invocations (allUsers run.invoker)"
-    run_cmd gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --member "allUsers" --role "roles/run.invoker"
-  else
-    log_step "Skip allUsers invoker binding (private service mode)"
-  fi
-fi
+log_step "Submit stage Cloud Build deployment"
+run_cmd gcloud builds submit \
+  --project "$PROJECT_ID" \
+  --config cloudbuild-stage.migrate.yml \
+  --substitutions "^|^_REGION=$REGION|_AR_REPO=$AR_REPO|_IMAGE=$IMAGE|_TAG=$TAG|_SERVICE=$SERVICE|_MIGRATE_JOB=$MIGRATE_JOB|_RUN_SA=$RUN_SA|_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE|_CLOUD_RUN_INVOKER_SA=$CLOUD_TASKS_INVOKER_SA|_EXPORT_BUCKET=$EXPORT_BUCKET|_DYLEN_ENV=$DYLEN_ENV_VALUE|_DYLEN_ALLOWED_ORIGINS=$ALLOWED_ORIGINS|_GCP_PROJECT_ID_VALUE=$PROJECT_ID|_GCP_LOCATION_VALUE=$REGION|_FIREBASE_PROJECT_ID_VALUE=$FIREBASE_PROJECT_ID_VALUE|_ILLUSTRATION_BUCKET=$ILLUSTRATION_BUCKET|_DYLEN_TASK_SERVICE_PROVIDER=gcp|_DYLEN_CLOUD_TASKS_QUEUE_PATH=$DYLEN_CLOUD_TASKS_QUEUE_PATH_VALUE|_DYLEN_BASE_URL=$DYLEN_BASE_URL_VALUE|_DYLEN_INTERNAL_SERVICE_URL=$DYLEN_INTERNAL_SERVICE_URL_VALUE|_RUN_MIN_INSTANCES=$RUN_MIN_INSTANCES|_RUN_MAX_INSTANCES=$RUN_MAX_INSTANCES|_RUN_CPU=$RUN_CPU|_RUN_MEMORY=$RUN_MEMORY"
 
 log_step "Resolve stage URL"
 STAGE_URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
@@ -909,6 +762,14 @@ run_cmd gcloud run jobs executions list --job "$MIGRATE_JOB" --region "$REGION" 
 if [[ -n "$CLOUD_TASKS_INVOKER_SA" ]]; then
   log_step "Ensure Cloud Tasks invoker service account can call the service"
   run_cmd gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --member "serviceAccount:${CLOUD_TASKS_INVOKER_SA}" --role "roles/run.invoker"
+fi
+
+log_step "Configure service IAM bindings"
+if [[ "$ALLOW_UNAUTHENTICATED" == "1" ]]; then
+  echo "Adding allUsers invoker binding (public access)"
+  run_cmd gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --member "allUsers" --role "roles/run.invoker"
+else
+  echo "Skipping allUsers binding (authenticated access only)"
 fi
 
 log_step "Stage deployment finished successfully"
