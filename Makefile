@@ -149,6 +149,7 @@ security-dast:
 	@sleep 15
 	@echo "Running OWASP ZAP baseline scan..."
 	@mkdir -p reports
+	@chmod 777 reports
 	docker run --rm --network host \
 		-v $(PWD)/reports:/zap/wrk:rw \
 		ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
