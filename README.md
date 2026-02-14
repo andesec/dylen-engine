@@ -61,26 +61,6 @@ See [docs/database_migrations.md](docs/database_migrations.md) for details on ma
 
 ## Running the application
 
-### Local development (recommended)
-
-The easiest way to run the application locally is using the `make dev` command, which:
-- Starts PostgreSQL and initializes the database using Docker Compose
-- Runs the FastAPI application with hot-reload enabled
-- Exposes the API on port 8080 (configurable via `PORT` environment variable)
-
-```bash
-make dev
-```
-
-The application will be available at `http://localhost:8080`. API documentation is available at:
-- Swagger UI: `http://localhost:8080/docs`
-- ReDoc: `http://localhost:8080/redoc`
-
-To stop the services:
-```bash
-make dev-stop
-```
-
 ### Running with Docker Compose (full stack)
 
 To run the entire application stack in containers (including the app, PostgreSQL, and GCS emulator):
@@ -196,16 +176,3 @@ make security-all  # Runs SCA, SAST, and Container scans
 
 - Privacy Policy: `docs/legal/PRIVACY_POLICY.md`
 - Terms of Service: `docs/legal/TERMS_OF_SERVICE.md`
-
-
-```
-scripts/deploy_stage_now.sh \
-  --env-file .env-stage \
-  --skip-auth-login \
-  --skip-project-env-tag \
-  --allow-unknown-env \
-  --skip-secrets-stage \
-  --skip-env-sync \
-  --skip-secret-sync \
-  --skip-dsn-secret-update
-```
