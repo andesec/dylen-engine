@@ -248,6 +248,19 @@ async def _run_migrations() -> None:
         repo_root = Path(__file__).resolve().parents[1]
         subprocess.run([sys.executable, "scripts/run_seed_scripts.py"], check=True, cwd=repo_root)
 
+        # Ensure GCS illustration bucket exists (moved from app startup for faster cold starts).
+        logger.info("Ensuring GCS illustration bucket exists")
+        try:
+          from app.config import get_settings
+          from app.services.storage_client import build_storage_client
+
+          settings = get_settings()
+          storage_client = build_storage_client(settings)
+          await storage_client.ensure_bucket()
+          logger.info("Illustration bucket ensured: %s", storage_client.bucket_name)
+        except Exception as exc:  # noqa: BLE001
+          logger.warning("Failed to ensure illustration bucket during migrations: %s", exc)
+
         # Ensure the superadmin user exists and is synced specifically after seeds are done.
         logger.info("Ensuring superadmin user is provisioned")
         from scripts.ensure_superadmin_user import ensure_superadmin_user

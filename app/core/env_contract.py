@@ -210,23 +210,43 @@ def validate_env_values(*, target: Literal["service", "migrator"], env_map: dict
 def validate_runtime_env_or_raise(*, logger: logging.Logger, target: Literal["service", "migrator"]) -> None:
   """Validate and log runtime env values using the centralized contract."""
   env_contract_enabled = _parse_bool(os.getenv("DYLEN_ENV_CONTRACT_ENFORCE"), default=True)
+
+  # **OPTIMIZATION**: For production/stage, only validate critical vars to speed up cold starts.
+  # Development environments get full validation for early error detection.
+  current_env = os.getenv("DYLEN_ENV", "").strip().lower()
+  is_production_like = current_env in {"production", "prod", "stage", "staging"}
+
+  # Define critical vars that MUST be validated in production (per user request).
+  critical_var_names = {"DYLEN_ENV", "DYLEN_PG_DSN", "DYLEN_ALLOWED_ORIGINS", "GEMINI_API_KEY", "DYLEN_MAILERSEND_API_KEY"}
+
   resolved_values: dict[str, str] = {}
   applicable_definitions = _iter_applicable_definitions(target=target)
+
+  # Filter to critical vars only in production/stage.
+  if is_production_like and target == "service":
+    applicable_definitions = tuple(d for d in applicable_definitions if d.name in critical_var_names)
+    logger.info("ENV_CHECK mode=production_optimized checking=%d critical_vars", len(applicable_definitions))
+
   for definition in applicable_definitions:
     value = _resolve_value(definition=definition)
     resolved_values[definition.name] = value
-    if definition.secret:
-      logger.info("ENV_CHECK key=%s value=<redacted>", definition.name)
-    else:
-      if value == "":
-        logger.info("ENV_CHECK key=%s value=<missing>", definition.name)
+    # Only log in verbose mode (development) or for critical vars.
+    if not is_production_like or target == "migrator":
+      if definition.secret:
+        logger.info("ENV_CHECK key=%s value=<redacted>", definition.name)
       else:
-        logger.info("ENV_CHECK key=%s value=%s", definition.name, value)
+        if value == "":
+          logger.info("ENV_CHECK key=%s value=<missing>", definition.name)
+        else:
+          logger.info("ENV_CHECK key=%s value=%s", definition.name, value)
 
   errors = validate_env_values(target=target, env_map=resolved_values)
 
   if not errors:
-    logger.info("ENV_CHECK status=ok target=%s checked=%d", target, len(applicable_definitions))
+    if is_production_like and target == "service":
+      logger.info("ENV_CHECK status=ok target=%s mode=production_optimized checked=%d", target, len(applicable_definitions))
+    else:
+      logger.info("ENV_CHECK status=ok target=%s checked=%d", target, len(applicable_definitions))
     return
 
   message = "ENV_CHECK status=failed target={target} violations:\n- {errors}".format(target=target, errors="\n- ".join(errors))
