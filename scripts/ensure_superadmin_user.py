@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 
+import firebase_admin
 from app.core.database import get_session_factory
 from app.core.firebase import build_rbac_claims, initialize_firebase, set_custom_claims
 from app.schema.quotas import SubscriptionTier
@@ -18,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("scripts.ensure_superadmin_user")
 
-SUPERADMIN_EMAIL = "dylen.app@gmail.com"
+SUPERADMIN_EMAIL = (os.getenv("DYLEN_SUPERADMIN_EMAIL") or "dylen.app@gmail.com").strip()
 SUPERADMIN_PROVIDER = "google.com"
 SUPERADMIN_ROLE_NAME = "Super Admin"
 SUPERADMIN_TIER_NAME = "Pro"
@@ -26,8 +28,35 @@ SUPERADMIN_TIER_NAME = "Pro"
 
 async def ensure_superadmin_user(*, email: str = SUPERADMIN_EMAIL) -> None:
   """Reconcile the superadmin account against Firebase and Postgres state."""
+  # Resolve a DB session factory so reconciliation can run inside app startup and scripts.
+  session_factory = get_session_factory()
+  if session_factory is None:
+    raise RuntimeError("Database session factory unavailable (DYLEN_PG_DSN missing).")
+
+  async with session_factory() as session:
+    # **OPTIMIZATION**: Check database first - if user exists with correct role, skip Firebase calls.
+    # This reduces cold start time by avoiding expensive Firebase API calls in the common case.
+    existing_user_result = await session.execute(select(User).where(User.email == email))
+    existing_user = existing_user_result.scalar_one_or_none()
+
+    role_result = await session.execute(select(Role).where(Role.name == SUPERADMIN_ROLE_NAME))
+    superadmin_role = role_result.scalar_one_or_none()
+    if superadmin_role is None:
+      raise RuntimeError("Super Admin role not found; run seed scripts.")
+
+    # If user exists with correct role and approved status, skip Firebase bootstrap.
+    if existing_user and existing_user.role_id == superadmin_role.id and existing_user.status == UserStatus.APPROVED:
+      logger.debug("Superadmin user already exists with correct role; skipping Firebase bootstrap.")
+      return
+
+  # User doesn't exist or needs setup - proceed with full Firebase + DB reconciliation.
   # Initialize Firebase Admin SDK before issuing identity lookups.
   initialize_firebase()
+
+  # Skip bootstrap if Firebase is not configured (e.g. in CI or limited environments).
+  if not firebase_admin._apps:
+    logger.warning("Firebase not initialized; skipping superadmin bootstrap.")
+    return
 
   # Resolve the canonical Firebase user by email and fail-fast if missing.
   # Use a timeout to ensure startup does not hang indefinitely on network issues.
@@ -49,17 +78,9 @@ async def ensure_superadmin_user(*, email: str = SUPERADMIN_EMAIL) -> None:
   except Exception as exc:  # noqa: BLE001
     raise RuntimeError(f"Superadmin Firebase account lookup failed for {email}.") from exc
 
-  # Resolve a DB session factory so reconciliation can run inside app startup and scripts.
-  session_factory = get_session_factory()
-  if session_factory is None:
-    raise RuntimeError("Database session factory unavailable (DYLEN_PG_DSN missing).")
-
+  # Re-open session for user creation/update.
   async with session_factory() as session:
-    # Load the required role and tier records used by the bootstrap identity.
-    role_result = await session.execute(select(Role).where(Role.name == SUPERADMIN_ROLE_NAME))
-    superadmin_role = role_result.scalar_one_or_none()
-    if superadmin_role is None:
-      raise RuntimeError("Super Admin role not found; run seed scripts.")
+    # Load the required tier records used by the bootstrap identity (role already loaded above).
     tier_result = await session.execute(select(SubscriptionTier).where(SubscriptionTier.name == SUPERADMIN_TIER_NAME))
     pro_tier = tier_result.scalar_one_or_none()
     if pro_tier is None:

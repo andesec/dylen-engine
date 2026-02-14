@@ -8,6 +8,7 @@ from typing import Any
 from PIL import Image
 
 from app.ai.agents.base import BaseAgent
+from app.ai.agents.prompts import _load_prompt
 from app.ai.pipeline.contracts import JobContext
 from app.core.database import get_session_factory
 from app.schema.quotas import QuotaPeriod
@@ -124,12 +125,11 @@ def _resolve_illustration_metadata(*, section_data: dict[str, Any], topic: str, 
   # Build deterministic fallback metadata when builder output is missing/invalid.
   fallback_caption = f"{section_title} visual summary"
   focus_line = markdown_text[:700] if markdown_text else f"Illustrate the key concept of {section_title}."
-  fallback_prompt = (
-    f"Create a clean vector-style educational illustration for the lesson topic '{topic}'. "
-    f"Section title: '{section_title}'. "
-    f"Use this guidance from section markdown: {focus_line}. "
-    "Style: informative, simple layout, minimal clutter, no logos, no watermarks, no text-heavy poster."
-  )
+  fallback_template = _load_prompt("illustration_fallback.md")
+  fallback_prompt = fallback_template
+  fallback_prompt = fallback_prompt.replace("{{TOPIC}}", topic)
+  fallback_prompt = fallback_prompt.replace("{{SECTION_TITLE}}", section_title)
+  fallback_prompt = fallback_prompt.replace("{{FOCUS_LINE}}", focus_line)
   fallback_keywords = _build_keywords(topic=topic, section_title=section_title, markdown_text=markdown_text)
   return fallback_caption, _enforce_illustration_prompt_style(fallback_prompt), fallback_keywords
 

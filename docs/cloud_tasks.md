@@ -56,6 +56,29 @@ To enable Cloud Tasks:
     *   The service account running the engine needs `roles/cloudtasks.enqueuer`.
     *   The **Cloud Tasks Queue** needs a service account with `roles/run.invoker` to call the Cloud Run service (configured via OIDC token on the task).
 
+### Stage quick setup via deploy script
+
+`scripts/deploy_stage_now.sh` now bootstraps Cloud Tasks automatically:
+
+1. Enables `cloudtasks.googleapis.com`.
+2. Creates queue `DEPLOY_CLOUD_TASKS_QUEUE_NAME` (default `dylen-jobs-queue`) if missing.
+3. Grants `roles/cloudtasks.enqueuer` to the runtime service account.
+4. Writes/updates:
+   - `DYLEN_TASK_SERVICE_PROVIDER=gcp`
+   - `DYLEN_CLOUD_TASKS_QUEUE_PATH=projects/<PROJECT>/locations/<REGION>/queues/<QUEUE>`
+   - `DYLEN_BASE_URL` (from `DYLEN_ALLOWED_ORIGINS`)
+   - `DYLEN_TASK_SECRET` (generated if missing)
+
+Run:
+
+```bash
+scripts/deploy_stage_now.sh \
+  --env-file .env-stage \
+  --skip-project-env-tag \
+  --allow-unknown-env \
+  --skip-secrets-stage
+```
+
 ## Troubleshooting
 
 *   **Job stuck in `queued`**: Check if `DYLEN_JOBS_AUTO_PROCESS` is `True`. Check logs for "Failed to enqueue task".

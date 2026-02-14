@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
 
-from pydantic import ValidationError
+import msgspec
 
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.prompts import render_planner_prompt
@@ -18,36 +17,6 @@ from app.services.quota_buckets import QuotaExceededError, commit_quota_reservat
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.telemetry.context import llm_call_context
-
-
-def _repair_planner_json(plan_json: dict[str, Any]) -> dict[str, Any]:
-  """Repair JSON by converting between strings and lists of strings."""
-
-  if "sections" in plan_json:
-    # Normalize list/string mismatches inside each section payload.
-
-    for section in plan_json["sections"]:
-      # Convert string to list for fields that should be lists
-
-      for field in ["data_collection_points"]:
-        if field in section and isinstance(section[field], str):
-          section[field] = [section[field]]
-
-      # Convert array to string for fields that should be strings.
-
-      for field in ["data_collection_points", "continuity_note"]:
-        for _k, v in section[field]:
-          if isinstance(v, list):
-            section[field] = ".".join(str(x) for x in v)
-
-      # Handle subsections
-
-      if "subsections" in section:
-        for subsection in section["subsections"]:
-          if "planned_widgets" in subsection and isinstance(subsection["planned_widgets"], str):
-            subsection["planned_widgets"] = [subsection["planned_widgets"]]
-
-  return plan_json
 
 
 class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
@@ -114,7 +83,7 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
 
       # Build the prompt and schema to request a structured plan.
       prompt_text = render_planner_prompt(input_data)
-      schema = LessonPlan.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
+      schema = msgspec.json.schema(LessonPlan)
 
       schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
       # Stamp the provider call with agent context for audit logging.
@@ -132,19 +101,18 @@ class PlannerAgent(BaseAgent[GenerationRequest, LessonPlan]):
       try:
         plan = LessonPlan.model_validate(plan_json)
         logger.debug("Planner returned valid JSON")
-
-      except ValidationError as exc:
+      except msgspec.ValidationError as exc:
         logger.error("Planner returned invalid JSON: %s", exc)
-        logger.info("Attempting to repair the json")
-        plan_json = _repair_planner_json(plan_json)
-        plan = LessonPlan.model_validate(plan_json)
-        logger.info("Repair succeeded")
+        raise RuntimeError("Planner returned invalid JSON.") from exc
 
       # Ensure we respect depth rules from the caller.
       if len(plan.sections) != input_data.section_count:
         message = f"Planner returned {len(plan.sections)} sections; expected {input_data.section_count}."
         logger.error(message)
         raise RuntimeError(message)
+      for section in plan.sections:
+        if section.section_number < 1 or section.section_number > 10:
+          raise RuntimeError(f"Planner section number out of range: {section.section_number}.")
 
       # Commit quota reservation once planning succeeds.
       async with session_factory() as session:

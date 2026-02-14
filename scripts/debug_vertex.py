@@ -21,7 +21,7 @@ async def main():
   schema = {"type": "OBJECT", "properties": {"foo": {"type": "STRING"}}}
 
   try:
-    response = await client.aio.models.generate_content(model="gemini-2.0-flash-001", contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
+    response = await client.aio.models.generate_content(model="gemini-2.0-flash", contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
     print(response.text)
   except Exception as e:
     print(f"Error: {e}")

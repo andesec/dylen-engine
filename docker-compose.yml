@@ -67,7 +67,7 @@ services:
     env_file:
       - .env
     environment:
-      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/de
       - DYLEN_AUTO_APPLY_MIGRATIONS=1
       - DYLEN_MIGRATOR_MODE=migrate
       - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json

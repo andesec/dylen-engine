@@ -39,7 +39,7 @@ def _render_prompt(input_data: OutcomesAgentInput) -> str:
   rendered = rendered.replace("{{TEACHING_STYLE}}", teaching_style)
   rendered = rendered.replace("{{BLUEPRINT}}", blueprint)
   rendered = rendered.replace("{{DEPTH}}", _normalize_optional_text(input_data.depth))
-  rendered = rendered.replace("{{PRIMARY_LANGUAGE}}", _normalize_optional_text(input_data.primary_language))
+  rendered = rendered.replace("{{PRIMARY_LANGUAGE}}", _normalize_optional_text(input_data.lesson_language))
   rendered = rendered.replace("{{WIDGETS}}", widgets)
   rendered = rendered.replace("{{MAX_OUTCOMES}}", str(int(input_data.max_outcomes)))
   return rendered
@@ -52,35 +52,39 @@ class OutcomesAgent(BaseAgent[OutcomesAgentInput, OutcomesAgentResponse]):
 
   async def run(self, input_data: OutcomesAgentInput, ctx: JobContext) -> OutcomesAgentResponse:
     """Generate outcomes with structured output when supported."""
-    dummy_json = self._load_dummy_json()
-
-    if dummy_json is not None:
-      logger.info("Using deterministic dummy output for Outcomes")
-      payload = OutcomesAgentResponse.model_validate(dummy_json)
-      return self._enforce_max_outcomes(payload, max_outcomes=int(input_data.max_outcomes))
-
-    prompt_text = _render_prompt(input_data)
-    schema = OutcomesAgentResponse.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
-
-    schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
-    with llm_call_context(agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="outcomes_check", call_index="1/1"):
-      try:
-        response = await self._model.generate_structured(prompt_text, schema)
-      except Exception as exc:  # noqa: BLE001
-        if is_output_error(exc):
-          logger.error(f"Outcomes agent failed to generate JSON: {exc}")
-        raise
-
-    self._record_usage(agent=self.name, purpose="outcomes_check", call_index="1/1", usage=response.usage)
-    result_json = cast(dict[str, Any], response.content)
-
     try:
-      payload = OutcomesAgentResponse.model_validate(result_json)
-    except ValidationError as exc:
-      logger.error("Outcomes agent returned invalid JSON: %s", exc)
-      raise RuntimeError(f"Outcomes agent returned invalid JSON: {exc}") from exc
+      dummy_json = self._load_dummy_json()
 
-    return self._enforce_max_outcomes(payload, max_outcomes=int(input_data.max_outcomes))
+      if dummy_json is not None:
+        logger.info("Using deterministic dummy output for Outcomes")
+        payload = OutcomesAgentResponse.model_validate(dummy_json)
+        return self._enforce_max_outcomes(payload, max_outcomes=int(input_data.max_outcomes))
+
+      prompt_text = _render_prompt(input_data)
+      schema = OutcomesAgentResponse.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
+
+      schema = self._schema_service.sanitize_schema(schema, provider_name=self._provider_name)
+      with llm_call_context(agent=self.name, lesson_topic=input_data.topic, job_id=ctx.job_id, purpose="outcomes_check", call_index="1/1"):
+        try:
+          response = await self._model.generate_structured(prompt_text, schema)
+        except Exception as exc:  # noqa: BLE001
+          if is_output_error(exc):
+            logger.error(f"Outcomes agent failed to generate JSON: {exc}")
+          raise
+
+      self._record_usage(agent=self.name, purpose="outcomes_check", call_index="1/1", usage=response.usage)
+      result_json = cast(dict[str, Any], response.content)
+
+      try:
+        payload = OutcomesAgentResponse.model_validate(result_json)
+      except ValidationError as exc:
+        logger.error("Outcomes agent returned invalid JSON: %s", exc)
+        raise RuntimeError(f"Outcomes agent returned invalid JSON: {exc}") from exc
+
+      return self._enforce_max_outcomes(payload, max_outcomes=int(input_data.max_outcomes))
+    except Exception as exc:  # noqa: BLE001
+      logger.error("Outcomes agent failed unexpectedly.", exc_info=True)
+      return OutcomesAgentResponse(ok=False, error="TOPIC_NOT_ALLOWED", message=f"Outcomes generation failed: {exc}", blocked_category="invalid_input", outcomes=[])
 
   def _enforce_max_outcomes(self, payload: OutcomesAgentResponse, *, max_outcomes: int) -> OutcomesAgentResponse:
     """Clamp outcomes to the configured maximum to prevent oversized responses."""

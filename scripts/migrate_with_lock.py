@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 from alembic import command
 from alembic.config import Config
+from app.core.env_contract import validate_runtime_env_or_raise
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -167,6 +168,8 @@ async def _run_migrations() -> None:
   """Run migrations with guardrails but WITHOUT advisory locks."""
   # Configure base logging for CLI usage.
   logging.basicConfig(level=logging.INFO)
+  # Enforce migrator env contracts before any DB connection is attempted.
+  validate_runtime_env_or_raise(logger=logger, target="migrator")
   # Read the database DSN from the environment for safety.
   raw_dsn = (os.getenv("DYLEN_PG_DSN") or "").strip()
   if not raw_dsn:
@@ -244,6 +247,19 @@ async def _run_migrations() -> None:
         logger.info("Running seed scripts after migrations")
         repo_root = Path(__file__).resolve().parents[1]
         subprocess.run([sys.executable, "scripts/run_seed_scripts.py"], check=True, cwd=repo_root)
+
+        # Ensure GCS illustration bucket exists (moved from app startup for faster cold starts).
+        logger.info("Ensuring GCS illustration bucket exists")
+        try:
+          from app.config import get_settings
+          from app.services.storage_client import build_storage_client
+
+          settings = get_settings()
+          storage_client = build_storage_client(settings)
+          await storage_client.ensure_bucket()
+          logger.info("Illustration bucket ensured: %s", storage_client.bucket_name)
+        except Exception as exc:  # noqa: BLE001
+          logger.warning("Failed to ensure illustration bucket during migrations: %s", exc)
 
         # Ensure the superadmin user exists and is synced specifically after seeds are done.
         logger.info("Ensuring superadmin user is provisioned")

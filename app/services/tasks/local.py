@@ -16,21 +16,21 @@ class LocalHttpEnqueuer(TaskEnqueuer):
   def __init__(self, settings: Settings) -> None:
     self.settings = settings
 
-  def _should_use_asgi_transport(self, base_url: str) -> bool:
+  def _should_use_asgi_transport(self, internal_service_url: str) -> bool:
     """Decide if we should route requests in-process via ASGITransport."""
     # Avoid network/proxy edge-cases for local development by calling the app in-process when possible.
-    parsed = urlparse(base_url)
+    parsed = urlparse(internal_service_url)
     hostname = (parsed.hostname or "").lower()
     return hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
-  def _build_client(self, base_url: str) -> httpx.AsyncClient:
+  def _build_client(self, internal_service_url: str) -> httpx.AsyncClient:
     """Build an httpx client for local task dispatch."""
     # Never trust environment proxy variables for internal task dispatch.
-    if self._should_use_asgi_transport(base_url):
+    if self._should_use_asgi_transport(internal_service_url):
       from app.main import app
 
       transport = httpx.ASGITransport(app=app)
-      return httpx.AsyncClient(transport=transport, base_url=base_url, trust_env=False)
+      return httpx.AsyncClient(transport=transport, base_url=internal_service_url, trust_env=False)
     return httpx.AsyncClient(trust_env=False)
 
   def _task_headers(self) -> dict[str, str]:
@@ -42,13 +42,13 @@ class LocalHttpEnqueuer(TaskEnqueuer):
 
   async def enqueue(self, job_id: str, payload: dict) -> None:
     """Enqueue a job by POSTing to the local endpoint."""
-    if not self.settings.base_url:
-      raise RuntimeError("Base URL not configured, strictly required for LocalHttpEnqueuer.")
+    if not self.settings.internal_service_url:
+      raise RuntimeError("Internal service URL not configured, strictly required for LocalHttpEnqueuer.")
 
-    url = f"{self.settings.base_url.rstrip('/')}/internal/tasks/process-job"
+    url = f"{self.settings.internal_service_url.rstrip('/')}/internal/tasks/process-job"
 
     try:
-      async with self._build_client(self.settings.base_url) as client:
+      async with self._build_client(self.settings.internal_service_url) as client:
         logger.info(f"Dispatching task locally to {url}")
         # The local task endpoint only needs to acknowledge receipt, not finish processing inline.
         response = await client.post(url, json={"job_id": job_id}, headers=self._task_headers(), timeout=5.0)
@@ -63,15 +63,15 @@ class LocalHttpEnqueuer(TaskEnqueuer):
 
   async def enqueue_lesson(self, lesson_id: str, job_id: str, params: dict, user_id: str) -> None:
     """Enqueue a lesson generation task locally."""
-    if not self.settings.base_url:
-      raise RuntimeError("Base URL not configured, strictly required for LocalHttpEnqueuer.")
+    if not self.settings.internal_service_url:
+      raise RuntimeError("Internal service URL not configured, strictly required for LocalHttpEnqueuer.")
 
-    url = f"{self.settings.base_url.rstrip('/')}/worker/process-lesson"
+    url = f"{self.settings.internal_service_url.rstrip('/')}/worker/process-lesson"
 
     payload = {"lesson_id": lesson_id, "job_id": job_id, "params": params, "user_id": user_id}
 
     try:
-      async with self._build_client(self.settings.base_url) as client:
+      async with self._build_client(self.settings.internal_service_url) as client:
         logger.info(f"Dispatching lesson task locally to {url}")
         response = await client.post(url, json=payload, headers=self._task_headers(), timeout=1800.0)
         response.raise_for_status()

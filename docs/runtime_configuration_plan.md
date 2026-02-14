@@ -8,7 +8,7 @@ This document classifies current `.env` variables into:
 It also proposes **who can edit what**:
 - **Super Admin (GLOBAL):** full control, including global defaults, tier defaults, and any tenant overrides.
 - **Admin (GLOBAL):** can edit most runtime config and feature flags, but **not** bootstrap secrets or security-boundary settings.
-- **Tenant Admin (Org Admin / TENANT):** can edit their **own organization** overrides within allowed bounds.
+- **Tenant Admin (Tenant_Admin / TENANT):** can edit their **own organization** overrides within allowed bounds.
 
 ## Classification of current `.env` keys
 
@@ -22,7 +22,7 @@ These are secrets or infrastructure identifiers that should not be editable at r
 - `DYLEN_ALLOWED_ORIGINS`
   - Why: strict CORS is a security boundary; allowlist changes should be a deploy-time change.
   - Editable by: deployment operators only.
-- `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `TAVILY_API_KEY`, `DYLEN_MAILERSEND_API_KEY`
+- `GEMINI_API_KEY`, `TAVILY_API_KEY`, `DYLEN_MAILERSEND_API_KEY`
   - Why: secrets; do not store in DB unless you introduce envelope encryption/KMS.
   - Editable by: deployment operators only.
 - `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON_PATH`
@@ -37,9 +37,6 @@ These are secrets or infrastructure identifiers that should not be editable at r
 - `DYLEN_USE_DUMMY_*`, `DYLEN_DUMMY_*`
   - Why: local/test-only toggles; never configurable in production admin UI.
   - Editable by: developers only (local env).
-- `OPENROUTER_HTTP_REFERER`, `OPENROUTER_TITLE`
-  - Why: integration attribution headers; treat as deploy-time integration config.
-  - Editable by: deployment operators only.
 
 ### Runtime config (DB-backed; editable in admin UI)
 
@@ -107,4 +104,3 @@ Add dedicated permissions (not tied to `user:manage`):
 Enforcement:
 - GLOBAL roles can edit any org if they have the relevant permission.
 - TENANT roles can only edit their own org and only org-scoped settings/flags.
-

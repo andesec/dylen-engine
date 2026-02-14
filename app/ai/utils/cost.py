@@ -1,55 +1,26 @@
 from __future__ import annotations
 
-import json
-import os
-from functools import lru_cache
 from typing import Any
 
-
-@lru_cache(maxsize=1)
-def _load_pricing_table() -> dict[str, tuple[float, float]]:
-  default_prices = {
-    "gemini-1.5-flash": (0.075, 0.30),
-    "gemini-2.0-flash": (0.075, 0.30),
-    "gemini-2.0-flash-exp": (0.0, 0.0),
-    "gemini-2.5-flash": (0.15, 0.60),
-    "gemini-2.5-pro": (1.25, 5.0),
-    "openai/gpt-4o-mini": (0.15, 0.60),
-    "openai/gpt-4o": (5.0, 15.0),
-    "anthropic/claude-3.5-sonnet": (3.0, 15.0),
-  }
-  raw = os.getenv("MODEL_PRICING_JSON")
-  if not raw:
-    return default_prices
-  try:
-    parsed = json.loads(raw)
-  except json.JSONDecodeError:
-    return default_prices
-
-  if not isinstance(parsed, dict):
-    return default_prices
-
-  prices = dict(default_prices)
-  for model, value in parsed.items():
-    if not isinstance(value, dict):
-      continue
-    price_in = value.get("input")
-    price_out = value.get("output")
-    if isinstance(price_in, (int, float)) and isinstance(price_out, (int, float)):
-      prices[str(model)] = (float(price_in), float(price_out))
-  return prices
+PricingTable = dict[str, dict[str, tuple[float, float]]]
 
 
-def calculate_total_cost(usage: list[dict[str, Any]]) -> float:
+def calculate_total_cost(usage: list[dict[str, Any]], pricing_table: PricingTable | None = None, provider: str | None = None) -> float:
   """Estimate total cost based on token usage."""
-  # Price table can be overridden via MODEL_PRICING_JSON.
-  pricing = _load_pricing_table()
+  # Default to a zeroed pricing table if none is provided.
+  pricing = pricing_table or {}
+  # Normalize the provider to keep pricing lookups stable.
+  fallback_provider = str(provider or "gemini").strip().lower()
 
   total = 0.0
   for entry in usage:
-    model = entry.get("model", "")
-    price_in, price_out = pricing.get(model, (0.5, 1.5))
+    # Normalize pricing lookup keys per usage entry.
+    entry_provider = str(entry.get("provider") or fallback_provider).strip().lower()
+    model = str(entry.get("model") or "").strip()
+    provider_rates = pricing.get(entry_provider, {})
+    price_in, price_out = provider_rates.get(model, (0.0, 0.0))
 
+    # Normalize token counts for consistent cost output.
     in_tokens = int(entry.get("prompt_tokens") or 0)
     out_tokens = int(entry.get("completion_tokens") or 0)
 

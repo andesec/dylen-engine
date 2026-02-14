@@ -28,13 +28,13 @@ class VertexAIModel(AIModel):
     try:
       response = await self._client.aio.models.generate_content(model=self.name, contents=prompt)
 
-      logger.info("Vertex AI response:\n%s", response.text)
-
-      # Extract usage metadata if available
+      # Extract usage IMMEDIATELY after API call, before any processing that might fail.
       usage = None
       if response.usage_metadata:
         usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
       self.last_usage = usage
+
+      logger.info("Vertex AI response:\n%s", response.text)
 
       return SimpleModelResponse(content=response.text, usage=usage)
     except Exception as e:
@@ -46,13 +46,13 @@ class VertexAIModel(AIModel):
       # For Vertex AI structured output, we can use response_schema
       response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
 
-      logger.info("Vertex AI structured response (raw):\n%s", response.text)
-
-      # Extract usage metadata
+      # Extract usage IMMEDIATELY after API call, before any processing that might fail.
       usage = None
       if response.usage_metadata:
         usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
       self.last_usage = usage
+
+      logger.info("Vertex AI structured response (raw):\n%s", response.text)
 
       # Parse the JSON response
       content = parse_json_with_fallback(response.text)
@@ -116,7 +116,7 @@ class VertexAIModel(AIModel):
 
 class VertexAIProvider(Provider):
   _DEFAULT_MODEL: Final[str] = "gemini-2.0-flash"
-  _AVAILABLE_MODELS: Final[set[str]] = {"gemini-2.0-flash-001", "gemini-2.0-flash", "gemini-2.5-pro", "gemini-3.0-pro", "gemini-3.0-flash", "gemini-pro-latest"}
+  _AVAILABLE_MODELS: Final[set[str]] = {"gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-image"}
 
   def __init__(self) -> None:
     self.name = "vertexai"

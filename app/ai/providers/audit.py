@@ -37,7 +37,6 @@ class AuditModel(AIModel):
     started_at = utc_now()
     start_time = time.monotonic()
     response: Any = None
-    usage: dict[str, int] | None = None
     # Serialize prompt + schema so the request can be stored before any network call.
     request_payload = serialize_request(prompt, schema)
     request_type = call_mode or ("generate_structured" if schema is not None else "generate")
@@ -56,13 +55,14 @@ class AuditModel(AIModel):
 
       else:
         response = await self._model.generate_structured(prompt, schema)
-      usage = _resolve_usage(response=response, model=self._model)
-      self.last_usage = usage
 
       return response
 
     finally:
       # Always update the audit row, even when downstream parsing fails.
+      # Extract usage in finally block to ensure it's captured even on errors.
+      usage = _resolve_usage(response=response, model=self._model)
+      self.last_usage = usage
       duration_ms = int((time.monotonic() - start_time) * 1000)
       error = cast(BaseException | None, sys.exc_info()[1])
       if isinstance(response, (bytes, bytearray)):

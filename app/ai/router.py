@@ -19,7 +19,6 @@ class ProviderMode(str, Enum):
   """Supported provider modes."""
 
   GEMINI = "gemini"
-  OPENROUTER = "openrouter"
   VERTEXAI = "vertexai"
 
 
@@ -30,10 +29,6 @@ def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
     from app.ai.providers.gemini import GeminiProvider
 
     return GeminiProvider()
-  if key == ProviderMode.OPENROUTER.value:
-    from app.ai.providers.openrouter import OpenRouterProvider
-
-    return OpenRouterProvider()
   if key == ProviderMode.VERTEXAI.value:
     from app.ai.providers.vertex_ai import VertexAIProvider
 

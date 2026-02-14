@@ -16,6 +16,7 @@ from app.ai.providers.gemini import GeminiProvider
 from app.ai.providers.tavily import TavilyProvider
 from app.config import get_settings
 from app.schema.research import CandidateSource, ResearchDiscoveryResponse, ResearchSynthesisResponse
+from app.services.runtime_config import get_research_model, get_research_router_model
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +26,11 @@ class ResearchAgent:
 
   def __init__(self) -> None:
     settings = get_settings()
-    # Initialize providers
-    # We could allow passing these in for testing, but for now we instantiate them.
-    # In a real DI system we'd pass them.
     self.gemini_provider = GeminiProvider(api_key=settings.gemini_api_key)
     self.tavily_provider = TavilyProvider()
-
-    # Models
-    self.synthesis_model_name = settings.research_model or "gemini-1.5-pro"
-    self.router_model_name = settings.research_router_model
     self.search_max_results = settings.research_search_max_results
 
-  async def discover(self, query: str, user_id: str, context: str | None = None) -> ResearchDiscoveryResponse:
+  async def discover(self, query: str, user_id: str, context: str | None = None, runtime_config: dict[str, Any] | None = None) -> ResearchDiscoveryResponse:
     """
     Discover sources for a given query.
 
@@ -45,8 +39,14 @@ class ResearchAgent:
     3. Search Tavily.
     4. Log to Firestore.
     """
+    # Get model config from runtime config (with fallbacks)
+    if runtime_config is None:
+      runtime_config = {}
+
+    _synthesis_provider, _synthesis_model = get_research_model(runtime_config)
+    _router_provider, router_model_name = get_research_router_model(runtime_config)
     # 1. Router
-    category = await self._classify_query(query)
+    category = await self._classify_query(query, router_model_name)
     logger.info(f"Query classified as: {category}")
 
     # 2. Domain Filtering & Query Adjustment
@@ -81,7 +81,7 @@ class ResearchAgent:
 
     return ResearchDiscoveryResponse(sources=candidates)
 
-  async def synthesize(self, query: str, urls: list[str], user_id: str) -> ResearchSynthesisResponse:
+  async def synthesize(self, query: str, urls: list[str], user_id: str, runtime_config: dict[str, Any] | None = None) -> ResearchSynthesisResponse:
     """
     Synthesize a report from the provided URLs.
 
@@ -90,6 +90,12 @@ class ResearchAgent:
     3. Generate report.
     4. Log to Firestore.
     """
+    # Get model config from runtime config (with fallbacks)
+    if runtime_config is None:
+      runtime_config = {}
+
+    synthesis_provider, synthesis_model_name = get_research_model(runtime_config)
+    _router_provider, _router_model = get_research_router_model(runtime_config)
     # 1. Crawl Phase
     crawled_data = await self._crawl_urls(urls)
 
@@ -121,7 +127,7 @@ Context:
 
     # 4. LLM Synthesis
     try:
-      model = self.gemini_provider.get_model(self.synthesis_model_name)
+      model = self.gemini_provider.get_model(synthesis_model_name)
       response = await model.generate(prompt)
       answer = response.content
 
@@ -143,14 +149,14 @@ Context:
 
     return ResearchSynthesisResponse(answer=answer, sources=sources_out)
 
-  async def _classify_query(self, query: str) -> str:
+  async def _classify_query(self, query: str, router_model_name: str) -> str:
     """Classify the query into General, Academic, Security, or News."""
     prompt = f"""Classify the following query into one of these categories: General, Academic, Security, News.
 Return ONLY the category name.
 
 Query: {query}"""
     try:
-      model = self.gemini_provider.get_model(self.router_model_name)
+      model = self.gemini_provider.get_model(router_model_name)
       response = await model.generate(prompt)
       category = response.content.strip()
 
@@ -247,9 +253,8 @@ Query: {query}"""
   def _log_to_firestore(self, user_id: str, data: dict[str, Any]) -> None:
     """Logs the research activity to Firestore."""
     try:
-      settings = get_settings()
       db = firestore.client()
-      app_id = settings.app_id
+      app_id = "dylen"
       timestamp = datetime.now(datetime.UTC)
 
       payload = {**data, "timestamp": timestamp, "user_id": user_id}

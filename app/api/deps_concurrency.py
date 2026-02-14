@@ -1,4 +1,3 @@
-import time
 from typing import Annotated, Literal
 
 from fastapi import Depends, HTTPException, status
@@ -12,7 +11,7 @@ from app.schema.quotas import SubscriptionTier, UserTierOverride
 from app.schema.sql import User
 from app.services.users import get_user_subscription_tier
 
-FeatureType = Literal["lesson", "research", "writing", "coach"]
+FeatureType = Literal["lesson", "research", "writing", "tutor"]
 
 
 async def check_concurrency_limit(feature: FeatureType, user: User, db: AsyncSession) -> None:
@@ -43,20 +42,18 @@ async def check_concurrency_limit(feature: FeatureType, user: User, db: AsyncSes
         limit = val
 
   # 3. Count Active Jobs
-  active_statuses = ["queued", "processing", "in_progress"]
-  current_time = int(time.time())
-
-  query = select(func.count(Job.job_id)).where(Job.user_id == str(user.id), Job.status.in_(active_statuses), or_(Job.ttl.is_(None), Job.ttl > current_time))
+  active_statuses = ["queued", "running"]
+  query = select(func.count(Job.job_id)).where(Job.user_id == str(user.id), Job.status.in_(active_statuses))
 
   if feature == "lesson":
     # Include NULL for legacy support, but new writing/research jobs MUST set target_agent.
-    query = query.where(or_(Job.target_agent.is_(None), Job.target_agent.in_(["lesson", "planner", "orchestrator", "lesson_orchestrator"])))
+    query = query.where(or_(Job.target_agent.is_(None), Job.target_agent.in_(["lesson", "planner"])))
   elif feature == "research":
     query = query.where(Job.target_agent == "research")
   elif feature == "writing":
     query = query.where(Job.target_agent == "writing")
-  elif feature == "coach":
-    query = query.where(Job.target_agent == "coach")
+  elif feature == "tutor":
+    query = query.where(Job.target_agent == "tutor")
 
   count_result = await db.execute(query)
   active_count = count_result.scalar_one()
