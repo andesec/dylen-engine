@@ -231,3 +231,7 @@ __marimo__/
 postgres-data/
 
 logs/
+.env-stage
+.gitignore
+scripts/set_github_stage_secrets.sh
+docs/wif-setup-commands.md
