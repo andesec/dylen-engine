@@ -43,8 +43,7 @@ def mock_firestore():
 async def test_initialization_uses_settings(mock_settings, mock_gemini_provider, mock_tavily_provider):
   agent = ResearchAgent()
 
-  # Check if settings were used
-  assert agent.router_model_name == "gemini-2.0-flash-test"
+  # Check if settings were used for search configuration
   assert agent.search_max_results == 10
 
   # Check GeminiProvider init with key
@@ -60,17 +59,17 @@ async def test_classify_query_regex_logic(mock_settings, mock_gemini_provider, m
 
   # Scenario 1: Chatty response containing key word
   model_mock.generate.return_value = MagicMock(content="I think this is a General query.")
-  category = await agent._classify_query("something general")
+  category = await agent._classify_query("something general", "gemini-2.0-flash-test")
   assert category == "General"
 
   # Scenario 2: Canonical case correction
   model_mock.generate.return_value = MagicMock(content="security")
-  category = await agent._classify_query("exploit")
+  category = await agent._classify_query("exploit", "gemini-2.0-flash-test")
   assert category == "Security"
 
   # Scenario 3: No match (Fallback)
   model_mock.generate.return_value = MagicMock(content="I don't know.")
-  category = await agent._classify_query("random")
+  category = await agent._classify_query("random", "gemini-2.0-flash-test")
   assert category == "General"
 
 
