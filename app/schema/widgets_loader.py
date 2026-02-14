@@ -96,17 +96,22 @@ def _parse_widget_fields(section_text: str, widget_name: str) -> tuple[list[Widg
   # Look for patterns like: { "widget": ["field1", "field2", ...] }
   # or numbered positions like "1. `field` (type):"
 
-  # Look for "Schema:" or "Schema (array positions):" pattern
-  if "Schema:" in section_text or "Schema (array positions):" in section_text or "array positions" in section_text.lower():
+  # Look for "Schema:", "Schema (array positions):", or "Rules:" pattern
+  if "Schema:" in section_text or "Schema (array positions):" in section_text or "array positions" in section_text.lower() or "Rules:" in section_text:
     if "array positions" in section_text.lower():
       is_shorthand = True
 
-    # Extract position-based fields (e.g., "1. `prompt` (string):")
-    position_pattern = r"^\s*(\d+)\.\s+`?(\w+)`?\s*(?:\(([^)]+)\))?:?\s*(.*)"
+    # Extract position-based fields (e.g., "1. `prompt` (string):" or "1. Prompt.")
+    # Updated pattern to be more flexible
+    position_pattern = r"^\s*(\d+)\.\s+(?:`?(\w+)`?|\*\*(\w+)\*\*)\s*(?:\(([^)]+)\))?\.?\s*(.*)"
     for line in section_text.splitlines():
       match = re.match(position_pattern, line)
       if match:
-        pos_str, field_name, field_type_hint, description = match.groups()
+        pos_str, field_name1, field_name2, field_type_hint, description = match.groups()
+        field_name = field_name1 or field_name2
+        if not field_name:
+          continue
+          
         position = int(pos_str) - 1  # Convert to 0-indexed
         if is_shorthand:
           shorthand_positions[position] = field_name
