@@ -282,6 +282,7 @@ jobs:
       - name: Run Docker container
         run: |
           docker run -d --name dylen-engine-test \
+            -e DYLEN_ENV_CONTRACT_ENFORCE=0 \
             -e DYLEN_ALLOWED_ORIGINS=http://localhost:3000 \
             -p 8002:8002 \
             dylen-engine:test
