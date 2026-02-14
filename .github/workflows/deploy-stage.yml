@@ -83,7 +83,7 @@ concurrency:
 
 jobs:
   deploy-stage:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    if: false  # Workflow disabled
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
