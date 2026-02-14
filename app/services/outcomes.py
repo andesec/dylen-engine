@@ -27,13 +27,11 @@ async def generate_lesson_outcomes(request: GenerationRequest, *, settings: Sett
   input_data = OutcomesAgentInput(
     topic=request.topic,
     details=request.prompt,
-    blueprint=request.blueprint,
     teaching_style=request.teaching_style,
     learner_level=request.learner_level,
     depth=request.depth,
     lesson_language=request.lesson_language,
     secondary_language=request.secondary_language,
-    widgets=request.widgets,
     max_outcomes=int(max_outcomes),
   )
   ctx = JobContext(job_id=job_id, created_at=datetime.now(tz=UTC), provider=str(provider), model=getattr(model_instance, "name", model or "default"), request=request)

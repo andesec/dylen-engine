@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 OUTCOME_TEXT_MIN_LENGTH = 3
 OUTCOME_TEXT_MAX_LENGTH = 180
 BLOCKED_REASON_BY_CATEGORY: dict[str, str] = {
-  "sexual": "This topic is not allowed because sexual-content lessons are restricted on this platform.",
-  "political": "This topic is not allowed because political advocacy lessons are restricted on this platform.",
-  "military": "This topic is not allowed because military or warfare lessons are restricted on this platform.",
+  "explicit_sexual": "This topic is not allowed because it contains explicit sexual content. Educational topics like human reproduction, sexual health, and comprehensive sex education are permitted.",
+  "political_advocacy": "This topic is not allowed because partisan political advocacy is restricted on this platform. Non-partisan civic education is permitted.",
+  "military_warfare": "This topic is not allowed because military warfare training is restricted on this platform. Historical military studies and military science are permitted.",
   "invalid_input": "This topic was blocked because the input appears invalid or unclear. Please rephrase and try again.",
 }
 
@@ -39,30 +39,19 @@ class OutcomesAgentInput(BaseModel):
 
   How/Why:
     - The outcomes agent runs before lesson generation to validate a topic and propose a small set of goals.
-    - We carry the same request fields used by lesson generation so outcomes match the downstream pipeline context.
+    - The agent will suggest an appropriate blueprint and teacher persona based on the topic.
   """
 
   topic: StrictStr = Field(min_length=1, max_length=200, description="Lesson topic.")
   details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details.")
-  blueprint: StrictStr | None = Field(default=None, description="Optional blueprint or learning outcome guidance.")
   teaching_style: list[StrictStr] | None = Field(default=None, description="Optional teaching style guidance.")
   learner_level: StrictStr | None = Field(default=None, description="Optional learner level hint.")
   depth: StrictStr = Field(default="highlights", description="Requested depth hint (used only for prompt guidance).")
   lesson_language: StrictStr | None = Field(default="English", description="Primary language for the generated outcomes.")
-  secondary_language: StrictStr | None = Field(default=None, description="Optional secondary language for language practice blueprint.")
-  widgets: list[StrictStr] | None = Field(default=None, description="Optional widget ids to consider for the lesson.")
+  secondary_language: StrictStr | None = Field(default=None, description="Optional secondary language for language practice lessons (only relevant for language topics).")
   max_outcomes: StrictInt = Field(default=5, ge=1, le=8, description="Maximum number of outcomes to return.")
 
   model_config = ConfigDict(extra="forbid")
-
-  @model_validator(mode="after")
-  def validate_secondary_language_scope(self) -> OutcomesAgentInput:
-    """Enforce secondary language rules by blueprint context."""
-    if str(self.blueprint or "") == "languagepractice" and self.secondary_language is None:
-      raise ValueError("secondary_language is required when blueprint is languagepractice.")
-    if self.secondary_language is not None and str(self.blueprint or "") != "languagepractice":
-      raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")
-    return self
 
 
 class OutcomesAgentResponse(BaseModel):
@@ -71,13 +60,16 @@ class OutcomesAgentResponse(BaseModel):
   How/Why:
     - We need a stable, machine-validated response that can be returned directly from an API endpoint.
     - The response intentionally supports a deny-path when a topic is disallowed.
+    - The agent now suggests the best-fit blueprint and teacher persona for the topic.
   """
 
   ok: bool = Field(description="True when the topic is allowed and outcomes were generated.")
   error: Literal["TOPIC_NOT_ALLOWED"] | None = Field(default=None, description="Simple error code when the topic is blocked.")
   message: StrictStr | None = Field(default=None, min_length=1, max_length=240, description="Human-readable reason shown to end users when the topic is blocked.")
-  blocked_category: Literal["sexual", "political", "military", "invalid_input"] | None = Field(default=None, description="High-level category used when blocking a topic.")
+  blocked_category: Literal["explicit_sexual", "political_advocacy", "military_warfare", "invalid_input"] | None = Field(default=None, description="High-level category used when blocking a topic.")
   outcomes: list[OutcomeText] = Field(default_factory=list, min_length=0, max_length=8, description="A small list of straightforward learning outcomes.")
+  suggested_blueprint: StrictStr | None = Field(default=None, min_length=3, max_length=50, description="The recommended blueprint/framework for this topic (e.g., 'knowledge_understanding', 'languagepractice').")
+  teacher_persona: StrictStr | None = Field(default=None, min_length=3, max_length=100, description="The ideal instructor archetype for this content (e.g., 'Socratic Professor', 'Workshop Facilitator').")
 
   model_config = ConfigDict(extra="forbid")
 
@@ -105,11 +97,15 @@ class OutcomesAgentResponse(BaseModel):
       if isinstance(error, str) and error.strip() != "TOPIC_NOT_ALLOWED":
         normalized["error"] = "TOPIC_NOT_ALLOWED"
       # Normalize blocked category casing and fallback missing/unknown values to invalid_input.
+      # Support both old and new category names for backward compatibility during migration.
       blocked_category = normalized.get("blocked_category")
       if isinstance(blocked_category, str):
         lowered = blocked_category.strip().lower()
-        if lowered in {"sexual", "political", "military", "invalid_input"}:
-          normalized["blocked_category"] = lowered
+        # Map old category names to new ones for consistency
+        category_mapping = {"sexual": "explicit_sexual", "political": "political_advocacy", "military": "military_warfare"}
+        normalized_category = category_mapping.get(lowered, lowered)
+        if normalized_category in {"explicit_sexual", "political_advocacy", "military_warfare", "invalid_input"}:
+          normalized["blocked_category"] = normalized_category
         else:
           normalized["blocked_category"] = "invalid_input"
       elif blocked_category is None:
@@ -139,6 +135,10 @@ class OutcomesAgentResponse(BaseModel):
         raise ValueError("outcomes must be empty when ok is false.")
       if self.blocked_category is None:
         raise ValueError("blocked_category is required when ok is false.")
+      if self.suggested_blueprint is not None:
+        raise ValueError("suggested_blueprint must be null when ok is false.")
+      if self.teacher_persona is not None:
+        raise ValueError("teacher_persona must be null when ok is false.")
     else:
       if self.error is not None:
         raise ValueError("error must be null when ok is true.")
@@ -152,6 +152,11 @@ class OutcomesAgentResponse(BaseModel):
         raise ValueError("outcomes must be a small list (max 8).")
       for index, outcome in enumerate(self.outcomes):
         _warn_len_out_of_range(field_name=f"outcomes[{index}]", value=outcome, min_length=OUTCOME_TEXT_MIN_LENGTH, max_length=OUTCOME_TEXT_MAX_LENGTH)
+      # Suggested blueprint and teacher persona should be present for successful outcomes
+      if not self.suggested_blueprint:
+        logger.warning("Outcomes agent did not return a suggested_blueprint")
+      if not self.teacher_persona:
+        logger.warning("Outcomes agent did not return a teacher_persona")
     return self
 
 
