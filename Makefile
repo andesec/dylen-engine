@@ -146,7 +146,15 @@ security-dast:
 	fi
 	@docker compose up -d
 	@echo "Waiting for application to be ready..."
-	@sleep 15
+	@echo "Checking application health..."
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+		if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:8002/health | grep -q "200"; then \
+			echo "Application is ready!"; \
+			break; \
+		fi; \
+		echo "Waiting... ($$i/12)"; \
+		sleep 5; \
+	done
 	@echo "Running OWASP ZAP baseline scan..."
 	@mkdir -p reports
 	@chmod 777 reports
@@ -154,6 +162,7 @@ security-dast:
 		-v $(PWD)/reports:/zap/wrk:rw \
 		ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
 		-t https://localhost:8002 \
+		-I \
 		-r zap-report.html \
 		-J zap-report.json || true
 	@echo "DAST scan complete. Report saved to reports/zap-report.html"
