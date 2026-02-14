@@ -2,15 +2,15 @@ name: CI/CD
 
 on:
   push:
-    branches: ['**']  # Run on all branches
+    branches: ["**"] # Run on all branches
   pull_request:
-    branches: ['**']  # Run on all PRs
+    branches: ["**"] # Run on all PRs
   workflow_dispatch:
 
 permissions:
   contents: read
   id-token: write
-  security-events: write  # Required for SARIF uploads
+  security-events: write # Required for SARIF uploads
 
 jobs:
   validate:
@@ -56,7 +56,7 @@ jobs:
         run: make lint
 
       - name: Ruff Format
-        run: make format .
+        run: make format-check
 
       # - name: Mypy
       #   run: make typecheck
@@ -69,7 +69,7 @@ jobs:
           FIREBASE_PROJECT_ID: test-project
           GCP_PROJECT_ID: test-project
           GCP_LOCATION: us-central1
-        run: #make test
+        run: make test
 
   # Security Scanning Jobs
   security-sca:
@@ -102,7 +102,6 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: make security-sca
-        continue-on-error: true
 
   security-sast-bandit:
     name: Security - SAST (Bandit)
@@ -129,7 +128,6 @@ jobs:
 
       - name: Run Bandit scan
         run: make security-sast-bandit
-        continue-on-error: true
 
       - name: Upload Bandit reports
         uses: actions/upload-artifact@v4
@@ -137,7 +135,6 @@ jobs:
         with:
           name: bandit-reports
           path: reports/bandit-report.*
-
 
   security-sast-semgrep:
     name: Security - SAST (Semgrep)
@@ -166,7 +163,6 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: make security-sast-semgrep
-        continue-on-error: true
 
       - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -196,7 +192,6 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: make security-container
-        continue-on-error: true
 
   security-dast:
     name: Security - DAST (OWASP ZAP)
@@ -210,7 +205,6 @@ jobs:
 
       - name: Run DAST scan
         run: make security-dast
-        continue-on-error: true
 
       - name: Upload ZAP reports
         uses: actions/upload-artifact@v4
@@ -287,6 +281,7 @@ jobs:
       - name: Run Docker container
         run: |
           docker run -d --name dylen-engine-test \
+            -e DYLEN_ENV_CONTRACT_ENFORCE=0 \
             -e DYLEN_ALLOWED_ORIGINS=http://localhost:3000 \
             -p 8002:8002 \
             dylen-engine:test
@@ -306,8 +301,17 @@ jobs:
   deploy-gcp:
     name: Deploy to GCP Cloud Run
     runs-on: ubuntu-latest
-    needs: [validate, security-sca, security-sast-bandit, security-sast-semgrep, security-container, security-legacy, verify-docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      [
+        validate,
+        security-sca,
+        security-sast-bandit,
+        security-sast-semgrep,
+        security-container,
+        security-legacy,
+        verify-docker,
+      ]
+    if: false
     permissions:
       contents: read
       id-token: write
@@ -347,7 +351,7 @@ jobs:
             --service-account=${{ secrets.GCP_CLOUD_RUN_SERVICE_ACCOUNT }} \
             --add-cloudsql-instances=${{ secrets.GCP_CLOUD_SQL_INSTANCE }} \
             --set-env-vars="INSTANCE_CONNECTION_NAME=${{ secrets.GCP_CLOUD_SQL_INSTANCE }}" \
-            --set-secrets="DYLEN_PG_DSN=dylen-db-connection-string:latest,OPENROUTER_API_KEY=openrouter-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
+            --set-secrets="DYLEN_PG_DSN=dylen-db-connection-string:latest,GEMINI_API_KEY=gemini-api-key:latest" \
             --allow-unauthenticated \
             --memory=512Mi \
             --cpu=1 \

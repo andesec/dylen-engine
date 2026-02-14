@@ -15,7 +15,7 @@ jobs:
       DYLEN_ALLOWED_ORIGINS: http://localhost:3000
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_DB: dylen
           POSTGRES_USER: postgres
@@ -42,13 +42,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: ".python-version"
+          python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
-      - name: One migration per PR check
+      - name: Migration presence check
         run: uv run python scripts/db_check_pr_migration_count.py
+
+      - name: Linear history check
+        run: uv run python scripts/db_check_linear_history.py
 
       - name: Migration lint
         run: uv run python scripts/db_migration_lint.py
@@ -64,6 +67,9 @@ jobs:
 
       - name: Apply migrations for drift check
         run: uv run alembic -c dylen-engine/alembic.ini upgrade head
+
+      - name: Run seed scripts
+        run: uv run python scripts/run_seed_scripts.py
 
       - name: Seed-data check
         run: uv run python scripts/db_check_seed_data.py

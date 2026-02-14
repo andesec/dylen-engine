@@ -7,260 +7,219 @@ Use this guide to format lesson widgets correctly. Keep outputs concise, factual
 1. Output only valid JSON.
 2. Every widget must go inside `items`.
 3. Each `items` entry is either:
-   - a string (paragraph),
    - an object with exactly one shorthand key, or
    - a full-form widget object with `type` (advanced escape hatch).
 4. Never mix multiple widget keys in one object.
 5. Do not invent facts, rules, or definitions.
 6. Do not manually number sections or subsections.
+7. **Crucial:** Every widget array must end with a widget `id` (string). Use `null` or a placeholder if creating new content.
 
 ## Item Widgets (inside `items`)
 
-Each item is either:
-- a string (shorthand paragraph), or
-- an object with exactly one shorthand key.
-Note:
-- Dividers are auto-inserted between widgets when a section/subsection has multiple items.
-
-### `p` (Paragraph)
+### `markdown` (MarkdownText)
 
 ```json
-{ "p": "A short explanation, definition, or narrative context." }
+{ "markdown": ["A short explanation.", "left", "id"] }
+{ "markdown": ["Centered note.", "center", "id"] }
 ```
 
-Notes:
-- A plain string is equivalent to `{ "p": "..." }`.
+Rules:
+1. Markdown text (string).
+2. Alignment (optional, "left" or "center").
+3. **Id** (string).
 
 ---
 
-### `warn` / `err` / `success` (Callouts)
+### `illustration` (Visual Widget)
 
 ```json
-{ "warn": "Common pitfall / misconception." }
-{ "err": "Critical mistake or anti-pattern." }
-{ "success": "Checkpoint: how to know you understood it." }
+{ "illustration": ["resource_id", "Visual summary caption", "id"] }
 ```
 
-Recommendation:
-- Keep callouts short and action-oriented so they remain skimmable. Use for critical warnings, reminders (in text) or success checkpoints only.
+Rules:
+1. Resource ID (string).
+2. Caption (string).
+3. **Id** (string).
 
 ---
 
-### `flip` (Flipcard: prompt -> reveal)
+### `fenster` (Interactive HTML Widget)
 
 ```json
-{ "flip": ["Front text (prompt)", "Back text (reveal)", "Optional front hint", "Optional back hint"] }
+{ "fenster": ["Interactive demo", "Explore the concept", "resource_id", "id"] }
 ```
 
-Constraints:
-- The first two entries (front/back) must be strings.
-- Keep the front text to 120 characters or fewer and the back text to 160 characters or fewer so the card stays legible.
+Rules:
+1. Title (string).
+2. Description (string).
+3. Resource ID (string).
+4. **Id** (string).
+
+---
+
+### `flipcards` (Flipcards)
+
+```json
+{ "flipcards": [[["Front", "Back", "Opt. Front Hint", "Opt. Back Hint"]], "id"] }
+```
+
+Rules:
+1. Array of flipcard entries.
+2. **Id** (string).
 
 ---
 
 ### `tr` (Translation Pair)
 
 ```json
-{ "tr": ["EN: Primary text", "DE: Translation text"] }
+{ "tr": ["EN: Primary text", "DE: Translation text", "id"] }
 ```
 
-Constraints:
-- Must be two strings.
-- Each string must start with a 2-3 letter language code followed by `:` or `-`.
+Rules:
+1. Source text (string).
+2. Target text (string).
+3. **Id** (string).
 
 ---
 
 ### `fillblank` (Fill-in-the-Blank)
 
 ```json
-{ "fillblank": ["Prompt with ___", "Correct answer", "Hint", "Why it's correct"] }
+{ "fillblank": ["Prompt with ___", "Correct answer", "Hint", "Why it's correct", "id"] }
 ```
 
-Constraints (array order is required):
-1. Prompt with `___` placeholder.
-2. Correct answer string (case-insensitive matching).
-3. Hint string (brief, helpful and precise).
-4. Explanation string (short and concrete).
-
----
-
-### `ul` / `ol` (Lists)
-
-```json
-{ "ul": ["Item 1", "Item 2", "Item 3"] }
-{ "ol": ["Step 1", "Step 2", "Step 3"] }
-```
-
-Constraints:
-- Value must be an array of strings.
-
-Recommendation:
-- Use `ol` when order matters; avoid embedding numbering in the strings.
+Rules:
+1. Prompt with `___`.
+2. Correct answer.
+3. Hint.
+4. Explanation.
+5. **Id** (string).
 
 ---
 
 ### `table` (Tabular Data)
 
 ```json
-{ "table": [["Header A", "Header B"], ["Row 1A", "Row 1B"], ["Row 2A", "Row 2B"]] }
+{ "table": [["Header A", "Header B"], ["Row 1A", "Row 1B"], "id"] }
 ```
 
-Constraints:
-- Value must be a non-empty array of rows.
-- First row is treated as the header.
-- Cells must be strings. avoid lengthy text in the cell.
+Rules:
+1. Array of rows (first row is header).
+2. **Id** (string).
 
 ---
 
 ### `compare` (Two-Column Comparison)
 
 ```json
-{ "compare": [["Left", "Right"], ["A", "B"], ["C", "D"]] }
+{ "compare": [["Left", "Right"], ["A", "B"], ["C", "D"], "id"] }
 ```
 
-Constraints:
-- Value must be a non-empty array.
-- First row is treated as headers.
+Rules:
+1. Array of rows (first row is headers).
+2. **Id** (string).
 
 ---
 
-### `swipecards` (Tinder like Swipe Drill)
+### `swipecards` (Binary Swipe Drill)
 
 ```json
 {
   "swipecards": [
-    "Quick Drill: XSS Basics",
-    ["No", "Yes"],
+    "Quick Drill Title",
+    ["LeftLabel", "RightLabel"],
     [
-      ["Store JWT in localStorage", 0, "localStorage is readable by JS; XSS can steal tokens."],
-      ["Use HttpOnly cookies for sessions", 1, "HttpOnly cookies block JS access and reduce XSS impact."]
-    ]
+      ["Card Text", 0, "Feedback if swiped wrong"],
+      ["Card Text", 1, "Feedback if swiped wrong"]
+    ],
+    "id"
   ]
 }
 ```
 
-Constraints:
-- Array index contract:
-  - `0`: title/instruction text (string)
-  - `1`: bucket labels `[leftLabel, rightLabel]`
-  - `2`: cards array
-- Each card is `[text, correctBucketIndex, feedback]`.
-- Feedback is mandatory and shown after every swipe.
-- Keep card text to 120 characters or fewer so the card stays legible.
-- Keep feedback to 150 characters or fewer so it reads cleanly in the overlay.
-
-Recommendation:
-- Use when contrasting concepts, categorization, pros/cons, or before/after.
+Rules:
+1. Title.
+2. Buckets `[Left, Right]`.
+3. Cards `[[text, index, feedback]]`.
+4. **Id** (string).
 
 ---
 
-### `freeText` (Free Text Editor - Multiline)
+### `freeText` (Free Text Editor)
 
 ```json
-{ "freeText": ["What do you mean by Clarity?.", "In my view,", "en", "clarity,structure,example,reason,summary"] }
+{ "freeText": ["Prompt?", "Seed prefix", "en", "word,list,csv", "id"] }
 ```
 
-Schema (array positions):
-1. `prompt` (string): title shown above the editor.
-2. `seedLocked` (string, optional): non-removable prefix.
-3. `lang` (string, optional): language key. Default: `en`.
-4. `wordlistCsv` (string, optional): comma-separated terms as one string.
-
-Notes:
-- Wordlist checking is triggered by the “Rate my answer” button and highlights matches.
-- The Wordlist button becomes available after the first rating run.
-- Export produces a `.txt` with `seedLocked + userText`.
-- Always multi-line.
-
-Where to use:
-- Writing exercises, reflections, short answers, note-taking, “explain in your own words”.
-- Use `wordlistCsv` for topic-specific vocabulary learners should practice.
-- Confidence checking involves usage of suggested vocabulary provided in wordlistcsv.
+Rules:
+1. Prompt.
+2. Seed Locked (optional).
+3. Language (optional).
+4. Wordlist CSV (optional).
+5. **Id** (string).
 
 ---
 
 ### `inputLine` (Single Line Input)
 
 ```json
-{ "inputLine": ["Prompt text", "en", "term1,term2,term3"] }
+{ "inputLine": ["Prompt text", "en", "term1,term2", "id"] }
 ```
 
-Schema (array positions):
-1. `prompt` (string): label/prompt for the input.
-2. `lang` (string, optional): language code. Default: `en`.
-3. `wordlistCsv` (string, optional): comma-separated terms for checking.
-
-Notes:
-- Single-line input only.
-- No seed locking.
-- Checks against wordlist if provided.
+Rules:
+1. Prompt.
+2. Language (optional).
+3. Wordlist CSV (optional).
+4. **Id** (string).
 
 ---
 
-### `stepFlow` (Step-by-step Flow with Branching)
+### `stepFlow` (Step-by-step Flow)
 
 ```json
 {
   "stepFlow": [
-    "Follow the flow:",
+    "Flow Title",
     [
-      "Start here.",
-      [["Option A", ["Do A1"]], ["Option B", ["Do B1"]]],
-      "Finish."
-    ]
+      "Step 1",
+      [["Option A", ["Step A1"]], ["Option B", ["Step B1"]]],
+      "Finish"
+    ],
+    "id"
   ]
 }
 ```
 
-Schema (array positions):
-1. `title` (string): title shown above the flow.
-2. `flow` (array): steps and/or branch nodes.
-
-Branch node format:
-- `[["Choice label", [steps...]], ...]`
-
-Constraints:
-- Max branching depth: 5.
-
-Where to use:
-- Step-by-step instructions, troubleshooting flows, decision trees, learning routines.
+Rules:
+1. Title.
+2. Flow array.
+3. **Id** (string).
 
 ---
 
-### `asciiDiagram` (ASCII Diagram Panel)
+### `asciiDiagram` (ASCII Diagram)
 
 ```json
-{ "asciiDiagram": ["Diagram:", "+--+\\n|A |\\n+--+\\n"] }
+{ "asciiDiagram": ["Title", "+--+\\n|A |\\n+--+\\n", "id"] }
 ```
 
-Schema (array positions):
-1. `title` (string): title shown above the diagram.
-2. `diagram` (string): raw ASCII text (whitespace preserved).
-
-Where to use:
-- Architecture/flow diagrams, threat models, block diagrams, “visual via text”.
+Rules:
+1. Title.
+2. Diagram string.
+3. **Id** (string).
 
 ---
 
 ### `checklist` (Nested Checklist)
 
 ```json
-{ "checklist": ["Use this checklist:", [["Clarity", ["Short sentences", "Avoid vague words"]]]] }
+{ "checklist": ["Title", [["Item 1", ["Sub 1", "Sub 2"]]], "id"] }
 ```
 
-Schema (array positions):
-1. `title` (string): title shown above the checklist.
-2. `tree` (array): nested items and groups.
-
-Node formats:
-- Item: `"text"`
-- Group: `["groupTitle", [children...]]`
-
-Constraints:
-- Max nesting depth: 3 (including root).
-
-Where to use:
-- Verification lists, grammar checks, code review reminders, configuration reviews.
+Rules:
+1. Title.
+2. Tree array.
+3. **Id** (string).
 
 ---
 
@@ -268,32 +227,20 @@ Where to use:
 
 ```json
 {
-  "interactiveTerminal": {
-    "title": "Try these commands:",
-    "rules": [
-      ["^help$", "ok", "Commands: help, list, open <name>\\n"],
-      [".*", "err", "Unknown command."]
-    ],
-    "guided": [
-      ["Type <b>help</b> to see commands.", "help"]
-    ]
-  }
+  "interactiveTerminal": [
+    "Title",
+    [["^regex$", "ok", "Output"]],
+    [["Type help", "help"]],
+    "id"
+  ]
 }
 ```
 
-Schema:
-- `title` (string): Title shown above the terminal.
-- `rules` (array): List of `[regexString, level, outputString]` tuples.
-  - `regexString`: matching pattern for user input.
-  - `level`: `ok` (standard output) or `err` (error styling).
-  - `outputString`: response to print.
-- `guided` (array): List of `[taskHtml, solutionString]` tuples.
-  - Usage: Enforces a specific sequence of commands.
-  - `taskHtml`: Description shown in the guide panel. Can use `<b>`, `<code>`.
-  - `solutionString`: The exact command the user must type.
-
-Where to use:
-- Interactive CLI training where you want the user to type specific commands related to linux or a tool.
+Rules:
+1. Title.
+2. Rules array.
+3. Guided array.
+4. **Id** (string).
 
 ---
 
@@ -301,64 +248,49 @@ Where to use:
 
 ```json
 {
-  "terminalDemo": {
-    "title": "Watch the Git flow:",
-    "rules": [
-      ["git status", 400, "On branch main\\nnothing to commit"],
-      ["git log --oneline", 600, "a1b2c3 add tests"]
-    ]
-  }
+  "terminalDemo": [
+    "Title",
+    [["git status", 400, "On branch main"]],
+    "id"
+  ]
 }
 ```
 
-Schema:
-- `title` (string): Title.
-- `rules` (array): List of `[commandString, delayMs, outputString]` tuples.
-  - `commandString`: The command to simulate typing.
-  - `delayMs`: Time in milliseconds to wait before showing output (simulates processing).
-  - `outputString`: The command output.
-
-Where to use:
-- Demonstrating a sequence of commands passively (user watches).
+Rules:
+1. Title.
+2. Rules array.
+3. **Id** (string).
 
 ---
 
 ### `codeEditor` (Modern Code Editor)
 
 ```json
-{ "codeEditor": ["console.log('hello');", "javascript", false, [1, 3]] }
+{ "codeEditor": ["console.log('hi');", "javascript", false, [1], "id"] }
+{ "codeEditor": ["print('hi')", "python", [1], "id"] }
 ```
 
-Schema (array positions):
-1. `code` (string|object): Code to display. Objects are JSON-stringified.
-2. `language` (string): Language for syntax highlighting (e.g., `javascript`, `python`).
-3. `readOnly` (boolean, optional): If true, the editor is read-only. Default: false (editable).
-4. `highlightedLines` (array, optional): List of 1-based line numbers to highlight.
-
-Notes:
-- Use inside `items` like any other widget.
-- Provide the language whenever possible; inference works for shebangs (`#!/usr/bin/env python`) or `// language: ruby`-style comments on the first line.
-
-Where to use:
-- Interactive coding exercises, code examples with highlighting.
-- Preferred over codeviewer for new content.
+Rules:
+1. Code.
+2. Language.
+3. ReadOnly (optional, boolean).
+4. Highlighted Lines (optional, array).
+5. **Id** (string).
 
 ---
 
 ### `treeview` (Lesson Structure Viewer)
 
 ```json
-{ "treeview": [{ "title": "Lesson", "blocks": [] }, "Lesson Structure", "json-input", "json-editor-view"] }
+{ "treeview": [{ "title": "Lesson", "blocks": [] }, "Title", "id1", "id2", "id"] }
 ```
 
-Schema (array positions):
-1. `lesson` (object|string): lesson data with `blocks`, or JSON string.
-2. `title` (string, optional): header shown above the tree.
-3. `textareaId` (string, optional): editor textarea id for scroll-to-path.
-4. `editorId` (string, optional): editor container id for scroll-to-path.
-
-Notes:
-- When `lesson` is missing or empty, the tree shows the empty state.
+Rules:
+1. Lesson object.
+2. Title.
+3. Textarea ID.
+4. Editor ID.
+5. **Id** (string).
 
 ---
 
@@ -366,48 +298,17 @@ Notes:
 
 ```json
 {
-  "mcqs": {
-    "title": "Quiz Title",
-    "questions": [
-      {
-        "q": "Question?",
-        "c": ["Option A", "Option B", "Option C"],
-        "a": 1,
-        "e": "Explanation"
-      }
-    ]
-  }
+  "mcqs": [
+    "Quiz Title",
+    [
+      ["Question?", ["Opt A", "Opt B"], 0, "Explanation"]
+    ],
+    "id"
+  ]
 }
 ```
 
-Constraints:
-- `questions` must be a non-empty array.
-- Each question must include:
-  - `q` (string, non-empty)
-  - `c` (array, at least 2 choices)
-  - `a` (integer, 0-based index into `c`)
-  - `e` (string, non-empty explanation)
-
-Recommendation:
-- Place a quiz as the final block. Include at least 3 questions per section you taught.
-
----
-
-## Best Practices (Mandatory)
-
-1. Chunk content
-   - Prefer multiple short `section` blocks over one giant section.
-   - Use `subsections` when nested structure is needed.
-
-2. End with assessment
-   - Final block should be a quiz (`mcqs`) that targets the most important learning outcomes.
-   - Include at least 3 questions per taught section (more is fine).
-
----
-
-## Do Not
-
-- Do not invent facts, claims, definitions, or rules.
-- Do not mix multiple shorthand keys in the same item object.
-- Do not omit required fields or violate required ordering in widget definitions.
-- Do not number sections or subsections. The system takes care of the numbers itself.
+Rules:
+1. Title.
+2. Questions array `[[Q, [C], A, E]]`.
+3. **Id** (string).

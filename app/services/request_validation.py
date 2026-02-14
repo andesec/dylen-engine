@@ -1,4 +1,4 @@
-from app.api.models import MAX_REQUEST_BYTES, GenerateLessonRequest, WritingCheckRequest
+from app.api.models import MAX_REQUEST_BYTES, BaseLessonRequest, GenerateLessonRequest, WritingCheckRequest
 from app.config import Settings
 from app.jobs.guardrails import estimate_bytes
 from fastapi import HTTPException, status
@@ -9,10 +9,10 @@ def _count_words(text: str) -> int:
   return len(text.split())
 
 
-def _validate_generate_request(request: GenerateLessonRequest, settings: Settings, *, max_topic_length: int | None = None) -> None:
+def _validate_generate_request(request: BaseLessonRequest, settings: Settings, *, max_topic_length: int | None = None) -> None:
   """Enforce topic/detail length and persistence size constraints."""
   # Allow callers to override max topic length using runtime configuration.
-  effective_max_topic_length = settings.max_topic_length if max_topic_length is None else int(max_topic_length)
+  effective_max_topic_length = 200 if max_topic_length is None else int(max_topic_length)
   if effective_max_topic_length <= 0:
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid max topic length configuration.")
   if len(request.topic) > effective_max_topic_length:
@@ -32,8 +32,8 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
   word_count = _count_words(request.text)
   if word_count > 300:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"User text is too long ({word_count} words). Max 300 words.")
-  if not request.criteria:
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Evaluation criteria are required.")
+  if request.widget_id is not None and str(request.widget_id).strip() == "":
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid widget_id.")
   if estimate_bytes(request.model_dump(mode="python")) > MAX_REQUEST_BYTES:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request payload is too large for persistence.")
 
@@ -41,7 +41,7 @@ def _validate_writing_request(request: WritingCheckRequest) -> None:
 def _resolve_primary_language(request: GenerateLessonRequest) -> str | None:
   """Return the requested primary language for orchestration prompts."""
   # This feeds prompt guidance but does not change response schema.
-  return request.primary_language
+  return request.lesson_language
 
 
 def _resolve_learner_level(request: GenerateLessonRequest) -> str | None:

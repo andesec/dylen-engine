@@ -23,8 +23,9 @@ _PROVIDER_HINTS: tuple[str, ...] = (
   "service unavailable",
   "bad gateway",
   "gateway",
-  "openrouter",
   "gemini",
+  "internal server error",
+  "overloaded",
 )
 
 _OUTPUT_HINTS: tuple[str, ...] = ("invalid json", "failed to parse", "parse json", "schema", "validation")

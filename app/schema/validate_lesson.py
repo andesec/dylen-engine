@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ValidationError
+import msgspec
 
-from .lesson_models import LessonDocument
+from .markdown_limits import collect_overlong_markdown_errors
+from .section_normalizer import normalize_lesson_section_keys
+from .widget_models import LessonDocument
 
 
-def validate_lesson(payload: Any) -> tuple[bool, list[str], LessonDocument | None]:
+def validate_lesson(payload: Any, *, max_markdown_chars: int = 1500) -> tuple[bool, list[str], LessonDocument | None]:
   """
   Validate a lesson payload against the versioned schema and known widgets.
 
@@ -21,21 +23,18 @@ def validate_lesson(payload: Any) -> tuple[bool, list[str], LessonDocument | Non
   """
 
   errors: list[str] = []
-
-  model_validator = getattr(LessonDocument, "model_validate", None)
-  if model_validator is None:
-    # Fallback for older Pydantic or if not present (unlikely)
-    raise RuntimeError("LessonDocument does not expose a validation entrypoint.")
+  normalized_payload = normalize_lesson_section_keys(payload)
 
   try:
-    lesson_model = model_validator(payload)
-  except ValidationError as exc:
-    for err in exc.errors():
-      loc = ".".join(str(x) for x in err["loc"])
-      errors.append(f"{loc}: {err['msg']}")
+    # Use msgspec to convert/validate the payload
+    lesson_model = msgspec.convert(normalized_payload, LessonDocument)
+  except msgspec.ValidationError as exc:
+    errors.append(str(exc))
     return False, errors, None
 
-  # Pydantic validation is now sufficient as it validates structure, types, and values.
-  # No need for external registry check because the models define the allowable widgets.
+  # Enforce runtime-configurable markdown limits after schema validation so the core schema remains stable.
+  errors.extend(collect_overlong_markdown_errors(normalized_payload, max_markdown_chars=max_markdown_chars))
+  if errors:
+    return False, errors, None
 
   return True, errors, lesson_model

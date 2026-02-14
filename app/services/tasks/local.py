@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 
 import httpx
 from app.config import Settings
@@ -15,30 +16,69 @@ class LocalHttpEnqueuer(TaskEnqueuer):
   def __init__(self, settings: Settings) -> None:
     self.settings = settings
 
+  def _should_use_asgi_transport(self, internal_service_url: str) -> bool:
+    """Decide if we should route requests in-process via ASGITransport."""
+    # Avoid network/proxy edge-cases for local development by calling the app in-process when possible.
+    parsed = urlparse(internal_service_url)
+    hostname = (parsed.hostname or "").lower()
+    return hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+  def _build_client(self, internal_service_url: str) -> httpx.AsyncClient:
+    """Build an httpx client for local task dispatch."""
+    # Never trust environment proxy variables for internal task dispatch.
+    if self._should_use_asgi_transport(internal_service_url):
+      from app.main import app
+
+      transport = httpx.ASGITransport(app=app)
+      return httpx.AsyncClient(transport=transport, base_url=internal_service_url, trust_env=False)
+    return httpx.AsyncClient(trust_env=False)
+
+  def _task_headers(self) -> dict[str, str]:
+    """Build task authentication headers for internal endpoints."""
+    # Enforce shared-secret auth for internal endpoints (deny-by-default).
+    if not self.settings.task_secret:
+      raise RuntimeError("Task secret not configured.")
+    return {"authorization": f"Bearer {self.settings.task_secret}"}
+
   async def enqueue(self, job_id: str, payload: dict) -> None:
     """Enqueue a job by POSTing to the local endpoint."""
-    if not self.settings.base_url:
-      logger.warning("Base URL not configured, strictly required for LocalHttpEnqueuer.")
-      return
+    if not self.settings.internal_service_url:
+      raise RuntimeError("Internal service URL not configured, strictly required for LocalHttpEnqueuer.")
 
-    url = f"{self.settings.base_url.rstrip('/')}/internal/tasks/process-job"
-    # Attach the shared secret when configured so internal task dispatch is authorized.
-    headers = {}
-    if self.settings.task_secret:
-      headers["authorization"] = f"Bearer {self.settings.task_secret}"
-
-    # Fire and forget-ish: we want to trigger it but not block excessively?
-    # Actually, `httpx.AsyncClient` usage here:
-    # If we await it, we block the `create_job` response.
-    # Cloud Tasks is async (returns quickly).
-    # We should probably use a short timeout or fire in background if we want true "background" behavior.
-    # But since `enqueue` is async, awaiting a quick HTTP call is probably fine.
+    url = f"{self.settings.internal_service_url.rstrip('/')}/internal/tasks/process-job"
 
     try:
-      async with httpx.AsyncClient() as client:
+      async with self._build_client(self.settings.internal_service_url) as client:
         logger.info(f"Dispatching task locally to {url}")
-        # Use a short timeout because we only need the task to be accepted, not fully processed.
-        await client.post(url, json={"job_id": job_id}, headers=headers, timeout=5.0)
+        # The local task endpoint only needs to acknowledge receipt, not finish processing inline.
+        response = await client.post(url, json={"job_id": job_id}, headers=self._task_headers(), timeout=5.0)
+        response.raise_for_status()
 
+    except httpx.HTTPStatusError as e:
+      logger.error(f"Local task dispatch returned {e.response.status_code} for job {job_id}: {e.response.text}")
+      raise
     except httpx.RequestError as e:
       logger.error(f"Failed to dispatch local task for job {job_id}: {e}")
+      raise
+
+  async def enqueue_lesson(self, lesson_id: str, job_id: str, params: dict, user_id: str) -> None:
+    """Enqueue a lesson generation task locally."""
+    if not self.settings.internal_service_url:
+      raise RuntimeError("Internal service URL not configured, strictly required for LocalHttpEnqueuer.")
+
+    url = f"{self.settings.internal_service_url.rstrip('/')}/worker/process-lesson"
+
+    payload = {"lesson_id": lesson_id, "job_id": job_id, "params": params, "user_id": user_id}
+
+    try:
+      async with self._build_client(self.settings.internal_service_url) as client:
+        logger.info(f"Dispatching lesson task locally to {url}")
+        response = await client.post(url, json=payload, headers=self._task_headers(), timeout=1800.0)
+        response.raise_for_status()
+
+    except httpx.HTTPStatusError as e:
+      logger.error(f"Local lesson task dispatch returned {e.response.status_code} for lesson {lesson_id}: {e.response.text}")
+      raise
+    except httpx.RequestError as e:
+      logger.error(f"Failed to dispatch local lesson task for lesson {lesson_id}: {e}")
+      raise

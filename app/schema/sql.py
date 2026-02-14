@@ -13,7 +13,27 @@ from app.core.database import Base
 from app.schema.audit import LlmCallAudit  # noqa: F401
 from app.schema.email_delivery_logs import EmailDeliveryLog  # noqa: F401
 from app.schema.jobs import Job  # noqa: F401
+from app.schema.lesson_requests import LessonRequest  # noqa: F401
 from app.schema.lessons import Lesson  # noqa: F401
+from app.schema.tutor import Tutor  # noqa: F401
+from app.schema.widgets_content import (  # noqa: F401
+  AsciiDiagramWidget,
+  ChecklistWidget,
+  CodeEditorWidget,
+  CompareWidget,
+  FillBlankWidget,
+  FlipcardsWidget,
+  InteractiveTerminalWidget,
+  MarkdownWidget,
+  McqsWidget,
+  StepFlowWidget,
+  SwipeCardWidget,
+  TableDataWidget,
+  TerminalDemoWidget,
+  TranslationWidget,
+  TreeviewWidget,
+  TutorFragment,
+)
 
 
 class RoleLevel(str, Enum):
@@ -91,7 +111,12 @@ class User(Base):
   topics_of_interest: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
   intended_use: Mapped[str | None] = mapped_column(String, nullable=True)
   intended_use_other: Mapped[str | None] = mapped_column(String, nullable=True)
+  primary_language: Mapped[str | None] = mapped_column(String, nullable=True)
+  secondary_language: Mapped[str | None] = mapped_column(String, nullable=True)
   onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+  is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+  archived_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+  archived_by: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
 
   accepted_terms_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
   accepted_privacy_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -99,7 +124,7 @@ class User(Base):
   privacy_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class LLMAuditLog(Base):

@@ -116,7 +116,6 @@ Update `ProviderMode` and factory:
 ```python
 class ProviderMode(str, Enum):
     GEMINI = "gemini"
-    OPENROUTER = "openrouter"
     VERTEXAI = "vertexai"  # NEW
 
 def get_provider_for_mode(mode: str | ProviderMode) -> Provider:

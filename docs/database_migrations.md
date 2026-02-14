@@ -27,10 +27,10 @@ This will:
 
 ### 2. Applying Migrations
 
-Apply all pending migrations to the database:
+Apply all pending migrations to the database (and run seed scripts):
 
 ```bash
-make migrate
+make migrate-and-seed
 ```
 
 ### 3. Downgrading
@@ -55,10 +55,12 @@ uv run alembic history
 The following scripts power the migration checks in CI:
 
 - `scripts/db_migration_lint.py` — policy lint checks on migration files
-- `scripts/db_check_pr_migration_count.py` — enforces one migration per PR when schema files change
+- `scripts/db_check_pr_migration_count.py` — enforces at least one migration when schema files change
 - `scripts/db_check_heads.py` — ensures a single Alembic head
+- `scripts/db_check_linear_history.py` — enforces linear history and Create Date ordering
 - `scripts/db_migration_smoke.py` — runs migrations on a fresh DB (and upgrade-from-previous)
 - `scripts/db_check_drift.py` — detects drift between models and DB
+- `scripts/run_seed_scripts.py` — runs per-migration seed scripts in revision order
 
 ## Production Deployment
 

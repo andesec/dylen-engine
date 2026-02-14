@@ -1,0 +1,66 @@
+name: Promote Prod
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag in vX.Y.Z format"
+        required: true
+        type: string
+      source_image_ref:
+        description: "Stage image ref (e.g. us-central1-docker.pkg.dev/<stage-project>/<repo>/app:stage-current)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  promote-prod:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compute promotion inputs
+        id: inputs
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            release_tag="${GITHUB_REF_NAME}"
+          else
+            release_tag="${{ inputs.release_tag }}"
+          fi
+
+          source_image_ref="${{ inputs.source_image_ref }}"
+          if [[ -z "$source_image_ref" ]]; then
+            source_image_ref="${{ secrets.GCP_STAGE_REGISTRY_PATH }}/${{ secrets.GCP_STAGE_IMAGE_NAME }}:stage-current"
+          fi
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "source_image_ref=$source_image_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud (Prod)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_PROD_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_PROD_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Submit prod promotion Cloud Build
+        run: |
+          gcloud builds submit \
+            --project "${{ secrets.GCP_PROD_PROJECT_ID }}" \
+            --config cloudbuild-prod.promote.yml \
+            --substitutions "_REGION=${{ secrets.GCP_PROD_REGION }},_AR_REPO=${{ secrets.GCP_PROD_AR_REPO }},_IMAGE=${{ secrets.GCP_PROD_IMAGE_NAME }},_SERVICE=${{ secrets.GCP_PROD_SERVICE }},_MIGRATE_JOB=${{ secrets.GCP_PROD_MIGRATE_JOB }},_RUN_SA=${{ secrets.GCP_PROD_RUN_SERVICE_ACCOUNT }},_CLOUDSQL_INSTANCE=${{ secrets.GCP_PROD_CLOUD_SQL_INSTANCE }},_SOURCE_IMAGE_REF=${{ steps.inputs.outputs.source_image_ref }},_RELEASE_TAG=${{ steps.inputs.outputs.release_tag }}"

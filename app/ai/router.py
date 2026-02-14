@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from app.ai.errors import is_provider_error
 from app.ai.providers.audit import instrument_model
 from app.ai.providers.base import AIModel, ModelResponse, Provider, StructuredModelResponse
-from app.schema.lesson_catalog import _GATHERER_MODELS, _PLANNER_MODELS, _REPAIRER_MODELS, _STRUCTURER_MODELS
+from app.schema.lesson_catalog import _GATHERER_MODELS, _OUTCOMES_MODELS, _PLANNER_MODELS, _REPAIRER_MODELS, _STRUCTURER_MODELS
 
 if TYPE_CHECKING:
   pass
@@ -19,7 +19,6 @@ class ProviderMode(str, Enum):
   """Supported provider modes."""
 
   GEMINI = "gemini"
-  OPENROUTER = "openrouter"
   VERTEXAI = "vertexai"
 
 
@@ -30,10 +29,6 @@ def get_provider_for_mode(mode: str | ProviderMode) -> Provider:
     from app.ai.providers.gemini import GeminiProvider
 
     return GeminiProvider()
-  if key == ProviderMode.OPENROUTER.value:
-    from app.ai.providers.openrouter import OpenRouterProvider
-
-    return OpenRouterProvider()
   if key == ProviderMode.VERTEXAI.value:
     from app.ai.providers.vertex_ai import VertexAIProvider
 
@@ -50,32 +45,19 @@ def get_model_for_mode(mode: str | ProviderMode, model: str | None = None, *, ag
 
 
 def _build_model_sequence(provider: Provider, model: str | None, agent: str | None) -> list[str]:
-  """Build a fallback list of models to try for a provider."""
-  # Prefer the requested model, then the agent order, then provider defaults for fallback coverage.
-  available = list(getattr(provider, "_AVAILABLE_MODELS", []))
-  default_model = getattr(provider, "_DEFAULT_MODEL", None)
-  sequence: list[str] = []
-  agent_models = _ordered_agent_models(agent, available)
+  """Build a list containing *only* the target model to disable automatic fallbacks."""
+  # User request: "there should be only one call for planner and one for section"
+  # We strictly respect the requested model or the provider default.
 
-  if model:
-    sequence.append(model)
+  target_model = model or getattr(provider, "_DEFAULT_MODEL", None)
 
-  if agent_models:
-    # Rotate the agent list so retries walk the next model in order.
-    ordered = _rotate_models(agent_models, model) if model else agent_models
+  if target_model:
+    return [target_model]
 
-    for name in ordered:
-      if name not in sequence:
-        sequence.append(name)
-
-  if default_model and default_model not in sequence:
-    sequence.append(default_model)
-
-  for name in sorted(available):
-    if name not in sequence:
-      sequence.append(name)
-
-  return sequence
+  # If no model specified and no default, well, we can't do much.
+  # But this shouldn't happen given the provider contract.
+  # Fallback to empty list which rightfully causes an error downstream.
+  return []
 
 
 def _ordered_agent_models(agent: str | None, available: list[str]) -> list[str]:
@@ -101,7 +83,7 @@ def _rotate_models(models: list[str], start: str | None) -> list[str]:
   return models[start_index:] + models[:start_index]
 
 
-_AGENT_MODEL_ORDER: dict[str, list[str]] = {"gatherer": _GATHERER_MODELS, "gatherer_structurer": _GATHERER_MODELS, "planner": _PLANNER_MODELS, "structurer": _STRUCTURER_MODELS, "repairer": _REPAIRER_MODELS}
+_AGENT_MODEL_ORDER: dict[str, list[str]] = {"gatherer": _GATHERER_MODELS, "gatherer_structurer": _GATHERER_MODELS, "planner": _PLANNER_MODELS, "structurer": _STRUCTURER_MODELS, "repairer": _REPAIRER_MODELS, "outcomes": _OUTCOMES_MODELS}
 
 
 class FallbackModel(AIModel):
@@ -123,6 +105,10 @@ class FallbackModel(AIModel):
   async def generate_structured(self, prompt: str, schema: dict[str, Any]) -> StructuredModelResponse:
     """Generate structured output while falling back on provider/model errors."""
     return await self._attempt(lambda model: model.generate_structured(prompt, schema))
+
+  async def generate_image(self, prompt: str) -> bytes:
+    """Generate image bytes while falling back on provider/model errors."""
+    return await self._attempt(lambda model: model.generate_image(prompt))
 
   async def _attempt(self, func: Callable[[AIModel], Any]) -> Any:
     """Execute a model call with provider-aware fallbacks."""

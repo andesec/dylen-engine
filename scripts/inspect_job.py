@@ -7,7 +7,7 @@ if not settings.pg_dsn:
   print("Error: DYLEN_PG_DSN not set in environment.")
   exit(1)
 
-repo = PostgresJobsRepository(dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout, table_name=settings.pg_jobs_table)
+repo = PostgresJobsRepository(dsn=settings.pg_dsn, connect_timeout=settings.pg_connect_timeout, table_name="jobs")
 
 job_id = "66976cb7-d9e9-4042-8b27-e7c8076201e0"
 job = repo.get_job(job_id)

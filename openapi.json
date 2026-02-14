@@ -1,14 +1,29 @@
 {
   "components": {
     "schemas": {
-      "AgentModelOption": {
-        "description": "Valid model choices for a pipeline agent.",
+      "BasicInfo": {
         "properties": {
-          "agent": {
-            "title": "Agent",
+          "age": {
+            "description": "User's age",
+            "title": "Age",
+            "type": "integer"
+          },
+          "city": {
+            "description": "User's city",
+            "title": "City",
             "type": "string"
           },
-          "default": {
+          "country": {
+            "description": "User's country",
+            "title": "Country",
+            "type": "string"
+          },
+          "gender": {
+            "description": "User's gender",
+            "title": "Gender",
+            "type": "string"
+          },
+          "genderOther": {
             "anyOf": [
               {
                 "type": "string"
@@ -17,22 +32,17 @@
                 "type": "null"
               }
             ],
-            "title": "Default"
-          },
-          "options": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Options",
-            "type": "array"
+            "description": "Other gender description if applicable",
+            "title": "Genderother"
           }
         },
         "required": [
-          "agent",
-          "default",
-          "options"
+          "age",
+          "gender",
+          "city",
+          "country"
         ],
-        "title": "AgentModelOption",
+        "title": "BasicInfo",
         "type": "object"
       },
       "BatchResponse": {
@@ -104,52 +114,34 @@
         "title": "CandidateSource",
         "type": "object"
       },
-      "CurrentSectionStatus": {
+      "ChildJobStatus": {
         "additionalProperties": false,
-        "description": "Section status metadata for streaming job progress.",
+        "description": "Status payload for a child job.",
         "properties": {
-          "index": {
-            "description": "0-based index of the active section.",
-            "minimum": 0.0,
-            "title": "Index",
-            "type": "integer"
-          },
-          "retry_count": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Retry attempts for the active section when applicable.",
-            "title": "Retry Count"
-          },
-          "status": {
-            "description": "Section generation status.",
-            "title": "Status",
+          "job_id": {
+            "title": "Job Id",
             "type": "string"
           },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "processing",
+              "in_progress",
+              "done",
+              "error",
+              "canceled",
+              "superseded"
             ],
-            "description": "Title of the active section when known.",
-            "title": "Title"
+            "title": "Status",
+            "type": "string"
           }
         },
         "required": [
-          "index",
+          "job_id",
           "status"
         ],
-        "title": "CurrentSectionStatus",
+        "title": "ChildJobStatus",
         "type": "object"
       },
       "ExtractionResult": {
@@ -282,28 +274,21 @@
         "description": "Request payload for lesson generation.",
         "properties": {
           "blueprint": {
-            "anyOf": [
-              {
-                "enum": [
-                  "skillbuilding",
-                  "knowledgeunderstanding",
-                  "communicationskills",
-                  "planningandproductivity",
-                  "movementandfitness",
-                  "growthmindset",
-                  "criticalthinking",
-                  "creativeskills",
-                  "webdevandcoding",
-                  "languagepractice"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "description": "Required blueprint guidance for lesson planning.",
+            "enum": [
+              "skillbuilding",
+              "knowledgeunderstanding",
+              "communicationskills",
+              "planningandproductivity",
+              "movementandfitness",
+              "growthmindset",
+              "criticalthinking",
+              "creativeskills",
+              "webdevandcoding",
+              "languagepractice"
             ],
-            "description": "Optional blueprint or learning outcome guidance for lesson planning.",
-            "title": "Blueprint"
+            "title": "Blueprint",
+            "type": "string"
           },
           "depth": {
             "default": "highlights",
@@ -319,6 +304,7 @@
           "details": {
             "anyOf": [
               {
+                "maxLength": 300,
                 "minLength": 1,
                 "type": "string"
               },
@@ -326,7 +312,7 @@
                 "type": "null"
               }
             ],
-            "description": "Optional user-supplied details (max 250 words).",
+            "description": "Optional user-supplied details (max 300 characters).",
             "examples": [
               "Focus on lists and loops"
             ],
@@ -341,7 +327,7 @@
                 "type": "null"
               }
             ],
-            "description": "Idempotency key to prevent duplicate lesson generation.",
+            "description": "Optional client-generated UUID to prevent duplicate processing of the same request.",
             "title": "Idempotency Key"
           },
           "learner_level": {
@@ -357,25 +343,7 @@
             "description": "Optional learner level hint used for prompt guidance.",
             "title": "Learner Level"
           },
-          "models": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelsConfig"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional per-agent model selection overrides.",
-            "examples": [
-              {
-                "planner_model": "openai/gpt-oss-120b:free",
-                "repairer_model": "google/gemma-3-27b-it:free",
-                "section_builder_model": "xiaomi/mimo-v2-flash:free"
-              }
-            ]
-          },
-          "primary_language": {
+          "lesson_language": {
             "default": "English",
             "description": "Primary language for lesson output.",
             "enum": [
@@ -383,8 +351,18 @@
               "German",
               "Urdu"
             ],
-            "title": "Primary Language",
+            "title": "Lesson Language",
             "type": "string"
+          },
+          "outcomes": {
+            "description": "Required outcomes to guide the planner.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Outcomes",
+            "type": "array"
           },
           "schema_version": {
             "anyOf": [
@@ -398,25 +376,37 @@
             "description": "Optional schema version to pin the lesson output to.",
             "title": "Schema Version"
           },
-          "teaching_style": {
+          "secondary_language": {
             "anyOf": [
               {
-                "items": {
-                  "enum": [
-                    "conceptual",
-                    "theoretical",
-                    "practical"
-                  ],
-                  "type": "string"
-                },
-                "type": "array"
+                "enum": [
+                  "English",
+                  "German",
+                  "Urdu"
+                ],
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Optional teaching style or pedagogy guidance for lesson planning.",
-            "title": "Teaching Style"
+            "description": "Optional secondary language for language practice blueprint.",
+            "title": "Secondary Language"
+          },
+          "teaching_style": {
+            "description": "Required teaching style guidance for lesson planning.",
+            "items": {
+              "enum": [
+                "conceptual",
+                "theoretical",
+                "practical"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Teaching Style",
+            "type": "array"
           },
           "topic": {
             "description": "Topic to generate a lesson for.",
@@ -433,7 +423,7 @@
                 "items": {
                   "type": "string"
                 },
-                "maxItems": 8,
+                "maxItems": 7,
                 "minItems": 3,
                 "type": "array"
               },
@@ -446,41 +436,176 @@
           }
         },
         "required": [
-          "topic"
+          "topic",
+          "blueprint",
+          "teaching_style",
+          "outcomes"
         ],
         "title": "GenerateLessonRequest",
         "type": "object"
       },
-      "GenerateLessonResponse": {
-        "description": "Response payload for lesson generation.",
+      "GenerateOutcomesRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for outcomes preflight.",
         "properties": {
-          "lesson_id": {
-            "title": "Lesson Id",
+          "blueprint": {
+            "description": "Required blueprint guidance for lesson planning.",
+            "enum": [
+              "skillbuilding",
+              "knowledgeunderstanding",
+              "communicationskills",
+              "planningandproductivity",
+              "movementandfitness",
+              "growthmindset",
+              "criticalthinking",
+              "creativeskills",
+              "webdevandcoding",
+              "languagepractice"
+            ],
+            "title": "Blueprint",
             "type": "string"
           },
-          "lesson_json": {
-            "additionalProperties": true,
-            "title": "Lesson Json",
-            "type": "object"
+          "depth": {
+            "default": "highlights",
+            "description": "Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
+            "enum": [
+              "highlights",
+              "detailed",
+              "training"
+            ],
+            "title": "Depth",
+            "type": "string"
           },
-          "logs": {
+          "details": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional user-supplied details (max 300 characters).",
+            "examples": [
+              "Focus on lists and loops"
+            ],
+            "title": "Details"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional client-generated UUID to prevent duplicate processing of the same request.",
+            "title": "Idempotency Key"
+          },
+          "learner_level": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional learner level hint used for prompt guidance.",
+            "title": "Learner Level"
+          },
+          "lesson_language": {
+            "default": "English",
+            "description": "Primary language for lesson output.",
+            "enum": [
+              "English",
+              "German",
+              "Urdu"
+            ],
+            "title": "Lesson Language",
+            "type": "string"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional schema version to pin the lesson output to.",
+            "title": "Schema Version"
+          },
+          "secondary_language": {
+            "anyOf": [
+              {
+                "enum": [
+                  "English",
+                  "German",
+                  "Urdu"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional secondary language for language practice blueprint.",
+            "title": "Secondary Language"
+          },
+          "teaching_style": {
+            "description": "Required teaching style guidance for lesson planning.",
             "items": {
+              "enum": [
+                "conceptual",
+                "theoretical",
+                "practical"
+              ],
               "type": "string"
             },
-            "title": "Logs",
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Teaching Style",
             "type": "array"
           },
-          "meta": {
-            "$ref": "#/components/schemas/LessonMeta"
+          "topic": {
+            "description": "Topic to generate a lesson for.",
+            "examples": [
+              "Introduction to Python"
+            ],
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
+          },
+          "widgets": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 7,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional list of allowed widgets (overrides defaults).",
+            "title": "Widgets"
           }
         },
         "required": [
-          "lesson_id",
-          "lesson_json",
-          "meta",
-          "logs"
+          "topic",
+          "blueprint",
+          "teaching_style"
         ],
-        "title": "GenerateLessonResponse",
+        "title": "GenerateOutcomesRequest",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -496,11 +621,91 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "JobCreateRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for creating a background job.",
+        "properties": {
+          "idempotency_key": {
+            "description": "Client-generated key used to deduplicate submissions.",
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "job_kind": {
+            "enum": [
+              "lesson",
+              "research",
+              "youtube",
+              "maintenance",
+              "writing",
+              "system"
+            ],
+            "title": "Job Kind",
+            "type": "string"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional lesson identifier bound to this job.",
+            "title": "Lesson Id"
+          },
+          "parent_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional parent job id for child job creation.",
+            "title": "Parent Job Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "Agent-specific payload.",
+            "title": "Payload",
+            "type": "object"
+          },
+          "section_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional section row id bound to this job.",
+            "title": "Section Id"
+          },
+          "target_agent": {
+            "minLength": 1,
+            "title": "Target Agent",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_kind",
+          "target_agent",
+          "idempotency_key"
+        ],
+        "title": "JobCreateRequest",
+        "type": "object"
+      },
       "JobCreateResponse": {
         "description": "Response payload for job creation.",
         "properties": {
           "expected_sections": {
-            "description": "Total number of sections expected for the lesson job (0 for non-lesson jobs).",
+            "default": 0,
+            "description": "Total number of sections expected for lesson jobs.",
             "minimum": 0.0,
             "title": "Expected Sections",
             "type": "integer"
@@ -511,8 +716,7 @@
           }
         },
         "required": [
-          "job_id",
-          "expected_sections"
+          "job_id"
         ],
         "title": "JobCreateResponse",
         "type": "object"
@@ -638,6 +842,18 @@
             ],
             "title": "Current Section Title"
           },
+          "error_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Json"
+          },
           "expected_sections": {
             "anyOf": [
               {
@@ -664,6 +880,29 @@
             "title": "Job Id",
             "type": "string"
           },
+          "job_kind": {
+            "enum": [
+              "lesson",
+              "research",
+              "youtube",
+              "maintenance",
+              "writing",
+              "system"
+            ],
+            "title": "Job Kind",
+            "type": "string"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Id"
+          },
           "logs": {
             "items": {
               "type": "string"
@@ -681,6 +920,17 @@
               }
             ],
             "title": "Max Retries"
+          },
+          "parent_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Job Id"
           },
           "phase": {
             "anyOf": [
@@ -720,6 +970,17 @@
               }
             ],
             "title": "Result Json"
+          },
+          "resume_source_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Source Job Id"
           },
           "retry_agents": {
             "anyOf": [
@@ -771,13 +1032,49 @@
             ],
             "title": "Retry Sections"
           },
+          "root_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Job Id"
+          },
+          "section_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
           "status": {
             "enum": [
               "queued",
               "running",
+              "processing",
+              "in_progress",
               "done",
               "error",
-              "canceled"
+              "canceled",
+              "superseded"
             ],
             "title": "Status",
             "type": "string"
@@ -792,6 +1089,17 @@
               }
             ],
             "title": "Subphase"
+          },
+          "superseded_by_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By Job Id"
           },
           "target_agent": {
             "anyOf": [
@@ -830,6 +1138,17 @@
             "title": "Updated At",
             "type": "string"
           },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
           "validation": {
             "anyOf": [
               {
@@ -845,6 +1164,8 @@
         },
         "required": [
           "job_id",
+          "user_id",
+          "job_kind",
           "request",
           "status",
           "created_at",
@@ -864,8 +1185,9 @@
                   "enum": [
                     "planner",
                     "section_builder",
-                    "repair",
-                    "stitcher"
+                    "illustration",
+                    "tutor",
+                    "fenster_builder"
                   ],
                   "type": "string"
                 },
@@ -898,9 +1220,23 @@
         "type": "object"
       },
       "JobStatusResponse": {
-        "description": "Status payload for an asynchronous job.",
+        "description": "Status payload for a background job.",
         "properties": {
-          "completed_at": {
+          "child_jobs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ChildJobStatus"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child Jobs"
+          },
+          "follow_from_job_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -909,113 +1245,13 @@
                 "type": "null"
               }
             ],
-            "title": "Completed At"
-          },
-          "completed_section_indexes": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "0-based section indexes that have been completed so far.",
-            "title": "Completed Section Indexes"
-          },
-          "completed_sections": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Number of lesson sections completed so far.",
-            "title": "Completed Sections"
-          },
-          "completed_steps": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Completed progress steps when available.",
-            "title": "Completed Steps"
-          },
-          "cost": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cost"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "current_section": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CurrentSectionStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "expected_sections": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Total number of expected sections for lesson jobs.",
-            "title": "Expected Sections"
+            "title": "Follow From Job Id"
           },
           "job_id": {
             "title": "Job Id",
             "type": "string"
           },
-          "logs": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Logs",
-            "type": "array"
-          },
-          "max_retries": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Maximum retry attempts allowed for this job.",
-            "title": "Max Retries"
-          },
-          "phase": {
+          "lesson_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -1024,89 +1260,45 @@
                 "type": "null"
               }
             ],
-            "title": "Phase"
+            "title": "Lesson Id"
           },
-          "progress": {
+          "requested_job_id": {
             "anyOf": [
               {
-                "maximum": 100.0,
-                "minimum": 0.0,
-                "type": "number"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Progress percent (0-100) when available.",
-            "title": "Progress"
+            "title": "Requested Job Id"
           },
-          "result": {
+          "resolved_job_id": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Result"
-          },
-          "retry_agents": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pipeline agents targeted for retry, when applicable.",
-            "title": "Retry Agents"
-          },
-          "retry_count": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Retry attempts already used for this job.",
-            "title": "Retry Count"
-          },
-          "retry_sections": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "0-based section indexes targeted for retry, when applicable.",
-            "title": "Retry Sections"
+            "title": "Resolved Job Id"
           },
           "status": {
             "enum": [
               "queued",
               "running",
+              "processing",
+              "in_progress",
               "done",
               "error",
-              "canceled"
+              "canceled",
+              "superseded"
             ],
             "title": "Status",
             "type": "string"
           },
-          "subphase": {
+          "superseded_by_job_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -1115,55 +1307,67 @@
                 "type": "null"
               }
             ],
-            "title": "Subphase"
+            "title": "Superseded By Job Id"
           },
-          "total_steps": {
+          "superseded_job_id": {
             "anyOf": [
               {
-                "minimum": 1.0,
-                "type": "integer"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Total number of progress steps when available.",
-            "title": "Total Steps"
+            "title": "Superseded Job Id"
           },
-          "updated_at": {
-            "title": "Updated At",
-            "type": "string"
-          },
-          "validation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ValidationResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "was_superseded": {
+            "default": false,
+            "title": "Was Superseded",
+            "type": "boolean"
           }
         },
         "required": [
           "job_id",
-          "status",
-          "created_at",
-          "updated_at"
+          "status"
         ],
         "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "LegalConsent": {
+        "properties": {
+          "acceptedPrivacy": {
+            "description": "Whether privacy policy is accepted",
+            "title": "Acceptedprivacy",
+            "type": "boolean"
+          },
+          "acceptedTerms": {
+            "description": "Whether terms of service are accepted",
+            "title": "Acceptedterms",
+            "type": "boolean"
+          },
+          "privacyVersion": {
+            "description": "Version of the privacy policy accepted",
+            "title": "Privacyversion",
+            "type": "string"
+          },
+          "termsVersion": {
+            "description": "Version of the terms accepted",
+            "title": "Termsversion",
+            "type": "string"
+          }
+        },
+        "required": [
+          "acceptedTerms",
+          "acceptedPrivacy",
+          "termsVersion",
+          "privacyVersion"
+        ],
+        "title": "LegalConsent",
         "type": "object"
       },
       "LessonCatalogResponse": {
         "description": "Response payload for lesson option metadata.",
         "properties": {
-          "agent_models": {
-            "items": {
-              "$ref": "#/components/schemas/AgentModelOption"
-            },
-            "title": "Agent Models",
-            "type": "array"
-          },
           "blueprints": {
             "items": {
               "$ref": "#/components/schemas/OptionDetail"
@@ -1219,44 +1423,96 @@
           "learner_levels",
           "depths",
           "widgets",
-          "agent_models",
           "default_widgets"
         ],
         "title": "LessonCatalogResponse",
         "type": "object"
       },
-      "LessonMeta": {
-        "description": "Metadata about the lesson generation process.",
+      "LessonGenerationTask": {
         "properties": {
-          "latency_ms": {
-            "title": "Latency Ms",
-            "type": "integer"
-          },
-          "model_a": {
-            "title": "Model A",
+          "job_id": {
+            "title": "Job Id",
             "type": "string"
           },
-          "model_b": {
-            "title": "Model B",
+          "lesson_id": {
+            "title": "Lesson Id",
             "type": "string"
           },
-          "provider_a": {
-            "title": "Provider A",
-            "type": "string"
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
           },
-          "provider_b": {
-            "title": "Provider B",
+          "user_id": {
+            "title": "User Id",
             "type": "string"
           }
         },
         "required": [
-          "provider_a",
-          "model_a",
-          "provider_b",
-          "model_b",
-          "latency_ms"
+          "lesson_id",
+          "job_id",
+          "params",
+          "user_id"
         ],
-        "title": "LessonMeta",
+        "title": "LessonGenerationTask",
+        "type": "object"
+      },
+      "LessonJobResponse": {
+        "description": "Response payload for async lesson generation.",
+        "properties": {
+          "expected_sections": {
+            "default": 0,
+            "description": "Total number of sections expected for lesson jobs.",
+            "minimum": 0.0,
+            "title": "Expected Sections",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "lesson_id"
+        ],
+        "title": "LessonJobResponse",
+        "type": "object"
+      },
+      "LessonOutlineResponse": {
+        "description": "Lesson title, topic, and section outline.",
+        "properties": {
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/SectionOutline"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "topic",
+          "title",
+          "sections"
+        ],
+        "title": "LessonOutlineResponse",
         "type": "object"
       },
       "LessonRecord": {
@@ -1276,6 +1532,11 @@
             ],
             "title": "Idempotency Key"
           },
+          "is_archived": {
+            "default": false,
+            "title": "Is Archived",
+            "type": "boolean"
+          },
           "latency_ms": {
             "title": "Latency Ms",
             "type": "integer"
@@ -1284,9 +1545,28 @@
             "title": "Lesson Id",
             "type": "string"
           },
-          "lesson_json": {
-            "title": "Lesson Json",
-            "type": "string"
+          "lesson_plan": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Plan"
+          },
+          "lesson_request_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Request Id"
           },
           "model_a": {
             "title": "Model A",
@@ -1338,10 +1618,22 @@
           "topic": {
             "title": "Topic",
             "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           }
         },
         "required": [
           "lesson_id",
+          "user_id",
           "topic",
           "title",
           "created_at",
@@ -1351,7 +1643,6 @@
           "model_a",
           "provider_b",
           "model_b",
-          "lesson_json",
           "status",
           "latency_ms"
         ],
@@ -1369,21 +1660,12 @@
             "title": "Lesson Id",
             "type": "string"
           },
-          "lesson_json": {
-            "additionalProperties": true,
-            "title": "Lesson Json",
-            "type": "object"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/LessonMeta"
-          },
-          "prompt_version": {
-            "title": "Prompt Version",
-            "type": "string"
-          },
-          "schema_version": {
-            "title": "Schema Version",
-            "type": "string"
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/SectionSummary"
+            },
+            "title": "Sections",
+            "type": "array"
           },
           "title": {
             "title": "Title",
@@ -1399,15 +1681,13 @@
           "topic",
           "title",
           "created_at",
-          "schema_version",
-          "prompt_version",
-          "lesson_json",
-          "meta"
+          "sections"
         ],
         "title": "LessonRecordResponse",
         "type": "object"
       },
-      "LlmAuditRecord": {
+      "LlmAuditCallWithCost": {
+        "description": "Audit record with calculated cost data integrated.",
         "properties": {
           "agent": {
             "title": "Agent",
@@ -1434,6 +1714,14 @@
               }
             ],
             "title": "Completion Tokens"
+          },
+          "cost_missing": {
+            "title": "Cost Missing",
+            "type": "boolean"
+          },
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "number"
           },
           "duration_ms": {
             "title": "Duration Ms",
@@ -1504,7 +1792,7 @@
           },
           "record_id": {
             "title": "Record Id",
-            "type": "string"
+            "type": "integer"
           },
           "request_payload": {
             "title": "Request Payload",
@@ -1583,9 +1871,271 @@
           "call_index",
           "job_id",
           "status",
-          "error_message"
+          "error_message",
+          "cost_usd",
+          "cost_missing"
         ],
-        "title": "LlmAuditRecord",
+        "title": "LlmAuditCallWithCost",
+        "type": "object"
+      },
+      "LlmJobCostRecord": {
+        "properties": {
+          "call_count": {
+            "title": "Call Count",
+            "type": "integer"
+          },
+          "cost_missing_count": {
+            "title": "Cost Missing Count",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "total_cost_usd",
+          "total_tokens",
+          "call_count",
+          "cost_missing_count"
+        ],
+        "title": "LlmJobCostRecord",
+        "type": "object"
+      },
+      "LlmJobCostsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LlmJobCostRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "LlmJobCostsResponse",
+        "type": "object"
+      },
+      "LlmPricingCall": {
+        "properties": {
+          "completion_tokens": {
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "cost_missing": {
+            "title": "Cost Missing",
+            "type": "boolean"
+          },
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "fenster_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fenster Id"
+          },
+          "fenster_public_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fenster Public Id"
+          },
+          "illustration_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Illustration Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Id"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "integer"
+          },
+          "section_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Id"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "tutor_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Id"
+          }
+        },
+        "required": [
+          "record_id",
+          "started_at",
+          "provider",
+          "model",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "cost_usd",
+          "cost_missing",
+          "status",
+          "job_id",
+          "lesson_id",
+          "section_id",
+          "illustration_id",
+          "tutor_id",
+          "fenster_id",
+          "fenster_public_id"
+        ],
+        "title": "LlmPricingCall",
+        "type": "object"
+      },
+      "LlmPricingResponse": {
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/LlmPricingCall"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/LlmPricingSummary"
+          }
+        },
+        "required": [
+          "summary",
+          "calls"
+        ],
+        "title": "LlmPricingResponse",
+        "type": "object"
+      },
+      "LlmPricingSummary": {
+        "properties": {
+          "call_count": {
+            "title": "Call Count",
+            "type": "integer"
+          },
+          "cost_missing_count": {
+            "title": "Cost Missing Count",
+            "type": "integer"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "target_type": {
+            "title": "Target Type",
+            "type": "string"
+          },
+          "total_completion_tokens": {
+            "title": "Total Completion Tokens",
+            "type": "integer"
+          },
+          "total_cost_usd": {
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_prompt_tokens": {
+            "title": "Total Prompt Tokens",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_type",
+          "target_id",
+          "total_cost_usd",
+          "total_prompt_tokens",
+          "total_completion_tokens",
+          "total_tokens",
+          "call_count",
+          "cost_missing_count"
+        ],
+        "title": "LlmPricingSummary",
         "type": "object"
       },
       "LoginRequest": {
@@ -1601,57 +2151,275 @@
         "title": "LoginRequest",
         "type": "object"
       },
-      "ModelsConfig": {
-        "additionalProperties": false,
-        "description": "Per-agent model selection overrides.",
+      "MaintenanceJobResponse": {
         "properties": {
-          "planner_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Model used for the planner agent (provider inferred when possible).",
-            "examples": [
-              "openai/gpt-oss-120b:free"
-            ],
-            "title": "Planner Model"
-          },
-          "repairer_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Model used for repair validation and fixes (provider inferred when possible).",
-            "examples": [
-              "google/gemma-3-27b-it:free"
-            ],
-            "title": "Repairer Model"
-          },
-          "section_builder_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Model used for the section builder agent (provider inferred when possible).",
-            "examples": [
-              "xiaomi/mimo-v2-flash:free"
-            ],
-            "title": "Section Builder Model"
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
           }
         },
-        "title": "ModelsConfig",
+        "required": [
+          "job_id"
+        ],
+        "title": "MaintenanceJobResponse",
+        "type": "object"
+      },
+      "ModeFlagsRecord": {
+        "properties": {
+          "tutor_mode_enabled": {
+            "title": "Tutor Mode Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tutor_mode_enabled"
+        ],
+        "title": "ModeFlagsRecord",
+        "type": "object"
+      },
+      "ModeFlagsUpdateRequest": {
+        "properties": {
+          "tutor_mode_enabled": {
+            "title": "Tutor Mode Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tutor_mode_enabled"
+        ],
+        "title": "ModeFlagsUpdateRequest",
+        "type": "object"
+      },
+      "OnboardingProfileRecord": {
+        "properties": {
+          "accepted_privacy_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Privacy At"
+          },
+          "accepted_terms_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Terms At"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "gender_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender Other"
+          },
+          "intended_use": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intended Use"
+          },
+          "intended_use_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intended Use Other"
+          },
+          "occupation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occupation"
+          },
+          "onboarding_completed": {
+            "title": "Onboarding Completed",
+            "type": "boolean"
+          },
+          "primary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Language"
+          },
+          "privacy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Privacy Version"
+          },
+          "secondary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Language"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "terms_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms Version"
+          },
+          "topics_of_interest": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topics Of Interest"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "status",
+          "onboarding_completed",
+          "age",
+          "gender",
+          "gender_other",
+          "city",
+          "country",
+          "occupation",
+          "topics_of_interest",
+          "intended_use",
+          "intended_use_other",
+          "primary_language",
+          "secondary_language",
+          "accepted_terms_at",
+          "accepted_privacy_at",
+          "terms_version",
+          "privacy_version"
+        ],
+        "title": "OnboardingProfileRecord",
+        "type": "object"
+      },
+      "OnboardingRequest": {
+        "properties": {
+          "basic": {
+            "$ref": "#/components/schemas/BasicInfo"
+          },
+          "legal": {
+            "$ref": "#/components/schemas/LegalConsent"
+          },
+          "personalization": {
+            "$ref": "#/components/schemas/Personalization"
+          }
+        },
+        "required": [
+          "basic",
+          "personalization",
+          "legal"
+        ],
+        "title": "OnboardingRequest",
         "type": "object"
       },
       "OptionDetail": {
@@ -1703,6 +2471,77 @@
           "logs"
         ],
         "title": "OrchestrationFailureResponse",
+        "type": "object"
+      },
+      "OutcomesAgentResponse": {
+        "additionalProperties": false,
+        "description": "Structured response from the outcomes agent.\n\nHow/Why:\n  - We need a stable, machine-validated response that can be returned directly from an API endpoint.\n  - The response intentionally supports a deny-path when a topic is disallowed.",
+        "properties": {
+          "blocked_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sexual",
+                  "political",
+                  "military",
+                  "invalid_input"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "High-level category used when blocking a topic.",
+            "title": "Blocked Category"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "const": "TOPIC_NOT_ALLOWED",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Simple error code when the topic is blocked.",
+            "title": "Error"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable reason shown to end users when the topic is blocked.",
+            "title": "Message"
+          },
+          "ok": {
+            "description": "True when the topic is allowed and outcomes were generated.",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "outcomes": {
+            "description": "A small list of straightforward learning outcomes.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 0,
+            "title": "Outcomes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "OutcomesAgentResponse",
         "type": "object"
       },
       "PaginatedResponse_JobRecord_": {
@@ -1767,11 +2606,11 @@
         "title": "PaginatedResponse[LessonRecord]",
         "type": "object"
       },
-      "PaginatedResponse_LlmAuditRecord_": {
+      "PaginatedResponse_LlmAuditCallWithCost_": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/LlmAuditRecord"
+              "$ref": "#/components/schemas/LlmAuditCallWithCost"
             },
             "title": "Items",
             "type": "array"
@@ -1795,7 +2634,7 @@
           "limit",
           "offset"
         ],
-        "title": "PaginatedResponse[LlmAuditRecord]",
+        "title": "PaginatedResponse[LlmAuditCallWithCost]",
         "type": "object"
       },
       "PaginatedResponse_UserRecord_": {
@@ -1864,15 +2703,517 @@
         "title": "PermissionRecord",
         "type": "object"
       },
-      "ProviderMode": {
-        "description": "Supported provider modes.",
-        "enum": [
-          "gemini",
-          "openrouter",
-          "vertexai"
+      "Personalization": {
+        "properties": {
+          "intendedUse": {
+            "description": "Intended use of the platform",
+            "title": "Intendeduse",
+            "type": "string"
+          },
+          "intendedUseOther": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Other intended use if applicable",
+            "title": "Intendeduseother"
+          },
+          "occupation": {
+            "description": "User's occupation",
+            "title": "Occupation",
+            "type": "string"
+          },
+          "primaryLanguage": {
+            "description": "Primary language code (e.g., 'en', 'es')",
+            "title": "Primarylanguage",
+            "type": "string"
+          },
+          "secondaryLanguage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Secondary language code (e.g., 'de') or null",
+            "title": "Secondarylanguage"
+          },
+          "topicsOfInterest": {
+            "description": "List of topics user is interested in",
+            "items": {
+              "type": "string"
+            },
+            "title": "Topicsofinterest",
+            "type": "array"
+          }
+        },
+        "required": [
+          "occupation",
+          "topicsOfInterest",
+          "intendedUse",
+          "primaryLanguage"
         ],
-        "title": "ProviderMode",
-        "type": "string"
+        "title": "Personalization",
+        "type": "object"
+      },
+      "PromoQuotaOverrideRequest": {
+        "properties": {
+          "concurrent_lesson_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Lesson Limit"
+          },
+          "concurrent_research_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Research Limit"
+          },
+          "concurrent_tutor_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Tutor Limit"
+          },
+          "concurrent_writing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Writing Limit"
+          },
+          "file_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Upload Quota"
+          },
+          "gen_sections_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gen Sections Quota"
+          },
+          "image_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Upload Quota"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "research_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Quota"
+          },
+          "tutor_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Mode Enabled"
+          }
+        },
+        "title": "PromoQuotaOverrideRequest",
+        "type": "object"
+      },
+      "PromoQuotaOverrideResponse": {
+        "properties": {
+          "concurrent_lesson_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Lesson Limit"
+          },
+          "concurrent_research_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Research Limit"
+          },
+          "concurrent_tutor_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Tutor Limit"
+          },
+          "concurrent_writing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Writing Limit"
+          },
+          "file_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Upload Quota"
+          },
+          "gen_sections_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gen Sections Quota"
+          },
+          "image_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Upload Quota"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "research_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Quota"
+          },
+          "tutor_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Mode Enabled"
+          }
+        },
+        "required": [
+          "max_file_upload_kb",
+          "file_upload_quota",
+          "image_upload_quota",
+          "gen_sections_quota",
+          "research_quota",
+          "concurrent_lesson_limit",
+          "concurrent_research_limit",
+          "concurrent_writing_limit",
+          "concurrent_tutor_limit",
+          "tutor_mode_enabled"
+        ],
+        "title": "PromoQuotaOverrideResponse",
+        "type": "object"
+      },
+      "PushSubscribeRequest": {
+        "additionalProperties": false,
+        "description": "Standard browser push subscription object payload.",
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "expirationTime": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expirationtime"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/PushSubscriptionKeys"
+          }
+        },
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "title": "PushSubscribeRequest",
+        "type": "object"
+      },
+      "PushSubscriptionKeys": {
+        "additionalProperties": false,
+        "description": "Browser-provided key material for Web Push encryption.",
+        "properties": {
+          "auth": {
+            "maxLength": 256,
+            "minLength": 16,
+            "title": "Auth",
+            "type": "string"
+          },
+          "p256dh": {
+            "maxLength": 512,
+            "minLength": 40,
+            "title": "P256Dh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "PushSubscriptionKeys",
+        "type": "object"
+      },
+      "PushUnsubscribeRequest": {
+        "additionalProperties": false,
+        "description": "Payload for deleting an existing push subscription.",
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "PushUnsubscribeRequest",
+        "type": "object"
+      },
+      "QuotaEntry": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "boolean"
+          },
+          "used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "period",
+          "limit",
+          "used",
+          "remaining",
+          "available",
+          "tracked"
+        ],
+        "title": "QuotaEntry",
+        "type": "object"
+      },
+      "QuotaSummaryEntry": {
+        "properties": {
+          "available": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "resource": {
+            "title": "Resource",
+            "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "resource",
+          "total",
+          "available"
+        ],
+        "title": "QuotaSummaryEntry",
+        "type": "object"
+      },
+      "QuotaSummaryResponse": {
+        "properties": {
+          "details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedQuota"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quotas": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaSummaryEntry"
+            },
+            "title": "Quotas",
+            "type": "array"
+          },
+          "tier_name": {
+            "title": "Tier Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier_name"
+        ],
+        "title": "QuotaSummaryResponse",
+        "type": "object"
       },
       "ResearchDiscoveryRequest": {
         "additionalProperties": false,
@@ -1978,20 +3319,12 @@
       },
       "ResolvedQuota": {
         "properties": {
-          "coach_mode_enabled": {
-            "title": "Coach Mode Enabled",
-            "type": "boolean"
-          },
-          "coach_voice_tier": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coach Voice Tier"
+          "availability": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Availability",
+            "type": "object"
           },
           "highest_lesson_depth": {
             "anyOf": [
@@ -2025,6 +3358,13 @@
               }
             ],
             "title": "Max Sections Per Lesson"
+          },
+          "quota_entries": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaEntry"
+            },
+            "title": "Quota Entries",
+            "type": "array"
           },
           "remaining_file_uploads": {
             "anyOf": [
@@ -2117,6 +3457,21 @@
               }
             ],
             "title": "Total Sections"
+          },
+          "tutor_mode_enabled": {
+            "title": "Tutor Mode Enabled",
+            "type": "boolean"
+          },
+          "tutor_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Voice Tier"
           }
         },
         "required": [
@@ -2132,8 +3487,8 @@
           "remaining_image_uploads",
           "remaining_sections",
           "remaining_research",
-          "coach_mode_enabled",
-          "coach_voice_tier"
+          "tutor_mode_enabled",
+          "tutor_voice_tier"
         ],
         "title": "ResolvedQuota",
         "type": "object"
@@ -2303,7 +3658,8 @@
             "enum": [
               "GLOBAL",
               "TIER",
-              "TENANT"
+              "TENANT",
+              "USER"
             ],
             "title": "Scope",
             "type": "string"
@@ -2319,6 +3675,17 @@
             ],
             "title": "Tier Name"
           },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
           "value": {
             "title": "Value"
           }
@@ -2329,6 +3696,100 @@
           "value"
         ],
         "title": "RuntimeConfigSetRequest",
+        "type": "object"
+      },
+      "SectionOutline": {
+        "description": "Title of a section and its subsections.",
+        "properties": {
+          "subsections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Subsections",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "subsections"
+        ],
+        "title": "SectionOutline",
+        "type": "object"
+      },
+      "SectionShorthandBackfillRequest": {
+        "properties": {
+          "section_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Section Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "section_ids"
+        ],
+        "title": "SectionShorthandBackfillRequest",
+        "type": "object"
+      },
+      "SectionShorthandBackfillResponse": {
+        "properties": {
+          "failed": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "object"
+          },
+          "missing_section_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Missing Section Ids",
+            "type": "array"
+          },
+          "updated_section_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Updated Section Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "updated_section_ids",
+          "missing_section_ids",
+          "failed"
+        ],
+        "title": "SectionShorthandBackfillResponse",
+        "type": "object"
+      },
+      "SectionSummary": {
+        "description": "Summary of a lesson section.",
+        "properties": {
+          "section_id": {
+            "title": "Section Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "section_id",
+          "title",
+          "status"
+        ],
+        "title": "SectionSummary",
         "type": "object"
       },
       "SignupRequest": {
@@ -2485,15 +3946,478 @@
         "title": "TaskPayload",
         "type": "object"
       },
-      "UserRecord": {
+      "TierRecord": {
         "properties": {
+          "concurrent_lesson_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Lesson Limit"
+          },
+          "concurrent_research_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Research Limit"
+          },
+          "concurrent_tutor_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Tutor Limit"
+          },
+          "concurrent_writing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Writing Limit"
+          },
+          "file_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Upload Quota"
+          },
+          "gen_sections_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gen Sections Quota"
+          },
+          "highest_lesson_depth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Lesson Depth"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "image_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Upload Quota"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "max_sections_per_lesson": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sections Per Lesson"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "research_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Quota"
+          },
+          "tutor_mode_enabled": {
+            "title": "Tutor Mode Enabled",
+            "type": "boolean"
+          },
+          "tutor_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Voice Tier"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "max_file_upload_kb",
+          "highest_lesson_depth",
+          "max_sections_per_lesson",
+          "file_upload_quota",
+          "image_upload_quota",
+          "gen_sections_quota",
+          "research_quota",
+          "concurrent_lesson_limit",
+          "concurrent_research_limit",
+          "concurrent_writing_limit",
+          "concurrent_tutor_limit",
+          "tutor_mode_enabled",
+          "tutor_voice_tier"
+        ],
+        "title": "TierRecord",
+        "type": "object"
+      },
+      "TierUpdateRequest": {
+        "properties": {
+          "concurrent_lesson_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Lesson Limit"
+          },
+          "concurrent_research_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Research Limit"
+          },
+          "concurrent_tutor_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Tutor Limit"
+          },
+          "concurrent_writing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrent Writing Limit"
+          },
+          "file_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Upload Quota"
+          },
+          "gen_sections_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gen Sections Quota"
+          },
+          "highest_lesson_depth": {
+            "anyOf": [
+              {
+                "enum": [
+                  "highlights",
+                  "detailed",
+                  "training"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Lesson Depth"
+          },
+          "image_upload_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Upload Quota"
+          },
+          "max_file_upload_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Upload Kb"
+          },
+          "max_sections_per_lesson": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sections Per Lesson"
+          },
+          "research_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Quota"
+          },
+          "tutor_mode_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Mode Enabled"
+          },
+          "tutor_voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tutor Voice Tier"
+          }
+        },
+        "title": "TierUpdateRequest",
+        "type": "object"
+      },
+      "UserDetailResponse": {
+        "description": "Complete user details for admin view.",
+        "properties": {
+          "accepted_privacy_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Privacy At"
+          },
+          "accepted_terms_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Terms At"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "auth_method": {
+            "title": "Auth Method",
+            "type": "string"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
           "email": {
             "title": "Email",
             "type": "string"
           },
+          "firebase_uid": {
+            "title": "Firebase Uid",
+            "type": "string"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "gender_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender Other"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "intended_use": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intended Use"
+          },
+          "intended_use_other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intended Use Other"
+          },
+          "is_discarded": {
+            "title": "Is Discarded",
+            "type": "boolean"
+          },
+          "occupation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occupation"
+          },
+          "onboarding_completed": {
+            "title": "Onboarding Completed",
+            "type": "boolean"
           },
           "org_id": {
             "anyOf": [
@@ -2506,9 +4430,355 @@
             ],
             "title": "Org Id"
           },
+          "org_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Name"
+          },
+          "photo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photo Url"
+          },
+          "primary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Language"
+          },
+          "privacy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Privacy Version"
+          },
+          "profession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profession"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
           "role_id": {
             "title": "Role Id",
             "type": "string"
+          },
+          "role_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Name"
+          },
+          "secondary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Language"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "terms_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms Version"
+          },
+          "topics_of_interest": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topics Of Interest"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "firebase_uid",
+          "email",
+          "full_name",
+          "provider",
+          "role_id",
+          "role_name",
+          "org_id",
+          "org_name",
+          "status",
+          "is_discarded",
+          "auth_method",
+          "profession",
+          "city",
+          "country",
+          "age",
+          "photo_url",
+          "gender",
+          "gender_other",
+          "occupation",
+          "topics_of_interest",
+          "intended_use",
+          "intended_use_other",
+          "primary_language",
+          "secondary_language",
+          "onboarding_completed",
+          "accepted_terms_at",
+          "accepted_privacy_at",
+          "terms_version",
+          "privacy_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "UserDetailResponse",
+        "type": "object"
+      },
+      "UserEnabledUpdateRequest": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "UserEnabledUpdateRequest",
+        "type": "object"
+      },
+      "UserPromoResponse": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "feature_overrides": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Feature Overrides",
+            "type": "object"
+          },
+          "quota_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoQuotaOverrideResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "tier_name": {
+            "title": "Tier Name",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "tier_name",
+          "starts_at",
+          "expires_at",
+          "quota_overrides",
+          "feature_overrides"
+        ],
+        "title": "UserPromoResponse",
+        "type": "object"
+      },
+      "UserPromoUpdateRequest": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "feature_overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Overrides"
+          },
+          "quota_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoQuotaOverrideRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "tier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Name"
+          }
+        },
+        "required": [
+          "expires_at"
+        ],
+        "title": "UserPromoUpdateRequest",
+        "type": "object"
+      },
+      "UserRecord": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_discarded": {
+            "title": "Is Discarded",
+            "type": "boolean"
+          },
+          "org_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Id"
+          },
+          "org_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Name"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "role_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Name"
           },
           "status": {
             "$ref": "#/components/schemas/UserStatus"
@@ -2518,10 +4788,26 @@
           "id",
           "email",
           "status",
+          "is_discarded",
           "role_id",
-          "org_id"
+          "role_name",
+          "org_id",
+          "org_name"
         ],
         "title": "UserRecord",
+        "type": "object"
+      },
+      "UserRoleNameUpdateRequest": {
+        "properties": {
+          "role_name": {
+            "title": "Role Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_name"
+        ],
+        "title": "UserRoleNameUpdateRequest",
         "type": "object"
       },
       "UserRoleUpdateRequest": {
@@ -2541,7 +4827,8 @@
         "enum": [
           "PENDING",
           "APPROVED",
-          "DISABLED"
+          "DISABLED",
+          "REJECTED"
         ],
         "title": "UserStatus",
         "type": "string"
@@ -2580,6 +4867,19 @@
         "title": "UserStatusUpdateRequest",
         "type": "object"
       },
+      "UserTierUpdateRequest": {
+        "properties": {
+          "tier_name": {
+            "title": "Tier Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier_name"
+        ],
+        "title": "UserTierUpdateRequest",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -2613,33 +4913,30 @@
         "title": "ValidationError",
         "type": "object"
       },
-      "ValidationResponse": {
-        "description": "Response model for lesson validation results.",
-        "properties": {
-          "errors": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Errors",
-            "type": "array"
-          },
-          "ok": {
-            "title": "Ok",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "ok",
-          "errors"
-        ],
-        "title": "ValidationResponse",
-        "type": "object"
-      },
       "WritingCheckRequest": {
         "additionalProperties": false,
         "description": "Request payload for response evaluation.",
         "properties": {
-          "checker_model": {
+          "criteria": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Legacy evaluation criteria (deprecated).",
+            "title": "Criteria"
+          },
+          "text": {
+            "description": "The user-written response to check (max 300 words).",
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "widget_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -2648,30 +4945,62 @@
                 "type": "null"
               }
             ],
-            "description": "Optional model override for writing evaluation (provider inferred when possible).",
-            "examples": [
-              "openai/gpt-oss-120b:free"
-            ],
-            "title": "Checker Model"
-          },
-          "criteria": {
-            "additionalProperties": true,
-            "description": "The evaluation criteria from the lesson.",
-            "title": "Criteria",
-            "type": "object"
-          },
-          "text": {
-            "description": "The user-written response to check (max 300 words).",
-            "minLength": 1,
-            "title": "Text",
-            "type": "string"
+            "description": "Public subsection widget id being checked.",
+            "title": "Widget Id"
           }
         },
         "required": [
-          "text",
-          "criteria"
+          "text"
         ],
         "title": "WritingCheckRequest",
+        "type": "object"
+      },
+      "WritingCheckResult": {
+        "properties": {
+          "feedback": {
+            "title": "Feedback",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "total_cost": {
+            "title": "Total Cost",
+            "type": "number"
+          },
+          "usage": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Usage",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "issues",
+          "feedback",
+          "logs",
+          "usage",
+          "total_cost"
+        ],
+        "title": "WritingCheckResult",
         "type": "object"
       }
     },
@@ -2790,7 +5119,8 @@
               "enum": [
                 "GLOBAL",
                 "TIER",
-                "TENANT"
+                "TENANT",
+                "USER"
               ],
               "title": "Scope",
               "type": "string"
@@ -2826,6 +5156,22 @@
                 }
               ],
               "title": "Tier Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
             }
           }
         ],
@@ -2877,7 +5223,18 @@
           "required": true
         },
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Config Value Admin Config Values Put",
+                  "type": "object"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -2897,6 +5254,194 @@
           }
         ],
         "summary": "Set Config Value",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/exports": {
+      "post": {
+        "description": "Queue one export run and return run/job identifiers.",
+        "operationId": "create_export_run_admin_data_transfer_exports_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Export Run",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/exports/{run_id}": {
+      "get": {
+        "description": "Return one export run status and metadata.",
+        "operationId": "get_export_run_admin_data_transfer_exports__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Export Run",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/exports/{run_id}/download-links": {
+      "post": {
+        "description": "Return signed artifact download URLs for a completed export run.",
+        "operationId": "get_export_download_links_admin_data_transfer_exports__run_id__download_links_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Export Download Links",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/hydrates": {
+      "post": {
+        "description": "Queue one hydrate run from a source export run id.",
+        "operationId": "create_hydrate_run_admin_data_transfer_hydrates_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Hydrate Run",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/data-transfer/hydrates/{run_id}": {
+      "get": {
+        "description": "Return one hydrate run status and metadata.",
+        "operationId": "get_hydrate_run_admin_data_transfer_hydrates__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Hydrate Run",
         "tags": [
           "admin"
         ]
@@ -3051,9 +5596,81 @@
         ]
       }
     },
+    "/admin/feature-flags/modes": {
+      "get": {
+        "description": "Return global tutor mode flag defaults.",
+        "operationId": "get_mode_flags_admin_feature_flags_modes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeFlagsRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Mode Flags",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Enable or disable global tutor mode flags.",
+        "operationId": "set_mode_flags_admin_feature_flags_modes_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeFlagsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeFlagsRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Mode Flags",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/feature-flags/override": {
       "put": {
-        "description": "Set a tier or tenant override for a feature flag.",
+        "description": "Set a global, tier, or tenant override for a feature flag.",
         "operationId": "set_flag_override_admin_feature_flags_override_put",
         "requestBody": {
           "content": {
@@ -3066,7 +5683,18 @@
           "required": true
         },
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Flag Override Admin Feature Flags Override Put",
+                  "type": "object"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -3091,11 +5719,22 @@
         ]
       }
     },
-    "/admin/jobs": {
+    "/admin/fenster": {
       "get": {
-        "description": "List jobs for admins with pagination to control load and exposure.",
-        "operationId": "list_jobs_admin_jobs_get",
+        "description": "List fenster widgets with pagination, filtering, and sorting.",
+        "operationId": "list_fenster_widgets_admin_fenster_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "limit",
@@ -3110,12 +5749,257 @@
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "fenster_id",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fenster Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "widget_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Widget Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Fenster Widgets",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/illustrations": {
+      "get": {
+        "description": "List illustrations with pagination, filtering, and sorting.",
+        "operationId": "list_illustrations_admin_illustrations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Archived"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mime_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mime Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "section_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Illustrations",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/jobs": {
+      "get": {
+        "description": "List jobs for admins with pagination, filtering, and sorting to control load and exposure.",
+        "operationId": "list_jobs_admin_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
               "type": "integer"
             }
           },
@@ -3129,9 +6013,12 @@
                   "enum": [
                     "queued",
                     "running",
+                    "processing",
+                    "in_progress",
                     "done",
                     "error",
-                    "canceled"
+                    "canceled",
+                    "superseded"
                   ],
                   "type": "string"
                 },
@@ -3156,6 +6043,74 @@
                 }
               ],
               "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Agent"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
             }
           }
         ],
@@ -3192,11 +6147,70 @@
         ]
       }
     },
+    "/admin/jobs/{job_id}/resume-from-failure": {
+      "post": {
+        "description": "Fork a new resumable lesson-pipeline job from a failed job id.",
+        "operationId": "resume_job_from_failure_admin_jobs__job_id__resume_from_failure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resume Job From Failure",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/lessons": {
       "get": {
-        "description": "List lessons with pagination to keep responses bounded and predictable.",
+        "description": "List lessons with pagination, filtering, and sorting to keep responses bounded and predictable.",
         "operationId": "list_lessons_admin_lessons_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "limit",
@@ -3206,17 +6220,6 @@
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
               "type": "integer"
             }
           },
@@ -3250,6 +6253,58 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Archived"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
             }
           }
         ],
@@ -3288,9 +6343,20 @@
     },
     "/admin/llm-calls": {
       "get": {
-        "description": "List LLM audit records with pagination to keep admin views efficient.",
+        "description": "List LLM audit records with pagination, filtering, sorting, and cost data integrated.",
         "operationId": "list_llm_calls_admin_llm_calls_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "limit",
@@ -3300,17 +6366,6 @@
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
               "type": "integer"
             }
           },
@@ -3361,6 +6416,74 @@
               ],
               "title": "Status"
             }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "in": "query",
+            "name": "request_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "started_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -3368,7 +6491,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_LlmAuditRecord_"
+                  "$ref": "#/components/schemas/PaginatedResponse_LlmAuditCallWithCost_"
                 }
               }
             },
@@ -3391,6 +6514,224 @@
           }
         ],
         "summary": "List Llm Calls",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/llm-pricing": {
+      "get": {
+        "description": "Aggregate LLM pricing by a target type and id.",
+        "operationId": "get_llm_pricing_admin_llm_pricing_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "target_type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "job",
+                "lesson",
+                "section",
+                "illustration",
+                "tutor",
+                "fenster"
+              ],
+              "title": "Target Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Target Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Calls",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmPricingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Llm Pricing",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/llm-pricing/jobs": {
+      "get": {
+        "description": "Return aggregated LLM pricing totals for a list of job ids.",
+        "operationId": "get_llm_job_costs_admin_llm_pricing_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "job_ids",
+            "required": true,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Job Ids",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmJobCostsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Llm Job Costs",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/maintenance/archive-lessons": {
+      "post": {
+        "description": "Trigger a maintenance job to archive old lessons based on tier retention limits.",
+        "operationId": "trigger_archive_lessons_admin_maintenance_archive_lessons_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trigger Archive Lessons",
         "tags": [
           "admin"
         ]
@@ -3501,11 +6842,127 @@
         ]
       }
     },
-    "/admin/users": {
-      "get": {
-        "description": "List users with tenant scoping for org admins.",
-        "operationId": "list_user_accounts_admin_users_get",
+    "/admin/sections/backfill-shorthand": {
+      "post": {
+        "description": "Backfill section shorthand content from stored raw section JSON.",
+        "operationId": "backfill_sections_shorthand_admin_sections_backfill_shorthand_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SectionShorthandBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SectionShorthandBackfillResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Backfill Sections Shorthand",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/tiers/{tier_name}": {
+      "patch": {
+        "description": "Update subscription tier quotas and limits for admin plan management.",
+        "operationId": "update_subscription_tier_admin_tiers__tier_name__patch",
         "parameters": [
+          {
+            "in": "path",
+            "name": "tier_name",
+            "required": true,
+            "schema": {
+              "title": "Tier Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TierUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TierRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Subscription Tier",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/tutors": {
+      "get": {
+        "description": "List tutors with pagination, filtering, and sorting.",
+        "operationId": "list_tutors_admin_tutors_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "limit",
@@ -3520,13 +6977,192 @@
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "job_id",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "section_number",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section Number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Tutors",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "description": "List users with tenant scoping for org admins.",
+        "operationId": "list_user_accounts_admin_users_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "email",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Email"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/UserStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_discarded",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Discarded",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "id",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
             }
           }
         ],
@@ -3652,6 +7288,401 @@
         ]
       }
     },
+    "/admin/users/{user_id}/details": {
+      "get": {
+        "description": "Get complete user details for admin view.",
+        "operationId": "get_user_details_admin_users__user_id__details_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get User Details",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/discard": {
+      "patch": {
+        "description": "Soft-delete a user so they are hidden from active flows.",
+        "operationId": "discard_user_account_admin_users__user_id__discard_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Discard User Account",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/enabled": {
+      "patch": {
+        "description": "Enable or disable a user account explicitly for admin workflows.",
+        "operationId": "update_user_enabled_state_admin_users__user_id__enabled_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserEnabledUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Enabled State",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/onboarding": {
+      "get": {
+        "description": "Return onboarding details so admins can review and approve/reject accounts.",
+        "operationId": "get_user_onboarding_profile_admin_users__user_id__onboarding_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingProfileRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get User Onboarding Profile",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/promo": {
+      "delete": {
+        "description": "Delete active promo overrides for a user.",
+        "operationId": "delete_user_promo_admin_users__user_id__promo_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete User Promo",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Upsert promo tier/quota/feature overrides for a user.",
+        "operationId": "upsert_user_promo_admin_users__user_id__promo_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPromoUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPromoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert User Promo",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/reject": {
+      "patch": {
+        "description": "Reject a user account after onboarding review.",
+        "operationId": "reject_user_admin_users__user_id__reject_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/restore": {
+      "patch": {
+        "description": "Restore a discarded user.",
+        "operationId": "restore_user_account_admin_users__user_id__restore_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Restore User Account",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/users/{user_id}/role": {
       "patch": {
         "description": "Update a user's role assignment and refresh RBAC claims.",
@@ -3710,6 +7741,64 @@
         ]
       }
     },
+    "/admin/users/{user_id}/role-by-name": {
+      "patch": {
+        "description": "Promote or demote a user by assigning a role using its canonical name.",
+        "operationId": "update_user_account_role_by_name_admin_users__user_id__role_by_name_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRoleNameUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Account Role By Name",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/users/{user_id}/status": {
       "patch": {
         "description": "Update a user's approval status and refresh RBAC claims.",
@@ -3763,6 +7852,64 @@
           }
         ],
         "summary": "Update User Account Status",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/tier": {
+      "patch": {
+        "description": "Update a user's subscription tier and refresh RBAC claims.",
+        "operationId": "update_user_account_tier_admin_users__user_id__tier_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserTierUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Account Tier",
         "tags": [
           "admin"
         ]
@@ -3854,6 +8001,84 @@
         ]
       }
     },
+    "/api/me": {
+      "get": {
+        "description": "Get the current user's profile and onboarding status.",
+        "operationId": "get_my_profile_api_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get My Profile Api Me Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Profile",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/api/onboarding/complete": {
+      "post": {
+        "description": "Complete the user onboarding process.",
+        "operationId": "complete_onboarding_api_onboarding_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Complete Onboarding Api Onboarding Complete Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Complete Onboarding",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
     "/api/purgatory": {
       "get": {
         "description": "Get the current user's approval status while access is pending.",
@@ -3880,6 +8105,56 @@
         "summary": "Get Purgatory Status",
         "tags": [
           "purgatory"
+        ]
+      }
+    },
+    "/api/quota/{resource}": {
+      "get": {
+        "description": "Return a single quota resource payload for the authenticated user.",
+        "operationId": "get_quota_resource_by_key_api_quota__resource__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "title": "Resource",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Quota Resource By Key Api Quota  Resource  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Quota Resource By Key",
+        "tags": [
+          "quotas"
         ]
       }
     },
@@ -3945,16 +8220,38 @@
       "get": {
         "description": "Get the current user's quota and subscription tier.",
         "operationId": "get_my_quota_api_user_me_quota_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "details",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Details",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResolvedQuota"
+                  "$ref": "#/components/schemas/QuotaSummaryResponse"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -3965,6 +8262,52 @@
         "summary": "Get My Quota",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/fenster/subsection-widget/{subsection_widget_id}": {
+      "get": {
+        "description": "Retrieve a fenster widget using the subsection_widget public id.",
+        "operationId": "get_fenster_widget_by_subsection_widget_id_api_v1_fenster_subsection_widget__subsection_widget_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subsection_widget_id",
+            "required": true,
+            "schema": {
+              "title": "Subsection Widget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Fenster Widget By Subsection Widget Id",
+        "tags": [
+          "fenster"
         ]
       }
     },
@@ -4016,8 +8359,42 @@
     },
     "/internal/tasks/process-job": {
       "post": {
-        "description": "Handler for Cloud Tasks (and local simulation).\nExecutes the job synchronously so the task queue knows when it's done.",
+        "description": "Handler for Cloud Tasks (and local simulation).\nAccepts the task quickly and processes the job in the background to avoid client disconnects/timeouts.",
         "operationId": "process_job_task_internal_tasks_process_job_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-dylen-task-secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dylen-Task-Secret"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4061,41 +8438,111 @@
         ]
       }
     },
-    "/resource/image/extract-text": {
-      "post": {
-        "description": "Validate OCR uploads, delegate extraction, and log audit data.",
-        "operationId": "extract_text_from_images_resource_image_extract_text_post",
+    "/media/lessons/{lesson_id}/{image_name}": {
+      "get": {
+        "description": "Authorize lesson media access and stream illustration bytes through the backend.",
+        "operationId": "get_lesson_media_media_lessons__lesson_id___image_name__get",
         "parameters": [
           {
-            "in": "query",
-            "name": "provider_mode",
-            "required": false,
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
             "schema": {
-              "$ref": "#/components/schemas/ProviderMode",
-              "default": "gemini"
-            }
-          },
-          {
-            "in": "query",
-            "name": "model_name",
-            "required": false,
-            "schema": {
-              "default": "gemini-2.0-flash-lite",
-              "title": "Model Name",
+              "title": "Lesson Id",
               "type": "string"
             }
           },
           {
-            "in": "query",
-            "name": "max_file_size",
-            "required": false,
+            "in": "path",
+            "name": "image_name",
+            "required": true,
             "schema": {
-              "default": 1048576,
-              "title": "Max File Size",
-              "type": "integer"
+              "title": "Image Name",
+              "type": "string"
             }
           }
         ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Lesson Media",
+        "tags": [
+          "media"
+        ]
+      }
+    },
+    "/media/widgets/{subsection_widget_id}/illustration": {
+      "get": {
+        "description": "Authorize widget-linked illustration access using subsection widget public ids.",
+        "operationId": "get_widget_illustration_media_widgets__subsection_widget_id__illustration_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subsection_widget_id",
+            "required": true,
+            "schema": {
+              "title": "Subsection Widget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Widget Illustration",
+        "tags": [
+          "media"
+        ]
+      }
+    },
+    "/resource/image/extract-text": {
+      "post": {
+        "description": "Validate OCR uploads, delegate extraction, and log audit data.",
+        "operationId": "extract_text_from_images_resource_image_extract_text_post",
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -4147,7 +8594,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GenerateLessonRequest"
+                "$ref": "#/components/schemas/JobCreateRequest"
               }
             }
           },
@@ -4340,6 +8787,124 @@
         ]
       }
     },
+    "/v1/lessons": {
+      "get": {
+        "description": "List lessons for the current user with pagination, filtering, and sorting.",
+        "operationId": "list_lessons_v1_lessons_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LessonRecordResponse"
+                  },
+                  "title": "Response List Lessons V1 Lessons Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Lessons",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
     "/v1/lessons/catalog": {
       "get": {
         "description": "Return blueprint, teaching style, and widget metadata for clients.",
@@ -4364,7 +8929,7 @@
     },
     "/v1/lessons/generate": {
       "post": {
-        "description": "Generate a lesson from a topic using the two-step pipeline.",
+        "description": "Generate a lesson from a topic using the asynchronous pipeline.",
         "operationId": "generate_lesson_v1_lessons_generate_post",
         "requestBody": {
           "content": {
@@ -4377,11 +8942,11 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenerateLessonResponse"
+                  "$ref": "#/components/schemas/LessonJobResponse"
                 }
               }
             },
@@ -4466,17 +9031,15 @@
         ]
       }
     },
-    "/v1/lessons/validate": {
+    "/v1/lessons/outcomes": {
       "post": {
-        "description": "Validate lesson payloads from stored lessons or job results against schema and widgets.",
-        "operationId": "validate_endpoint_v1_lessons_validate_post",
+        "description": "Return a topic safety decision and a small set of learning outcomes.",
+        "operationId": "generate_outcomes_endpoint_v1_lessons_outcomes_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "title": "Payload",
-                "type": "object"
+                "$ref": "#/components/schemas/GenerateOutcomesRequest"
               }
             }
           },
@@ -4487,7 +9050,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ValidationResponse"
+                  "$ref": "#/components/schemas/OutcomesAgentResponse"
                 }
               }
             },
@@ -4504,7 +9067,12 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Validate Endpoint",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Generate Outcomes Endpoint",
         "tags": [
           "lessons"
         ]
@@ -4520,6 +9088,7 @@
             "name": "lesson_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Lesson Id",
               "type": "string"
             }
@@ -4547,9 +9116,118 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Lesson",
         "tags": [
           "lessons"
+        ]
+      }
+    },
+    "/v1/lessons/{lesson_id}/outline": {
+      "get": {
+        "description": "Fetch the structured outline of a lesson from its plan.",
+        "operationId": "get_lesson_outline_v1_lessons__lesson_id__outline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lesson Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonOutlineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Lesson Outline",
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/v1/lessons/{lesson_id}/sections/{order_index}": {
+      "get": {
+        "description": "Get a specific section shorthand payload by its order index (1-based).",
+        "operationId": "get_section_v1_lessons__lesson_id__sections__order_index__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lesson_id",
+            "required": true,
+            "schema": {
+              "title": "Lesson Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "order_index",
+            "required": true,
+            "schema": {
+              "title": "Order Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Section",
+        "tags": [
+          "sections"
         ]
       }
     },
@@ -4634,6 +9312,104 @@
         "summary": "List Notifications",
         "tags": [
           "notifications"
+        ]
+      }
+    },
+    "/v1/push/subscribe": {
+      "post": {
+        "description": "Upsert the authenticated user's browser push subscription.",
+        "operationId": "subscribe_to_push_v1_push_subscribe_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "user-agent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User-Agent"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Subscribe To Push",
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/v1/push/unsubscribe": {
+      "delete": {
+        "description": "Delete a push subscription owned by the authenticated user.",
+        "operationId": "unsubscribe_from_push_v1_push_unsubscribe_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushUnsubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Unsubscribe From Push",
+        "tags": [
+          "push"
         ]
       }
     },
@@ -4731,9 +9507,105 @@
         ]
       }
     },
+    "/v1/tutor/job/{job_id}/tutors": {
+      "get": {
+        "description": "Retrieve list of generated tutor records for a job.",
+        "operationId": "get_job_tutors_v1_tutor_job__job_id__tutors_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Job Tutors V1 Tutor Job  Job Id  Tutors Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Job Tutors",
+        "tags": [
+          "tutor"
+        ]
+      }
+    },
+    "/v1/tutor/{tutor_id}/content": {
+      "get": {
+        "description": "Stream tutor audio content.",
+        "operationId": "get_tutor_content_v1_tutor__tutor_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tutor_id",
+            "required": true,
+            "schema": {
+              "title": "Tutor Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Tutor Content",
+        "tags": [
+          "tutor"
+        ]
+      }
+    },
     "/v1/writing/check": {
       "post": {
-        "description": "Create a background job to check a writing task response.",
+        "description": "Synchronously check a writing task response.",
         "operationId": "create_writing_check_v1_writing_check_post",
         "requestBody": {
           "content": {
@@ -4746,11 +9618,11 @@
           "required": true
         },
         "responses": {
-          "202": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JobCreateResponse"
+                  "$ref": "#/components/schemas/WritingCheckResult"
                 }
               }
             },
@@ -4775,6 +9647,86 @@
         "summary": "Create Writing Check",
         "tags": [
           "writing"
+        ]
+      }
+    },
+    "/worker/process-lesson": {
+      "post": {
+        "description": "Worker endpoint to process lesson generation.",
+        "operationId": "process_lesson_endpoint_worker_process_lesson_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-dylen-task-secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dylen-Task-Secret"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LessonGenerationTask"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Process Lesson Endpoint Worker Process Lesson Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Process Lesson Endpoint",
+        "tags": [
+          "worker"
         ]
       }
     }

@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
-from app.jobs.models import JobRecord, JobStatus
+from app.jobs.models import JobKind, JobRecord, JobStatus
+
+
+@dataclass(frozen=True)
+class JobCheckpointRecord:
+  """Checkpoint row describing resumable stage progress."""
+
+  id: int
+  job_id: str
+  stage: str
+  section_index: int | None
+  state: str
+  artifact_refs_json: dict | None
+  attempt_count: int
+  last_error: str | None
 
 
 class JobsRepository(Protocol):
@@ -20,6 +35,14 @@ class JobsRepository(Protocol):
     self,
     job_id: str,
     *,
+    root_job_id: str | None = None,
+    parent_job_id: str | None = None,
+    resume_source_job_id: str | None = None,
+    superseded_by_job_id: str | None = None,
+    lesson_id: str | None = None,
+    section_id: int | None = None,
+    target_agent: str | None = None,
+    job_kind: JobKind | None = None,
     status: JobStatus | None = None,
     phase: str | None = None,
     subphase: str | None = None,
@@ -38,11 +61,14 @@ class JobsRepository(Protocol):
     total_steps: int | None = None,
     completed_steps: int | None = None,
     progress: float | None = None,
-    logs: list[str] | None = None,
+    request: dict | None = None,
     result_json: dict | None = None,
+    error_json: dict | None = None,
+    logs: list[str] | None = None,
     artifacts: dict | None = None,
     validation: dict | None = None,
     cost: dict | None = None,
+    started_at: str | None = None,
     completed_at: str | None = None,
     updated_at: str | None = None,
   ) -> JobRecord | None:
@@ -54,5 +80,29 @@ class JobsRepository(Protocol):
   async def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
     """Return a job created with a given idempotency key, if present."""
 
+  async def find_by_user_kind_idempotency_key(self, *, user_id: str | None, job_kind: JobKind, idempotency_key: str) -> JobRecord | None:
+    """Return a job created with a given (user, kind, idempotency_key) tuple."""
+
+  async def list_child_jobs(self, *, parent_job_id: str, include_done: bool = False) -> list[JobRecord]:
+    """Return direct child jobs for a parent job."""
+
   async def list_jobs(self, limit: int, offset: int, status: str | None = None, job_id: str | None = None) -> tuple[list[JobRecord], int]:
     """Return a paginated list of jobs with optional filters, and total count."""
+
+  async def append_event(self, *, job_id: str, event_type: str, message: str, payload_json: dict | None = None) -> None:
+    """Append one timeline event for a job."""
+
+  async def list_events(self, *, job_id: str, limit: int = 100) -> list[str]:
+    """List recent event messages for a job."""
+
+  async def claim_checkpoint(self, *, job_id: str, stage: str, section_index: int | None) -> JobCheckpointRecord | None:
+    """Atomically claim a checkpoint row for processing."""
+
+  async def upsert_checkpoint(self, *, job_id: str, stage: str, section_index: int | None, state: str, artifact_refs_json: dict | None = None, attempt_count: int | None = None, last_error: str | None = None) -> JobCheckpointRecord:
+    """Insert or update a checkpoint row."""
+
+  async def get_checkpoint(self, *, job_id: str, stage: str, section_index: int | None) -> JobCheckpointRecord | None:
+    """Get one checkpoint by logical key."""
+
+  async def list_checkpoints(self, *, job_id: str) -> list[JobCheckpointRecord]:
+    """List checkpoints for one job."""

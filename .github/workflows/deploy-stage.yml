@@ -1,0 +1,183 @@
+name: Deploy Stage
+
+on:
+  workflow_run:
+    workflows:
+      - CI/CD
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      deploy_mode:
+        description: "Deploy mode"
+        type: choice
+        required: true
+        default: local
+        options:
+          - local
+          - cloud_build
+      sync_env_secrets:
+        description: "Sync env + secrets to Secret Manager"
+        type: choice
+        required: true
+        default: "true"
+        options:
+          - "true"
+          - "false"
+      update_dsn_secret:
+        description: "Update DYLEN_PG_DSN secret from derived DSN"
+        type: choice
+        required: true
+        default: "true"
+        options:
+          - "true"
+          - "false"
+      run_health_check:
+        description: "Run /health check after deploy"
+        type: choice
+        required: true
+        default: "true"
+        options:
+          - "true"
+          - "false"
+      setup_firebase:
+        description: "Ensure Firebase API + IAM setup"
+        type: choice
+        required: true
+        default: "true"
+        options:
+          - "true"
+          - "false"
+      setup_cloud_tasks:
+        description: "Ensure Cloud Tasks queue + IAM setup"
+        type: choice
+        required: true
+        default: "true"
+        options:
+          - "true"
+          - "false"
+      setup_storage:
+        description: "Ensure GCS buckets + IAM setup"
+        type: choice
+        required: true
+        default: "true"
+        options:
+          - "true"
+          - "false"
+      enforce_project_env_tag:
+        description: "Enforce project environment tag binding"
+        type: choice
+        required: true
+        default: "false"
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-stage
+  cancel-in-progress: false
+
+jobs:
+  deploy-stage:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Authenticate to Google Cloud (Stage)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_STAGE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_STAGE_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build stage env file for deploy script
+        shell: bash
+        run: |
+          cat > .env-stage.ci <<EOF
+          DEPLOY_PROJECT_ID=${{ secrets.GCP_STAGE_PROJECT_ID }}
+          DEPLOY_REGION=${{ secrets.GCP_STAGE_REGION }}
+          DEPLOY_AR_REPO=${{ secrets.GCP_STAGE_AR_REPO }}
+          DEPLOY_IMAGE=${{ secrets.GCP_STAGE_IMAGE_NAME }}
+          DEPLOY_SERVICE=${{ secrets.GCP_STAGE_SERVICE }}
+          DEPLOY_MIGRATE_JOB=${{ secrets.GCP_STAGE_MIGRATE_JOB }}
+          DEPLOY_RUN_SA=${{ secrets.GCP_STAGE_RUN_SERVICE_ACCOUNT }}
+          DEPLOY_CLOUDSQL_INSTANCE=${{ secrets.GCP_STAGE_CLOUD_SQL_INSTANCE }}
+          DEPLOY_DB_NAME=${{ secrets.GCP_STAGE_DB_NAME }}
+          DEPLOY_DB_USER=${{ secrets.GCP_STAGE_DB_USER }}
+          DEPLOY_DB_PASSWORD_SECRET=${{ secrets.GCP_STAGE_DB_PASSWORD_SECRET }}
+          DEPLOY_CLOUD_TASKS_QUEUE_NAME=${{ secrets.GCP_STAGE_CLOUD_TASKS_QUEUE_NAME }}
+          DEPLOY_CLOUD_TASKS_INVOKER_SA=${{ secrets.GCP_STAGE_CLOUD_TASKS_INVOKER_SA }}
+          DEPLOY_ILLUSTRATION_BUCKET=${{ secrets.GCP_STAGE_ILLUSTRATION_BUCKET }}
+          DEPLOY_EXPORT_BUCKET=${{ secrets.GCP_STAGE_EXPORT_BUCKET }}
+          FIREBASE_PROJECT_ID=${{ secrets.GCP_STAGE_FIREBASE_PROJECT_ID }}
+          DYLEN_ENV=stage
+          DYLEN_ALLOWED_ORIGINS=${{ secrets.GCP_STAGE_DYLEN_ALLOWED_ORIGINS }}
+          DYLEN_BASE_URL=${{ secrets.GCP_STAGE_BASE_URL }}
+          DYLEN_INTERNAL_SERVICE_URL=${{ secrets.GCP_STAGE_INTERNAL_SERVICE_URL }}
+          EOF
+
+      - name: Deploy stage via deploy_stage_now.sh
+        shell: bash
+        env:
+          DEPLOY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_mode || 'local' }}
+          SYNC_ENV_SECRETS: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_env_secrets || 'true' }}
+          UPDATE_DSN_SECRET: ${{ github.event_name == 'workflow_dispatch' && inputs.update_dsn_secret || 'true' }}
+          RUN_HEALTH_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.run_health_check || 'true' }}
+          SETUP_FIREBASE: ${{ github.event_name == 'workflow_dispatch' && inputs.setup_firebase || 'true' }}
+          SETUP_CLOUD_TASKS: ${{ github.event_name == 'workflow_dispatch' && inputs.setup_cloud_tasks || 'true' }}
+          SETUP_STORAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.setup_storage || 'true' }}
+          ENFORCE_PROJECT_ENV_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.enforce_project_env_tag || 'false' }}
+        run: |
+          set -euo pipefail
+          args=(
+            --env-file .env-stage.ci
+            --skip-auth-login
+            --allow-unknown-env
+            --tag "${GITHUB_SHA::12}"
+          )
+
+          if [[ "$DEPLOY_MODE" == "cloud_build" ]]; then
+            args+=(--use-cloud-build)
+          fi
+          if [[ "$SYNC_ENV_SECRETS" != "true" ]]; then
+            args+=(--skip-env-sync --skip-secret-sync)
+          fi
+          if [[ "$UPDATE_DSN_SECRET" != "true" ]]; then
+            args+=(--skip-dsn-secret-update)
+          fi
+          if [[ "$RUN_HEALTH_CHECK" != "true" ]]; then
+            args+=(--skip-health-check)
+          fi
+          if [[ "$SETUP_FIREBASE" != "true" ]]; then
+            args+=(--skip-firebase-sa-setup)
+          fi
+          if [[ "$SETUP_CLOUD_TASKS" != "true" ]]; then
+            args+=(--skip-cloud-tasks-setup)
+          fi
+          if [[ "$SETUP_STORAGE" != "true" ]]; then
+            args+=(--skip-storage-setup)
+          fi
+          if [[ "$ENFORCE_PROJECT_ENV_TAG" != "true" ]]; then
+            args+=(--skip-project-env-tag)
+          fi
+
+          chmod +x scripts/deploy_stage_now.sh
+          scripts/deploy_stage_now.sh "${args[@]}"

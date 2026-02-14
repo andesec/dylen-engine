@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import os
 import re
 import subprocess
@@ -13,6 +14,11 @@ from sqlalchemy import text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+# Ensure repo root is on sys.path so local imports work when invoked directly.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.db_migration_guard import guard_migration_file
+
 
 def _repo_root() -> Path:
   """Resolve the repository root so paths remain stable from any working directory."""
@@ -23,9 +29,23 @@ def _require_env(name: str) -> str:
   """Read required environment variables to prevent accidental DB targeting."""
   value = os.getenv(name, "").strip()
   if not value:
-    raise RuntimeError(f"{name} is required (set it in your shell or .env).")
+    # Keep the failure actionable so developers don't silently generate migrations against the wrong target.
+    message = f"{name} is required (set it in your shell or add it to .env; see .env.example)."
+    if name == "DYLEN_ALLOWED_ORIGINS":
+      message = message + " Example: DYLEN_ALLOWED_ORIGINS=http://localhost:3000"
+
+    raise RuntimeError(message)
 
   return value
+
+
+def _require_import(name: str) -> None:
+  """Fail fast when required runtime dependencies are missing from the active interpreter."""
+  # Ensure the interpreter used for Alembic has the DB driver installed.
+  try:
+    importlib.import_module(name)
+  except ModuleNotFoundError as exc:
+    raise RuntimeError(f"Missing dependency {name!r} in {sys.executable}. Run: uv sync --all-extras") from exc
 
 
 def _run_git(command: list[str]) -> str:
@@ -165,6 +185,48 @@ def _run(command: list[str], *, env: dict[str, str]) -> None:
   subprocess.run(command, check=True, cwd=_repo_root(), env=env)
 
 
+def _latest_revision_path(*, versions_dir: Path) -> Path | None:
+  """Return the most recently modified migration file."""
+  candidates = [path for path in versions_dir.glob("*.py") if path.is_file()]
+  if not candidates:
+    return None
+
+  return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def _extract_revision_id(*, path: Path) -> str:
+  """Extract the Alembic revision id from a migration file."""
+  # Parse the revision id from the Alembic header for seed script naming.
+  text = path.read_text(encoding="utf-8")
+  match = re.search(r"^Revision ID:\s*(?P<rev>[0-9a-f]+)\s*$", text, re.MULTILINE)
+  if not match:
+    raise RuntimeError(f"Unable to parse Revision ID from {path}.")
+
+  return match.group("rev")
+
+
+def _ensure_seed_script(*, revision: str, repo_root: Path) -> None:
+  """Create an empty seed script for the revision if missing."""
+  # Build the seed script path from the repo root.
+  seeds_dir = repo_root / "scripts" / "seeds"
+  seed_path = seeds_dir / f"{revision}.py"
+  if seed_path.exists():
+    return
+
+  # Ensure the seed scripts directory exists before writing.
+  seeds_dir.mkdir(parents=True, exist_ok=True)
+  seed_path.write_text(
+    f'"""Seed data for migration {revision}."""\n\n'
+    "from __future__ import annotations\n\n"
+    "from sqlalchemy.ext.asyncio import AsyncConnection\n\n"
+    "async def seed(connection: AsyncConnection) -> None:\n"
+    '  """Apply seed data for this migration (intentionally empty)."""\n'
+    "  # No seed data is required for this revision.\n"
+    "  return\n",
+    encoding="utf-8",
+  )
+
+
 def main() -> None:
   """Squash multiple local migrations into a single migration based on the PR merge base."""
   parser = argparse.ArgumentParser(description="Squash local migration revisions into one (local dev helper).")
@@ -180,7 +242,8 @@ def main() -> None:
 
   # Require env vars explicitly so Alembic doesn't target a default database implicitly.
   dsn = _require_env("DYLEN_PG_DSN")
-  _require_env("DYLEN_ALLOWED_ORIGINS")
+  # Ensure the runtime driver is available before running Alembic.
+  _require_import("asyncpg")
   repo_root = _repo_root()
   # Paths
   alembic_ini = repo_root / "alembic.ini"
@@ -210,8 +273,18 @@ def main() -> None:
   try:
     _run([sys.executable, "-m", "alembic", "-c", str(alembic_ini), "upgrade", "head"], env=env)
     _run([sys.executable, "-m", "alembic", "-c", str(alembic_ini), "revision", "--autogenerate", "-m", args.message], env=env)
+    latest = _latest_revision_path(versions_dir=versions_dir)
+    if not latest:
+      raise RuntimeError("Alembic did not generate a migration file (unexpected).")
+
+    # Guard DDL operations so the migration is idempotent.
+    guard_migration_file(path=latest)
+    # Create a stub seed script for the new revision.
+    revision_id = _extract_revision_id(path=latest)
+    _ensure_seed_script(revision=revision_id, repo_root=repo_root)
     _run([sys.executable, "scripts/db_migration_lint.py"], env=env)
     _run([sys.executable, "scripts/db_check_heads.py"], env=env)
+    _run([sys.executable, "scripts/db_check_linear_history.py", "--fix"], env=env)
 
   finally:
     _drop_database(admin_url, temp_name)

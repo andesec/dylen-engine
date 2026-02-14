@@ -35,6 +35,7 @@ For local development, the system defaults to `local-http`.
     ...
     INFO:     Job completed successfully.
     ```
+4.  Note: when `DYLEN_BASE_URL` points at `localhost`/`127.0.0.1`, local dispatch routes requests in-process (ASGI transport) and ignores proxy env vars for reliability.
 
 ## Cloud Deployment (GCP)
 
@@ -55,7 +56,48 @@ To enable Cloud Tasks:
     *   The service account running the engine needs `roles/cloudtasks.enqueuer`.
     *   The **Cloud Tasks Queue** needs a service account with `roles/run.invoker` to call the Cloud Run service (configured via OIDC token on the task).
 
+### Stage quick setup via deploy script
+
+`scripts/deploy_stage_now.sh` now bootstraps Cloud Tasks automatically:
+
+1. Enables `cloudtasks.googleapis.com`.
+2. Creates queue `DEPLOY_CLOUD_TASKS_QUEUE_NAME` (default `dylen-jobs-queue`) if missing.
+3. Grants `roles/cloudtasks.enqueuer` to the runtime service account.
+4. Writes/updates:
+   - `DYLEN_TASK_SERVICE_PROVIDER=gcp`
+   - `DYLEN_CLOUD_TASKS_QUEUE_PATH=projects/<PROJECT>/locations/<REGION>/queues/<QUEUE>`
+   - `DYLEN_BASE_URL` (from `DYLEN_ALLOWED_ORIGINS`)
+   - `DYLEN_TASK_SECRET` (generated if missing)
+
+Run:
+
+```bash
+scripts/deploy_stage_now.sh \
+  --env-file .env-stage \
+  --skip-project-env-tag \
+  --allow-unknown-env \
+  --skip-secrets-stage
+```
+
 ## Troubleshooting
 
 *   **Job stuck in `queued`**: Check if `DYLEN_JOBS_AUTO_PROCESS` is `True`. Check logs for "Failed to enqueue task".
 *   **Task fails repeatedly**: Cloud Tasks will retry automatically with exponential backoff. Check the handler logs for exceptions.
+*   **`Server disconnected without sending a response`**: Ensure `DYLEN_BASE_URL` is set and points to `http://localhost:<port>` for local development, and avoid proxying internal requests (the local enqueuer ignores proxy env vars by default).
+
+## Scheduled Maintenance (Cloud Scheduler)
+
+This service supports scheduled maintenance via Cloud Scheduler calling an admin trigger endpoint that enqueues a maintenance job into Cloud Tasks.
+
+### Archive old lessons (daily 1am UTC)
+
+1. Create a Cloud Scheduler job to call:
+   - `POST /admin/maintenance/archive-lessons`
+2. Authenticate the call using either:
+   - `DYLEN_TASK_SECRET` (recommended for dev/staging), or
+   - Cloud Scheduler OIDC → Cloud Run IAM (recommended for production)
+3. Schedule time:
+   - **1am UTC** daily.
+
+Why:
+* This keeps end-user lesson history bounded per tier by archiving older lessons in Postgres and denying access to archived lessons in user endpoints.

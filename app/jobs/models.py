@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-JobStatus = Literal["queued", "running", "done", "error", "canceled"]
+JobStatus = Literal["queued", "running", "processing", "in_progress", "done", "error", "canceled", "superseded"]
+JobKind = Literal["lesson", "research", "youtube", "maintenance", "writing", "system"]
 
 
 @dataclass
@@ -14,10 +15,17 @@ class JobRecord:
 
   job_id: str
   user_id: str | None
+  job_kind: JobKind
   request: dict[str, Any]
   status: JobStatus
   created_at: str
   updated_at: str
+  root_job_id: str | None = None
+  parent_job_id: str | None = None
+  resume_source_job_id: str | None = None
+  superseded_by_job_id: str | None = None
+  lesson_id: str | None = None
+  section_id: int | None = None
   target_agent: str | None = None
   phase: str | None = None
   subphase: str | None = None
@@ -36,11 +44,13 @@ class JobRecord:
   total_steps: int | None = None
   completed_steps: int | None = None
   progress: float | None = None
-  logs: list[str] = field(default_factory=list)
+  logs: list[str] = field(default_factory=list)  # Convenience cache; canonical timeline lives in job_events.
   result_json: dict[str, Any] | None = None
   artifacts: dict[str, Any] | None = None
   validation: dict[str, Any] | None = None
   cost: dict[str, Any] | None = None
+  error_json: dict[str, Any] | None = None
+  started_at: str | None = None
   completed_at: str | None = None
   ttl: int | None = None
   idempotency_key: str | None = None

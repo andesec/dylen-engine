@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -61,7 +60,7 @@ def _get_repository() -> PostgresLlmAuditRepository | None:
   return PostgresLlmAuditRepository()
 
 
-async def start_llm_call(*, provider: str, model: str, request_type: str, request_payload: str, started_at: datetime) -> str | None:
+async def start_llm_call(*, provider: str, model: str, request_type: str, request_payload: str, started_at: datetime) -> int | None:
   """Insert a pending LLM call row before the network request."""
   # Exit early when audit logging is disabled to keep calls fast.
 
@@ -82,11 +81,10 @@ async def start_llm_call(*, provider: str, model: str, request_type: str, reques
   event = LlmAuditStart(provider=provider, model=model, request_type=request_type, request_payload=safe_payload or "", started_at=started_at)
   record = _build_pending_record(event)
 
-  await _insert_record(repo, record)
-  return record.record_id
+  return await _insert_record(repo, record)
 
 
-async def finalize_llm_call(*, call_id: str | None, response_payload: str | None, usage: dict[str, int] | None, duration_ms: int, error: BaseException | None) -> None:
+async def finalize_llm_call(*, call_id: int | None, response_payload: str | None, usage: dict[str, int] | None, duration_ms: int, error: BaseException | None) -> None:
   """Update the pending LLM call row after the response or failure."""
   # Avoid update attempts when the insert did not happen.
 
@@ -118,6 +116,7 @@ async def finalize_llm_call(*, call_id: str | None, response_payload: str | None
     prompt_tokens = _coerce_int(usage.get("prompt_tokens"))
     completion_tokens = _coerce_int(usage.get("completion_tokens"))
     total_tokens = _coerce_int(usage.get("total_tokens"))
+    prompt_tokens, completion_tokens, total_tokens = _normalize_token_usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens)
 
   # Scrub PII from response before storage.
   safe_response = _scrub_pii(response_payload)
@@ -141,7 +140,7 @@ def _build_pending_record(event: LlmAuditStart) -> LlmAuditRecord:
   call_index = context.call_index if context else None
 
   return LlmAuditRecord(
-    record_id=str(uuid.uuid4()),
+    record_id=0,
     timestamp_request=event.started_at,
     timestamp_response=None,
     started_at=event.started_at,
@@ -164,19 +163,20 @@ def _build_pending_record(event: LlmAuditStart) -> LlmAuditRecord:
   )
 
 
-async def _insert_record(repo: PostgresLlmAuditRepository, record: LlmAuditRecord) -> None:
+async def _insert_record(repo: PostgresLlmAuditRepository, record: LlmAuditRecord) -> int | None:
   """Insert a record and swallow database failures to avoid breaking calls."""
   logger = logging.getLogger(__name__)
 
   try:
-    await repo.insert_record(record)
+    return await repo.insert_record(record)
 
   except Exception as exc:  # noqa: BLE001 - avoid breaking upstream calls
     logger.warning("Failed to insert LLM audit record: %s", exc)
+    return None
 
 
 async def _update_record(
-  repo: PostgresLlmAuditRepository, record_id: str, *, finished_at: datetime, response_payload: str | None, status: str, error_message: str | None, duration_ms: int, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None
+  repo: PostgresLlmAuditRepository, record_id: int, *, finished_at: datetime, response_payload: str | None, status: str, error_message: str | None, duration_ms: int, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None
 ) -> None:
   """Update an existing audit record and swallow database failures."""
   logger = logging.getLogger(__name__)
@@ -211,6 +211,23 @@ def _coerce_int(value: Any) -> int | None:
   return None
 
 
+def _normalize_token_usage(*, prompt_tokens: int | None, completion_tokens: int | None, total_tokens: int | None) -> tuple[int | None, int | None, int | None]:
+  """Keep total token math consistent across providers and request types."""
+  # When both prompt and completion tokens exist, total should be their sum.
+  if prompt_tokens is not None and completion_tokens is not None:
+    return prompt_tokens, completion_tokens, prompt_tokens + completion_tokens
+
+  # Preserve provider total-only reports when split counts are unavailable.
+  if total_tokens is not None:
+    return prompt_tokens, completion_tokens, total_tokens
+
+  # Backfill total from whichever split counters are present.
+  if prompt_tokens is not None or completion_tokens is not None:
+    return prompt_tokens, completion_tokens, int(prompt_tokens or 0) + int(completion_tokens or 0)
+
+  return None, None, None
+
+
 def serialize_request(prompt: str, schema: dict[str, Any] | None) -> str:
   """Serialize request content so it can be stored as text."""
   # Preserve the prompt when there is no schema context.
@@ -234,20 +251,31 @@ def serialize_response(value: Any) -> str | None:
   # Preserve strings as-is to avoid unnecessary encoding.
 
   if isinstance(value, str):
-    return value
-
+    serialized = value
   # Fall back to string conversion when JSON encoding fails.
+  else:
+    try:
+      serialized = json.dumps(value, ensure_ascii=True)
+    except (TypeError, ValueError):
+      serialized = str(value)
 
-  try:
-    return json.dumps(value, ensure_ascii=True)
-
-  except (TypeError, ValueError):
-    return str(value)
+  # Truncate very long responses to avoid database issues.
+  return _truncate_response(serialized)
 
 
 def utc_now() -> datetime:
   """Return a UTC timestamp for audit records."""
   return datetime.now(tz=UTC)
+
+
+def _truncate_response(text: str, max_length: int = 50000) -> str:
+  """Truncate response payloads that exceed database limits."""
+  if len(text) <= max_length:
+    return text
+
+  truncated = text[:max_length]
+  suffix = f"\n\n[TRUNCATED: Original length {len(text)} chars, truncated to {max_length} chars]"
+  return truncated + suffix
 
 
 def _scrub_pii(text: str | None) -> str | None:

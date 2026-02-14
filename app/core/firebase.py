@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any
 
@@ -9,6 +10,8 @@ from firebase_admin import auth, credentials
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+_FIREBASE_CUSTOM_CLAIMS_MAX_BYTES = 1000
 
 
 def initialize_firebase() -> None:
@@ -55,7 +58,14 @@ def set_custom_claims(firebase_uid: str, claims: dict[str, Any]) -> None:
   auth.set_custom_user_claims(firebase_uid, claims)
 
 
-def build_rbac_claims(*, role_id: str, role_name: str, role_level: RoleLevel | Any, org_id: str | None, status: UserStatus | Any, tier: str = "Free") -> dict[str, Any]:
+def _claims_payload_size_bytes(claims: dict[str, Any]) -> int:
+  """Return the approximate serialized size of a claims payload in bytes."""
+  # Firebase enforces a tight size limit for custom claims; keep serialization minimal.
+  encoded = json.dumps(claims, separators=(",", ":"), sort_keys=True).encode("utf-8")
+  return len(encoded)
+
+
+def build_rbac_claims(*, role_id: str, role_name: str, role_level: RoleLevel | Any, org_id: str | None, status: UserStatus | Any, tier: str = "Free", permissions: list[str] | None = None) -> dict[str, Any]:
   """Build RBAC claims payloads so token checks are consistent across services."""
   # Normalize enum values so Firebase receives plain JSON values.
   role_level_value = role_level.value if hasattr(role_level, "value") else role_level
@@ -64,5 +74,14 @@ def build_rbac_claims(*, role_id: str, role_name: str, role_level: RoleLevel | A
   claims = {"role": {"id": role_id, "name": role_name, "level": role_level_value}, "status": status_value, "tier": tier}
   if org_id:
     claims["orgId"] = org_id
+  # Include role permissions so clients can render admin UI without extra calls.
+  if permissions is not None:
+    unique_permissions = sorted(set(permissions))
+    claims["permissions"] = unique_permissions
+    # Keep claims within Firebase limits by dropping permissions when oversized.
+    if _claims_payload_size_bytes(claims) > _FIREBASE_CUSTOM_CLAIMS_MAX_BYTES:
+      claims.pop("permissions", None)
+      claims["permissionsOmitted"] = True
+      claims["permissionsCount"] = len(unique_permissions)
 
   return claims

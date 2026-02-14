@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.ai.agents import StitcherAgent
 from app.ai.pipeline.contracts import LessonPlan, StructuredSection
 
 
@@ -10,8 +9,7 @@ def build_partial_lesson(sections: list[StructuredSection], topic: str) -> dict[
   """Build a partial lesson JSON from the completed sections."""
   # Preserve section order while streaming the latest structured payloads.
   ordered_sections = sorted(sections, key=lambda section: section.section_number)
-  shorthand_sections = StitcherAgent._output_dle_shorthand(ordered_sections)
-  return {"title": topic, "blocks": [section.payload for section in shorthand_sections]}
+  return {"title": topic, "blocks": [section.payload for section in ordered_sections]}
 
 
 def build_failure_snapshot(lesson_plan: LessonPlan | None, draft_artifacts: list[dict[str, Any]], structured_artifacts: list[dict[str, Any]], repair_artifacts: list[dict[str, Any]]) -> dict[str, Any]:

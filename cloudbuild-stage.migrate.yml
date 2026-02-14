@@ -1,6 +1,6 @@
 # cloudbuild-stage.migrate.yml
 # Single command pipeline:
-# 0) sanity checks + ensure AR repo + convert .env.example (dotenv) -> YAML (bash-only)
+# 0) sanity checks + ensure AR repo + required secrets preflight
 # 1) build
 # 2) push
 # 3) create/update migrations job + execute
@@ -17,15 +17,32 @@ substitutions:
   _MIGRATE_JOB: "dylen-engine-stage-migrate"
 
   _RUN_SA: "sa-dylen-stage@dylen-stage-485900.iam.gserviceaccount.com"
-  _CLOUDSQL_INSTANCE: "dylen-stage-485900:us-central1:dylen-stage"
+  _CLOUDSQL_INSTANCE: "dylen-stage-485900:us-central1:dylen-stage-e"
+  _CLOUD_RUN_INVOKER_SA: ""
+  _EXPORT_BUCKET: "dylen-data-transfer"
+  _DYLEN_ENV: "stage"
+  _DYLEN_ALLOWED_ORIGINS: "https://stage.dylen.app"
+  _GCP_PROJECT_ID_VALUE: ""
+  _GCP_LOCATION_VALUE: "us-central1"
+  _FIREBASE_PROJECT_ID_VALUE: ""
+  _ILLUSTRATION_BUCKET: "dylen-illustrations"
+  _DYLEN_TASK_SERVICE_PROVIDER: "gcp"
+  _DYLEN_CLOUD_TASKS_QUEUE_PATH: ""
+  _DYLEN_BASE_URL: ""
+  _DYLEN_INTERNAL_SERVICE_URL: ""
+  _RUN_MIN_INSTANCES: "0"
+  _RUN_MAX_INSTANCES: "5"
+  _RUN_CPU: "1"
+  _RUN_MEMORY: "512Mi"
+  _ALLOW_UNAUTHENTICATED: "1"
 
-  _ENV_DOTENV_FILE: ".env.example"
-  _ENV_YAML_FILE: "/workspace/env.stage.yaml"
-
-  _DBURL_SECRET: "STAGE_DATABASE_URL"
+  _SECRET_DYLEN_PG_DSN: "DYLEN_PG_DSN"
+  _SECRET_GEMINI_API_KEY: "GEMINI_API_KEY"
+  _SECRET_DYLEN_MAILERSEND_API_KEY: "DYLEN_MAILERSEND_API_KEY"
+  _SECRET_DYLEN_TASK_SECRET: "DYLEN_TASK_SECRET"
 
 steps:
-  # Step 0: sanity checks + ensure AR repo + convert dotenv -> YAML (bash-only)
+  # Step 0: sanity checks + ensure AR repo + required secrets preflight
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
@@ -33,65 +50,44 @@ steps:
       - |
         gcloud config set run/region "${_REGION}"
 
-        test -f "${_ENV_DOTENV_FILE}" || { echo "Missing ${_ENV_DOTENV_FILE}"; exit 2; }
-        gcloud secrets describe "${_DBURL_SECRET}" >/dev/null 2>&1 || { echo "Missing Secret Manager secret: ${_DBURL_SECRET}"; exit 3; }
-
         gcloud artifacts repositories describe "${_AR_REPO}" --location "${_REGION}" >/dev/null 2>&1 || \
           gcloud artifacts repositories create "${_AR_REPO}" --location "${_REGION}" --repository-format docker
 
-        # Convert dotenv (KEY=VALUE) to YAML (KEY: "VALUE")
-        # - skips comments/blank lines
-        # - supports optional 'export '
-        # - escapes backslashes and quotes
-        {
-          echo "# Auto-generated from ${_ENV_DOTENV_FILE} for Cloud Run --env-vars-file"
-          echo ""
-          while IFS= read -r line || [ -n "$line" ]; do
-            # trim leading/trailing whitespace
-            line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-            [ -z "$line" ] && continue
-            case "$line" in \#*) continue ;; esac
+        required_secrets=(
+          "${_SECRET_DYLEN_PG_DSN}"
+          "${_SECRET_GEMINI_API_KEY}"
+          "${_SECRET_DYLEN_MAILERSEND_API_KEY}"
+          "${_SECRET_DYLEN_TASK_SECRET}"
+        )
 
-            # allow 'export KEY=VALUE'
-            if echo "$line" | grep -qE '^export[[:space:]]+'; then
-              line="$(echo "$line" | sed -E 's/^export[[:space:]]+//')"
-            fi
+        for secret_name in "${required_secrets[@]}"; do
+          gcloud secrets describe "${secret_name}" >/dev/null 2>&1 || { echo "Missing required Secret Manager secret: ${secret_name}"; exit 3; }
+        done
 
-            # must contain '='
-            echo "$line" | grep -q '=' || continue
-
-            key="${line%%=*}"
-            val="${line#*=}"
-
-            key="$(echo "$key" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-            val="$(echo "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-
-            # Skip DATABASE_URL because it's set via --set-secrets, causing a conflict if also in --env-vars-file
-            # Also skip DYLEN_PG_DSN to ensure we don't accidentally use localhost config in production
-            if [ "$key" = "DATABASE_URL" ] || [ "$key" = "DYLEN_PG_DSN" ]; then continue; fi
-
-            # strip surrounding quotes if present
-            if echo "$val" | grep -qE '^".*"$'; then val="${val%\"}"; val="${val#\"}"; fi
-            if echo "$val" | grep -qE "^'.*'$"; then val="${val%\'}"; val="${val#\'}"; fi
-
-            # escape for YAML double-quoted string
-            val="$(printf '%s' "$val" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
-
-            printf '%s: "%s"\n' "$key" "$val"
-          done < "${_ENV_DOTENV_FILE}"
-        } > "${_ENV_YAML_FILE}"
-
-        echo "Wrote ${_ENV_YAML_FILE}:"
-        head -n 50 "${_ENV_YAML_FILE}"
+        dsn_value="$(gcloud secrets versions access latest --secret "${_SECRET_DYLEN_PG_DSN}" 2>/dev/null || true)"
+        if echo "$dsn_value" | grep -Eiq 'localhost|127\.0\.0\.1'; then
+          echo "Invalid ${_SECRET_DYLEN_PG_DSN}: localhost/127.0.0.1 is not allowed for stage Cloud Run." >&2
+          exit 5
+        fi
 
   # Step 1: build
   - name: "gcr.io/cloud-builders/docker"
+    env:
+      - "DOCKER_BUILDKIT=1"
     args:
       [
         "build",
-        "--target", "production",
-        "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}",
-        "."
+        "--target",
+        "production",
+        "--cache-from",
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:buildcache",
+        "--build-arg",
+        "BUILDKIT_INLINE_CACHE=1",
+        "-t",
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}",
+        "-t",
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:buildcache",
+        ".",
       ]
 
   # Step 2: push
@@ -99,60 +95,94 @@ steps:
     args:
       [
         "push",
-        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}",
       ]
 
-  # Step 3: create/update migrations job + execute
+  # Step 3: resolve digest and retag stage-current
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
       - "-ceu"
       - |
-        IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
+        TAGGED_IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
+        IMAGE_DIGEST=""
+        for attempt in $(seq 1 12); do
+          IMAGE_DIGEST="$(gcloud artifacts docker images describe "$${TAGGED_IMAGE}" --format='value(image_summary.digest)' 2>/dev/null || true)"
+          if [ -n "$${IMAGE_DIGEST}" ]; then
+            break
+          fi
+          echo "Digest not available yet (attempt $${attempt}/12); retrying in 5s..."
+          sleep 5
+        done
+        [ -n "$${IMAGE_DIGEST}" ] || { echo "Failed to resolve image digest for $${TAGGED_IMAGE}"; exit 4; }
+        IMAGE_REF="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}@$${IMAGE_DIGEST}"
+        gcloud artifacts docker tags add "$${IMAGE_REF}" "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:stage-current"
+        printf '%s' "$${IMAGE_REF}" > /workspace/image_ref.txt
+        echo "Resolved stage image ref: $${IMAGE_REF}"
+
+  # Step 4: create/update migrations job + execute
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        IMAGE="$$(cat /workspace/image_ref.txt)"
 
         if ! gcloud run jobs describe "${_MIGRATE_JOB}" --region "${_REGION}" >/dev/null 2>&1; then
           gcloud run jobs create "${_MIGRATE_JOB}" \
             --region "${_REGION}" \
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
-            --env-vars-file "${_ENV_YAML_FILE}" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT=${_CLOUD_RUN_INVOKER_SA},DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET},DYLEN_ENV=${_DYLEN_ENV},DYLEN_ALLOWED_ORIGINS=${_DYLEN_ALLOWED_ORIGINS},GCP_PROJECT_ID=${_GCP_PROJECT_ID_VALUE},GCP_LOCATION=${_GCP_LOCATION_VALUE},FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID_VALUE},DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},DYLEN_TASK_SERVICE_PROVIDER=${_DYLEN_TASK_SERVICE_PROVIDER},DYLEN_CLOUD_TASKS_QUEUE_PATH=${_DYLEN_CLOUD_TASKS_QUEUE_PATH},DYLEN_BASE_URL=${_DYLEN_BASE_URL},DYLEN_INTERNAL_SERVICE_URL=${_DYLEN_INTERNAL_SERVICE_URL}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
-            --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
+            --set-secrets "DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest,DYLEN_MAILERSEND_API_KEY=${_SECRET_DYLEN_MAILERSEND_API_KEY}:latest,DYLEN_TASK_SECRET=${_SECRET_DYLEN_TASK_SECRET}:latest" \
             --command "python" \
-            --args="-m,alembic,-c,alembic.ini,upgrade,head"
+            --args "scripts/migrate_with_lock.py"
         else
           gcloud run jobs update "${_MIGRATE_JOB}" \
             --region "${_REGION}" \
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
-            --env-vars-file "${_ENV_YAML_FILE}" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT=${_CLOUD_RUN_INVOKER_SA},DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET},DYLEN_ENV=${_DYLEN_ENV},DYLEN_ALLOWED_ORIGINS=${_DYLEN_ALLOWED_ORIGINS},GCP_PROJECT_ID=${_GCP_PROJECT_ID_VALUE},GCP_LOCATION=${_GCP_LOCATION_VALUE},FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID_VALUE},DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},DYLEN_TASK_SERVICE_PROVIDER=${_DYLEN_TASK_SERVICE_PROVIDER},DYLEN_CLOUD_TASKS_QUEUE_PATH=${_DYLEN_CLOUD_TASKS_QUEUE_PATH},DYLEN_BASE_URL=${_DYLEN_BASE_URL},DYLEN_INTERNAL_SERVICE_URL=${_DYLEN_INTERNAL_SERVICE_URL}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
-            --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
+            --set-secrets "DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest,DYLEN_MAILERSEND_API_KEY=${_SECRET_DYLEN_MAILERSEND_API_KEY}:latest,DYLEN_TASK_SECRET=${_SECRET_DYLEN_TASK_SECRET}:latest" \
             --command "python" \
-            --args="-m,alembic,-c,alembic.ini,upgrade,head"
+            --args "scripts/migrate_with_lock.py"
         fi
 
         gcloud run jobs execute "${_MIGRATE_JOB}" --region "${_REGION}" --wait
 
-  # Step 4: deploy service
+  # Step 5: deploy service
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:
       - "-ceu"
       - |
-        IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}:${_TAG}"
+        IMAGE="$$(cat /workspace/image_ref.txt)"
 
         gcloud run deploy "${_SERVICE}" \
           --region "${_REGION}" \
           --image "$${IMAGE}" \
           --service-account "${_RUN_SA}" \
-          --env-vars-file "${_ENV_YAML_FILE}" \
+          --min-instances "${_RUN_MIN_INSTANCES}" \
+          --max-instances "${_RUN_MAX_INSTANCES}" \
+          --cpu "${_RUN_CPU}" \
+          --memory "${_RUN_MEMORY}" \
+          --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_EMAIL_NOTIFICATIONS_ENABLED=0,DYLEN_CLOUD_RUN_INVOKER_SERVICE_ACCOUNT=${_CLOUD_RUN_INVOKER_SA},DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET},DYLEN_ENV=${_DYLEN_ENV},DYLEN_ALLOWED_ORIGINS=${_DYLEN_ALLOWED_ORIGINS},GCP_PROJECT_ID=${_GCP_PROJECT_ID_VALUE},GCP_LOCATION=${_GCP_LOCATION_VALUE},FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID_VALUE},DYLEN_ILLUSTRATION_BUCKET=${_ILLUSTRATION_BUCKET},DYLEN_TASK_SERVICE_PROVIDER=${_DYLEN_TASK_SERVICE_PROVIDER},DYLEN_CLOUD_TASKS_QUEUE_PATH=${_DYLEN_CLOUD_TASKS_QUEUE_PATH},DYLEN_BASE_URL=${_DYLEN_BASE_URL},DYLEN_INTERNAL_SERVICE_URL=${_DYLEN_INTERNAL_SERVICE_URL}" \
           --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
-          --set-secrets "DATABASE_URL=${_DBURL_SECRET}:latest" \
-          --port 8002 \
-          --allow-unauthenticated
+          --set-secrets "DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest,DYLEN_MAILERSEND_API_KEY=${_SECRET_DYLEN_MAILERSEND_API_KEY}:latest,DYLEN_TASK_SECRET=${_SECRET_DYLEN_TASK_SECRET}:latest" \
+          --port 8002
 
-  # Step 5: verify effective env
+        if [ "${_ALLOW_UNAUTHENTICATED}" = "1" ]; then
+          gcloud run services add-iam-policy-binding "${_SERVICE}" \
+            --region "${_REGION}" \
+            --member "allUsers" \
+            --role "roles/run.invoker"
+        else
+          echo "Skipping allUsers invoker binding because _ALLOW_UNAUTHENTICATED=${_ALLOW_UNAUTHENTICATED}"
+        fi
+
+  # Step 6: verify effective env
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"
     args:

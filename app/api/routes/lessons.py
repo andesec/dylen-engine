@@ -1,46 +1,89 @@
 from __future__ import annotations
 
-import json
 import logging
 import time
-from typing import Any
+import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import consume_section_quota
-from app.api.deps_concurrency import verify_concurrency
-from app.api.models import GenerateLessonRequest, GenerateLessonResponse, JobCreateResponse, LessonCatalogResponse, LessonMeta, LessonRecordResponse, OrchestrationFailureResponse, ValidationResponse
+from app.ai.pipeline.contracts import GenerationRequest
+from app.api.deps_concurrency import check_concurrency_limit
+from app.api.models import (
+  GenerateLessonRequest,
+  GenerateLessonResponse,
+  GenerateOutcomesRequest,
+  JobCreateRequest,
+  JobCreateResponse,
+  LessonCatalogResponse,
+  LessonJobResponse,
+  LessonOutlineResponse,
+  LessonRecordResponse,
+  OrchestrationFailureResponse,
+  SectionOutline,
+  SectionSummary,
+)
 from app.config import Settings, get_settings
 from app.core.database import get_db
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_permission
 from app.jobs.models import JobRecord
-from app.notifications.factory import build_notification_service
+from app.jobs.progress import build_call_plan
 from app.schema.lesson_catalog import build_lesson_catalog
+from app.schema.lesson_requests import LessonRequest
+from app.schema.outcomes import OutcomesAgentResponse
+from app.schema.quotas import QuotaPeriod
 from app.schema.sql import User
-from app.schema.validate_lesson import validate_lesson
-from app.services.audit import log_llm_interaction
-from app.services.feature_flags import is_feature_enabled
 from app.services.jobs import create_job
-from app.services.model_routing import _get_orchestrator, _resolve_model_selection
-from app.services.request_validation import _resolve_learner_level, _resolve_primary_language, _validate_generate_request
-from app.services.runtime_config import resolve_effective_runtime_config
+from app.services.outcomes import generate_lesson_outcomes
+from app.services.quota_buckets import QuotaExceededError, consume_quota, get_quota_snapshot, refund_quota
+from app.services.request_validation import _validate_generate_request
+from app.services.runtime_config import get_outcomes_model, resolve_effective_runtime_config
+from app.services.tasks.factory import get_task_enqueuer
 from app.services.users import get_user_subscription_tier
+from app.services.widget_entitlements import validate_widget_entitlements
 from app.storage.factory import _get_jobs_repo, _get_repo
-from app.storage.lessons_repo import LessonRecord
 from app.utils.ids import generate_job_id, generate_lesson_id
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+_DEFAULT_PAGE = 1
+_DEFAULT_LIMIT = 10
+_MAX_LIMIT = 100
+
+
+@router.get("", response_model=list[LessonRecordResponse], dependencies=[Depends(require_permission("lesson:list_own"))])
+async def list_lessons(
+  settings: Settings = Depends(get_settings),
+  current_user: User = Depends(get_current_active_user),
+  page: Annotated[int, Query(ge=1)] = _DEFAULT_PAGE,
+  limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = _DEFAULT_LIMIT,
+  status: str | None = None,
+  topic: str | None = None,
+  sort_by: str = Query("created_at"),
+  sort_order: str = Query("desc"),
+) -> list[LessonRecordResponse]:
+  """List lessons for the current user with pagination, filtering, and sorting."""
+  repo = _get_repo(settings)
+
+  lessons, _total = await repo.list_lessons(page=page, limit=limit, user_id=str(current_user.id), status=status, topic=topic, sort_by=sort_by, sort_order=sort_order)
+
+  response = []
+  for record in lessons:
+    sections = await repo.list_sections(record.lesson_id)
+    section_summaries = [SectionSummary(section_id=s.section_id, title=s.title, status=s.status) for s in sections]
+    response.append(LessonRecordResponse(lesson_id=record.lesson_id, topic=record.topic, title=record.title, created_at=record.created_at, sections=section_summaries))
+
+  return response
 
 
 @router.get("/catalog", response_model=LessonCatalogResponse)
 async def get_lesson_catalog(response: Response, settings: Settings = Depends(get_settings), db_session: AsyncSession = Depends(get_db)) -> LessonCatalogResponse:  # noqa: B008
   """Return blueprint, teaching style, and widget metadata for clients."""
   # Toggle cache control with DB-backed config so operators can refresh dynamically.
-  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=None, subscription_tier_id=None)
+  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=None, subscription_tier_id=None, user_id=None)
   if runtime_config.get("lessons.cache_catalog") is True:
     response.headers["Cache-Control"] = "public, max-age=86400"
   # Build a static payload so the client can cache the response safely.
@@ -48,194 +91,325 @@ async def get_lesson_catalog(response: Response, settings: Settings = Depends(ge
   return LessonCatalogResponse(**payload)
 
 
-@router.post("/validate", response_model=ValidationResponse)
-async def validate_endpoint(payload: dict[str, Any]) -> ValidationResponse:
-  """Validate lesson payloads from stored lessons or job results against schema and widgets."""
+@router.post("/outcomes", response_model=OutcomesAgentResponse, dependencies=[Depends(require_permission("lesson:outcomes"))])
+async def generate_outcomes_endpoint(  # noqa: B008
+  request: GenerateOutcomesRequest,
+  settings: Settings = Depends(get_settings),  # noqa: B008
+  current_user: User = Depends(get_current_active_user),  # noqa: B008
+  db_session: AsyncSession = Depends(get_db),  # noqa: B008
+) -> OutcomesAgentResponse:
+  """Return a topic safety decision and a small set of learning outcomes."""
+  # Enforce lesson concurrency after request validation to fail malformed bodies before DB-heavy checks.
+  await check_concurrency_limit("lesson", current_user, db_session)
+  tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
+  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
+  # Deny-by-default: if lesson generation is disabled for this user, outcomes preflight is also disabled.
+  validate_widget_entitlements(request.widgets, runtime_config=runtime_config)
+  lessons_per_week = int(runtime_config.get("limits.lessons_per_week") or 0)
+  sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
+  if lessons_per_week <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
+  if sections_per_month <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
+  lesson_snapshot = await get_quota_snapshot(db_session, user_id=current_user.id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, limit=lessons_per_week)
+  if lesson_snapshot.remaining <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
+  section_snapshot = await get_quota_snapshot(db_session, user_id=current_user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=sections_per_month)
+  if section_snapshot.remaining <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
+  outcomes_checks_per_week = int(runtime_config.get("limits.outcomes_checks_per_week") or lessons_per_week)
+  if outcomes_checks_per_week <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.outcomes_check"})
+  snapshot = await get_quota_snapshot(db_session, user_id=current_user.id, metric_key="lesson.outcomes_check", period=QuotaPeriod.WEEK, limit=outcomes_checks_per_week)
+  if snapshot.remaining <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.outcomes_check"})
 
-  ok, errors, _model = validate_lesson(payload)
-  return ValidationResponse(ok=ok, errors=errors)
+  _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
 
+  job_id = generate_job_id()
+  # Reserve quota before calling the model so repeated requests cannot bypass quota enforcement.
+  try:
+    await consume_quota(db_session, user_id=current_user.id, metric_key="lesson.outcomes_check", period=QuotaPeriod.WEEK, quantity=1, limit=outcomes_checks_per_week, metadata={"job_id": job_id})
+  except QuotaExceededError:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.outcomes_check"}) from None
 
-async def _process_lesson_generation(request: GenerateLessonRequest, settings: Settings, current_user: User, db_session: AsyncSession, tier_id: int) -> GenerateLessonResponse:
-  """Execute core lesson generation logic."""
-  start = time.monotonic()
-  # Resolve per-agent model overrides and provider routing for this request.
-  selection = _resolve_model_selection(settings, models=request.models)
-  (section_builder_provider, section_builder_model, planner_provider, planner_model, repairer_provider, repairer_model) = selection
-  orchestrator = _get_orchestrator(
-    settings, section_builder_provider=section_builder_provider, section_builder_model=section_builder_model, planner_provider=planner_provider, planner_model=planner_model, repair_provider=repairer_provider, repair_model=repairer_model
-  )
-  language = _resolve_primary_language(request)
-  learner_level = _resolve_learner_level(request)
+  # Route outcomes through the dedicated outcomes provider/model by default; operators can override per-tenant.
+  provider, model_name = get_outcomes_model(runtime_config)
+  max_outcomes = int(runtime_config.get("limits.max_outcomes") or 5)
+  # Clamp invalid operator configuration to a safe range.
+  if max_outcomes <= 0:
+    max_outcomes = 5
+  if max_outcomes > 8:
+    max_outcomes = 8
 
-  if current_user.id:
-    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, status="started", session=db_session)
-
-  result = await orchestrator.generate_lesson(
+  generation_request = GenerationRequest(
     topic=request.topic,
-    details=request.details,
+    prompt=request.details,
+    depth=request.depth,
+    section_count=2,
     blueprint=request.blueprint,
     teaching_style=request.teaching_style,
-    learner_level=learner_level,
-    depth=request.depth,
-    schema_version=request.schema_version or settings.schema_version,
-    section_builder_model=section_builder_model,
-    structured_output=True,
-    language=language,
+    lesson_language=request.lesson_language,
+    secondary_language=request.secondary_language,
+    learner_level=request.learner_level,
     widgets=request.widgets,
   )
+  try:
+    payload, _model_used = await generate_lesson_outcomes(generation_request, settings=settings, provider=provider, model=str(model_name) if model_name else None, job_id=job_id, max_outcomes=max_outcomes)
+  except Exception as exc:  # noqa: BLE001
+    # Compensate quota reservation when the model call fails.
+    try:
+      await refund_quota(db_session, user_id=current_user.id, metric_key="lesson.outcomes_check", period=QuotaPeriod.WEEK, quantity=1, limit=outcomes_checks_per_week, metadata={"job_id": job_id, "reason": "outcomes_failed"})
+    except Exception:  # noqa: BLE001
+      pass
+    logger.error("Outcomes generation failed: %s", exc, exc_info=True)
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate outcomes.") from exc
 
-  if current_user.id:
-    total_tokens = 0
-    if result.usage:
-      for entry in result.usage:
-        total_tokens += int(entry.get("prompt_tokens", 0)) + int(entry.get("completion_tokens", 0))
-
-    await log_llm_interaction(user_id=current_user.id, model_name=f"planner:{planner_model},section_builder:{section_builder_model}", prompt_summary=request.topic, tokens_used=total_tokens, status="completed", session=db_session)
-
-  lesson_id = generate_lesson_id()
-  latency_ms = int((time.monotonic() - start) * 1000)
-
-  record = LessonRecord(
-    lesson_id=lesson_id,
-    user_id=str(current_user.id),
-    topic=request.topic,
-    title=result.lesson_json["title"],
-    created_at=time.strftime(_DATE_FORMAT, time.gmtime()),
-    schema_version=request.schema_version or settings.schema_version,
-    prompt_version=settings.prompt_version,
-    provider_a=result.provider_a,
-    model_a=result.model_a,
-    provider_b=result.provider_b,
-    model_b=result.model_b,
-    lesson_json=json.dumps(result.lesson_json, ensure_ascii=True),
-    status="ok",
-    latency_ms=latency_ms,
-    idempotency_key=request.idempotency_key,
-  )
-
-  repo = _get_repo(settings)
-  await repo.create_lesson(record)
-  # Notify the user after a successful persistence write.
-  email_enabled = await is_feature_enabled(db_session, key="feature.notifications.email", org_id=current_user.org_id, subscription_tier_id=tier_id)
-  await build_notification_service(settings, email_enabled=email_enabled).notify_lesson_generated(user_id=current_user.id, user_email=current_user.email, lesson_id=lesson_id, topic=request.topic)
-
-  return GenerateLessonResponse(
-    lesson_id=lesson_id,
-    lesson_json=result.lesson_json,
-    meta=LessonMeta(provider_a=result.provider_a, model_a=result.model_a, provider_b=result.provider_b, model_b=result.model_b, latency_ms=latency_ms),
-    logs=result.logs,  # Include logs from orchestrator
-  )
+  return payload
 
 
-@router.post("/generate", response_model=GenerateLessonResponse, responses={500: {"model": OrchestrationFailureResponse}})
+@router.post("/generate", response_model=LessonJobResponse, status_code=status.HTTP_202_ACCEPTED, responses={500: {"model": OrchestrationFailureResponse}}, dependencies=[Depends(require_permission("lesson:generate"))])
 async def generate_lesson(  # noqa: B008
   request: GenerateLessonRequest,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
-  quota_check=Depends(consume_section_quota),  # noqa: B008
-  concurrency_check=Depends(verify_concurrency("lesson")),  # noqa: B008
-) -> GenerateLessonResponse:
-  """Generate a lesson from a topic using the two-step pipeline."""
+) -> LessonJobResponse:
+  """Generate a lesson from a topic using the asynchronous pipeline."""
+  if not request.idempotency_key:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="idempotency_key is required.")
+  # Enforce lesson concurrency after request validation to fail malformed bodies before DB-heavy checks.
+  await check_concurrency_limit("lesson", current_user, db_session)
   tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
-  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id)
+  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
+  validate_widget_entitlements(request.widgets, runtime_config=runtime_config)
+  # Enforce hard quotas before enqueueing work so invalid requests fail fast.
+  lessons_per_week = int(runtime_config.get("limits.lessons_per_week") or 0)
+  sections_per_month = int(runtime_config.get("limits.sections_per_month") or 0)
+  if lessons_per_week <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
+  if sections_per_month <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
+  lesson_snapshot = await get_quota_snapshot(db_session, user_id=current_user.id, metric_key="lesson.generate", period=QuotaPeriod.WEEK, limit=lessons_per_week)
+  if lesson_snapshot.remaining <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "lesson.generate"})
+  section_snapshot = await get_quota_snapshot(db_session, user_id=current_user.id, metric_key="section.generate", period=QuotaPeriod.MONTH, limit=sections_per_month)
+  if section_snapshot.remaining <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
   _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
 
-  # Idempotency Check: Return existing lesson or job if key matches.
-  if request.idempotency_key:
-    jobs_repo = _get_jobs_repo(settings)
+  jobs_repo = _get_jobs_repo(settings)
 
-    # Note: Currently repo does not have find_lesson_by_idempotency_key, but we can check jobs.
-    # If a synchronous lesson generation was successful, it created a job record and a lesson record.
+  # Idempotency Check: Return existing job info if key matches.
+  if request.idempotency_key:
     existing_job = await jobs_repo.find_by_idempotency_key(request.idempotency_key)
     if existing_job and existing_job.user_id == str(current_user.id):
       logger.info("Found existing job %s for idempotency key %s", existing_job.job_id, request.idempotency_key)
 
-      if existing_job.status == "done" and existing_job.result_json:
-        # Reconstruct GenerateLessonResponse from stored result.
-        return GenerateLessonResponse.model_validate(existing_job.result_json)
+      lesson_id = existing_job.request.get("_lesson_id")
 
+      # If completed, check result
+      if existing_job.status == "done" and existing_job.result_json:
+        # If we have the result, we can try to extract lesson_id if not in request meta
+        if not lesson_id:
+          try:
+            res = GenerateLessonResponse.model_validate(existing_job.result_json)
+            lesson_id = res.lesson_id
+          except Exception:
+            logger.warning("Failed to recover lesson_id from existing job %s result.", existing_job.job_id)
+
+        if lesson_id:
+          return LessonJobResponse(job_id=existing_job.job_id, expected_sections=existing_job.expected_sections or 0, lesson_id=lesson_id)
+
+      # If still processing or queued, we return the job info if we have lesson_id
+      if lesson_id:
+        return LessonJobResponse(job_id=existing_job.job_id, expected_sections=existing_job.expected_sections or 0, lesson_id=lesson_id)
+
+      # If we can't find lesson_id, we might need to error or create new?
+      # Assuming idempotency key means "same result", so if we can't give same result, it's a problem.
+      # But for now, let's fall through if we really can't find it (which shouldn't happen for new jobs).
       if existing_job.status in ("queued", "processing", "in_progress"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A request with this idempotency key is already being processed.")
 
-  # Tracking job for concurrency
-  jobs_repo = _get_jobs_repo(settings)
-
-  tracking_job_id = generate_job_id()
+  # Generate IDs
+  lesson_id = generate_lesson_id()
+  job_id = generate_job_id()
   timestamp = time.strftime(_DATE_FORMAT, time.gmtime())
-  # Set TTL to 1 hour to prevent zombie jobs blocking concurrency forever
+  # Set TTL to 1 hour
   job_ttl = int(time.time()) + 3600
 
-  tracking_job = JobRecord(
-    job_id=tracking_job_id,
+  # Expected sections
+  plan = build_call_plan(request.model_dump(mode="python", by_alias=True))
+  requested_sections = plan.depth
+  capped_sections = min(int(section_snapshot.remaining), int(requested_sections))
+  if capped_sections <= 0:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
+  expected_sections = int(capped_sections)
+
+  # Persist immutable lesson request context (including required outcomes) for downstream linkage.
+  lesson_request = LessonRequest(
+    creator_id=str(current_user.id),
+    topic=request.topic,
+    details=request.details,
+    outcomes_json=list(request.outcomes),
+    blueprint=request.blueprint,
+    teaching_style_json=list(request.teaching_style),
+    learner_level=request.learner_level,
+    depth=request.depth,
+    lesson_language=request.lesson_language,
+    secondary_language=request.secondary_language,
+    widgets_json=list(request.widgets) if request.widgets else None,
+    status="queued",
+    is_archived=False,
+  )
+  db_session.add(lesson_request)
+  await db_session.flush()
+
+  # Save Job
+  request_payload = request.model_dump(mode="python", by_alias=True)
+  request_payload["_lesson_id"] = lesson_id  # Store lesson_id for retrieval
+  # Store quota caps in job metadata so the worker can enforce partial generation safely.
+  meta = request_payload.get("_meta") if isinstance(request_payload.get("_meta"), dict) else {}
+  meta = dict(meta)
+  meta["user_id"] = str(current_user.id)
+  meta["quota_cap_sections"] = expected_sections
+  meta["lesson_request_id"] = int(lesson_request.id)
+  request_payload["_meta"] = meta
+  # Pre-populate job logs so clients can explain quota-capped jobs.
+  job_logs: list[str] = []
+  if expected_sections < requested_sections:
+    job_logs.append(f"Quota cap applied: generating only {expected_sections} section(s) this month (requested {requested_sections}).")
+  # Defer lesson quota reservation to the planner agent so reservations are scoped to agent execution.
+
+  job_record = JobRecord(
+    job_id=job_id,
     user_id=str(current_user.id),
-    request=request.model_dump(mode="python", by_alias=True),
-    status="processing",
-    target_agent="lesson",  # Mark as lesson job
-    phase="processing",
+    job_kind="lesson",
+    request=request_payload,
+    status="queued",
+    lesson_id=lesson_id,
+    target_agent="planner",
+    phase="queued",
     created_at=timestamp,
     updated_at=timestamp,
-    expected_sections=0,  # Not strictly tracked for sync
+    expected_sections=expected_sections,
     completed_sections=0,
     completed_section_indexes=[],
     retry_count=0,
+    # Enforce strict retry limit to keep quota accounting deterministic.
     max_retries=0,
-    logs=[],
+    logs=job_logs,
     progress=0.0,
     ttl=job_ttl,
+    idempotency_key=request.idempotency_key or f"lesson-generate:{job_id}",
   )
-  await jobs_repo.create_job(tracking_job)
+  await jobs_repo.create_job(job_record)
+  await db_session.commit()
+
+  # Enqueue Task
+  enqueuer = get_task_enqueuer(settings)
 
   try:
-    response_payload = await _process_lesson_generation(request, settings, current_user, db_session, tier_id)
-
-    # Mark tracking job as completed
-    await jobs_repo.update_job(tracking_job_id, status="done", phase="done", progress=100.0, completed_at=time.strftime(_DATE_FORMAT, time.gmtime()), result_json=response_payload.model_dump(mode="json"))
-
-    return response_payload
+    await enqueuer.enqueue(job_id, {})
   except Exception as e:
-    # Mark tracking job as error
-    await jobs_repo.update_job(tracking_job_id, status="error", phase="error", logs=[str(e)], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
-    raise
+    logger.error("Failed to enqueue lesson task: %s", e, exc_info=True)
+    # Mark job as error so it doesn't stay queued forever (avoid leaking internal error details to clients).
+    await jobs_repo.update_job(job_id, status="error", phase="error", logs=["Enqueue failed: TASK_ENQUEUE_FAILED"], completed_at=time.strftime(_DATE_FORMAT, time.gmtime()))
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to enqueue lesson generation task.") from e
+
+  return LessonJobResponse(job_id=job_id, expected_sections=expected_sections, lesson_id=lesson_id)
 
 
-@router.get("/{lesson_id}", response_model=LessonRecordResponse)
+@router.get("/{lesson_id}", response_model=LessonRecordResponse, dependencies=[Depends(require_permission("lesson:view_own"))])
 async def get_lesson(  # noqa: B008
-  lesson_id: str,
+  lesson_id: uuid.UUID,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
+  db_session: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LessonRecordResponse:
   """Fetch a stored lesson by identifier, consistent with async job persistence."""
+  lesson_id_str = str(lesson_id)
   repo = _get_repo(settings)
-  record = await repo.get_lesson(lesson_id)
+  record = await repo.get_lesson(lesson_id_str, user_id=str(current_user.id))
+  if record is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
+  # Hide archived lessons from end users so retention rules are enforced server-side.
+  if record.is_archived:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
+
+  sections = await repo.list_sections(lesson_id_str)
+
+  section_summaries = [SectionSummary(section_id=s.section_id, title=s.title, status=s.status) for s in sections]
+
+  return LessonRecordResponse(lesson_id=record.lesson_id, topic=record.topic, title=record.title, created_at=record.created_at, sections=section_summaries)
+
+
+@router.get("/{lesson_id}/outline", response_model=LessonOutlineResponse, dependencies=[Depends(require_permission("lesson:outline_own"))])
+async def get_lesson_outline(
+  lesson_id: uuid.UUID,
+  settings: Settings = Depends(get_settings),  # noqa: B008
+  current_user: User = Depends(get_current_active_user),  # noqa: B008
+) -> LessonOutlineResponse:
+  """Fetch the structured outline of a lesson from its plan."""
+  lesson_id_str = str(lesson_id)
+  repo = _get_repo(settings)
+  record = await repo.get_lesson(lesson_id_str, user_id=str(current_user.id))
   if record is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found.")
 
-  if record.user_id != str(current_user.id):
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+  if not record.lesson_plan:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson outline not available.")
 
-  lesson_json = json.loads(record.lesson_json)
-  return LessonRecordResponse(
-    lesson_id=record.lesson_id,
-    topic=record.topic,
-    title=record.title,
-    created_at=record.created_at,
-    schema_version=record.schema_version,
-    prompt_version=record.prompt_version,
-    lesson_json=lesson_json,
-    meta=LessonMeta(provider_a=record.provider_a, model_a=record.model_a, provider_b=record.provider_b, model_b=record.model_b, latency_ms=record.latency_ms),
-  )
+  plan = record.lesson_plan
+  sections = []
+
+  # Plan is stored as a dict (from model_dump)
+  for s in plan.get("sections", []):
+    subsections = [sub.get("title", "Untitled") for sub in s.get("subsections", [])]
+    sections.append(SectionOutline(title=s.get("title", "Untitled"), subsections=subsections))
+
+  return LessonOutlineResponse(lesson_id=record.lesson_id, topic=record.topic, title=record.title, sections=sections)
 
 
-@router.post("/jobs", response_model=JobCreateResponse)
+@router.post("/jobs", response_model=JobCreateResponse, dependencies=[Depends(require_permission("lesson:job_create"))])
 async def create_lesson_job(  # noqa: B008
   request: GenerateLessonRequest,
   background_tasks: BackgroundTasks,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
   db_session: AsyncSession = Depends(get_db),  # noqa: B008
-  _=Depends(verify_concurrency("lesson")),  # noqa: B008
 ) -> JobCreateResponse:
   """Alias route for creating a background lesson generation job."""
-  return await create_job(request, settings, background_tasks, db_session, user_id=str(current_user.id), target_agent="lesson")
+  # Validate request payloads at the route boundary before queue orchestration.
+  tier_id, _tier_name = await get_user_subscription_tier(db_session, current_user.id)
+  runtime_config = await resolve_effective_runtime_config(db_session, settings=settings, org_id=current_user.org_id, subscription_tier_id=tier_id, user_id=None)
+  validate_widget_entitlements(request.widgets, runtime_config=runtime_config)
+  _validate_generate_request(request, settings, max_topic_length=runtime_config.get("limits.max_topic_length"))
+  # Enforce lesson concurrency after request validation to fail malformed bodies before DB-heavy checks.
+  await check_concurrency_limit("lesson", current_user, db_session)
+  if not request.idempotency_key:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="idempotency_key is required.")
+  lesson_id = generate_lesson_id()
+  lesson_request = LessonRequest(
+    creator_id=str(current_user.id),
+    topic=request.topic,
+    details=request.details,
+    outcomes_json=list(request.outcomes),
+    blueprint=request.blueprint,
+    teaching_style_json=list(request.teaching_style),
+    learner_level=request.learner_level,
+    depth=request.depth,
+    lesson_language=request.lesson_language,
+    secondary_language=request.secondary_language,
+    widgets_json=list(request.widgets) if request.widgets else None,
+    status="queued",
+    is_archived=False,
+  )
+  db_session.add(lesson_request)
+  await db_session.flush()
+  payload = request.model_dump(mode="python", by_alias=True)
+  payload["_lesson_id"] = lesson_id
+  payload["_meta"] = {"user_id": str(current_user.id), "lesson_request_id": int(lesson_request.id)}
+  create_payload = JobCreateRequest(job_kind="lesson", target_agent="planner", idempotency_key=request.idempotency_key, payload=payload, lesson_id=lesson_id)
+  await db_session.commit()
+  return await create_job(create_payload, settings, background_tasks, db_session, user_id=str(current_user.id))

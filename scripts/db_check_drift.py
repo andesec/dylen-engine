@@ -14,12 +14,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
-import app.schema.audit  # noqa: E402, F401
-import app.schema.email_delivery_logs  # noqa: E402, F401
-import app.schema.fenster  # noqa: E402, F401
-import app.schema.jobs  # noqa: E402, F401
-import app.schema.lessons  # noqa: E402, F401
-import app.schema.sql  # noqa: E402, F401
+# Import all ORM models so drift detection reflects the complete schema.
+import app.schema.db_models  # noqa: E402, F401
 from app.core.database import DATABASE_URL, Base  # noqa: E402
 from app.core.migrations import build_migration_context_options  # noqa: E402
 

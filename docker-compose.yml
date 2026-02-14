@@ -39,29 +39,22 @@ services:
     entrypoint: [ "/bin/sh", "/init-postgres.sh" ]
     restart: "no"
 
-  engine-migrate:
-    build:
-      context: .
-      target: production
-    depends_on:
-      postgres:
-        condition: service_healthy
-      postgres-init:
-        condition: service_completed_successfully
-    env_file:
-      - .env
-    environment:
-      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+  gcs-emulator:
+    image: fsouza/fake-gcs-server:latest
+    container_name: dylen-gcs-emulator
+    command: [ "-scheme", "http", "-port", "4443", "-backend", "filesystem", "-filesystem-root", "/data" ]
+    ports:
+      - "4443:4443"
+    volumes:
+      - ./storage_data:/data
     networks:
       - dylen-network
-    working_dir: /app
-    command: [ "python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head" ]
-    restart: "no"
 
   app:
     build:
       context: .
       target: production
+    image: dylen-engine:latest
     ports:
       - "8002:8002"
     depends_on:
@@ -69,29 +62,33 @@ services:
         condition: service_healthy
       postgres-init:
         condition: service_completed_successfully
-      engine-migrate:
-        condition: service_completed_successfully
+      gcs-emulator:
+        condition: service_started
     env_file:
       - .env
     environment:
-      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/dylen
+      - DYLEN_PG_DSN=postgresql://dylen:dylen_password@postgres:5432/de
+      - DYLEN_AUTO_APPLY_MIGRATIONS=1
+      - DYLEN_MIGRATOR_MODE=migrate
       - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
+      - GCS_STORAGE_HOST=http://gcs-emulator:4443/storage/v1/
+      - DYLEN_ILLUSTRATION_BUCKET=dylen-illustrations
     networks:
       - dylen-network
     volumes:
       - ./secrets/certs:/app/secrets/certs:ro
       - ./secrets/service-account.json:/app/service-account.json:ro
-    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt" ]
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--ssl-keyfile", "/app/secrets/certs/origin.key", "--ssl-certfile", "/app/secrets/certs/origin.crt", "--no-server-header" ]
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: dylen-cloudflared
-    restart: unless-stopped
-    command: tunnel run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    networks:
-      - dylen-network
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: dylen-cloudflared
+  #   restart: unless-stopped
+  #   command: tunnel run
+  #   environment:
+  #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+  #   networks:
+  #     - dylen-network
 
 networks:
   dylen-network:

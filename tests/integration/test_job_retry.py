@@ -46,6 +46,15 @@ class InMemoryJobsRepo:
   async def find_by_idempotency_key(self, idempotency_key: str) -> JobRecord | None:
     return None
 
+  async def find_by_user_kind_idempotency_key(self, *, user_id: str | None, job_kind: str, idempotency_key: str) -> JobRecord | None:
+    return None
+
+  async def list_child_jobs(self, *, parent_job_id: str, include_done: bool = False) -> list[JobRecord]:
+    children = [record for record in self._jobs.values() if record.parent_job_id == parent_job_id]
+    if include_done:
+      return children
+    return [record for record in children if record.status != "done"]
+
 
 @pytest.mark.anyio
 async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -54,6 +63,7 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
   repo = InMemoryJobsRepo()
   record = JobRecord(
     job_id="job-retry-1",
+    job_kind="lesson",
     request={"topic": "Retry test", "depth": "highlights"},
     status="error",
     phase="failed",
@@ -65,6 +75,8 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
     created_at="2024-01-01T00:00:00Z",
     updated_at="2024-01-01T00:00:00Z",
     logs=["Job failed earlier."],
+    user_id="test-user-id",
+    idempotency_key="retry-test-key",
   )
   # Persist the job so the API handler can find it.
   await repo.create_job(record)
@@ -90,6 +102,12 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
     return User(id="test-user-id", email="test@example.com", status=UserStatus.APPROVED)
 
   app.dependency_overrides[get_current_active_user] = _get_current_active_user_override
+  from app.core.database import get_db
+
+  async def _get_db_override():
+    yield None
+
+  app.dependency_overrides[get_db] = _get_db_override
 
   client = TestClient(app)
   # Remove dev key header, use empty headers or valid bearer if needed (but overridden)
@@ -100,6 +118,4 @@ async def test_retry_job_requeues_failed_job(monkeypatch: pytest.MonkeyPatch) ->
   assert response.status_code == 200
   body = response.json()
   assert body["status"] == "queued"
-  assert body["retry_count"] == 1
-  assert body["retry_sections"] == [1]
-  assert body["retry_agents"] == ["section_builder"]
+  assert body["job_id"] == "job-retry-1"

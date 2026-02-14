@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import logging
 import os
+import random
 import warnings
-from typing import Any, Final, cast
+from typing import Any, Final
 
 from pydantic.warnings import ArbitraryTypeWarning
 from starlette.concurrency import run_in_threadpool
@@ -39,57 +42,65 @@ class GeminiModel(AIModel):
     logger = logging.getLogger("app.ai.providers.gemini")
 
     # Allow deterministic local tests without spending credits.
-    dummy = AIModel.load_dummy_response("GATHERER")
+    dummy = AIModel.load_dummy_response("SECTION_BUILDER")
     if dummy is not None:
       response = SimpleModelResponse(content=dummy, usage=None)
-      logger.info("Gemini GATHERER dummy response:\n%s", response.content)
+      logger.info("Gemini SECTION_BUILDER dummy response:\n%s", response.content)
       return response
 
     # Use the async client to avoid blocking the asyncio event loop.
-    response = await self._client.aio.models.generate_content(model=self.name, contents=prompt)
-    logger.info("Gemini response:\n%s", response.text)
-    usage = None
+    response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt)
 
+    # Extract usage IMMEDIATELY after API call, before any processing that might fail.
+    usage = None
     if response.usage_metadata:
       usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
-    return SimpleModelResponse(content=response.text, usage=usage)
+    self.last_usage = usage
+
+    # Extract response text after usage is captured.
+    response_text = _extract_text_from_response(response)
+    logger.info("Gemini response:\n%s", response_text)
+    return SimpleModelResponse(content=response_text, usage=usage)
 
   async def generate_structured(self, prompt: str, schema) -> StructuredModelResponse:
     """Generate structured JSON output using Gemini's JSON mode."""
     logger = logging.getLogger("app.ai.providers.gemini")
 
     # Allow deterministic local tests without spending credits.
-    dummy = AIModel.load_dummy_response("STRUCTURER")
+    dummy = AIModel.load_dummy_response("SECTION_BUILDER")
     if dummy is not None:
       cleaned = AIModel.strip_json_fences(dummy)
-      parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))
+      parsed = parse_json_with_fallback(cleaned)
+      if not isinstance(parsed, dict):
+        raise RuntimeError(f"Gemini dummy structured response must decode to a JSON object, got {type(parsed).__name__}.")
       response = StructuredModelResponse(content=parsed, usage=None)
       logger.info("Gemini dummy structured response:\n%s", dummy)
       return response
 
-    try:
-      # Use a plain dict for config to avoid pydantic validation errors on JSON Schema
-      # config: dict[str, Any] = {
-      #     "response_mime_type": "application/json",
-      #     "response_schema": schema,
-      # }
-      # Use the async client to avoid blocking the asyncio event loop.
-      response = await self._client.aio.models.generate_content(model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_schema": schema})
-      logger.info("Gemini structured response (raw):\n%s", response.text)
-    except Exception as e:
-      raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
+    # Send raw JSON Schema through `response_json_schema` to bypass strict OpenAPI-only validation.
+    response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_json_schema": schema})
 
+    # Extract usage IMMEDIATELY after API call, before any processing that might fail.
     usage = None
     if response.usage_metadata:
       usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+    self.last_usage = usage
 
-    # Parse the JSON response
-    # Parse the model response with a lenient fallback to reduce retry churn.
+    # Extract raw response text after usage is captured.
+    raw_text = _extract_text_from_response(response)
+    logger.info("Gemini structured response (raw):\n%s", raw_text)
+
+    # Parse the JSON response with lenient fallback to reduce retry churn.
     try:
-      cleaned = self.strip_json_fences(response.text)
-      parsed = cast(dict[str, Any], parse_json_with_fallback(cleaned))
+      # Some SDK responses omit `text`; extract from candidates/parts as fallback.
+      if not raw_text:
+        raise ValueError("Empty response from Gemini")
+      cleaned = self.strip_json_fences(raw_text)
+      parsed = parse_json_with_fallback(cleaned)
+      if not isinstance(parsed, dict):
+        raise ValueError(f"Gemini structured output must be a JSON object, got {type(parsed).__name__}.")
       return StructuredModelResponse(content=parsed, usage=usage)
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
       raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
 
   async def upload_file(self, file_content: bytes, mime_type: str, display_name: str | None = None) -> Any:
@@ -124,6 +135,7 @@ class GeminiModel(AIModel):
       usage = None
       if response.usage_metadata:
         usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
+      self.last_usage = usage
       return SimpleModelResponse(content=response.text, usage=usage)
     except Exception as e:
       raise RuntimeError(f"Gemini generation with files failed: {e}") from e
@@ -154,22 +166,27 @@ class GeminiModel(AIModel):
       logger.error(f"Gemini speech generation failed: {e}")
       raise RuntimeError(f"Gemini speech generation failed: {e}") from e
 
+  async def generate_image(self, prompt: str) -> bytes:
+    """Generate image bytes from Gemini image-capable models."""
+    logger = logging.getLogger("app.ai.providers.gemini")
+
+    try:
+      response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt)
+      self.last_usage = _extract_usage_from_response(response)
+      image_bytes = _extract_image_bytes_from_response(response)
+      if image_bytes is None:
+        raise RuntimeError("Gemini image generation returned no inline image bytes.")
+      return image_bytes
+    except Exception as e:
+      logger.error(f"Gemini image generation failed: {e}")
+      raise RuntimeError(f"Gemini image generation failed: {e}") from e
+
 
 class GeminiProvider(Provider):
   """Gemini provider."""
 
   _DEFAULT_MODEL: Final[str] = "gemini-2.0-flash"
-  _AVAILABLE_MODELS: Final[set[str]] = {
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-pro-latest",
-    "gemini-flash-latest",
-    "gemini-2.0-flash-exp",
-    "gemini-1.5-flash",  # Legacy support
-    "gemini-1.5-pro",
-    "gemini-2.0-flash-lite",
-  }
+  _AVAILABLE_MODELS: Final[set[str]] = {"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-image", "gemini-2.0-flash", "gemini-2.0-flash-lite"}
 
   def __init__(self, api_key: str | None = None) -> None:
     self.name: str = "gemini"
@@ -183,5 +200,109 @@ class GeminiProvider(Provider):
     """Return a Gemini model client."""
     model_name = model or self._DEFAULT_MODEL
     if model_name not in self._AVAILABLE_MODELS:
-      raise ValueError(f"Unsupported Gemini model '{model_name}'.")
+      # Allow fallback attempts to find compatible models even if the exact string isn't in the static set
+      # (though normally we'd want strict checking, for now let's be lenient or add the model if it's valid)
+      # But to be safe and match previous logic:
+      if model_name != self._DEFAULT_MODEL:  # Simple check, or just raise as before
+        pass
+      # Actually, let's strictly check against _AVAILABLE_MODELS as before
+      if model_name not in self._AVAILABLE_MODELS:
+        raise ValueError(f"Unsupported Gemini model '{model_name}'.")
+
     return GeminiModel(model_name, api_key=self._api_key)
+
+
+async def _with_backoff(func, *args, **kwargs):
+  retries = 3
+  base_delay = 1
+  for i in range(retries):
+    try:
+      return await func(*args, **kwargs)
+    except Exception as e:
+      error_msg = str(e)
+      # Fail fast on hard quota limits
+      if "Resource Exhausted" in error_msg or "Quota Exceeded" in error_msg:
+        raise
+
+      # Retry common transient conditions that occur on provider edges.
+      if _is_transient_error(error_msg):
+        if i == retries - 1:
+          raise
+        delay = base_delay * (2**i) + random.uniform(0, 1)
+        await asyncio.sleep(delay)
+      else:
+        raise
+  return await func(*args, **kwargs)
+
+
+def _is_transient_error(error_msg: str) -> bool:
+  """Detect transient provider failures that should be retried with backoff."""
+  lowered = error_msg.lower()
+  transient_markers = ("429", "too many requests")
+  return any(marker in lowered for marker in transient_markers)
+
+
+def _extract_text_from_response(response: Any) -> str:
+  """Extract text payload from Gemini SDK response variants."""
+  text = getattr(response, "text", None)
+  if isinstance(text, str) and text.strip():
+    return text
+
+  for candidate in list(getattr(response, "candidates", []) or []):
+    content = getattr(candidate, "content", None)
+    parts = list(getattr(content, "parts", []) or [])
+    for part in parts:
+      part_text = getattr(part, "text", None)
+      if isinstance(part_text, str) and part_text.strip():
+        return part_text
+
+  parts = list(getattr(response, "parts", []) or [])
+  for part in parts:
+    part_text = getattr(part, "text", None)
+    if isinstance(part_text, str) and part_text.strip():
+      return part_text
+
+  return ""
+
+
+def _extract_image_bytes_from_response(response: Any) -> bytes | None:
+  """Extract inline image bytes from Gemini response candidates."""
+  # Parse candidates first because image models usually emit inline parts there.
+  for candidate in list(getattr(response, "candidates", []) or []):
+    content = getattr(candidate, "content", None)
+    parts = list(getattr(content, "parts", []) or [])
+    for part in parts:
+      inline_data = getattr(part, "inline_data", None)
+      if inline_data is None:
+        continue
+      data = getattr(inline_data, "data", None)
+      if isinstance(data, bytes):
+        return data
+      if isinstance(data, str):
+        try:
+          return base64.b64decode(data)
+        except Exception:  # noqa: BLE001
+          continue
+
+  # Fallback to top-level parts for SDK variations.
+  for part in list(getattr(response, "parts", []) or []):
+    inline_data = getattr(part, "inline_data", None)
+    if inline_data is None:
+      continue
+    data = getattr(inline_data, "data", None)
+    if isinstance(data, bytes):
+      return data
+    if isinstance(data, str):
+      try:
+        return base64.b64decode(data)
+      except Exception:  # noqa: BLE001
+        continue
+  return None
+
+
+def _extract_usage_from_response(response: Any) -> dict[str, int] | None:
+  """Extract normalized token usage from Gemini responses when available."""
+  usage_metadata = getattr(response, "usage_metadata", None)
+  if usage_metadata is None:
+    return None
+  return {"prompt_tokens": int(getattr(usage_metadata, "prompt_token_count", 0) or 0), "completion_tokens": int(getattr(usage_metadata, "candidates_token_count", 0) or 0), "total_tokens": int(getattr(usage_metadata, "total_token_count", 0) or 0)}

@@ -6,7 +6,11 @@ import uuid
 
 from app.schema.sql import Permission, Role, RoleLevel, RolePermission
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+DEFAULT_MEMBER_ROLE_NAME = "User"
+DEFAULT_MEMBER_ROLE_DESCRIPTION = "Default global role for new users."
 
 
 async def get_role_by_id(session: AsyncSession, role_id: uuid.UUID) -> Role | None:
@@ -23,6 +27,34 @@ async def get_role_by_name(session: AsyncSession, name: str) -> Role | None:
   stmt = select(Role).where(Role.name == name)
   result = await session.execute(stmt)
   return result.scalar_one_or_none()
+
+
+async def get_or_create_role_by_name(session: AsyncSession, *, name: str, level: RoleLevel, description: str | None) -> Role:
+  """Fetch a role by name and create it if missing so auth flows don't 500 on fresh DBs."""
+  # Try to fetch first to avoid unnecessary writes in the common case.
+  existing_role = await get_role_by_name(session, name)
+  if existing_role is not None:
+    return existing_role
+
+  # Create the role; handle concurrent creation by re-fetching on unique violations.
+  role = Role(name=name, level=level, description=description)
+  session.add(role)
+  try:
+    await session.commit()
+    await session.refresh(role)
+    return role
+  except IntegrityError:
+    await session.rollback()
+    concurrent_role = await get_role_by_name(session, name)
+    if concurrent_role is None:
+      raise
+    return concurrent_role
+
+
+async def get_or_create_default_member_role(session: AsyncSession) -> Role:
+  """Ensure the default member role exists for onboarding/signup flows."""
+  # Keep defaults centralized so migrations and runtime enforcement stay aligned.
+  return await get_or_create_role_by_name(session, name=DEFAULT_MEMBER_ROLE_NAME, level=RoleLevel.GLOBAL, description=DEFAULT_MEMBER_ROLE_DESCRIPTION)
 
 
 async def list_roles(session: AsyncSession, *, limit: int, offset: int) -> tuple[list[Role], int]:

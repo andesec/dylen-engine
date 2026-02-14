@@ -1,65 +1,7 @@
-"""Schema utilities for lesson validation and widget metadata."""
+"""Schema package exports."""
 
-from .lesson_models import (
-  AsciiDiagramWidget,
-  ChecklistWidget,
-  CodeEditorWidget,
-  CompareWidget,
-  ErrorWidget,
-  FillBlankWidget,
-  FlipWidget,
-  FreeTextWidget,
-  InputLineWidget,
-  InteractiveTerminalWidget,
-  LessonDocument,
-  MCQsWidget,
-  OrderedListWidget,
-  ParagraphWidget,
-  SectionBlock,
-  StepFlowWidget,
-  SuccessWidget,
-  SwipeCardsWidget,
-  TableWidget,
-  TerminalDemoWidget,
-  TranslationWidget,
-  TreeViewWidget,
-  UnorderedListWidget,
-  WarnWidget,
-  Widget,
-)
-from .serialize_lesson import lesson_to_shorthand
 from .validate_lesson import validate_lesson
+from .widget_models import LessonDocument, Section, Subsection, WidgetItem
 from .widgets_loader import WidgetDefinition, WidgetRegistry, load_widget_registry
 
-__all__ = [
-  "AsciiDiagramWidget",
-  "FillBlankWidget",
-  "WarnWidget",
-  "ErrorWidget",
-  "SuccessWidget",
-  "ChecklistWidget",
-  "CodeEditorWidget",
-  "CompareWidget",
-  "FlipWidget",
-  "FreeTextWidget",
-  "InputLineWidget",
-  "InteractiveTerminalWidget",
-  "LessonDocument",
-  "TerminalDemoWidget",
-  "UnorderedListWidget",
-  "OrderedListWidget",
-  "ParagraphWidget",
-  "MCQsWidget",
-  "SectionBlock",
-  "StepFlowWidget",
-  "SwipeCardsWidget",
-  "TableWidget",
-  "TranslationWidget",
-  "TreeViewWidget",
-  "Widget",
-  "lesson_to_shorthand",
-  "validate_lesson",
-  "WidgetDefinition",
-  "WidgetRegistry",
-  "load_widget_registry",
-]
+__all__ = ["LessonDocument", "Section", "Subsection", "WidgetItem", "validate_lesson", "WidgetDefinition", "WidgetRegistry", "load_widget_registry"]

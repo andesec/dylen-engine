@@ -1,0 +1,134 @@
+# cloudbuild-prod.promote.yml
+# Promotion pipeline:
+# 0) preflight checks
+# 1) copy stage digest to prod registry and tag
+# 2) resolve prod digest and run migrations job
+# 3) deploy prod service pinned to digest
+# 4) print effective env for job + service
+
+substitutions:
+  _REGION: "us-central1"
+  _AR_REPO: "dylen-prod"
+  _IMAGE: "app"
+  _SERVICE: "dylen-engine-prod"
+  _MIGRATE_JOB: "dylen-engine-prod-migrate"
+  _RUN_SA: "sa-dylen-prod@dylen-prod.iam.gserviceaccount.com"
+  _CLOUDSQL_INSTANCE: "dylen-prod:us-central1:dylen-prod"
+  _EXPORT_BUCKET: "dylen-data-transfer"
+  _SOURCE_IMAGE_REF: ""
+  _RELEASE_TAG: ""
+  _SECRET_DYLEN_ENV: "DYLEN_ENV"
+  _SECRET_DYLEN_ALLOWED_ORIGINS: "DYLEN_ALLOWED_ORIGINS"
+  _SECRET_DYLEN_PG_DSN: "DYLEN_PG_DSN"
+  _SECRET_GCP_PROJECT_ID: "GCP_PROJECT_ID"
+  _SECRET_GCP_LOCATION: "GCP_LOCATION"
+  _SECRET_FIREBASE_PROJECT_ID: "FIREBASE_PROJECT_ID"
+  _SECRET_DYLEN_ILLUSTRATION_BUCKET: "DYLEN_ILLUSTRATION_BUCKET"
+  _SECRET_GEMINI_API_KEY: "GEMINI_API_KEY"
+  _ALLOW_UNAUTHENTICATED: "1"
+
+steps:
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        gcloud config set run/region "${_REGION}"
+        [ -n "${_SOURCE_IMAGE_REF}" ] || { echo "_SOURCE_IMAGE_REF must be set"; exit 2; }
+        [ -n "${_RELEASE_TAG}" ] || { echo "_RELEASE_TAG must be set"; exit 2; }
+        echo "${_RELEASE_TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "_RELEASE_TAG must match vX.Y.Z"; exit 2; }
+        for secret_name in \
+          "${_SECRET_DYLEN_ENV}" \
+          "${_SECRET_DYLEN_ALLOWED_ORIGINS}" \
+          "${_SECRET_DYLEN_PG_DSN}" \
+          "${_SECRET_GCP_PROJECT_ID}" \
+          "${_SECRET_GCP_LOCATION}" \
+          "${_SECRET_FIREBASE_PROJECT_ID}" \
+          "${_SECRET_DYLEN_ILLUSTRATION_BUCKET}" \
+          "${_SECRET_GEMINI_API_KEY}"; do
+          gcloud secrets describe "${secret_name}" >/dev/null 2>&1 || { echo "Missing required secret: ${secret_name}"; exit 3; }
+        done
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        TARGET_REPO="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE}"
+        gcloud artifacts docker images copy "${_SOURCE_IMAGE_REF}" --destination="$${TARGET_REPO}:prod-current"
+        gcloud artifacts docker images copy "${_SOURCE_IMAGE_REF}" --destination="$${TARGET_REPO}:release-${_RELEASE_TAG}"
+        DIGEST=""
+        for attempt in $(seq 1 12); do
+          DIGEST="$(gcloud artifacts docker images describe "$${TARGET_REPO}:prod-current" --format='value(image_summary.digest)' 2>/dev/null || true)"
+          if [ -n "$${DIGEST}" ]; then
+            break
+          fi
+          echo "Prod digest not available yet (attempt $${attempt}/12); retrying in 5s..."
+          sleep 5
+        done
+        [ -n "$${DIGEST}" ] || { echo "Failed to resolve prod digest"; exit 4; }
+        printf '%s' "$${TARGET_REPO}@$${DIGEST}" > /workspace/prod_image_ref.txt
+        echo "Promoted image ref: $$(cat /workspace/prod_image_ref.txt)"
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        IMAGE="$$(cat /workspace/prod_image_ref.txt)"
+        if ! gcloud run jobs describe "${_MIGRATE_JOB}" --region "${_REGION}" >/dev/null 2>&1; then
+          gcloud run jobs create "${_MIGRATE_JOB}" \
+            --region "${_REGION}" \
+            --image "$${IMAGE}" \
+            --service-account "${_RUN_SA}" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET}" \
+            --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
+            --set-secrets "DYLEN_ENV=${_SECRET_DYLEN_ENV}:latest,DYLEN_ALLOWED_ORIGINS=${_SECRET_DYLEN_ALLOWED_ORIGINS}:latest,DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GCP_PROJECT_ID=${_SECRET_GCP_PROJECT_ID}:latest,GCP_LOCATION=${_SECRET_GCP_LOCATION}:latest,FIREBASE_PROJECT_ID=${_SECRET_FIREBASE_PROJECT_ID}:latest,DYLEN_ILLUSTRATION_BUCKET=${_SECRET_DYLEN_ILLUSTRATION_BUCKET}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest" \
+            --command "python" \
+            --args "scripts/migrate_with_lock.py"
+        else
+          gcloud run jobs update "${_MIGRATE_JOB}" \
+            --region "${_REGION}" \
+            --image "$${IMAGE}" \
+            --service-account "${_RUN_SA}" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET}" \
+            --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
+            --set-secrets "DYLEN_ENV=${_SECRET_DYLEN_ENV}:latest,DYLEN_ALLOWED_ORIGINS=${_SECRET_DYLEN_ALLOWED_ORIGINS}:latest,DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GCP_PROJECT_ID=${_SECRET_GCP_PROJECT_ID}:latest,GCP_LOCATION=${_SECRET_GCP_LOCATION}:latest,FIREBASE_PROJECT_ID=${_SECRET_FIREBASE_PROJECT_ID}:latest,DYLEN_ILLUSTRATION_BUCKET=${_SECRET_DYLEN_ILLUSTRATION_BUCKET}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest" \
+            --command "python" \
+            --args "scripts/migrate_with_lock.py"
+        fi
+        gcloud run jobs execute "${_MIGRATE_JOB}" --region "${_REGION}" --wait
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        IMAGE="$$(cat /workspace/prod_image_ref.txt)"
+        gcloud run deploy "${_SERVICE}" \
+          --region "${_REGION}" \
+          --image "$${IMAGE}" \
+          --service-account "${_RUN_SA}" \
+          --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_EMAIL_NOTIFICATIONS_ENABLED=0,DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET}" \
+          --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
+          --set-secrets "DYLEN_ENV=${_SECRET_DYLEN_ENV}:latest,DYLEN_ALLOWED_ORIGINS=${_SECRET_DYLEN_ALLOWED_ORIGINS}:latest,DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GCP_PROJECT_ID=${_SECRET_GCP_PROJECT_ID}:latest,GCP_LOCATION=${_SECRET_GCP_LOCATION}:latest,FIREBASE_PROJECT_ID=${_SECRET_FIREBASE_PROJECT_ID}:latest,DYLEN_ILLUSTRATION_BUCKET=${_SECRET_DYLEN_ILLUSTRATION_BUCKET}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest" \
+          --port 8002
+
+        if [ "${_ALLOW_UNAUTHENTICATED}" = "1" ]; then
+          gcloud run services add-iam-policy-binding "${_SERVICE}" \
+            --region "${_REGION}" \
+            --member "allUsers" \
+            --role "roles/run.invoker"
+        else
+          echo "Skipping allUsers invoker binding because _ALLOW_UNAUTHENTICATED=${_ALLOW_UNAUTHENTICATED}"
+        fi
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-ceu"
+      - |
+        echo "=== PROD SERVICE ENV (effective) ==="
+        gcloud run services describe "${_SERVICE}" --region "${_REGION}" --format="yaml(spec.template.spec.containers[0].env)"
+        echo "=== PROD JOB ENV (effective) ==="
+        gcloud run jobs describe "${_MIGRATE_JOB}" --region "${_REGION}" --format="yaml(spec.template.template.containers[0].env)"

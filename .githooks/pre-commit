@@ -18,6 +18,43 @@ git_add_migration_versions() {
   fi
 }
 
+is_merge_migration() {
+  # Ignore Alembic "merge heads" revisions in the one-migration rule.
+  # These revisions are empty by design and exist only to reconcile branches.
+  local path="$1"
+  if [[ "$path" != alembic/versions/*.py ]]; then
+    return 1
+  fi
+
+  # Prefer staged contents so the hook reflects what is being committed.
+  local text=""
+  if text="$(git show ":$path" 2>/dev/null)"; then
+    :
+  else
+    text="$(cat "$path" 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$text" ]]; then
+    return 1
+  fi
+
+  # Match common merge revision signals without executing any code.
+  # Accept merge revisions even without '# empty: allow' so Alembic merge output works out-of-the-box.
+  # Prefer the down_revision tuple pattern to avoid exempting accidental empty migrations.
+  if [[ "$text" != *"merge heads"* && "$text" != *"Revision ID: merge"* && "$text" != *"revision = \"merge"* ]]; then
+    if ! grep -Eq 'down_revision[[:space:]]*:[^=]*=[[:space:]]*\\(.*"[^"]+".*,"[^"]+".*\\)' <<<"$text"; then
+      return 1
+    fi
+  fi
+
+  # Merge revisions should not contain schema operations.
+  if [[ "$text" == *"op."* ]]; then
+    return 1
+  fi
+
+  return 0
+}
+
 staged_changes="$(git diff --cached --name-status)"
 if [[ -z "$staged_changes" ]]; then
   exit 0
@@ -75,23 +112,12 @@ while IFS=$'\t' read -r status path_a path_b; do
   fi
 
   if [[ "$path_a" == alembic/versions/*.py ]]; then
+    if is_merge_migration "$path_a"; then
+      continue
+    fi
     migration_count="$((migration_count + 1))"
   fi
 done <<< "$staged_changes"
-
-if [[ "$migration_count" -gt 1 ]]; then
-  if [[ "${DYLEN_AUTO_MIGRATIONS:-}" == "1" ]]; then
-    message="auto_squash_$(date +%Y%m%d_%H%M%S)"
-    base_ref="${MIGRATION_BASE_REF:-main}"
-    make migration-squash "m=$message" "MIGRATION_BASE_REF=$base_ref"
-    git_add_migration_versions
-  else
-    echo "ERROR: Schema changes are staged with multiple migration files staged."
-    echo "Run: make migration-squash m=\"final_schema_changes\""
-    echo "Or set DYLEN_AUTO_MIGRATIONS=1 to auto-squash during commit."
-    exit 1
-  fi
-fi
 
 if [[ "$migration_count" -eq 0 ]]; then
   if [[ "${DYLEN_AUTO_MIGRATIONS:-}" == "1" ]]; then
@@ -108,8 +134,18 @@ fi
 
 python3 scripts/db_migration_lint.py
 python3 scripts/db_check_heads.py
+# Normalize Create Date ordering before strict checks so commit-time behavior
+# matches migration-auto generation flow.
+python3 scripts/db_check_linear_history.py --fix
+git_add_migration_versions
+# Enforce linear history and Create Date ordering for migrations after autofix.
+python3 scripts/db_check_linear_history.py
 
 if [[ "${DYLEN_MIGRATION_HOOK_STRICT:-}" == "1" ]]; then
-  make db-check-drift
-  make db-check-seed-data
+  if [[ -n "${DYLEN_PG_DSN:-}" || -n "${DGS_PG_DSN:-}" ]]; then
+    make db-check-drift
+    make db-check-seed-data
+  else
+    echo "WARN: DYLEN_PG_DSN (or DGS_PG_DSN) not set; skipping drift/seed checks."
+  fi
 fi

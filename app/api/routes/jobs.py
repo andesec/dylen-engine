@@ -3,10 +3,10 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.models import GenerateLessonRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse
+from app.api.models import JobCreateRequest, JobCreateResponse, JobRetryRequest, JobStatusResponse
 from app.config import Settings, get_settings
 from app.core.database import get_db
-from app.core.security import get_current_active_user
+from app.core.security import get_current_active_user, require_permission
 from app.schema.sql import User
 from app.services import jobs as job_service
 
@@ -14,9 +14,9 @@ router = APIRouter()
 logger = logging.getLogger("app.api.routes.jobs")
 
 
-@router.post("", response_model=JobCreateResponse)
+@router.post("", response_model=JobCreateResponse, dependencies=[Depends(require_permission("job:create_own"))])
 async def create_job(  # noqa: B008
-  request: GenerateLessonRequest,
+  request: JobCreateRequest,
   background_tasks: BackgroundTasks,
   settings: Settings = Depends(get_settings),  # noqa: B008
   current_user: User = Depends(get_current_active_user),  # noqa: B008
@@ -26,7 +26,7 @@ async def create_job(  # noqa: B008
   return await job_service.create_job(request, settings, background_tasks, db_session, user_id=str(current_user.id))
 
 
-@router.post("/{job_id}/retry", response_model=JobStatusResponse)
+@router.post("/{job_id}/retry", response_model=JobStatusResponse, dependencies=[Depends(require_permission("job:retry_own"))])
 async def retry_job(  # noqa: B008
   job_id: str,
   payload: JobRetryRequest,
@@ -38,7 +38,7 @@ async def retry_job(  # noqa: B008
   return await job_service.retry_job(job_id, payload, settings, background_tasks, user_id=str(current_user.id))
 
 
-@router.post("/{job_id}/cancel", response_model=JobStatusResponse)
+@router.post("/{job_id}/cancel", response_model=JobStatusResponse, dependencies=[Depends(require_permission("job:cancel_own"))])
 async def cancel_job(  # noqa: B008
   job_id: str,
   settings: Settings = Depends(get_settings),  # noqa: B008
@@ -48,7 +48,7 @@ async def cancel_job(  # noqa: B008
   return await job_service.cancel_job(job_id, settings, user_id=str(current_user.id))
 
 
-@router.get("/{job_id}", response_model=JobStatusResponse)
+@router.get("/{job_id}", response_model=JobStatusResponse, dependencies=[Depends(require_permission("job:view_own"))])
 async def get_job_status(  # noqa: B008
   job_id: str,
   settings: Settings = Depends(get_settings),  # noqa: B008
