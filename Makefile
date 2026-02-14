@@ -150,11 +150,9 @@ security-dast:
 	@echo "Running OWASP ZAP baseline scan..."
 	@mkdir -p reports
 	docker run --rm --network host \
-		-v $(PWD)/.zap:/zap/wrk:rw \
 		-v $(PWD)/reports:/zap/reports:rw \
 		ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
 		-t https://localhost:8002 \
-		-c .zap/rules.tsv \
 		-r /zap/reports/zap-report.html \
 		-J /zap/reports/zap-report.json || true
 	@echo "DAST scan complete. Report saved to reports/zap-report.html"
