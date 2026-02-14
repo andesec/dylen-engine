@@ -38,7 +38,7 @@ Usage:
     [--skip-storage-setup] \
     [--skip-env-sync] \
     [--skip-secret-sync] \
-    [--auth-login] \
+    [--skip-auth-login] \
     [--skip-health-check] \
     [--allow-unauthenticated] \
     [--no-allow-unauthenticated] \
@@ -110,7 +110,7 @@ SKIP_DSN_SECRET_UPDATE="0"
 SKIP_FIREBASE_SA_SETUP="0"
 SKIP_CLOUD_TASKS_SETUP="0"
 SKIP_STORAGE_SETUP="0"
-SKIP_AUTH_LOGIN="1"
+SKIP_AUTH_LOGIN="0"
 SKIP_HEALTH_CHECK="0"
 ALLOW_UNKNOWN_ENV="0"
 RUN_MIN_INSTANCES=""
@@ -255,10 +255,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-auth-login)
       SKIP_AUTH_LOGIN="1"
-      shift 1
-      ;;
-    --auth-login)
-      SKIP_AUTH_LOGIN="0"
       shift 1
       ;;
     --skip-health-check)
@@ -694,8 +690,10 @@ if [[ "$SKIP_SECRETS_STAGE" == "1" ]]; then
 elif [[ "$SKIP_ENV_SYNC" == "1" || "$SKIP_SECRET_SYNC" == "1" ]]; then
   log_step "Skip env sync step (requested)"
 elif [[ "$SKIP_SECRET_SYNC" != "1" ]]; then
-  # Always allow DEPLOY_* vars (deployment metadata, not runtime secrets).
-  sync_extra_args=(--allow-unknown)
+  sync_extra_args=()
+  if [[ "$ALLOW_UNKNOWN_ENV" == "1" ]]; then
+    sync_extra_args+=(--allow-unknown)
+  fi
 
   log_step "Validate env contract against .env file (dry run)"
   run_cmd uv run python scripts/gcp_sync_env_to_secrets.py --project-id "$PROJECT_ID" --env-file "$ENV_FILE" --target both --default-dylen-env "$DYLEN_ENV_VALUE" --dry-run ${sync_extra_args[@]+"${sync_extra_args[@]}"}
@@ -740,7 +738,7 @@ log_step "Submit stage Cloud Build deployment"
 run_cmd gcloud builds submit \
   --project "$PROJECT_ID" \
   --config cloudbuild-stage.migrate.yml \
-  --substitutions "^|^_REGION=$REGION|_AR_REPO=$AR_REPO|_IMAGE=$IMAGE|_TAG=$TAG|_SERVICE=$SERVICE|_MIGRATE_JOB=$MIGRATE_JOB|_RUN_SA=$RUN_SA|_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE|_CLOUD_RUN_INVOKER_SA=$CLOUD_TASKS_INVOKER_SA|_EXPORT_BUCKET=$EXPORT_BUCKET|_DYLEN_ENV=$DYLEN_ENV_VALUE|_DYLEN_ALLOWED_ORIGINS=$ALLOWED_ORIGINS|_GCP_PROJECT_ID_VALUE=$PROJECT_ID|_GCP_LOCATION_VALUE=$REGION|_FIREBASE_PROJECT_ID_VALUE=$FIREBASE_PROJECT_ID_VALUE|_ILLUSTRATION_BUCKET=$ILLUSTRATION_BUCKET|_DYLEN_TASK_SERVICE_PROVIDER=gcp|_DYLEN_CLOUD_TASKS_QUEUE_PATH=$DYLEN_CLOUD_TASKS_QUEUE_PATH_VALUE|_DYLEN_BASE_URL=$DYLEN_BASE_URL_VALUE|_DYLEN_INTERNAL_SERVICE_URL=$DYLEN_INTERNAL_SERVICE_URL_VALUE|_RUN_MIN_INSTANCES=$RUN_MIN_INSTANCES|_RUN_MAX_INSTANCES=$RUN_MAX_INSTANCES|_RUN_CPU=$RUN_CPU|_RUN_MEMORY=$RUN_MEMORY"
+  --substitutions "^|^_REGION=$REGION|_AR_REPO=$AR_REPO|_IMAGE=$IMAGE|_TAG=$TAG|_SERVICE=$SERVICE|_MIGRATE_JOB=$MIGRATE_JOB|_RUN_SA=$RUN_SA|_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE|_CLOUD_RUN_INVOKER_SA=$CLOUD_TASKS_INVOKER_SA|_EXPORT_BUCKET=$EXPORT_BUCKET|_DYLEN_ENV=$DYLEN_ENV_VALUE|_DYLEN_ALLOWED_ORIGINS=$ALLOWED_ORIGINS|_GCP_PROJECT_ID_VALUE=$PROJECT_ID|_GCP_LOCATION_VALUE=$REGION|_FIREBASE_PROJECT_ID_VALUE=$FIREBASE_PROJECT_ID_VALUE|_ILLUSTRATION_BUCKET=$ILLUSTRATION_BUCKET|_DYLEN_TASK_SERVICE_PROVIDER=gcp|_DYLEN_CLOUD_TASKS_QUEUE_PATH=$DYLEN_CLOUD_TASKS_QUEUE_PATH_VALUE|_DYLEN_BASE_URL=$DYLEN_BASE_URL_VALUE|_DYLEN_INTERNAL_SERVICE_URL=$DYLEN_INTERNAL_SERVICE_URL_VALUE|_RUN_MIN_INSTANCES=$RUN_MIN_INSTANCES|_RUN_MAX_INSTANCES=$RUN_MAX_INSTANCES|_RUN_CPU=$RUN_CPU|_RUN_MEMORY=$RUN_MEMORY|_ALLOW_UNAUTHENTICATED=$ALLOW_UNAUTHENTICATED"
 
 log_step "Resolve stage URL"
 STAGE_URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
@@ -762,14 +760,6 @@ run_cmd gcloud run jobs executions list --job "$MIGRATE_JOB" --region "$REGION" 
 if [[ -n "$CLOUD_TASKS_INVOKER_SA" ]]; then
   log_step "Ensure Cloud Tasks invoker service account can call the service"
   run_cmd gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --member "serviceAccount:${CLOUD_TASKS_INVOKER_SA}" --role "roles/run.invoker"
-fi
-
-log_step "Configure service IAM bindings"
-if [[ "$ALLOW_UNAUTHENTICATED" == "1" ]]; then
-  echo "Adding allUsers invoker binding (public access)"
-  run_cmd gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --member "allUsers" --role "roles/run.invoker"
-else
-  echo "Skipping allUsers binding (authenticated access only)"
 fi
 
 log_step "Stage deployment finished successfully"
