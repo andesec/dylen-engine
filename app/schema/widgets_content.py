@@ -16,7 +16,7 @@ class _WidgetContentBase(Base):
 
   id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
   creator_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
   payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -93,6 +93,6 @@ class TutorFragment(Base):
   section_id: Mapped[int | None] = mapped_column(ForeignKey("sections.section_id", ondelete="SET NULL"), nullable=True, index=True)
   subsection_id: Mapped[int | None] = mapped_column(ForeignKey("subsections.id", ondelete="SET NULL"), nullable=True, index=True)
   status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
-  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

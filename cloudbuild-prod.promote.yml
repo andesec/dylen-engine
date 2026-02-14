@@ -14,6 +14,7 @@ substitutions:
   _MIGRATE_JOB: "dylen-engine-prod-migrate"
   _RUN_SA: "sa-dylen-prod@dylen-prod.iam.gserviceaccount.com"
   _CLOUDSQL_INSTANCE: "dylen-prod:us-central1:dylen-prod"
+  _EXPORT_BUCKET: "dylen-data-transfer"
   _SOURCE_IMAGE_REF: ""
   _RELEASE_TAG: ""
   _SECRET_DYLEN_ENV: "DYLEN_ENV"
@@ -24,6 +25,7 @@ substitutions:
   _SECRET_FIREBASE_PROJECT_ID: "FIREBASE_PROJECT_ID"
   _SECRET_DYLEN_ILLUSTRATION_BUCKET: "DYLEN_ILLUSTRATION_BUCKET"
   _SECRET_GEMINI_API_KEY: "GEMINI_API_KEY"
+  _ALLOW_UNAUTHENTICATED: "1"
 
 steps:
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
@@ -79,7 +81,7 @@ steps:
             --region "${_REGION}" \
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
-            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_LLM_AUDIT_ENABLED=1" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DYLEN_ENV=${_SECRET_DYLEN_ENV}:latest,DYLEN_ALLOWED_ORIGINS=${_SECRET_DYLEN_ALLOWED_ORIGINS}:latest,DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GCP_PROJECT_ID=${_SECRET_GCP_PROJECT_ID}:latest,GCP_LOCATION=${_SECRET_GCP_LOCATION}:latest,FIREBASE_PROJECT_ID=${_SECRET_FIREBASE_PROJECT_ID}:latest,DYLEN_ILLUSTRATION_BUCKET=${_SECRET_DYLEN_ILLUSTRATION_BUCKET}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest" \
             --command "python" \
@@ -89,7 +91,7 @@ steps:
             --region "${_REGION}" \
             --image "$${IMAGE}" \
             --service-account "${_RUN_SA}" \
-            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_LLM_AUDIT_ENABLED=1" \
+            --set-env-vars "DYLEN_MIGRATOR_MODE=migrate,DYLEN_MIGRATOR_FAIL_OPEN=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET}" \
             --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
             --set-secrets "DYLEN_ENV=${_SECRET_DYLEN_ENV}:latest,DYLEN_ALLOWED_ORIGINS=${_SECRET_DYLEN_ALLOWED_ORIGINS}:latest,DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GCP_PROJECT_ID=${_SECRET_GCP_PROJECT_ID}:latest,GCP_LOCATION=${_SECRET_GCP_LOCATION}:latest,FIREBASE_PROJECT_ID=${_SECRET_FIREBASE_PROJECT_ID}:latest,DYLEN_ILLUSTRATION_BUCKET=${_SECRET_DYLEN_ILLUSTRATION_BUCKET}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest" \
             --command "python" \
@@ -107,11 +109,19 @@ steps:
           --region "${_REGION}" \
           --image "$${IMAGE}" \
           --service-account "${_RUN_SA}" \
-          --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_EMAIL_NOTIFICATIONS_ENABLED=0,DYLEN_LLM_AUDIT_ENABLED=1" \
+          --set-env-vars "DYLEN_AUTO_APPLY_MIGRATIONS=0,DYLEN_ENV_CONTRACT_ENFORCE=1,DYLEN_EMAIL_NOTIFICATIONS_ENABLED=0,DYLEN_LLM_AUDIT_ENABLED=1,DYLEN_EXPORT_BUCKET=${_EXPORT_BUCKET}" \
           --set-cloudsql-instances "${_CLOUDSQL_INSTANCE}" \
           --set-secrets "DYLEN_ENV=${_SECRET_DYLEN_ENV}:latest,DYLEN_ALLOWED_ORIGINS=${_SECRET_DYLEN_ALLOWED_ORIGINS}:latest,DYLEN_PG_DSN=${_SECRET_DYLEN_PG_DSN}:latest,DATABASE_URL=${_SECRET_DYLEN_PG_DSN}:latest,GCP_PROJECT_ID=${_SECRET_GCP_PROJECT_ID}:latest,GCP_LOCATION=${_SECRET_GCP_LOCATION}:latest,FIREBASE_PROJECT_ID=${_SECRET_FIREBASE_PROJECT_ID}:latest,DYLEN_ILLUSTRATION_BUCKET=${_SECRET_DYLEN_ILLUSTRATION_BUCKET}:latest,GEMINI_API_KEY=${_SECRET_GEMINI_API_KEY}:latest" \
-          --port 8002 \
-          --allow-unauthenticated
+          --port 8002
+
+        if [ "${_ALLOW_UNAUTHENTICATED}" = "1" ]; then
+          gcloud run services add-iam-policy-binding "${_SERVICE}" \
+            --region "${_REGION}" \
+            --member "allUsers" \
+            --role "roles/run.invoker"
+        else
+          echo "Skipping allUsers invoker binding because _ALLOW_UNAUTHENTICATED=${_ALLOW_UNAUTHENTICATED}"
+        fi
 
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     entrypoint: "bash"

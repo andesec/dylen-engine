@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 import msgspec
 
-from app.schema.widget_models import SUBSECTION_ITEMS_MAX, SUBSECTION_ITEMS_MIN, SUBSECTIONS_PER_SECTION_MAX, SUBSECTIONS_PER_SECTION_MIN, IllustrationPayload, MarkdownPayload, get_widget_payload, get_widget_shorthand_names, resolve_widget_shorthand_name
+from app.schema.widget_models import IllustrationPayload, MarkdownPayload, get_widget_payload, get_widget_shorthand_names, resolve_widget_shorthand_name
 
 
 def _normalize_widget_names(widget_names: list[str]) -> list[str]:
@@ -94,13 +94,7 @@ def create_selective_subsection(widget_names: list[str]) -> type[msgspec.Struct]
   def output_method(self) -> dict[str, Any]:
     return {"section": self.section, "items": [item.output() for item in self.items]}
 
-  class_dict = {
-    "__annotations__": {
-      "section": Annotated[str, msgspec.Meta(min_length=1, description="Subsection title")],
-      "items": Annotated[list[widget_item], msgspec.Meta(min_length=SUBSECTION_ITEMS_MIN, max_length=SUBSECTION_ITEMS_MAX, description=f"Widget items ({SUBSECTION_ITEMS_MIN}-{SUBSECTION_ITEMS_MAX})")],
-    },
-    "output": output_method,
-  }
+  class_dict = {"__annotations__": {"section": Annotated[str, msgspec.Meta(description="Subsection title")], "items": Annotated[list[widget_item], msgspec.Meta(description="Widget items")]}, "output": output_method}
 
   return type("Subsection", (msgspec.Struct,), class_dict)
 
@@ -130,9 +124,9 @@ def create_selective_section(widget_names: list[str]) -> type[msgspec.Struct]:
   # msgspec needs to resolve type annotations, and subsection_cls is a local variable
   class_dict = {
     "__annotations__": {
-      "section": Annotated[str, msgspec.Meta(min_length=1, description="Section title")],
+      "section": Annotated[str, msgspec.Meta(description="Section title")],
       "markdown": Annotated[MarkdownPayload, msgspec.Meta(description="Section introduction")],
-      "subsections": Annotated[list[subsection_cls], msgspec.Meta(min_length=SUBSECTIONS_PER_SECTION_MIN, max_length=SUBSECTIONS_PER_SECTION_MAX, description=f"Subsections ({SUBSECTIONS_PER_SECTION_MIN}-{SUBSECTIONS_PER_SECTION_MAX})")],
+      "subsections": Annotated[list[subsection_cls], msgspec.Meta(description="Subsections")],
       "illustration": Annotated[IllustrationPayload | None, msgspec.Meta(description="Section-level illustration metadata generated at runtime.")],
     },
     "illustration": None,
@@ -155,7 +149,7 @@ def create_selective_lesson(widget_names: list[str]) -> type[msgspec.Struct]:
   section_cls = create_selective_section(widget_names)
 
   # Create the class dynamically to avoid forward reference issues
-  class_dict = {"__annotations__": {"title": Annotated[str, msgspec.Meta(max_length=60, description="Lesson title")], "blocks": Annotated[list[section_cls], msgspec.Meta(description="List of sections")]}}
+  class_dict = {"__annotations__": {"title": Annotated[str, msgspec.Meta(description="Lesson title")], "blocks": Annotated[list[section_cls], msgspec.Meta(description="List of sections")]}}
 
   return type("LessonDocument", (msgspec.Struct,), class_dict)
 

@@ -88,3 +88,16 @@ make test
 
 - Privacy Policy: `docs/legal/PRIVACY_POLICY.md`
 - Terms of Service: `docs/legal/TERMS_OF_SERVICE.md`
+
+
+```
+scripts/deploy_stage_now.sh \
+  --env-file .env-stage \
+  --skip-auth-login \
+  --skip-project-env-tag \
+  --allow-unknown-env \
+  --skip-secrets-stage \
+  --skip-env-sync \
+  --skip-secret-sync \
+  --skip-dsn-secret-update
+```

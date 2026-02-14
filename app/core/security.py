@@ -136,8 +136,8 @@ async def get_current_user_or_provision(current_identity: tuple[User, dict[str, 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:  # noqa: B008
   """Block inactive users so only approved accounts access protected routes."""
   # Enforce status guard for all approved-only endpoints.
-  if current_user.is_discarded:
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Discarded user")
+  if current_user.is_archived:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Archived user")
   if current_user.status != UserStatus.APPROVED:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
 

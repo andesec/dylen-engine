@@ -9,8 +9,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-DEFAULT_MEMBER_ROLE_NAME = "Tenant_User"
-DEFAULT_MEMBER_ROLE_DESCRIPTION = "Default tenant role for new users."
+DEFAULT_MEMBER_ROLE_NAME = "User"
+DEFAULT_MEMBER_ROLE_DESCRIPTION = "Default global role for new users."
 
 
 async def get_role_by_id(session: AsyncSession, role_id: uuid.UUID) -> Role | None:
@@ -52,9 +52,9 @@ async def get_or_create_role_by_name(session: AsyncSession, *, name: str, level:
 
 
 async def get_or_create_default_member_role(session: AsyncSession) -> Role:
-  """Ensure the default tenant member role exists for onboarding/signup flows."""
+  """Ensure the default member role exists for onboarding/signup flows."""
   # Keep defaults centralized so migrations and runtime enforcement stay aligned.
-  return await get_or_create_role_by_name(session, name=DEFAULT_MEMBER_ROLE_NAME, level=RoleLevel.TENANT, description=DEFAULT_MEMBER_ROLE_DESCRIPTION)
+  return await get_or_create_role_by_name(session, name=DEFAULT_MEMBER_ROLE_NAME, level=RoleLevel.GLOBAL, description=DEFAULT_MEMBER_ROLE_DESCRIPTION)
 
 
 async def list_roles(session: AsyncSession, *, limit: int, offset: int) -> tuple[list[Role], int]:

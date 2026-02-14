@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime
+
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -28,10 +30,10 @@ class Job(Base):
   target_agent: Mapped[str | None] = mapped_column(String, nullable=True)
   result_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
   error_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-  created_at: Mapped[str] = mapped_column(String, nullable=False, server_default=text("""to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"""))
-  started_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-  updated_at: Mapped[str] = mapped_column(String, nullable=False, server_default=text("""to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"""))
-  completed_at: Mapped[str | None] = mapped_column(String, nullable=True)
+  created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+  started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+  updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+  completed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
   idempotency_key: Mapped[str] = mapped_column(String, nullable=False, index=True)
 
 

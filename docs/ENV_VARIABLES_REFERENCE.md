@@ -123,6 +123,11 @@ FIREBASE_SERVICE_ACCOUNT_JSON_PATH=/path/to/serviceAccountKey.json
 # Note: In GCP, use Application Default Credentials instead
 ```
 
+### Admin
+```bash
+DYLEN_SUPERADMIN_EMAIL=dylen.app@gmail.com  # Superadmin account email for reassignment operations
+```
+
 ### Dev/Test: Dummy Responses
 ```bash
 # Set to true to use fixture files instead of API calls

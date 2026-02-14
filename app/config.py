@@ -44,6 +44,7 @@ class Settings:
   gcp_location: str | None
   firebase_project_id: str | None
   firebase_service_account_json_path: str | None
+  superadmin_email: str | None
   email_notifications_enabled: bool
   email_from_address: str | None
   email_from_name: str | None
@@ -214,6 +215,7 @@ def get_settings() -> Settings:
     gcp_location=os.getenv("GCP_LOCATION"),
     firebase_project_id=os.getenv("FIREBASE_PROJECT_ID"),
     firebase_service_account_json_path=os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON_PATH"),
+    superadmin_email=_optional_str(os.getenv("DYLEN_SUPERADMIN_EMAIL")),
     email_notifications_enabled=email_notifications_enabled,
     email_from_address=email_from_address,
     email_from_name=email_from_name,

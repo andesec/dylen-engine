@@ -27,7 +27,19 @@ from app.services.llm_pricing import load_pricing_table
 from app.services.rbac import create_role as create_role_record
 from app.services.rbac import get_role_by_id, get_role_by_name, list_permission_slugs_for_role, set_role_permissions
 from app.services.section_shorthand_backfill import backfill_section_shorthand
-from app.services.users import UserListFilters, delete_user, discard_user, get_user_by_id, get_user_subscription_tier, get_user_tier_name, list_users, restore_discarded_user, set_user_subscription_tier, update_user_role, update_user_status
+from app.services.users import (
+  UserListFilters,
+  archive_user,
+  delete_user_and_reassign_content,
+  get_user_by_id,
+  get_user_subscription_tier,
+  get_user_tier_name,
+  list_users,
+  restore_archived_user,
+  set_user_subscription_tier,
+  update_user_role,
+  update_user_status,
+)
 from app.storage.jobs_repo import JobsRepository
 from app.storage.lessons_repo import LessonRecord, LessonsRepository
 from app.storage.postgres_audit_repo import PostgresLlmAuditRepository
@@ -264,7 +276,7 @@ class UserRecord(BaseModel):
   id: str
   email: str
   status: UserStatus
-  is_discarded: bool
+  is_archived: bool
   role_id: str
   role_name: str | None  # Enriched: role name from roles table
   org_id: str | None
@@ -535,7 +547,7 @@ async def list_user_accounts(
   email: str | None = Query(None),
   status: UserStatus | None = Query(None),
   role_id: str | None = Query(None),
-  include_discarded: bool = Query(False),
+  include_archived: bool = Query(False),
   sort_by: str = Query("id"),
   sort_order: str = Query("desc"),
   current_user: User = Depends(get_current_admin_user),
@@ -559,12 +571,12 @@ async def list_user_accounts(
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role_id format.") from None
 
   # Load users with pagination, filtering, and sorting applied.
-  filters = UserListFilters(page=page, limit=limit, email=email, status=status, role_id=parsed_role_id, sort_by=sort_by, sort_order=sort_order, with_discarded=include_discarded)
+  filters = UserListFilters(page=page, limit=limit, email=email, status=status, role_id=parsed_role_id, sort_by=sort_by, sort_order=sort_order, with_archived=include_archived)
   users_with_enrichment, total = await list_users(db_session, org_id=org_filter, filters=filters)
   # Format records for response payloads with enriched data.
   records: list[UserRecord] = []
   for user, role_name, org_name in users_with_enrichment:
-    records.append(UserRecord(id=str(user.id), email=user.email, status=user.status, is_discarded=bool(user.is_discarded), role_id=str(user.role_id), role_name=role_name, org_id=str(user.org_id) if user.org_id else None, org_name=org_name))
+    records.append(UserRecord(id=str(user.id), email=user.email, status=user.status, is_archived=bool(user.is_archived), role_id=str(user.role_id), role_name=role_name, org_id=str(user.org_id) if user.org_id else None, org_name=org_name))
   return PaginatedResponse(items=records, total=total, limit=limit, offset=(page - 1) * limit)
 
 
@@ -579,7 +591,7 @@ async def discard_user_account(user_id: str, db_session: AsyncSession = Depends(
   if user is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
   await check_tenant_permissions(db_session, current_user, target_org_id=user.org_id)
-  user = await discard_user(db_session, user=user, discarded_by=current_user.id)
+  user = await archive_user(db_session, user=user, archived_by=current_user.id)
   role = await get_role_by_id(db_session, user.role_id)
   if role is not None:
     await _update_firebase_claims(db_session, user, role)
@@ -597,7 +609,7 @@ async def restore_user_account(user_id: str, db_session: AsyncSession = Depends(
   if user is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
   await check_tenant_permissions(db_session, current_user, target_org_id=user.org_id)
-  user = await restore_discarded_user(db_session, user=user)
+  user = await restore_archived_user(db_session, user=user)
   role = await get_role_by_id(db_session, user.role_id)
   if role is not None:
     await _update_firebase_claims(db_session, user, role)
@@ -1018,14 +1030,23 @@ async def reject_user(user_id: str, db_session: AsyncSession = Depends(get_db), 
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("user_data:delete_permanent"))])
-async def delete_user_account(user_id: str, db_session: AsyncSession = Depends(get_db)) -> None:  # noqa: B008
+async def delete_user_account(user_id: str, db_session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)) -> None:  # noqa: B008
   """Delete a user account permanently (GDPR erasure)."""
   try:
     parsed_user_id = uuid.UUID(user_id)
   except ValueError as exc:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id.") from exc
 
-  success = await delete_user(db_session, parsed_user_id)
+  if not settings.superadmin_email:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Superadmin email not configured.")
+
+  try:
+    success = await delete_user_and_reassign_content(db_session, user_id=parsed_user_id, superadmin_email=settings.superadmin_email)
+  except ValueError as exc:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+  except RuntimeError as exc:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
   if not success:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
@@ -1286,7 +1307,7 @@ class UserDetailResponse(BaseModel):
   org_id: str | None
   org_name: str | None
   status: UserStatus
-  is_discarded: bool
+  is_archived: bool
   auth_method: str
   profession: str | None
   city: str | None
@@ -1352,7 +1373,7 @@ async def get_user_details(user_id: str, current_user: User = Depends(get_curren
     org_id=str(user.org_id) if user.org_id else None,
     org_name=org_name,
     status=user.status,
-    is_discarded=bool(user.is_discarded),
+    is_archived=bool(user.is_archived),
     auth_method=user.auth_method.value,
     profession=user.profession,
     city=user.city,

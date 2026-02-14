@@ -136,11 +136,31 @@ def _required_key_names(*, target: str) -> set[str]:
   return {definition.name for definition in REQUIRED_ENV_REGISTRY if definition.required and definition.used_by in allowed_targets}
 
 
+def _required_secret_key_names(*, target: str) -> set[str]:
+  """Collect required keys that are explicitly marked secret for the target."""
+  from app.core.env_contract import REQUIRED_ENV_REGISTRY
+
+  allowed_targets = {target, "both"}
+  if target == "both":
+    allowed_targets = {"service", "migrator", "both"}
+  return {definition.name for definition in REQUIRED_ENV_REGISTRY if definition.required and definition.secret and definition.used_by in allowed_targets}
+
+
 def _required_key_name_set_for_all_targets() -> set[str]:
   """Return required keys across service and migrator contracts."""
   from app.core.env_contract import REQUIRED_ENV_REGISTRY
 
   return {definition.name for definition in REQUIRED_ENV_REGISTRY if definition.required}
+
+
+def _secret_key_names(*, target: str) -> set[str]:
+  """Collect keys marked secret from the centralized runtime env registry."""
+  from app.core.env_contract import REQUIRED_ENV_REGISTRY
+
+  allowed_targets = {target, "both"}
+  if target == "both":
+    allowed_targets = {"service", "migrator", "both"}
+  return {definition.name for definition in REQUIRED_ENV_REGISTRY if definition.secret and definition.used_by in allowed_targets}
 
 
 def _known_key_names(*, target: str) -> set[str]:
@@ -171,6 +191,7 @@ def main() -> None:
   parser.add_argument("--dry-run", action="store_true", help="Print planned actions without writing secrets.")
   parser.add_argument("--allow-unknown", action="store_true", help="Allow keys outside REQUIRED_ENV_REGISTRY.")
   parser.add_argument("--target", choices=["service", "migrator", "both"], default="service", help="Validate keys for service, migrator, or both contracts.")
+  parser.add_argument("--include-non-secret", action="store_true", help="Also sync non-secret keys from env file. Default syncs secret keys only.")
   args = parser.parse_args()
 
   env_file = Path(args.env_file).resolve()
@@ -185,12 +206,15 @@ def main() -> None:
 
   known_keys = _known_key_names(target=args.target)
   required_keys = _required_key_names(target=args.target)
+  required_secret_keys = _required_secret_key_names(target=args.target)
+  secret_keys = _secret_key_names(target=args.target)
   unknown_keys = sorted([key for key in env_values if key not in known_keys])
   if unknown_keys and not args.allow_unknown:
     preview = ", ".join(unknown_keys[:10])
     raise RuntimeError(f"Unknown keys found in {env_file}: {preview}. Use --allow-unknown to bypass.")
 
-  missing_required = sorted([key for key in required_keys if key not in env_values or env_values[key].strip() == ""])
+  required_for_sync = required_keys if args.include_non_secret else required_secret_keys
+  missing_required = sorted([key for key in required_for_sync if key not in env_values or env_values[key].strip() == ""])
   if missing_required:
     raise RuntimeError("Missing required keys in env file: " + ", ".join(missing_required))
 
@@ -212,6 +236,9 @@ def main() -> None:
 
   for key, value in sorted(env_values.items(), key=lambda item: item[0]):
     if key in unknown_keys and not args.allow_unknown:
+      continue
+
+    if not args.include_non_secret and key not in secret_keys:
       continue
 
     if value == "" and key not in required_key_set:

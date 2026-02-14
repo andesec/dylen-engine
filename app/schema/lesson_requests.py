@@ -25,6 +25,6 @@ class LessonRequest(Base):
   secondary_language: Mapped[str | None] = mapped_column(String, nullable=True)
   widgets_json: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
   status: Mapped[str] = mapped_column(String, nullable=False, default="queued")
-  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+  is_archived: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
   updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

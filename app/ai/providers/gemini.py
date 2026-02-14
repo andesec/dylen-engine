@@ -51,13 +51,15 @@ class GeminiModel(AIModel):
     # Use the async client to avoid blocking the asyncio event loop.
     response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt)
 
-    response_text = _extract_text_from_response(response)
-    logger.info("Gemini response:\n%s", response_text)
+    # Extract usage IMMEDIATELY after API call, before any processing that might fail.
     usage = None
-
     if response.usage_metadata:
       usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
     self.last_usage = usage
+
+    # Extract response text after usage is captured.
+    response_text = _extract_text_from_response(response)
+    logger.info("Gemini response:\n%s", response_text)
     return SimpleModelResponse(content=response_text, usage=usage)
 
   async def generate_structured(self, prompt: str, schema) -> StructuredModelResponse:
@@ -75,22 +77,20 @@ class GeminiModel(AIModel):
       logger.info("Gemini dummy structured response:\n%s", dummy)
       return response
 
-    try:
-      # Send raw JSON Schema through `response_json_schema` to bypass strict OpenAPI-only validation.
-      response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_json_schema": schema})
+    # Send raw JSON Schema through `response_json_schema` to bypass strict OpenAPI-only validation.
+    response = await _with_backoff(self._client.aio.models.generate_content, model=self.name, contents=prompt, config={"response_mime_type": "application/json", "response_json_schema": schema})
 
-      raw_text = _extract_text_from_response(response)
-      logger.info("Gemini structured response (raw):\n%s", raw_text)
-    except Exception as e:
-      raise RuntimeError(f"Gemini returned invalid JSON: {e}") from e
-
+    # Extract usage IMMEDIATELY after API call, before any processing that might fail.
     usage = None
     if response.usage_metadata:
       usage = {"prompt_tokens": response.usage_metadata.prompt_token_count, "completion_tokens": response.usage_metadata.candidates_token_count, "total_tokens": response.usage_metadata.total_token_count}
     self.last_usage = usage
 
-    # Parse the JSON response
-    # Parse the model response with a lenient fallback to reduce retry churn.
+    # Extract raw response text after usage is captured.
+    raw_text = _extract_text_from_response(response)
+    logger.info("Gemini structured response (raw):\n%s", raw_text)
+
+    # Parse the JSON response with lenient fallback to reduce retry churn.
     try:
       # Some SDK responses omit `text`; extract from candidates/parts as fallback.
       if not raw_text:

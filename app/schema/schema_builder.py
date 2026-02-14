@@ -7,41 +7,43 @@ for a specific context, reducing token usage and improving API efficiency.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from app.ai.pipeline.contracts import PlanSection
 from app.schema.schema_export import build_gemini_config, struct_to_json_schema
-from app.schema.widget_models import (
-  SECTION_TITLE_MIN_CHARS,
-  SUBSECTION_ITEMS_MAX,
-  SUBSECTION_ITEMS_MIN,
-  SUBSECTION_TITLE_MIN_CHARS,
-  SUBSECTIONS_PER_SECTION_MAX,
-  SUBSECTIONS_PER_SECTION_MIN,
-  MarkdownPayload,
-  get_widget_payload,
-  get_widget_shorthand_names,
-  resolve_widget_shorthand_name,
-)
-
-TABLE_LIKE_WIDGETS = {"table", "compare"}
+from app.schema.widget_models import IllustrationPayload, MarkdownPayload, get_widget_payload, get_widget_shorthand_names, resolve_widget_shorthand_name
 
 
-def _string_schema(min_length: int, description: str) -> dict[str, Any]:
-  """Build string constraints for schema output without hard max bounds."""
-  return {"type": "string", "minLength": min_length, "description": description}
+def _string_schema(description: str) -> dict[str, Any]:
+  """Build Gemini-friendly string schema without length constraints."""
+  return {"type": "string", "description": description}
 
 
 def _normalize_widget_names(widget_names: list[str]) -> list[str]:
   """Normalize aliases to canonical shorthand keys while preserving order."""
   normalized_names: list[str] = []
   seen_names: set[str] = set()
+  logger = logging.getLogger(__name__)
   for widget_name in widget_names:
-    canonical_name = resolve_widget_shorthand_name(widget_name)
+    try:
+      canonical_name = resolve_widget_shorthand_name(widget_name)
+    except ValueError:
+      logger.warning("SchemaBuilder ignored unsupported widget key: %s", widget_name)
+      continue
     if canonical_name in seen_names:
       continue
     seen_names.add(canonical_name)
     normalized_names.append(canonical_name)
   return normalized_names
+
+
+def _collect_planned_widgets(plan_section: PlanSection) -> list[str]:
+  """Flatten planner widget keys in order across all subsections."""
+  planned: list[str] = []
+  for subsection in plan_section.subsections:
+    planned.extend(subsection.planned_widgets or [])
+  return planned
 
 
 def get_widget_dependencies(widget_names: list[str]) -> set[type]:
@@ -56,8 +58,6 @@ def get_widget_dependencies(widget_names: list[str]) -> set[type]:
   """
   dependencies: set[type] = set()
   for widget_name in _normalize_widget_names(widget_names):
-    if widget_name in TABLE_LIKE_WIDGETS:
-      continue
     dependencies.add(get_widget_payload(widget_name))
   return dependencies
 
@@ -73,6 +73,8 @@ def build_widget_item_schema(widget_names: list[str]) -> dict[str, Any]:
       JSON Schema for WidgetItem with only specified widgets
   """
   normalized_names = _normalize_widget_names(widget_names)
+  if not normalized_names:
+    normalized_names = ["markdown"]
 
   # Get dependencies
   payload_types = get_widget_dependencies(normalized_names)
@@ -92,10 +94,6 @@ def build_widget_item_schema(widget_names: list[str]) -> dict[str, Any]:
 
   # Add each widget as a property
   for widget_name in normalized_names:
-    if widget_name in TABLE_LIKE_WIDGETS:
-      # Keep shorthand schema for table/compare widgets.
-      widget_item_schema["properties"][widget_name] = {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
-      continue
     payload_type = get_widget_payload(widget_name)
     widget_item_schema["properties"][widget_name] = {"$ref": f"#/$defs/{payload_type.__name__}"}
 
@@ -122,11 +120,8 @@ def build_section_schema(widget_names: list[str]) -> dict[str, Any]:
   subsection_schema = {
     "type": "object",
     "description": "Subsection model",
-    "properties": {
-      "title": _string_schema(SUBSECTION_TITLE_MIN_CHARS, "Subsection title"),
-      "items": {"type": "array", "items": widget_item_schema, "minItems": SUBSECTION_ITEMS_MIN, "maxItems": SUBSECTION_ITEMS_MAX, "description": f"Widget items ({SUBSECTION_ITEMS_MIN}-{SUBSECTION_ITEMS_MAX})"},
-    },
-    "required": ["title", "items"],
+    "properties": {"section": _string_schema("Subsection title"), "items": {"type": "array", "items": widget_item_schema, "description": "Widget items"}},
+    "required": ["section", "items"],
   }
 
   # Build Section schema
@@ -134,16 +129,19 @@ def build_section_schema(widget_names: list[str]) -> dict[str, Any]:
     "type": "object",
     "description": "Section model",
     "properties": {
-      "section": _string_schema(SECTION_TITLE_MIN_CHARS, "Section title"),
+      "section": _string_schema("Section title"),
       "markdown": {"$ref": "#/$defs/MarkdownPayload"},
-      "subsections": {"type": "array", "items": subsection_schema, "minItems": SUBSECTIONS_PER_SECTION_MIN, "maxItems": SUBSECTIONS_PER_SECTION_MAX, "description": f"Subsections ({SUBSECTIONS_PER_SECTION_MIN}-{SUBSECTIONS_PER_SECTION_MAX})"},
+      "illustration": {"$ref": "#/$defs/IllustrationPayload"},
+      "subsections": {"type": "array", "items": subsection_schema, "description": "Subsections"},
     },
     "required": ["section", "markdown", "subsections"],
   }
 
-  # Always include MarkdownPayload for section.markdown
+  # Always include MarkdownPayload and IllustrationPayload for section.
   if MarkdownPayload.__name__ not in definitions:
     definitions[MarkdownPayload.__name__] = struct_to_json_schema(MarkdownPayload)
+  if IllustrationPayload.__name__ not in definitions:
+    definitions[IllustrationPayload.__name__] = struct_to_json_schema(IllustrationPayload)
 
   return {"type": "object", "properties": section_schema["properties"], "required": section_schema["required"], "$defs": definitions}
 
@@ -172,7 +170,7 @@ def build_lesson_schema(widget_names: list[str]) -> dict[str, Any]:
   }
 
 
-def build_schema_for_context(context: str, widget_names: list[str] | None = None) -> dict[str, Any]:
+def build_schema_for_context(context: str, widget_names: list[str] | None = None, plan_section: PlanSection | None = None) -> dict[str, Any]:
   """
   Build a schema for a specific agent context.
 
@@ -186,10 +184,25 @@ def build_schema_for_context(context: str, widget_names: list[str] | None = None
   # Default widget sets for common contexts
   context_widgets = {"outcomes": ["markdown", "mcqs"], "section_builder": ["markdown", "flipcards", "tr", "fillblank", "table", "mcqs"], "full": get_widget_shorthand_names()}
 
+  if plan_section is not None:
+    planned_widgets = _collect_planned_widgets(plan_section)
+    if planned_widgets:
+      normalized_planned = _normalize_widget_names(planned_widgets)
+      if widget_names:
+        allowed = set(_normalize_widget_names(widget_names))
+        normalized_planned = [name for name in normalized_planned if name in allowed]
+      widget_names = normalized_planned
+    else:
+      logging.getLogger(__name__).warning("SchemaBuilder received empty planned_widgets for section %s", getattr(plan_section, "section_number", "?"))
+
   if widget_names is None:
     if context not in context_widgets:
       raise ValueError(f"Unknown context: {context}. Provide widget_names explicitly.")
     widget_names = context_widgets[context]
+
+  widget_names = _normalize_widget_names(widget_names)
+  if "markdown" not in widget_names:
+    widget_names = [*widget_names, "markdown"]
 
   # Build the schema
   schema = build_lesson_schema(widget_names)
