@@ -540,7 +540,57 @@ class JobProcessor:
       provider, model_name = get_section_builder_model(runtime_config)
       model_instance = get_model_for_mode(provider, model_name, agent="section_builder")
       section_agent = SectionBuilder(model=model_instance, prov=provider, schema=SchemaService())
-      metadata = {"settings": self._settings, "lesson_id": lesson_id, "schema_version": str(request_payload.get("schema_version") or self._settings.schema_version), "structured_output": True}
+
+      # Create a child job creator callback for SectionBuilder to use
+      async def create_child_job_callback(*, target_agent: str, payload: dict[str, Any], section_id: int | None) -> JobRecord | None:
+        """Callback for SectionBuilder to create child jobs via worker.
+        Returns JobRecord if successful, raises exception if failed/skipped.
+        """
+        # Determine stage name for checkpoints
+        stage_name = "fenster_builder" if target_agent == "fenster_builder" else target_agent
+        section_index = payload.get("section_index") or payload.get("section_number", section_number)
+
+        # Check feature flags based on target agent
+        if target_agent == "illustration":
+          image_generation_enabled = await self._is_feature_enabled_for_user(user_id=job.user_id, feature_key="feature.image_generation")
+          if not image_generation_enabled:
+            await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage=stage_name, section_index=section_index, state="done", artifact_refs_json={"section_id": section_id, "skipped": True, "reason": "feature_disabled"})
+            await self._jobs_repo.update_job(job.job_id, logs=list(job.logs or []) + [f"Illustration job skipped for section {section_index}: feature.image_generation disabled."])
+            raise RuntimeError("feature.image_generation disabled")
+        elif target_agent == "tutor":
+          tutor_mode_enabled = await self._is_feature_enabled_for_user(user_id=job.user_id, feature_key="feature.tutor.mode")
+          if not tutor_mode_enabled:
+            await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage=stage_name, section_index=section_index, state="done", artifact_refs_json={"section_id": section_id, "skipped": True, "reason": "feature_disabled"})
+            await self._jobs_repo.update_job(job.job_id, logs=list(job.logs or []) + [f"Tutor job skipped for section {section_index}: feature.tutor.mode disabled."])
+            raise RuntimeError("feature.tutor.mode disabled")
+
+        # Check if checkpoint already done
+        if await self._checkpoint_is_done(job=job, stage=stage_name, section_index=section_index):
+          self._logger.info("Child job checkpoint already done for stage=%s section=%s, skipping", stage_name, section_index)
+          return None  # Already done, skip
+
+        # Create checkpoint as pending
+        await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage=stage_name, section_index=section_index, state="pending", artifact_refs_json={"section_id": section_id})
+
+        # Attempt to create the child job (this checks quota via _create_child_job)
+        try:
+          child_job = await self._create_child_job(parent_job=job, target_agent=target_agent, payload=payload, lesson_id=lesson_id, section_id=section_id)
+          if child_job is not None:
+            self._logger.info("Created child job %s for agent=%s section=%s", child_job.job_id, target_agent, section_index)
+          return child_job
+        except QuotaExceededError as exc:
+          # Mark as done/skipped due to quota
+          await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage=stage_name, section_index=section_index, state="done", artifact_refs_json={"section_id": section_id, "skipped": True, "reason": "quota_unavailable"})
+          await self._jobs_repo.update_job(job.job_id, logs=list(job.logs or []) + [f"{target_agent} job skipped for section {section_index}: quota unavailable."])
+          self._logger.warning("Child job creation failed due to quota for agent=%s section=%s: %s", target_agent, section_index, exc)
+          raise  # Re-raise so SectionBuilder knows it failed
+        except Exception as exc:
+          # Unexpected error - mark checkpoint as error
+          await self._jobs_repo.upsert_checkpoint(job_id=job.job_id, stage=stage_name, section_index=section_index, state="error", artifact_refs_json={"section_id": section_id}, last_error=str(exc))
+          self._logger.error("Child job creation failed unexpectedly for agent=%s section=%s: %s", target_agent, section_index, exc, exc_info=True)
+          raise  # Re-raise so SectionBuilder knows it failed
+
+      metadata = {"settings": self._settings, "lesson_id": lesson_id, "schema_version": str(request_payload.get("schema_version") or self._settings.schema_version), "structured_output": True, "child_job_creator": create_child_job_callback}
       if job.user_id:
         metadata["user_id"] = str(job.user_id)
       job_ctx = JobContext(job_id=job.job_id, created_at=datetime.utcnow(), provider=provider, model=model_name or "default", request=generation_request, metadata=metadata)
@@ -587,9 +637,7 @@ class JobProcessor:
       if updated_parent is None:
         return None
       await self._checkpoint_mark_state(job=job, stage="section_builder", section_index=section_number, state="done", artifact_refs_json={"section_id": db_section_id})
-      await self._fan_out_section_children(
-        job=job, updated_parent=updated_parent, tracker=tracker, lesson_id=lesson_id, section_number=section_number, db_section_id=db_section_id, section_payload=structured.payload, topic=generation_topic, learner_level=learner_level
-      )
+      # Child jobs already created by SectionBuilder - no need for _fan_out_section_children
       return await self._jobs_repo.get_job(job.job_id)
     except Exception as exc:  # noqa: BLE001
       self._logger.error("Section builder job failed", exc_info=True)
@@ -986,23 +1034,39 @@ class JobProcessor:
       generation_keywords = fallback_keywords
 
       # Check active section pointer first so retried child jobs are idempotent.
+      existing_illustration_id: int | None = None
+      existing_illustration_status: str | None = None
+      existing_illustration_public_id: str | None = None
+      existing_illustration_object_name: str | None = None
+
       async with session_factory() as session:
         section_row = await session.get(Section, section_id)
         if section_row is None:
           raise RuntimeError(f"Section {section_id} not found for illustration job.")
         existing_illustration_id = int(section_row.illustration_id) if section_row.illustration_id is not None else _extract_section_illustration_id(section_row.content)
+
+        self._logger.info("Illustration job for section %s: section.illustration_id=%s, extracted_id=%s", section_id, section_row.illustration_id, existing_illustration_id)
+
         if existing_illustration_id is not None:
           existing_illustration = await session.get(Illustration, existing_illustration_id)
-          if existing_illustration is not None and existing_illustration.status == "completed" and await storage_client.exists(existing_illustration.storage_object_name):
+          if existing_illustration is not None:
+            # Capture attributes within session scope
+            existing_illustration_status = existing_illustration.status
+            existing_illustration_public_id = existing_illustration.public_id
+            existing_illustration_object_name = existing_illustration.storage_object_name
+
+            self._logger.info("Found existing illustration id=%s, status=%s, public_id=%s", existing_illustration_id, existing_illustration_status, existing_illustration_public_id)
+
+          if existing_illustration is not None and existing_illustration_status == "completed" and await storage_client.exists(existing_illustration_object_name):
             total_cost = calculate_total_cost([], pricing_table)
             cost_summary = _summarize_cost([], total_cost)
             await tracker.set_cost(cost_summary)
             completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            result_json = {"section_id": section_id, "illustration_id": int(existing_illustration.id), "resource_id": str(existing_illustration.public_id), "image_name": existing_illustration.storage_object_name, "skipped": True}
+            result_json = {"section_id": section_id, "illustration_id": existing_illustration_id, "resource_id": existing_illustration_public_id, "image_name": existing_illustration_object_name, "skipped": True}
             async with session_factory() as session:
               section_row = await session.get(Section, section_id)
               if section_row is not None:
-                section_row.illustration_id = int(existing_illustration.id)
+                section_row.illustration_id = existing_illustration_id
                 session.add(section_row)
                 await session.commit()
             update_payload = {
@@ -1015,9 +1079,9 @@ class JobProcessor:
               "completed_at": completed_at,
             }
             updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
-            await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed", widget_id=str(existing_illustration.id))
+            await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed", widget_id=existing_illustration_public_id)
             await self._checkpoint_mark_state(
-              job=job, stage="illustration", section_index=section_index if section_index > 0 else None, state="done", artifact_refs_json={"section_id": section_id, "illustration_id": int(existing_illustration.id), "skipped": True}
+              job=job, stage="illustration", section_index=section_index if section_index > 0 else None, state="done", artifact_refs_json={"section_id": section_id, "illustration_id": existing_illustration_id, "skipped": True}
             )
             return updated
 
@@ -1042,28 +1106,32 @@ class JobProcessor:
       generation_prompt = str(generation["ai_prompt"])
       generation_keywords = [str(item) for item in list(generation["keywords"])]
 
-      # Persist an explicit processing row before upload so failures always have a DB status trail.
+      # Section builder MUST create the illustration row before spawning this job.
+      # If we don't find a pending/processing row, that's a bug that should fail loudly.
+      if existing_illustration_id is None:
+        raise RuntimeError(f"Illustration job for section {section_id} found no existing illustration row. Section builder must create the illustration row before creating the illustration job.")
+
+      if existing_illustration_status not in ("pending", "processing"):
+        raise RuntimeError(f"Illustration job for section {section_id} found illustration {existing_illustration_id} with unexpected status '{existing_illustration_status}'. Expected 'pending' or 'processing'.")
+
+      # Update the existing pending/processing illustration row
+      self._logger.info("Reusing existing illustration row id=%s (status=%s, public_id=%s) for section %s", existing_illustration_id, existing_illustration_status, existing_illustration_public_id, section_id)
+
       async with session_factory() as session:
-        pending_object_name = f"tmp-{uuid.uuid4().hex}.webp"
-        illustration_row = Illustration(
-          public_id=generate_nanoid(),
-          creator_id=str(job.user_id or ""),
-          storage_bucket=storage_client.bucket_name,
-          storage_object_name=pending_object_name,
-          mime_type="image/webp",
-          caption=generation_caption,
-          ai_prompt=generation_prompt,
-          keywords=generation_keywords,
-          status="processing",
-          is_archived=False,
-          regenerate=False,
-        )
+        illustration_row = await session.get(Illustration, existing_illustration_id)
+        if illustration_row is None:
+          raise RuntimeError(f"Existing illustration {existing_illustration_id} not found for update.")
+        illustration_row.caption = generation_caption
+        illustration_row.ai_prompt = generation_prompt
+        illustration_row.keywords = generation_keywords
+        illustration_row.status = "processing"
         session.add(illustration_row)
         await session.commit()
         await session.refresh(illustration_row)
         illustration_row_id = int(illustration_row.id)
+        illustration_row_public_id = str(illustration_row.public_id)
 
-      object_name = f"{illustration_row.public_id}.webp"
+      object_name = f"{illustration_row_public_id}.webp"
       await storage_client.upload_webp(generation["image_bytes"], object_name, cache_control="public, max-age=3600")
       uploaded_object_name = object_name
 
@@ -1079,14 +1147,23 @@ class JobProcessor:
         session.add(illustration_row)
         await session.commit()
       finalized_success = True
-      # Update subsection_widget status to "completed" - do NOT touch section content or shorthand
-      await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed")
+
+      # Ensure section.illustration_id points to the correct illustration row
+      async with session_factory() as session:
+        section_row = await session.get(Section, section_id)
+        if section_row is not None and section_row.illustration_id != illustration_row_id:
+          section_row.illustration_id = illustration_row_id
+          session.add(section_row)
+          await session.commit()
+
+      # Update subsection_widget status to "completed" and ensure widget_id is set correctly
+      await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed", widget_id=illustration_row_public_id)
 
       total_cost = calculate_total_cost(usage_list, pricing_table, provider=provider)
       cost_summary = _summarize_cost(usage_list, total_cost)
       await tracker.set_cost(cost_summary)
       completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-      result_json = {"section_id": section_id, "illustration_id": illustration_row_id, "resource_id": str(illustration_row.public_id), "image_name": uploaded_object_name or "", "mime_type": "image/webp"}
+      result_json = {"section_id": section_id, "illustration_id": illustration_row_id, "resource_id": illustration_row_public_id, "image_name": uploaded_object_name or "", "mime_type": "image/webp"}
       update_payload = {"status": "done", "phase": "complete", "progress": 100.0, "logs": tracker.logs + [f"Illustration generated for section {section_id}."], "result_json": result_json, "cost": cost_summary, "completed_at": completed_at}
       updated = await self._jobs_repo.update_job(job.job_id, **update_payload)
       await self._checkpoint_mark_state(
@@ -1100,24 +1177,11 @@ class JobProcessor:
       if session_factory is not None and not finalized_success:
         try:
           async with session_factory() as session:
-            if illustration_row_id is None:
-              failed_row = Illustration(
-                public_id=generate_nanoid(),
-                creator_id=str(job.user_id or ""),
-                storage_bucket=self._settings.illustration_bucket,
-                storage_object_name=uploaded_object_name or f"failed-{uuid.uuid4().hex}.webp",
-                mime_type="image/webp",
-                caption=generation_caption or "Illustration failed",
-                ai_prompt=generation_prompt or "Illustration generation failed before prompt completion.",
-                keywords=generation_keywords or ["failed", "illustration", "section", "error"],
-                status="failed",
-                is_archived=False,
-                regenerate=False,
-              )
-              session.add(failed_row)
-              await session.commit()
-            else:
-              illustration_row = await session.get(Illustration, illustration_row_id)
+            # Always update the existing illustration row to failed status
+            # We validated existing_illustration_id exists earlier, so use it
+            failure_id = illustration_row_id or existing_illustration_id
+            if failure_id is not None:
+              illustration_row = await session.get(Illustration, failure_id)
               if illustration_row is not None:
                 illustration_row.status = "failed"
                 if generation_caption:

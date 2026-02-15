@@ -165,16 +165,16 @@ class PostgresLessonsRepository(LessonsRepository):
     async with self._session_factory() as session:
       created_records: list[SubsectionRecord] = []
       for r in records:
-        subsection = (await session.execute(select(Subsection).where(Subsection.section_id == r.section_id, Subsection.subsection_index == r.subsection_index).limit(1))).scalar_one_or_none()
+        subsection = (await session.execute(select(Subsection).where(Subsection.section_id == r.section_id, Subsection.index == r.index).limit(1))).scalar_one_or_none()
         if subsection is None:
-          subsection = Subsection(section_id=r.section_id, subsection_index=r.subsection_index, subsection_title=r.subsection_title, status=r.status, is_archived=r.is_archived)
+          subsection = Subsection(section_id=r.section_id, index=r.index, title=r.title, status=r.status, is_archived=r.is_archived)
         else:
-          subsection.subsection_title = r.subsection_title
+          subsection.title = r.title
           subsection.status = r.status
           subsection.is_archived = r.is_archived
         session.add(subsection)
         await session.flush()
-        created_records.append(SubsectionRecord(id=subsection.id, section_id=subsection.section_id, subsection_index=subsection.subsection_index, subsection_title=subsection.subsection_title, status=subsection.status, is_archived=subsection.is_archived))
+        created_records.append(SubsectionRecord(id=subsection.id, section_id=subsection.section_id, index=subsection.index, title=subsection.title, status=subsection.status, is_archived=subsection.is_archived))
       await session.commit()
       return created_records
 
@@ -275,6 +275,16 @@ class PostgresLessonsRepository(LessonsRepository):
         raise RuntimeError(f"Section {section_id} not found for content update.")
       section.content = content
       section.content_shorthand = content_shorthand
+      session.add(section)
+      await session.commit()
+
+  async def update_section_content(self, section_id: int, content: dict[str, Any]) -> None:
+    """Update section content only."""
+    async with self._session_factory() as session:
+      section = await session.get(Section, section_id)
+      if section is None:
+        raise RuntimeError(f"Section {section_id} not found for content update.")
+      section.content = content
       session.add(section)
       await session.commit()
 
@@ -426,6 +436,36 @@ class PostgresLessonsRepository(LessonsRepository):
       lesson_plan=lesson.lesson_plan,
       lesson_request_id=lesson.lesson_request_id,
     )
+
+  async def _create_widget_payload_in_session(self, *, session: Any, widget_type: str, creator_id: str, payload_json: dict[str, Any]) -> Any:
+    """Create a widget payload within an existing session (does not commit). Returns the model instance."""
+    model_map = {
+      "markdown": MarkdownWidget,
+      "flipcards": FlipcardsWidget,
+      "tr": TranslationWidget,
+      "fillblank": FillBlankWidget,
+      "table": TableDataWidget,
+      "compare": CompareWidget,
+      "swipecards": SwipeCardWidget,
+      "stepFlow": StepFlowWidget,
+      "asciiDiagram": AsciiDiagramWidget,
+      "checklist": ChecklistWidget,
+      "interactiveTerminal": InteractiveTerminalWidget,
+      "terminalDemo": TerminalDemoWidget,
+      "codeEditor": CodeEditorWidget,
+      "treeview": TreeviewWidget,
+      "mcqs": McqsWidget,
+    }
+    if widget_type == "fenster":
+      row = FensterWidget(public_id=generate_nanoid(), creator_id=creator_id, status="pending", is_archived=False, type=FensterWidgetType.INLINE_BLOB, content=None, url=None)
+      session.add(row)
+      return row
+    model_cls = model_map.get(widget_type)
+    if model_cls is None:
+      raise RuntimeError(f"Unsupported widget type for persistence: {widget_type}")
+    row = model_cls(creator_id=creator_id, is_archived=False, payload_json=payload_json)
+    session.add(row)
+    return row
 
   async def create_widget_payload(self, *, widget_type: str, creator_id: str, payload_json: dict[str, Any]) -> str:
     """Persist a widget payload in its typed table and return the typed row id."""

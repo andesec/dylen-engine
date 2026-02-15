@@ -17,6 +17,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
   """Upgrade schema."""
+  # empty: allow
   # No schema changes in this revision. RBAC data changes are applied in scripts/seeds/182e88aeaf64.py.
   return
 

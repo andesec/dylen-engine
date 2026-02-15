@@ -9,7 +9,7 @@ from typing import Any
 from app.ai.agents.prompts import _load_prompt
 from app.ai.router import get_model_for_mode
 from app.ai.utils.cost import calculate_total_cost
-from app.schema.lessons import FreeText, InputLine, Lesson, Section, Subsection, SubsectionWidget
+from app.schema.lessons import FreeText, InputLine, Lesson, Section, Subsection, SubsectionWidget, SubsectionWidgetType
 from app.services.llm_pricing import load_pricing_table
 from app.telemetry.context import llm_call_context
 from sqlalchemy import select
@@ -55,21 +55,30 @@ class WritingCheckService:
         underlying_id = int(mapping.widget_id)
       except ValueError:
         return WritingCheckResult(ok=False, issues=["Widget not found"], feedback="The checking criteria could not be found.", logs=[f"Widget {widget_id} not found"], usage=[], total_cost=0.0)
-      widget_type = str(mapping.widget_type or "").strip()
-      if widget_type == "inputLine":
+
+      widget_type = mapping.widget_type
+
+      if widget_type == SubsectionWidgetType.INPUTLINE:
         input_line_result = await session.execute(select(InputLine.ai_prompt, InputLine.wordlist).where(InputLine.id == underlying_id))
         input_line_row = input_line_result.first()
         if input_line_row:
           ai_prompt = input_line_row.ai_prompt
           wordlist = input_line_row.wordlist
-      elif widget_type == "freeText":
+      elif widget_type == SubsectionWidgetType.FREETEXT:
         free_text_result = await session.execute(select(FreeText.ai_prompt, FreeText.wordlist).where(FreeText.id == underlying_id))
         free_text_row = free_text_result.first()
         if free_text_row:
           ai_prompt = free_text_row.ai_prompt
           wordlist = free_text_row.wordlist
       else:
-        return WritingCheckResult(ok=False, issues=["Widget not supported"], feedback="This widget type is not supported for writing checks.", logs=[f"Unsupported writing widget type: {widget_type} for widget {widget_id}"], usage=[], total_cost=0.0)
+        return WritingCheckResult(
+          ok=False,
+          issues=["Widget not supported"],
+          feedback="This widget type is not supported for writing checks.",
+          logs=[f"Unsupported writing widget type: {widget_type.value if widget_type else 'None'} for widget {widget_id}"],
+          usage=[],
+          total_cost=0.0,
+        )
 
       if not ai_prompt:
         return WritingCheckResult(ok=False, issues=["Widget not found"], feedback="The checking criteria could not be found.", logs=[f"Widget {widget_id} not found"], usage=[], total_cost=0.0)

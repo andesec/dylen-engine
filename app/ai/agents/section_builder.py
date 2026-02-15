@@ -13,12 +13,14 @@ from app.ai.agents.base import BaseAgent
 from app.ai.agents.prompts import render_section_builder_prompt
 from app.ai.pipeline.contracts import JobContext, PlanSection, StructuredSection
 from app.core.database import get_session_factory
+from app.schema.illustrations import Illustration
 from app.schema.quotas import QuotaPeriod
 from app.services.quota_buckets import QuotaExceededError, commit_quota_reservation, get_quota_snapshot, release_quota_reservation, reserve_quota
 from app.services.runtime_config import resolve_effective_runtime_config
 from app.services.users import get_user_by_id, get_user_subscription_tier
 from app.storage.lessons_repo import FreeTextRecord, InputLineRecord, SubsectionRecord, SubsectionWidgetRecord
 from app.telemetry.context import llm_call_context
+from app.utils.db_retry import execute_with_retry
 from app.utils.ids import generate_nanoid
 
 
@@ -113,14 +115,14 @@ def _collect_subsection_records(section_struct: Any, section_id: int) -> list[Su
   """Build subsection rows using 1-based subsection indexes."""
   records: list[SubsectionRecord] = []
   for subsection_index, sub in enumerate(section_struct.subsections, start=1):
-    records.append(SubsectionRecord(id=None, section_id=section_id, subsection_index=subsection_index, subsection_title=str(sub.section), status="completed", is_archived=False))
+    records.append(SubsectionRecord(id=None, section_id=section_id, index=subsection_index, title=str(sub.section), status="completed", is_archived=False))
   return records
 
 
 def _collect_subsection_widget_records(section_struct: Any, subsection_rows: list[SubsectionRecord]) -> list[SubsectionWidgetRecord]:
   """Build subsection widget rows from generated section items using 1-based widget indexes."""
   records: list[SubsectionWidgetRecord] = []
-  subsection_id_by_index = {row.subsection_index: int(row.id) for row in subsection_rows if row.id is not None}
+  subsection_id_by_index = {row.index: int(row.id) for row in subsection_rows if row.id is not None}
   for subsection_index, sub in enumerate(section_struct.subsections, start=1):
     subsection_id = subsection_id_by_index.get(subsection_index)
     if subsection_id is None:
@@ -394,109 +396,287 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           error_records.append(SectionErrorRecord(id=None, section_id=created_section.section_id, error_index=index, error_message=message, error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index))
         await repo.create_section_errors(error_records)
       else:
-        # Persist subjective input widgets if structured output is available.
+        # Persist all widgets, subsections, and content updates in a SINGLE transaction.
+        # This prevents orphan rows if something fails partway through.
+        # Wrapped in retry logic to handle transient deadlocks/serialization failures.
         if section_struct is not None:
           creator_id = str(raw_user_id)
-          markdown_payload = msgspec.to_builtins(section_struct.markdown)
-          markdown_id = await repo.create_widget_payload(widget_type="markdown", creator_id=creator_id, payload_json=markdown_payload)
-          await repo.update_section_links(created_section.section_id, markdown_id=int(markdown_id))
 
-          subsection_records = _collect_subsection_records(section_struct=section_struct, section_id=created_section.section_id)
-          created_subsections = await repo.create_subsections(subsection_records) if subsection_records else []
-          subsection_id_by_index = {row.subsection_index: int(row.id) for row in created_subsections if row.id is not None}
+          # Define transaction function for retry wrapper
+          async def _execute_widget_creation_transaction():
+            """Execute widget creation transaction atomically with retry support."""
+            async with session_factory() as session:
+              from app.schema.lessons import Section
 
-          # Create Illustration record and subsection_widget tracking record for section-level illustration if it exists.
-          # This follows the same pattern as other widgets: create all DB records, set IDs, THEN generate shorthand.
-          if section_struct.illustration is not None and created_subsections:
-            from app.schema.illustrations import Illustration
+              # 1. Create markdown widget
+              markdown_payload = msgspec.to_builtins(section_struct.markdown)
+              markdown_widget = await repo._create_widget_payload_in_session(session=session, widget_type="markdown", creator_id=creator_id, payload_json=markdown_payload)
+              await session.flush()  # Flush to get markdown_id
+              markdown_id = int(markdown_widget.id)
 
-            first_subsection_id = subsection_id_by_index.get(1)
-            if first_subsection_id is not None:
-              # Get settings from metadata for storage bucket configuration
-              settings = (ctx.metadata or {}).get("settings")
-              if settings is None:
-                raise RuntimeError("SectionBuilder missing settings metadata for illustration creation.")
+              # 2. Create subsections
+              from app.schema.lessons import Subsection as SubsectionModel
 
-              # Create Illustration record with status="pending" (image will be generated later)
-              illustration_public_id = generate_nanoid()
-              illustration_tracking_id = generate_nanoid()
+              subsection_records = _collect_subsection_records(section_struct=section_struct, section_id=created_section.section_id)
+              created_subsections = []
+              for rec in subsection_records:
+                subsection_row = SubsectionModel(section_id=rec.section_id, title=rec.title, index=rec.index, is_archived=False)
+                session.add(subsection_row)
+                created_subsections.append(subsection_row)
 
-              # Get illustration metadata from the payload
-              illustration_caption = section_struct.illustration.caption
-              illustration_prompt = section_struct.illustration.ai_prompt
-              illustration_keywords = section_struct.illustration.keywords
+              await session.flush()  # Flush to get subsection IDs
+              subsection_id_by_index = {row.index: int(row.id) for row in created_subsections if row.id is not None}
+
+              # 3. Create Illustration and subsection_widget if illustration exists
+              illustration_db_id: int | None = None
+
+              if section_struct.illustration is not None:
+                if not created_subsections:
+                  logger.warning("Section %s has illustration but no subsections - cannot create subsection_widget tracking. Removing illustration.", section_index)
+                  section_struct.illustration = None
+                else:
+                  first_subsection_id = subsection_id_by_index.get(1)
+                  if first_subsection_id is None:
+                    logger.warning("Section %s has illustration but first subsection ID not found. Removing illustration.", section_index)
+                    section_struct.illustration = None
+                  else:
+                    try:
+                      settings = (ctx.metadata or {}).get("settings")
+                      if settings is None:
+                        raise RuntimeError("SectionBuilder missing settings metadata for illustration creation.")
+                      if not hasattr(settings, "illustration_bucket") or not settings.illustration_bucket:
+                        raise RuntimeError("Settings missing illustration_bucket configuration.")
+
+                      illustration_public_id = generate_nanoid()
+                      illustration_tracking_id = generate_nanoid()
+                      illustration_caption = section_struct.illustration.caption
+                      illustration_prompt = section_struct.illustration.ai_prompt
+                      illustration_keywords = section_struct.illustration.keywords
+
+                      illustration_row = Illustration(
+                        public_id=illustration_public_id,
+                        creator_id=creator_id,
+                        storage_bucket=settings.illustration_bucket,
+                        storage_object_name=f"pending-{illustration_public_id}.webp",
+                        mime_type="image/webp",
+                        caption=illustration_caption,
+                        ai_prompt=illustration_prompt,
+                        keywords=illustration_keywords,
+                        status="pending",
+                        is_archived=False,
+                        regenerate=False,
+                      )
+                      session.add(illustration_row)
+                      await session.flush()  # Flush to get illustration DB ID
+                      illustration_db_id = int(illustration_row.id)
+
+                      # Create subsection_widget for illustration
+                      from app.schema.lessons import SubsectionWidget as SubsectionWidgetModel
+
+                      illustration_widget = SubsectionWidgetModel(subsection_id=first_subsection_id, public_id=illustration_tracking_id, widget_id=illustration_public_id, widget_index=0, widget_type="illustration", status="pending", is_archived=False)
+                      session.add(illustration_widget)
+                      await session.flush()  # Flush illustration widget
+
+                      # Set IDs in memory
+                      section_struct.illustration.resource_id = illustration_public_id
+                      section_struct.illustration.id = illustration_tracking_id
+                      logger.info("Created Illustration DB record for section %s: resource_id=%s, tracking_id=%s", section_index, illustration_public_id, illustration_tracking_id)
+                    except Exception as exc:  # noqa: BLE001
+                      logger.error("Failed to create Illustration DB record for section %s: %s. Removing illustration from shorthand.", section_index, exc)
+                      section_struct.illustration = None
+
+              # 4. Create all subsection widgets
+              from app.schema.lessons import FreeText as FreeTextModel
+              from app.schema.lessons import InputLine as InputLineModel
+              from app.schema.lessons import SubsectionWidget as SubsectionWidgetModel
+
+              for subsection_index, subsection in enumerate(section_struct.subsections, start=1):
+                subsection_id = subsection_id_by_index.get(subsection_index)
+                if subsection_id is None:
+                  continue
+
+                for widget_index, item in enumerate(subsection.items, start=1):
+                  entry = _resolve_widget_entry(item)
+                  if entry is None:
+                    continue
+
+                  widget_type, widget_payload = entry
+                  payload_json = msgspec.to_builtins(widget_payload)
+
+                  # Create widget payload record
+                  if widget_type == "inputLine":
+                    widget_row = InputLineModel(creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
+                    session.add(widget_row)
+                    await session.flush()
+                    widget_row_id = str(widget_row.id) if widget_row.id is not None else None
+                  elif widget_type == "freeText":
+                    widget_row = FreeTextModel(creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
+                    session.add(widget_row)
+                    await session.flush()
+                    widget_row_id = str(widget_row.id) if widget_row.id is not None else None
+                  else:
+                    widget_row = await repo._create_widget_payload_in_session(session=session, widget_type=widget_type, creator_id=creator_id, payload_json=payload_json)
+                    await session.flush()
+                    # FensterWidget uses public_id, others use id
+                    if widget_type == "fenster":
+                      widget_row_id = str(widget_row.public_id) if hasattr(widget_row, "public_id") and widget_row.public_id is not None else None
+                    else:
+                      widget_row_id = str(widget_row.id) if widget_row.id is not None else None
+
+                  # Set resource_id in memory
+                  if hasattr(widget_payload, "resource_id"):
+                    widget_payload.resource_id = widget_row_id
+
+                  # Create subsection_widget tracking record
+                  public_id = generate_nanoid()
+                  subsection_widget = SubsectionWidgetModel(subsection_id=subsection_id, public_id=public_id, widget_id=widget_row_id, widget_index=widget_index, widget_type=widget_type, status="pending", is_archived=False)
+                  session.add(subsection_widget)
+                  await session.flush()  # Flush to ensure public_id is available
+
+                  # Set tracking id in memory
+                  if hasattr(widget_payload, "id"):
+                    widget_payload.id = public_id
+
+              # 5. Update section content with all IDs now set in memory
+              section_json = _prune_none_values(msgspec.to_builtins(section_struct))
+              section_row = await session.get(Section, created_section.section_id)
+              if section_row is None:
+                raise RuntimeError(f"Section {created_section.section_id} not found for content update.")
+
+              section_row.content = section_json
+              section_row.markdown_id = markdown_id
+              if illustration_db_id is not None:
+                section_row.illustration_id = illustration_db_id
+              session.add(section_row)
+
+              # 6. Commit the entire transaction
+              await session.commit()
+              logger.info("Successfully created all widgets and updated content for section %s in single transaction", section_index)
+
+              # Return section_json for use after transaction
+              return section_json
+
+          # Execute transaction with retry logic for transient failures
+          try:
+            section_json = await execute_with_retry(operation_name=f"section_{section_index}_widget_creation", func=_execute_widget_creation_transaction, max_attempts=2, initial_backoff_ms=100, max_backoff_ms=2000)
+          except Exception as exc:
+            # Transaction failed even after retries (or non-retryable error)
+            logger.error("Widget creation transaction failed for section %s (all retries exhausted or non-retryable error): %s", section_index, exc, exc_info=True)
+            # This is a critical failure - we cannot continue with an inconsistent state
+            raise RuntimeError(f"Failed to create widgets for section {section_index} in database transaction") from exc
+
+        # Now attempt to create child jobs for illustration, fenster, and tutor widgets.
+        # SectionBuilder is the boss - it asks worker to create jobs and makes decisions based on results.
+        child_job_creator = (ctx.metadata or {}).get("child_job_creator")
+        removed_widget_refs: list[str] = []
+
+        if child_job_creator is not None:
+          # Attempt to create illustration child job if illustration exists
+          if section_struct.illustration is not None:
+            try:
+              illustration_payload = {"section_index": section_index, "section_id": created_section.section_id, "lesson_id": lesson_id, "topic": request.topic, "section_data": section_json}
+              await child_job_creator(target_agent="illustration", payload=illustration_payload, section_id=created_section.section_id)
+              logger.info("Successfully created illustration child job for section %s", section_index)
+            except Exception as exc:  # noqa: BLE001
+              # Job creation failed (quota or other issue) - remove illustration from shorthand
+              logger.warning("Illustration job creation failed for section %s: %s", section_index, exc)
+              section_struct.illustration = None
+              removed_widget_refs.append(f"{section_index}.illustration")
+
+          # Collect fenster widgets with their metadata for easier tracking
+          fenster_widgets: list[tuple[str, int, int]] = []  # (public_id, subsection_idx, item_idx)
+          for subsection_idx, subsection in enumerate(section_struct.subsections, start=1):
+            for item_idx, item in enumerate(subsection.items, start=1):
+              if item.fenster is not None and item.fenster.id is not None:
+                fenster_widgets.append((item.fenster.id, subsection_idx, item_idx))
+
+          # Attempt to create fenster child jobs
+          failed_fenster_ids: set[str] = set()
+          for fenster_id, subsection_idx, item_idx in fenster_widgets:
+            try:
+              fenster_payload = {
+                "lesson_id": lesson_id,
+                "section_id": created_section.section_id,
+                "widget_public_ids": [fenster_id],
+                "concept_context": f"Fenster widget for section {section_index} in topic {request.topic}",
+                "target_audience": request.learner_level or "Student",
+                "technical_constraints": {},
+              }
+              await child_job_creator(target_agent="fenster_builder", payload=fenster_payload, section_id=created_section.section_id)
+              logger.info("Created fenster child job for widget %s in section %s", fenster_id, section_index)
+            except Exception as exc:  # noqa: BLE001
+              # Job creation failed - mark for removal
+              logger.warning("Fenster job creation failed for widget %s in section %s: %s", fenster_id, section_index, exc)
+              failed_fenster_ids.add(fenster_id)
+              removed_widget_refs.append(f"{section_index}.{subsection_idx}.{item_idx}.fenster")
+
+          # Remove failed fenster widgets from shorthand (safe iteration)
+          if failed_fenster_ids:
+            for subsection in section_struct.subsections:
+              subsection.items = [item for item in subsection.items if item.fenster is None or item.fenster.id not in failed_fenster_ids]
+
+          # Remove empty subsections (can happen if all widgets in a subsection failed)
+          original_subsection_count = len(section_struct.subsections)
+          section_struct.subsections = [sub for sub in section_struct.subsections if len(sub.items) > 0]
+          if len(section_struct.subsections) < original_subsection_count:
+            removed_count = original_subsection_count - len(section_struct.subsections)
+            logger.warning("Removed %d empty subsection(s) from section %s after widget failures", removed_count, section_index)
+
+          # Verify we still have at least one subsection with widgets
+          if len(section_struct.subsections) == 0:
+            logger.error("Section %s has no subsections remaining after widget removals - cannot generate valid shorthand", section_index)
+            # Mark section as failed - no valid shorthand can be generated
+            validation_errors = ["Section has no valid subsections after widget creation failures"]
+            error_path, section_scope, subsection_index, item_index = _extract_error_location("No valid subsections remaining")
+            await repo.create_section_errors(
+              [
+                SectionErrorRecord(
+                  id=None, section_id=created_section.section_id, error_index=0, error_message="No valid subsections after widget failures", error_path=error_path, section_scope=section_scope, subsection_index=subsection_index, item_index=item_index
+                )
+              ]
+            )
+            # Return with error - use minimal section_json as payload since shorthand cannot be generated
+            return StructuredSection(section_number=section_index, payload=section_json, validation_errors=validation_errors, db_section_id=created_section.section_id)
+
+        # NOTE: We do NOT update section.content here. The content column retains ALL widgets (even failed ones)
+        # because we want the DB records to exist for future regeneration (e.g., when free users become pro).
+        # Only the shorthand will reflect the current state (with removals).
+
+        # Record removed widgets if any
+        if removed_widget_refs:
+          session_factory = get_session_factory()
+          if session_factory is not None:
+            try:
+              from app.schema.lessons import Section
 
               async with session_factory() as session:
-                illustration_row = Illustration(
-                  public_id=illustration_public_id,
-                  creator_id=creator_id,
-                  storage_bucket=settings.illustration_bucket,
-                  storage_object_name=f"pending-{illustration_public_id}.webp",
-                  mime_type="image/webp",
-                  caption=illustration_caption,
-                  ai_prompt=illustration_prompt,
-                  keywords=illustration_keywords,
-                  status="pending",
-                  is_archived=False,
-                  regenerate=False,
-                )
-                session.add(illustration_row)
-                await session.commit()
-                await session.refresh(illustration_row)
-                illustration_db_id = int(illustration_row.id)
+                section_row = await session.get(Section, created_section.section_id)
+                if section_row is not None:
+                  existing_csv = str(section_row.removed_widgets_csv or "").strip()
+                  added_csv = ",".join(removed_widget_refs)
+                  section_row.removed_widgets_csv = f"{existing_csv},{added_csv}".strip(",") if existing_csv else added_csv
+                  session.add(section_row)
+                  await session.commit()
+                  logger.info("Recorded %d removed widgets for section %s: %s", len(removed_widget_refs), section_index, added_csv)
+                else:
+                  logger.warning("Could not find section %s to record removed widgets", created_section.section_id)
+            except Exception as exc:  # noqa: BLE001
+              logger.error("Failed to record removed widgets for section %s: %s", section_index, exc, exc_info=True)
+              # Non-fatal - continue with shorthand generation
 
-              # Create subsection_widget tracking record
-              subsection_widget_record = SubsectionWidgetRecord(
-                subsection_id=first_subsection_id,
-                public_id=illustration_tracking_id,
-                widget_id=illustration_public_id,  # Points to Illustration.public_id
-                widget_index=0,  # Use 0 to indicate section-level widget
-                widget_type="illustration",
-                status="pending",
-                is_archived=False,
-              )
-              await repo.create_subsection_widgets([subsection_widget_record])
-
-              # Update section row to link the illustration
-              await repo.update_section_links(created_section.section_id, illustration_id=illustration_db_id)
-
-              # Set both resource_id and tracking id on the illustration payload before generating shorthand
-              section_struct.illustration.resource_id = illustration_public_id
-              section_struct.illustration.id = illustration_tracking_id
-          for subsection_index, subsection in enumerate(section_struct.subsections, start=1):
-            subsection_id = subsection_id_by_index.get(subsection_index)
-            if subsection_id is None:
-              continue
-            for widget_index, item in enumerate(subsection.items, start=1):
-              entry = _resolve_widget_entry(item)
-              if entry is None:
-                continue
-              widget_type, widget_payload = entry
-              payload_json = msgspec.to_builtins(widget_payload)
-              if widget_type == "inputLine":
-                record = InputLineRecord(id=None, creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
-                created_rows = await repo.create_input_lines([record])
-                widget_row_id = str(created_rows[0].id) if created_rows and created_rows[0].id is not None else None
-              elif widget_type == "freeText":
-                record = FreeTextRecord(id=None, creator_id=creator_id, ai_prompt=str(getattr(widget_payload, "ai_prompt", "") or ""), wordlist=getattr(widget_payload, "wordlist_csv", None))
-                created_rows = await repo.create_free_texts([record])
-                widget_row_id = str(created_rows[0].id) if created_rows and created_rows[0].id is not None else None
-              else:
-                widget_row_id = await repo.create_widget_payload(widget_type=widget_type, creator_id=creator_id, payload_json=payload_json)
-              if hasattr(widget_payload, "resource_id"):
-                widget_payload.resource_id = widget_row_id
-              public_id = generate_nanoid()
-              subsection_widget_rows = await repo.create_subsection_widgets(
-                [SubsectionWidgetRecord(subsection_id=subsection_id, public_id=public_id, widget_id=widget_row_id, widget_index=widget_index, widget_type=widget_type, status="pending", is_archived=False)]
-              )
-              if subsection_widget_rows and hasattr(widget_payload, "id"):
-                widget_payload.id = subsection_widget_rows[0].public_id
+        # NOW build and save shorthand - this is the final step after all decisions are made.
+        # Generate fresh JSON from the modified section_struct (with widget removals for failed jobs).
+        # This shorthand reflects only what's currently ready/available for the UI.
+        if removed_widget_refs:
+          logger.info("Generating shorthand for section %s with %d widget(s) removed: %s", section_index, len(removed_widget_refs), ", ".join(removed_widget_refs))
+        else:
+          logger.info("Generating shorthand for section %s with all widgets included", section_index)
 
         try:
-          if section_struct is not None:
-            section_json = _prune_none_values(msgspec.to_builtins(section_struct))
-          shorthand_content = _build_shorthand_content(section_struct=section_struct, section_json=section_json, section_number=section_index, logger=logger)
-          await repo.update_section_content_and_shorthand(created_section.section_id, section_json, shorthand_content)
+          shorthand_section_json = _prune_none_values(msgspec.to_builtins(section_struct)) if section_struct is not None else section_json
+          shorthand_content = _build_shorthand_content(section_struct=section_struct, section_json=shorthand_section_json, section_number=section_index, logger=logger)
+          await repo.update_section_shorthand(created_section.section_id, shorthand_content)
+          logger.info("Successfully generated and saved shorthand for section %s using Section.output() method", section_index)
         except Exception as exc:  # noqa: BLE001
           shorthand_error = f"payload: shorthand conversion failed: {exc}"
           error_path, section_scope, subsection_index, item_index = _extract_error_location(shorthand_error)

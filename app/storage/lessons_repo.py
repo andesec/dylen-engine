@@ -89,8 +89,8 @@ class SubsectionRecord:
 
   id: int | None
   section_id: int
-  subsection_index: int
-  subsection_title: str
+  index: int
+  title: str
   status: str = "pending"
   is_archived: bool = False
 

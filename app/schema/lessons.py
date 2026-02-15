@@ -102,12 +102,12 @@ class SectionError(Base):
 
 class Subsection(Base):
   __tablename__ = "subsections"
-  __table_args__ = (UniqueConstraint("section_id", "subsection_index", name="ux_subsections_section_subsection_index"),)
+  __table_args__ = (UniqueConstraint("section_id", "index", name="ux_subsections_section_subsection_index"),)
 
   id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
   section_id: Mapped[int] = mapped_column(ForeignKey("sections.section_id", ondelete="CASCADE"), nullable=False, index=True)
-  subsection_index: Mapped[int] = mapped_column(Integer, nullable=False)
-  subsection_title: Mapped[str] = mapped_column(Text, nullable=False)
+  index: Mapped[int] = mapped_column(Integer, nullable=False)
+  title: Mapped[str] = mapped_column(Text, nullable=False)
   status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
   is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
   created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
