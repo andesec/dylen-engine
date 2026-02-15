@@ -290,17 +290,6 @@
             "title": "Blueprint",
             "type": "string"
           },
-          "depth": {
-            "default": "highlights",
-            "description": "Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
-            "enum": [
-              "highlights",
-              "detailed",
-              "training"
-            ],
-            "title": "Depth",
-            "type": "string"
-          },
           "details": {
             "anyOf": [
               {
@@ -342,6 +331,23 @@
             ],
             "description": "Optional learner level hint used for prompt guidance.",
             "title": "Learner Level"
+          },
+          "learning_focus": {
+            "anyOf": [
+              {
+                "enum": [
+                  "conceptual",
+                  "applied",
+                  "comprehensive"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional learning focus (conceptual, applied, or comprehensive).",
+            "title": "Learning Focus"
           },
           "lesson_language": {
             "default": "English",
@@ -393,17 +399,35 @@
             "description": "Optional secondary language for language practice blueprint.",
             "title": "Secondary Language"
           },
+          "section_count": {
+            "default": 2,
+            "description": "Number of sections in the lesson (1=Quick Overview, 2=Highlights, 3=Standard, 4=Detailed, 5=In-Depth).",
+            "enum": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "title": "Section Count",
+            "type": "integer"
+          },
           "teaching_style": {
-            "description": "Required teaching style guidance for lesson planning.",
+            "description": "Required teaching approach guidance for lesson planning.",
             "items": {
               "enum": [
                 "conceptual",
                 "theoretical",
-                "practical"
+                "practical",
+                "direct",
+                "socratic",
+                "narrative",
+                "experiential",
+                "adaptive"
               ],
               "type": "string"
             },
-            "maxItems": 3,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Teaching Style",
             "type": "array"
@@ -437,8 +461,8 @@
         },
         "required": [
           "topic",
-          "blueprint",
           "teaching_style",
+          "blueprint",
           "outcomes"
         ],
         "title": "GenerateLessonRequest",
@@ -448,34 +472,6 @@
         "additionalProperties": false,
         "description": "Request payload for outcomes preflight.",
         "properties": {
-          "blueprint": {
-            "description": "Required blueprint guidance for lesson planning.",
-            "enum": [
-              "skillbuilding",
-              "knowledgeunderstanding",
-              "communicationskills",
-              "planningandproductivity",
-              "movementandfitness",
-              "growthmindset",
-              "criticalthinking",
-              "creativeskills",
-              "webdevandcoding",
-              "languagepractice"
-            ],
-            "title": "Blueprint",
-            "type": "string"
-          },
-          "depth": {
-            "default": "highlights",
-            "description": "Requested lesson depth (Highlights=2, Detailed=6, Training=10).",
-            "enum": [
-              "highlights",
-              "detailed",
-              "training"
-            ],
-            "title": "Depth",
-            "type": "string"
-          },
           "details": {
             "anyOf": [
               {
@@ -518,6 +514,23 @@
             "description": "Optional learner level hint used for prompt guidance.",
             "title": "Learner Level"
           },
+          "learning_focus": {
+            "anyOf": [
+              {
+                "enum": [
+                  "conceptual",
+                  "applied",
+                  "comprehensive"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional learning focus (conceptual, applied, or comprehensive).",
+            "title": "Learning Focus"
+          },
           "lesson_language": {
             "default": "English",
             "description": "Primary language for lesson output.",
@@ -558,17 +571,35 @@
             "description": "Optional secondary language for language practice blueprint.",
             "title": "Secondary Language"
           },
+          "section_count": {
+            "default": 2,
+            "description": "Number of sections in the lesson (1=Quick Overview, 2=Highlights, 3=Standard, 4=Detailed, 5=In-Depth).",
+            "enum": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "title": "Section Count",
+            "type": "integer"
+          },
           "teaching_style": {
-            "description": "Required teaching style guidance for lesson planning.",
+            "description": "Required teaching approach guidance for lesson planning.",
             "items": {
               "enum": [
                 "conceptual",
                 "theoretical",
-                "practical"
+                "practical",
+                "direct",
+                "socratic",
+                "narrative",
+                "experiential",
+                "adaptive"
               ],
               "type": "string"
             },
-            "maxItems": 3,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Teaching Style",
             "type": "array"
@@ -602,7 +633,6 @@
         },
         "required": [
           "topic",
-          "blueprint",
           "teaching_style"
         ],
         "title": "GenerateOutcomesRequest",
@@ -1375,26 +1405,6 @@
             "title": "Blueprints",
             "type": "array"
           },
-          "default_widgets": {
-            "additionalProperties": {
-              "additionalProperties": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "type": "object"
-            },
-            "title": "Default Widgets",
-            "type": "object"
-          },
-          "depths": {
-            "items": {
-              "$ref": "#/components/schemas/OptionDetail"
-            },
-            "title": "Depths",
-            "type": "array"
-          },
           "learner_levels": {
             "items": {
               "$ref": "#/components/schemas/OptionDetail"
@@ -1402,11 +1412,25 @@
             "title": "Learner Levels",
             "type": "array"
           },
-          "teaching_styles": {
+          "learning_focus": {
             "items": {
               "$ref": "#/components/schemas/OptionDetail"
             },
-            "title": "Teaching Styles",
+            "title": "Learning Focus",
+            "type": "array"
+          },
+          "section_counts": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Section Counts",
+            "type": "array"
+          },
+          "teaching_approaches": {
+            "items": {
+              "$ref": "#/components/schemas/OptionDetail"
+            },
+            "title": "Teaching Approaches",
             "type": "array"
           },
           "widgets": {
@@ -1419,11 +1443,11 @@
         },
         "required": [
           "blueprints",
-          "teaching_styles",
+          "learning_focus",
+          "teaching_approaches",
           "learner_levels",
-          "depths",
-          "widgets",
-          "default_widgets"
+          "section_counts",
+          "widgets"
         ],
         "title": "LessonCatalogResponse",
         "type": "object"
@@ -2528,7 +2552,7 @@
             "type": "boolean"
           },
           "outcomes": {
-            "description": "A small list of straightforward learning outcomes.",
+            "description": "Learning outcomes (3-8 items based on section count).",
             "items": {
               "type": "string"
             },
@@ -2550,6 +2574,14 @@
             ],
             "description": "The recommended blueprint/framework for this topic (e.g., 'knowledge_understanding', 'languagepractice').",
             "title": "Suggested Blueprint"
+          },
+          "suggested_widgets": {
+            "description": "Suggested widgets filtered by blueprint and teaching approaches.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggested Widgets",
+            "type": "array"
           },
           "teacher_persona": {
             "anyOf": [

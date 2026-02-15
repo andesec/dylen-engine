@@ -51,7 +51,7 @@ async def repair_lesson_overlong_markdown(lesson_json: dict[str, Any], *, topic:
   model_instance = get_model_for_mode(provider, model_name, agent="repairer")
   schema_service = SchemaService()
   agent = RepairerAgent(model=model_instance, prov=provider, schema=schema_service)
-  request = GenerationRequest(topic=topic, depth="highlights", section_count=max(2, len(blocks)))
+  request = GenerationRequest(topic=topic, section_count=max(1, len(blocks)))
   metadata = {"limits.max_markdown_chars": max_markdown_chars}
   ctx = JobContext(job_id=job_id, created_at=datetime.utcnow(), provider=provider, model=str(model_name or ""), request=request, metadata=metadata)
   # Repair only the sections that are currently violating the hard limit.

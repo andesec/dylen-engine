@@ -67,6 +67,7 @@ Key patterns:
 - When using feature flags to gate quotas, ensure the quota response hides disabled features.
 
 ## Migrations + Seeds
+- **Alembic auto-generates migrations**: Use `python3 scripts/db_migration_autogen.py --message "description"` to auto-generate database schema changes based on SQLAlchemy model updates. Never write migrations manually.
 - Migrations create schema only; seeds populate data. If startup runs migrations, it must also run seed scripts.
 - Seed scripts must not assume prior seed ordering beyond what `seed_versions` enforces.
 

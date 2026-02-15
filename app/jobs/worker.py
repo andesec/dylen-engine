@@ -367,14 +367,13 @@ class JobProcessor:
         lesson_request_id = int(raw_lesson_request_id)
       request_payload = _strip_internal_request_fields(job.request)
       request_model = GenerateLessonRequestStruct.model_validate(request_payload)
-      section_count = {"highlights": 2, "detailed": 6, "training": 10}.get(str(request_model.depth).lower(), 2)
       generation_request = GenerationRequest(
         topic=request_model.topic,
         prompt=request_model.details,
         outcomes=request_model.outcomes,
-        depth=request_model.depth,
-        section_count=section_count,
+        section_count=request_model.section_count,
         blueprint=request_model.blueprint,
+        learning_focus=request_model.learning_focus,
         teaching_style=request_model.teaching_style,
         lesson_language=request_model.lesson_language,
         secondary_language=request_model.secondary_language,

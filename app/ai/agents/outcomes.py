@@ -27,19 +27,18 @@ def _normalize_optional_text(value: str | None) -> str:
 def _render_prompt(input_data: OutcomesAgentInput) -> str:
   """Render the outcomes prompt with concrete request inputs."""
   template = _load_prompt("outcomes_agent_improved.md")
-  teaching_style = ", ".join(input_data.teaching_style) if input_data.teaching_style else "-"
-  learner_level = _normalize_optional_text(input_data.learner_level)
+  teaching_style = ", ".join(input_data.teaching_style)
   secondary_language = _normalize_optional_text(input_data.secondary_language)
 
   rendered = template
-  rendered = rendered.replace("{{TOPIC}}", _normalize_optional_text(input_data.topic))
-  rendered = rendered.replace("{{DETAILS}}", _normalize_optional_text(input_data.details))
-  rendered = rendered.replace("{{LEARNER_LEVEL}}", learner_level)
+  rendered = rendered.replace("{{TOPIC}}", input_data.topic)
+  rendered = rendered.replace("{{DETAILS}}", input_data.details)
+  rendered = rendered.replace("{{LEARNING_FOCUS}}", input_data.learning_focus)
+  rendered = rendered.replace("{{LEARNER_LEVEL}}", input_data.learner_level)
   rendered = rendered.replace("{{TEACHING_STYLE}}", teaching_style)
-  rendered = rendered.replace("{{DEPTH}}", _normalize_optional_text(input_data.depth))
-  rendered = rendered.replace("{{PRIMARY_LANGUAGE}}", _normalize_optional_text(input_data.lesson_language))
+  rendered = rendered.replace("{{SECTION_COUNT}}", str(int(input_data.section_count)))
+  rendered = rendered.replace("{{PRIMARY_LANGUAGE}}", input_data.lesson_language)
   rendered = rendered.replace("{{SECONDARY_LANGUAGE}}", secondary_language)
-  rendered = rendered.replace("{{MAX_OUTCOMES}}", str(int(input_data.max_outcomes)))
   return rendered
 
 
@@ -55,8 +54,7 @@ class OutcomesAgent(BaseAgent[OutcomesAgentInput, OutcomesAgentResponse]):
 
       if dummy_json is not None:
         logger.info("Using deterministic dummy output for Outcomes")
-        payload = OutcomesAgentResponse.model_validate(dummy_json)
-        return self._enforce_max_outcomes(payload, max_outcomes=int(input_data.max_outcomes))
+        return OutcomesAgentResponse.model_validate(dummy_json)
 
       prompt_text = _render_prompt(input_data)
       schema = OutcomesAgentResponse.model_json_schema(by_alias=True, ref_template="#/$defs/{model}", mode="validation")
@@ -79,16 +77,7 @@ class OutcomesAgent(BaseAgent[OutcomesAgentInput, OutcomesAgentResponse]):
         logger.error("Outcomes agent returned invalid JSON: %s", exc)
         raise RuntimeError(f"Outcomes agent returned invalid JSON: {exc}") from exc
 
-      return self._enforce_max_outcomes(payload, max_outcomes=int(input_data.max_outcomes))
+      return payload
     except Exception as exc:  # noqa: BLE001
       logger.error("Outcomes agent failed unexpectedly.", exc_info=True)
       return OutcomesAgentResponse(ok=False, error="TOPIC_NOT_ALLOWED", message=f"Outcomes generation failed: {exc}", blocked_category="invalid_input", outcomes=[])
-
-  def _enforce_max_outcomes(self, payload: OutcomesAgentResponse, *, max_outcomes: int) -> OutcomesAgentResponse:
-    """Clamp outcomes to the configured maximum to prevent oversized responses."""
-    # Clamp only the allowed path; blocked responses must remain empty by schema contract.
-    if payload.ok and len(payload.outcomes) > max_outcomes:
-      trimmed = payload.model_copy()
-      trimmed.outcomes = list(trimmed.outcomes)[:max_outcomes]
-      return trimmed
-    return payload

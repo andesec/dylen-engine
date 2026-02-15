@@ -6,7 +6,6 @@ from typing import Any
 
 from app.config import Settings
 from app.schema.service import DEFAULT_WIDGETS_PATH
-from app.schema.widget_preference import WIDGET_PREFERENCES
 from app.schema.widgets_loader import load_widget_registry
 
 _RAW_BLUEPRINTS: list[dict[str, Any]] = [
@@ -50,45 +49,43 @@ _RAW_BLUEPRINTS: list[dict[str, Any]] = [
   {"id": "languagepractice", "label": "Language Practice", "tooltip": "Build fluency through guided practice. Topics: Vocabulary building, grammar fundamentals, conversation practice, listening practice, writing practice, pronunciation."},
 ]
 
-_RAW_TEACHING_STYLES: list[dict[str, Any]] = [
-  {
-    "id": "conceptual",
-    "label": "Conceptual",
-    "tooltip": "Intuition and mental models before application; best for fast clarity and orientation. Topics: Psychology basics, history overviews, nutrition basics, systems overviews, intro philosophy, big-picture science.",  # noqa: E501
-  },
-  {
-    "id": "theoretical",
-    "label": "Theoretical",
-    "tooltip": "Formal and precise understanding; best for correctness, rigor, and edge cases. Topics: Grammar systems, formal logic, statistics, constitutional law, microeconomics, chemistry fundamentals.",  # noqa: E501
-  },
-  {
-    "id": "practical",
-    "label": "Practical",
-    "tooltip": "Execution and application; best for getting results quickly. Topics: Language practice, fitness practice, cooking practice, public speaking practice, study practice, tool proficiency.",  # noqa: E501
-  },
+_LEARNING_FOCUS: list[dict[str, Any]] = [
+  {"id": "conceptual", "label": "Conceptual", "tooltip": "Mental models and intuition; understand how things work and why."},
+  {"id": "applied", "label": "Applied", "tooltip": "Hands-on application; learn by doing and executing."},
+  {"id": "comprehensive", "label": "Comprehensive", "tooltip": "Both theory and practice; complete understanding with application."},
+]
+
+_RAW_TEACHING_APPROACHES: list[dict[str, Any]] = [
+  {"id": "direct", "label": "Direct Instruction", "tooltip": "Clear explanations with step-by-step guidance; efficient and structured."},
+  {"id": "socratic", "label": "Socratic Questioning", "tooltip": "Questions that guide discovery; builds deep reasoning and insight."},
+  {"id": "narrative", "label": "Narrative/Storytelling", "tooltip": "Stories and context that make concepts memorable and relatable."},
+  {"id": "experiential", "label": "Experiential Practice", "tooltip": "Learning through doing, reflection, and iteration."},
+  {"id": "adaptive", "label": "Adaptive Mix", "tooltip": "AI chooses the best approach for each section based on content."},
 ]
 
 _LEARNER_LEVELS: list[dict[str, str]] = [
-  {"id": "newbie", "label": "Newbie", "tooltip": "No prior exposure; use gentle pacing and foundational terms."},
-  {"id": "beginner", "label": "Beginner", "tooltip": "Some familiarity; reinforce basics with guided practice."},
-  {"id": "intermediate", "label": "Intermediate", "tooltip": "Solid fundamentals; add nuance, tradeoffs, and real scenarios."},
-  {"id": "expert", "label": "Expert", "tooltip": "Advanced mastery; focus on edge cases, optimization, and depth."},
+  {"id": "curious", "label": "Curious Explorer", "tooltip": "Just starting, no prior experience; gentle introduction to fundamentals."},
+  {"id": "student", "label": "Active Student", "tooltip": "Learning actively with some familiarity; ready for guided practice."},
+  {"id": "practitioner", "label": "Practitioner", "tooltip": "Applying knowledge regularly; ready for deeper analysis and nuance."},
+  {"id": "specialist", "label": "Specialist", "tooltip": "Advanced expertise; focus on optimization, edge cases, and mastery."},
 ]
 
-_DEPTH_OPTIONS: list[dict[str, str]] = [
-  {"id": "highlights", "label": "Highlights", "tooltip": "Two concise sections for quick orientation and key takeaways."},
-  {"id": "detailed", "label": "Detailed", "tooltip": "Six sections with a closing quiz for solid coverage."},
-  {"id": "training", "label": "Training", "tooltip": "Ten sections with per-section practice and a comprehensive final exam."},
+_SECTION_COUNT_OPTIONS: list[dict[str, Any]] = [
+  {"id": "1", "label": "Quick Overview", "tooltip": "Brief introduction to the topic with essential concepts."},
+  {"id": "2", "label": "Highlights", "tooltip": "Key concepts and takeaways for quick learning."},
+  {"id": "3", "label": "Standard", "tooltip": "Balanced coverage with core concepts and practice."},
+  {"id": "4", "label": "Detailed", "tooltip": "Comprehensive exploration with deeper analysis."},
+  {"id": "5", "label": "In-Depth", "tooltip": "Thorough, extensive coverage with advanced topics."},
 ]
 
 # Agent model ordering used by router fallbacks (not exposed in catalog responses).
-_GATHERER_MODELS = ["gemini-2.5-pro", "vertex-gemini-2.5-pro"]
+_GATHERER_MODELS = ["gemini-2.5-flash", "vertex-gemini-2.5-flash"]
 
-_STRUCTURER_MODELS = ["gemini-2.5-pro", "vertex-gemini-2.5-pro"]
+_STRUCTURER_MODELS = ["gemini-2.5-flash", "vertex-gemini-2.5-flash"]
 
-_PLANNER_MODELS = ["gemini-2.5-pro", "vertex-gemini-2.5-pro"]
+_PLANNER_MODELS = ["gemini-2.5-flash", "vertex-gemini-2.5-flash"]
 
-_REPAIRER_MODELS = ["gemini-2.5-flash", "vertex-gemini-2.5-flash"]
+_REPAIRER_MODELS = ["gemini-2.0-flash", "vertex-gemini-2.0-flash"]
 
 _OUTCOMES_MODELS = ["gemini-2.5-flash"]
 
@@ -176,15 +173,26 @@ def _build_blueprint_options() -> list[dict[str, str]]:
   return options
 
 
-def _build_teaching_style_options() -> list[dict[str, str]]:
-  """Build teaching style option payloads with tooltip guidance."""
+def _build_learning_focus_options() -> list[dict[str, str]]:
+  """Build learning focus option payloads with tooltip guidance."""
   options: list[dict[str, str]] = []
 
-  # Use the composed tooltip for each style to keep payload stable.
-  for style in _RAW_TEACHING_STYLES:
-    # Use the precomposed tooltip to keep the payload stable.
-    tooltip = style["tooltip"]
-    options.append({"id": style["id"], "label": style["label"], "tooltip": tooltip})
+  # Use the composed tooltip for each focus to keep payload stable.
+  for focus in _LEARNING_FOCUS:
+    tooltip = focus["tooltip"]
+    options.append({"id": focus["id"], "label": focus["label"], "tooltip": tooltip})
+
+  return options
+
+
+def _build_teaching_approach_options() -> list[dict[str, str]]:
+  """Build teaching approach option payloads with tooltip guidance."""
+  options: list[dict[str, str]] = []
+
+  # Use the composed tooltip for each approach to keep payload stable.
+  for approach in _RAW_TEACHING_APPROACHES:
+    tooltip = approach["tooltip"]
+    options.append({"id": approach["id"], "label": approach["label"], "tooltip": tooltip})
 
   return options
 
@@ -237,36 +245,14 @@ def _build_widget_options() -> list[dict[str, str]]:
   return options
 
 
-def build_widget_defaults() -> dict[str, dict[str, list[str]]]:
-  """Build default widget lists for each blueprint and teaching style."""
-  defaults: dict[str, dict[str, list[str]]] = {}
-
-  # Build defaults per blueprint so callers can cache this output safely.
-  for blueprint, styles in WIDGET_PREFERENCES.items():
-    # Normalize blueprint ids to align with client-facing option keys.
-    blueprint_id = "".join(ch for ch in blueprint.lower() if ch.isalnum())
-    style_defaults: dict[str, list[str]] = {}
-
-    # Map explicit styles using lowercase option ids.
-    for style_key in ("conceptual", "theoretical", "practical"):
-      widgets = styles.get(style_key, [])
-      # Keep catalog defaults aligned with client-selectable widgets.
-      style_defaults[style_key] = ["".join(ch for ch in widget.lower() if ch.isalnum()) for widget in widgets if "".join(ch for ch in widget.lower() if ch.isalnum()) != "markdown"]
-
-    defaults[blueprint_id] = style_defaults
-
-  return defaults
-
-
 def build_lesson_catalog(settings: Settings) -> dict[str, Any]:
   """Return a static payload for lesson option metadata."""
   # Retain settings arg for compatibility with existing call sites.
   _ = settings
-  # Build widget defaults so the UI can reflect blueprint/style defaults.
-  widget_defaults = build_widget_defaults()
 
   # Assemble option payloads for selectable UI fields.
   blueprints = _build_blueprint_options()
-  teaching_styles = _build_teaching_style_options()
+  learning_focus = _build_learning_focus_options()
+  teaching_approaches = _build_teaching_approach_options()
   widgets = _build_widget_options()
-  return {"blueprints": blueprints, "teaching_styles": teaching_styles, "learner_levels": list(_LEARNER_LEVELS), "depths": list(_DEPTH_OPTIONS), "widgets": widgets, "default_widgets": widget_defaults}
+  return {"blueprints": blueprints, "learning_focus": learning_focus, "teaching_approaches": teaching_approaches, "learner_levels": list(_LEARNER_LEVELS), "section_counts": list(_SECTION_COUNT_OPTIONS), "widgets": widgets}

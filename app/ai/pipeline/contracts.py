@@ -26,11 +26,11 @@ class GenerationRequest(PipelineStruct):
   """Inputs for a lesson generation request."""
 
   topic: str
-  depth: str
   section_count: int
   prompt: str | None = None
   outcomes: list[str] | None = None
   blueprint: str | None = None
+  learning_focus: str | None = None
   teaching_style: list[str] | None = None
   lesson_language: str | None = None
   secondary_language: str | None = None

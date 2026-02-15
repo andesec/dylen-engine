@@ -1,39 +1,87 @@
-"""Widget preference configuration mapping blueprints and styles to allowed widgets."""
+"""Widget preference configuration mapping blueprints and teaching approaches to allowed widgets."""
 
 from __future__ import annotations
 
-# Map blueprint -> style -> list of widget types
-# The user will populate this structure.
-# Example structure:
-# {
-#     "Creative Skills": {
-#         "conceptual": ["p", "ul", "table"],
-#         "theoretical": ["p", "table", "compare", "flipcards"],
-#         "practical": ["freeText", "inputLine", "checklist", "mcqs"],
-#         "all": ["p", "ul", "table", "compare", "flipcards", "freeText", "inputLine", "checklist", "mcqs"],
-#     }
-# }
+# Map blueprint -> teaching_approach -> list of widget types
+# Teaching approaches: direct, socratic, narrative, experiential, adaptive
+# - direct: Clear step-by-step guidance with structured explanations
+# - socratic: Questions and discovery-based learning
+# - narrative: Story-driven and contextual learning
+# - experiential: Hands-on practice and real-world application
+# - adaptive: Flexible mix of multiple approaches
 
 CORE = ["markdown", "asciiDiagram", "mcqs"]
 
 WIDGET_PREFERENCES: dict[str, dict[str, list[str]]] = {
-  "Knowledge & Understanding": {"conceptual": CORE + ["table", "compare", "flipcards"], "theoretical": CORE + ["table", "compare", "flipcards", "fillblank"], "practical": CORE + ["fillblank", "flipcards", "swipecards"]},
-  "Skill Building": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare"], "practical": CORE + ["stepFlow", "checklist", "inputLine"]},
-  "Critical Thinking": {"conceptual": CORE + ["compare", "table"], "theoretical": CORE + ["compare", "table", "flipcards", "stepFlow"], "practical": CORE + ["compare", "table", "swipecards", "stepFlow", "freeText", "fillblank"]},
-  "Planning and Productivity": {"conceptual": CORE + ["table", "compare"], "theoretical": CORE + ["table", "compare", "flipcards"], "practical": CORE + ["stepFlow", "checklist", "table", "inputLine", "freeText"]},
-  "Growth Mindset": {"conceptual": CORE + ["compare"], "theoretical": CORE + ["compare", "table", "flipcards"], "practical": CORE + ["flipcards", "freeText", "inputLine", "swipecards"]},
-  "Communication Skills": {"conceptual": CORE + ["compare"], "theoretical": CORE + ["compare", "table", "flipcards"], "practical": CORE + ["compare", "swipecards", "freeText", "inputLine", "stepFlow"]},
-  "Movement and Fitness": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare"], "practical": CORE + ["checklist", "stepFlow", "freeText", "inputLine"]},
-  "Creative Skills": {"conceptual": CORE + ["table"], "theoretical": CORE + ["table", "compare", "flipcards", "fillblank"], "practical": CORE + ["freeText", "inputLine", "checklist", "swipecards"]},
+  "Knowledge & Understanding": {
+    "direct": CORE + ["table", "compare", "stepFlow"],
+    "socratic": CORE + ["fillblank", "flipcards", "compare"],
+    "narrative": CORE + ["table", "flipcards", "swipecards"],
+    "experiential": CORE + ["fillblank", "swipecards", "freeText"],
+    "adaptive": CORE + ["table", "compare", "flipcards", "fillblank", "swipecards"],
+  },
+  "Skill Building": {
+    "direct": CORE + ["table", "stepFlow", "checklist"],
+    "socratic": CORE + ["inputLine", "fillblank", "freeText"],
+    "narrative": CORE + ["stepFlow", "flipcards"],
+    "experiential": CORE + ["checklist", "inputLine", "freeText"],
+    "adaptive": CORE + ["table", "stepFlow", "checklist", "inputLine", "freeText"],
+  },
+  "Critical Thinking": {
+    "direct": CORE + ["compare", "table", "stepFlow"],
+    "socratic": CORE + ["compare", "freeText", "fillblank", "swipecards"],
+    "narrative": CORE + ["compare", "table", "flipcards"],
+    "experiential": CORE + ["compare", "swipecards", "freeText", "stepFlow"],
+    "adaptive": CORE + ["compare", "table", "flipcards", "swipecards", "freeText", "fillblank"],
+  },
+  "Planning and Productivity": {
+    "direct": CORE + ["table", "stepFlow", "checklist"],
+    "socratic": CORE + ["inputLine", "freeText", "compare"],
+    "narrative": CORE + ["table", "flipcards", "compare"],
+    "experiential": CORE + ["checklist", "stepFlow", "inputLine", "freeText"],
+    "adaptive": CORE + ["table", "compare", "stepFlow", "checklist", "flipcards", "freeText"],
+  },
+  "Growth Mindset": {
+    "direct": CORE + ["table", "compare", "flipcards"],
+    "socratic": CORE + ["freeText", "inputLine", "compare"],
+    "narrative": CORE + ["flipcards", "swipecards", "compare"],
+    "experiential": CORE + ["freeText", "inputLine", "swipecards"],
+    "adaptive": CORE + ["compare", "flipcards", "swipecards", "freeText", "inputLine"],
+  },
+  "Communication Skills": {
+    "direct": CORE + ["table", "stepFlow", "compare"],
+    "socratic": CORE + ["freeText", "inputLine", "compare"],
+    "narrative": CORE + ["compare", "flipcards", "swipecards"],
+    "experiential": CORE + ["freeText", "inputLine", "stepFlow", "swipecards"],
+    "adaptive": CORE + ["compare", "table", "stepFlow", "flipcards", "freeText", "inputLine"],
+  },
+  "Movement and Fitness": {
+    "direct": CORE + ["table", "stepFlow", "checklist"],
+    "socratic": CORE + ["inputLine", "freeText", "compare"],
+    "narrative": CORE + ["table", "flipcards"],
+    "experiential": CORE + ["checklist", "stepFlow", "freeText", "inputLine"],
+    "adaptive": CORE + ["table", "stepFlow", "checklist", "flipcards", "freeText"],
+  },
+  "Creative Skills": {
+    "direct": CORE + ["table", "stepFlow"],
+    "socratic": CORE + ["freeText", "inputLine", "fillblank"],
+    "narrative": CORE + ["table", "flipcards", "compare"],
+    "experiential": CORE + ["freeText", "inputLine", "checklist", "swipecards"],
+    "adaptive": CORE + ["table", "compare", "flipcards", "fillblank", "freeText", "checklist"],
+  },
   "Web Dev and Coding": {
-    "conceptual": CORE + ["table", "compare", "checklist", "terminalDemo", "codeEditor"],
-    "theoretical": CORE + ["table", "compare", "asciiDiagram", "terminalDemo", "codeEditor"],
-    "practical": CORE + ["stepFlow", "checklist", "codeEditor", "interactiveTerminal", "terminalDemo", "swipecards"],
+    "direct": CORE + ["table", "codeEditor", "terminalDemo", "stepFlow"],
+    "socratic": CORE + ["codeEditor", "inputLine", "freeText", "compare"],
+    "narrative": CORE + ["table", "terminalDemo", "compare"],
+    "experiential": CORE + ["codeEditor", "interactiveTerminal", "terminalDemo", "stepFlow", "checklist"],
+    "adaptive": CORE + ["table", "compare", "codeEditor", "interactiveTerminal", "terminalDemo", "stepFlow", "checklist"],
   },
   "Language Practice": {
-    "conceptual": CORE + ["tr", "flipcards", "fillblank", "inputLine"],
-    "theoretical": CORE + ["tr", "table", "compare", "fillblank", "flipcards"],
-    "practical": CORE + ["tr", "compare", "fillblank", "swipecards", "inputLine", "freeText"],
+    "direct": CORE + ["tr", "table", "fillblank", "inputLine"],
+    "socratic": CORE + ["tr", "fillblank", "inputLine", "freeText"],
+    "narrative": CORE + ["tr", "flipcards", "compare", "table"],
+    "experiential": CORE + ["tr", "fillblank", "inputLine", "freeText", "swipecards"],
+    "adaptive": CORE + ["tr", "table", "compare", "flipcards", "fillblank", "inputLine", "freeText"],
   },
 }
 

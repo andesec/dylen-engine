@@ -44,8 +44,13 @@ _TARGET_METRICS: dict[str, tuple[str, str, QuotaPeriod]] = {
 def _expected_sections_from_payload(payload: dict[str, Any], target_agent: str) -> int:
   if target_agent != "planner":
     return 0
+  # Try section_count first (new field), fallback to depth mapping for backward compatibility
+  section_count = payload.get("section_count")
+  if section_count is not None:
+    return int(section_count)
+  # Legacy depth mapping
   depth = str(payload.get("depth") or "highlights").strip().lower()
-  mapping = {"highlights": 2, "detailed": 6, "training": 10}
+  mapping = {"highlights": 2, "detailed": 4, "training": 5}
   return int(mapping.get(depth, 2))
 
 

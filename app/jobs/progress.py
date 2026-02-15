@@ -21,7 +21,7 @@ class JobCanceledError(Exception):
 class CallPlan:
   """Represents the expected AI call volume for a job."""
 
-  depth: int
+  section_count: int
   planner_calls: int
   section_builder_calls: int
   repair_calls: int
@@ -54,62 +54,63 @@ class CallPlan:
 
 
 def _coerce_depth(raw_depth: Any) -> int:
-  """Validate and normalize the requested depth."""
+  """Validate and normalize the requested section count."""
 
-  # Accept Dylen depth labels in addition to numeric values for backward compatibility.
+  # Accept legacy Dylen depth labels in addition to numeric values for backward compatibility.
   if raw_depth is None:
     return 2
   if isinstance(raw_depth, str):
     normalized = raw_depth.strip().lower()
+    # Map legacy depth labels to section counts
     if normalized == "highlights":
       return 2
     if normalized == "detailed":
-      return 6
+      return 4
     if normalized == "training":
-      return 10
+      return 5
     if normalized.isdigit():
       raw_depth = int(normalized)
   try:
-    depth = int(raw_depth)
+    section_count = int(raw_depth)
   except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-    raise ValueError("Depth must be Highlights, Detailed, Training, or an integer between 1 and 10.") from exc
-  if depth < 1:
-    raise ValueError("Depth must be at least 1.")
-  if depth > 10:
-    raise ValueError("Depth exceeds the maximum of 10.")
-  return depth
+    raise ValueError("Section count must be between 1 and 5, or Highlights/Detailed/In-Depth.") from exc
+  if section_count < 1:
+    raise ValueError("Section count must be at least 1.")
+  if section_count > 5:
+    raise ValueError("Section count exceeds the maximum of 5.")
+  return section_count
 
 
 def build_call_plan(request_data: Mapping[str, Any]) -> CallPlan:
   """Derive an AI call plan from the raw job request payload."""
 
-  # Normalize depth input before computing call counts.
-  depth = _coerce_depth(request_data.get("depth"))
+  # Normalize section_count input before computing call counts.
+  section_count = _coerce_depth(request_data.get("section_count") or request_data.get("depth"))
 
-  # Set per-phase call counts based on depth.
+  # Set per-phase call counts based on section count.
   planner_calls = 1
-  section_builder_calls = depth
-  repair_calls = depth
+  section_builder_calls = section_count
+  repair_calls = section_count
   stitch_calls = 1
 
   # Aggregate total calls for overall guardrails.
   total_calls = planner_calls + section_builder_calls + repair_calls
 
   # Guardrails keep the plan within expected operational limits.
-  max_section_builder_calls = 10
-  max_repair_calls = 10
-  max_total_calls = 35
+  max_section_builder_calls = 5
+  max_repair_calls = 5
+  max_total_calls = 15
 
   if section_builder_calls > max_section_builder_calls:
-    raise ValueError("Lower depth to reduce section builder calls.")
+    raise ValueError("Lower section count to reduce section builder calls.")
 
   if repair_calls > max_repair_calls:
-    raise ValueError("Lower depth to reduce repair calls.")
+    raise ValueError("Lower section count to reduce repair calls.")
 
   if total_calls > max_total_calls:
-    raise ValueError("Lower depth to reduce total calls.")
+    raise ValueError("Lower section count to reduce total calls.")
 
-  plan = CallPlan(depth=depth, planner_calls=planner_calls, section_builder_calls=section_builder_calls, repair_calls=repair_calls, stitch_calls=stitch_calls, required_calls=total_calls, max_calls=max_total_calls)
+  plan = CallPlan(section_count=section_count, planner_calls=planner_calls, section_builder_calls=section_builder_calls, repair_calls=repair_calls, stitch_calls=stitch_calls, required_calls=total_calls, max_calls=max_total_calls)
   return plan
 
 

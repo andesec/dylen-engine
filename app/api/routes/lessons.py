@@ -135,19 +135,13 @@ async def generate_outcomes_endpoint(  # noqa: B008
 
   # Route outcomes through the dedicated outcomes provider/model by default; operators can override per-tenant.
   provider, model_name = get_outcomes_model(runtime_config)
-  max_outcomes = int(runtime_config.get("limits.max_outcomes") or 5)
-  # Clamp invalid operator configuration to a safe range.
-  if max_outcomes <= 0:
-    max_outcomes = 5
-  if max_outcomes > 8:
-    max_outcomes = 8
 
   generation_request = GenerationRequest(
     topic=request.topic,
     prompt=request.details,
-    depth=request.depth,
-    section_count=2,
-    blueprint=request.blueprint,
+    section_count=request.section_count,
+    blueprint=None,  # Blueprint is AI-suggested in outcomes response, not provided in request
+    learning_focus=request.learning_focus,
     teaching_style=request.teaching_style,
     lesson_language=request.lesson_language,
     secondary_language=request.secondary_language,
@@ -155,7 +149,7 @@ async def generate_outcomes_endpoint(  # noqa: B008
     widgets=request.widgets,
   )
   try:
-    payload, _model_used = await generate_lesson_outcomes(generation_request, settings=settings, provider=provider, model=str(model_name) if model_name else None, job_id=job_id, max_outcomes=max_outcomes)
+    payload, _model_used = await generate_lesson_outcomes(generation_request, settings=settings, provider=provider, model=str(model_name) if model_name else None, job_id=job_id, section_count=request.section_count)
   except Exception as exc:  # noqa: BLE001
     # Compensate quota reservation when the model call fails.
     try:
@@ -240,7 +234,7 @@ async def generate_lesson(  # noqa: B008
 
   # Expected sections
   plan = build_call_plan(request.model_dump(mode="python", by_alias=True))
-  requested_sections = plan.depth
+  requested_sections = plan.section_count
   capped_sections = min(int(section_snapshot.remaining), int(requested_sections))
   if capped_sections <= 0:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "QUOTA_EXCEEDED", "metric": "section.generate"})
@@ -253,9 +247,10 @@ async def generate_lesson(  # noqa: B008
     details=request.details,
     outcomes_json=list(request.outcomes),
     blueprint=request.blueprint,
+    learning_focus=request.learning_focus,
     teaching_style_json=list(request.teaching_style),
     learner_level=request.learner_level,
-    depth=request.depth,
+    section_count=request.section_count,
     lesson_language=request.lesson_language,
     secondary_language=request.secondary_language,
     widgets_json=list(request.widgets) if request.widgets else None,

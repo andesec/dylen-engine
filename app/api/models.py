@@ -45,12 +45,10 @@ class BaseLessonRequest(BaseModel):
 
   topic: StrictStr = Field(min_length=1, description="Topic to generate a lesson for.", examples=["Introduction to Python"])
   details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details (max 300 characters).", examples=["Focus on lists and loops"])
-  blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] = Field(
-    description="Required blueprint guidance for lesson planning."
-  )
-  teaching_style: list[Literal["conceptual", "theoretical", "practical"]] = Field(min_length=1, max_length=3, description="Required teaching style guidance for lesson planning.")
+  learning_focus: Literal["conceptual", "applied", "comprehensive"] | None = Field(default=None, description="Optional learning focus (conceptual, applied, or comprehensive).")
+  teaching_style: list[Literal["conceptual", "theoretical", "practical", "direct", "socratic", "narrative", "experiential", "adaptive"]] = Field(min_length=1, max_length=5, description="Required teaching approach guidance for lesson planning.")
   learner_level: StrictStr | None = Field(default=None, min_length=1, description="Optional learner level hint used for prompt guidance.")
-  depth: Literal["highlights", "detailed", "training"] = Field(default="highlights", description="Requested lesson depth (Highlights=2, Detailed=6, Training=10).")
+  section_count: Literal[1, 2, 3, 4, 5] = Field(default=2, description="Number of sections in the lesson (1=Quick Overview, 2=Highlights, 3=Standard, 4=Detailed, 5=In-Depth).")
   lesson_language: Literal["English", "German", "Urdu"] = Field(default="English", description="Primary language for lesson output.")
   secondary_language: Literal["English", "German", "Urdu"] | None = Field(default=None, description="Optional secondary language for language practice blueprint.")
   widgets: list[StrictStr] | None = Field(default=None, min_length=3, max_length=7, description="Optional list of allowed widgets (overrides defaults).")
@@ -66,10 +64,10 @@ class BaseLessonRequest(BaseModel):
       return values
 
     data = dict(values)
-    blueprint = data.get("blueprint")
+    learning_focus = data.get("learning_focus")
 
-    if isinstance(blueprint, str):
-      data["blueprint"] = _normalize_option_id(blueprint)
+    if isinstance(learning_focus, str):
+      data["learning_focus"] = _normalize_option_id(learning_focus)
 
     teaching_style = data.get("teaching_style")
 
@@ -96,37 +94,32 @@ class BaseLessonRequest(BaseModel):
       if language_value == "":
         data["secondary_language"] = None
       else:
-        # Ignore secondary_language for non-language blueprints to keep the API backward-compatible.
-        blueprint_value = data.get("blueprint")
-        if blueprint_value != "languagepractice":
-          data["secondary_language"] = None
-        else:
-          language_aliases = {"english": "English", "en": "English", "german": "German", "de": "German", "urdu": "Urdu", "ur": "Urdu"}
-          data["secondary_language"] = language_aliases.get(language_value.lower(), language_value)
+        language_aliases = {"english": "English", "en": "English", "german": "German", "de": "German", "urdu": "Urdu", "ur": "Urdu"}
+        data["secondary_language"] = language_aliases.get(language_value.lower(), language_value)
 
+    section_count = data.get("section_count")
+
+    # Coerce legacy depth values to section_count for backward compatibility
     depth = data.get("depth")
+    if depth is not None and section_count is None:
+      # Map old depth values to section counts
+      if isinstance(depth, str):
+        depth_map = {"highlights": 2, "detailed": 4, "training": 5}
+        data["section_count"] = depth_map.get(depth.lower(), 2)
+      elif isinstance(depth, int):
+        # Old numeric depths: 2 -> 2, 6 -> 4, 10 -> 5
+        if depth == 2:
+          data["section_count"] = 2
+        elif depth == 6:
+          data["section_count"] = 4
+        elif depth == 10:
+          data["section_count"] = 5
+        else:
+          data["section_count"] = min(max(1, depth), 5)
 
-    # Coerce legacy numeric depth values into supported labels so background jobs and older clients do not crash model validation.
-    if isinstance(depth, int):
-      if depth == 2:
-        data["depth"] = "highlights"
-      elif depth == 6:
-        data["depth"] = "detailed"
-      elif depth == 10:
-        data["depth"] = "training"
-      else:
-        raise ValueError("Depth must be Highlights, Detailed, Training, or one of 2, 6, 10.")
-
-    if isinstance(depth, str):
-      normalized_depth = _normalize_option_id(depth)
-      # Accept numeric string depths used by legacy clients and job payloads.
-      if normalized_depth == "2":
-        normalized_depth = "highlights"
-      elif normalized_depth == "6":
-        normalized_depth = "detailed"
-      elif normalized_depth == "10":
-        normalized_depth = "training"
-      data["depth"] = normalized_depth
+    # Validate and clamp section_count
+    if isinstance(section_count, int):
+      data["section_count"] = min(max(1, section_count), 5)
 
     widgets = data.get("widgets")
 
@@ -164,8 +157,35 @@ class BaseLessonRequest(BaseModel):
       raise ValueError("Widget entries must be unique.")
     return widgets
 
+
+class GenerateLessonRequest(BaseLessonRequest):
+  """Request payload for lesson generation."""
+
+  blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"] = Field(
+    description="Required blueprint guidance for lesson planning."
+  )
+  outcomes: list[OutcomeText] = Field(min_length=1, max_length=8, description="Required outcomes to guide the planner.")
+
+  @model_validator(mode="before")
+  @classmethod
+  def normalize_blueprint(cls, values: Any) -> Any:
+    """Normalize blueprint ID."""
+    if not isinstance(values, dict):
+      return values
+    data = dict(values)
+    blueprint = data.get("blueprint")
+    if isinstance(blueprint, str):
+      data["blueprint"] = _normalize_option_id(blueprint)
+    # Handle secondary_language for non-language blueprints
+    secondary_language = data.get("secondary_language")
+    if isinstance(secondary_language, str):
+      blueprint_value = data.get("blueprint")
+      if blueprint_value and blueprint_value != "languagepractice":
+        data["secondary_language"] = None
+    return data
+
   @model_validator(mode="after")
-  def validate_secondary_language_scope(self) -> BaseLessonRequest:
+  def validate_secondary_language_scope(self) -> GenerateLessonRequest:
     """Enforce secondary language only for language practice lessons."""
     # Require a target language only when the user selected the language practice blueprint.
     if self.blueprint == "languagepractice" and self.secondary_language is None:
@@ -174,12 +194,6 @@ class BaseLessonRequest(BaseModel):
     if self.secondary_language is not None and self.blueprint != "languagepractice":
       raise ValueError("secondary_language is only allowed when blueprint is languagepractice.")
     return self
-
-
-class GenerateLessonRequest(BaseLessonRequest):
-  """Request payload for lesson generation."""
-
-  outcomes: list[OutcomeText] = Field(min_length=1, max_length=8, description="Required outcomes to guide the planner.")
 
 
 class GenerateOutcomesRequest(BaseLessonRequest):
@@ -267,11 +281,11 @@ class LessonCatalogResponse(BaseModel):
   """Response payload for lesson option metadata."""
 
   blueprints: list[OptionDetail]
-  teaching_styles: list[OptionDetail]
+  learning_focus: list[OptionDetail]
+  teaching_approaches: list[OptionDetail]
   learner_levels: list[OptionDetail]
-  depths: list[OptionDetail]
+  section_counts: list[OptionDetail]
   widgets: list[OptionDetail]
-  default_widgets: dict[str, dict[str, list[StrictStr]]]
 
 
 class WritingCheckRequest(BaseModel):

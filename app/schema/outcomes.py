@@ -43,13 +43,13 @@ class OutcomesAgentInput(BaseModel):
   """
 
   topic: StrictStr = Field(min_length=1, max_length=200, description="Lesson topic.")
-  details: StrictStr | None = Field(default=None, min_length=1, max_length=300, description="Optional user-supplied details.")
-  teaching_style: list[StrictStr] | None = Field(default=None, description="Optional teaching style guidance.")
-  learner_level: StrictStr | None = Field(default=None, description="Optional learner level hint.")
-  depth: StrictStr = Field(default="highlights", description="Requested depth hint (used only for prompt guidance).")
-  lesson_language: StrictStr | None = Field(default="English", description="Primary language for the generated outcomes.")
+  details: StrictStr = Field(min_length=0, max_length=300, description="User-supplied details (can be empty if not provided).")
+  learning_focus: StrictStr = Field(description="Learning focus (conceptual, applied, comprehensive).")
+  teaching_style: list[StrictStr] = Field(description="Teaching approach guidance.")
+  learner_level: StrictStr = Field(description="Learner level hint.")
+  section_count: StrictInt = Field(ge=1, le=5, description="Number of sections (1-5, defines lesson depth and outcome count).")
+  lesson_language: StrictStr = Field(default="English", description="Primary language for the generated outcomes.")
   secondary_language: StrictStr | None = Field(default=None, description="Optional secondary language for language practice lessons (only relevant for language topics).")
-  max_outcomes: StrictInt = Field(default=5, ge=1, le=8, description="Maximum number of outcomes to return.")
 
   model_config = ConfigDict(extra="forbid")
 
@@ -67,9 +67,10 @@ class OutcomesAgentResponse(BaseModel):
   error: Literal["TOPIC_NOT_ALLOWED"] | None = Field(default=None, description="Simple error code when the topic is blocked.")
   message: StrictStr | None = Field(default=None, min_length=1, max_length=240, description="Human-readable reason shown to end users when the topic is blocked.")
   blocked_category: Literal["explicit_sexual", "political_advocacy", "military_warfare", "invalid_input"] | None = Field(default=None, description="High-level category used when blocking a topic.")
-  outcomes: list[OutcomeText] = Field(default_factory=list, min_length=0, max_length=8, description="A small list of straightforward learning outcomes.")
+  outcomes: list[OutcomeText] = Field(default_factory=list, min_length=0, max_length=8, description="Learning outcomes (3-8 items based on section count).")
   suggested_blueprint: StrictStr | None = Field(default=None, min_length=3, max_length=50, description="The recommended blueprint/framework for this topic (e.g., 'knowledge_understanding', 'languagepractice').")
   teacher_persona: StrictStr | None = Field(default=None, min_length=3, max_length=100, description="The ideal instructor archetype for this content (e.g., 'Socratic Professor', 'Workshop Facilitator').")
+  suggested_widgets: list[StrictStr] = Field(default_factory=list, description="Suggested widgets filtered by blueprint and teaching approaches.")
 
   model_config = ConfigDict(extra="forbid")
 

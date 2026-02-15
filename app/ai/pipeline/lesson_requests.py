@@ -13,10 +13,11 @@ class GenerateLessonRequestStruct(PipelineStruct):
   topic: str
   outcomes: list[str]
   blueprint: Literal["skillbuilding", "knowledgeunderstanding", "communicationskills", "planningandproductivity", "movementandfitness", "growthmindset", "criticalthinking", "creativeskills", "webdevandcoding", "languagepractice"]
-  teaching_style: list[Literal["conceptual", "theoretical", "practical"]]
+  learning_focus: Literal["conceptual", "applied", "comprehensive"] | None = None
+  teaching_style: list[Literal["conceptual", "theoretical", "practical", "direct", "socratic", "narrative", "experiential", "adaptive"]] = []
   details: str | None = None
   learner_level: str | None = None
-  depth: Literal["highlights", "detailed", "training"] = "highlights"
+  section_count: Literal[1, 2, 3, 4, 5] = 2
   lesson_language: Literal["English", "German", "Urdu"] = "English"
   secondary_language: Literal["English", "German", "Urdu"] | None = None
   widgets: list[str] | None = None
