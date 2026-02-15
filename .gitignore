@@ -238,3 +238,4 @@ logs/
 backups/
 scripts/set_github_stage_secrets.sh
 docs/wif-setup-commands.md
+storage_data/

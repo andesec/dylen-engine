@@ -1068,9 +1068,6 @@ class JobProcessor:
       uploaded_object_name = object_name
 
       async with session_factory() as session:
-        section_row = await session.get(Section, section_id)
-        if section_row is None:
-          raise RuntimeError(f"Section {section_id} not found for final illustration update.")
         illustration_row = await session.get(Illustration, illustration_row_id)
         if illustration_row is None:
           raise RuntimeError(f"Illustration row {illustration_row_id} not found for finalization.")
@@ -1080,25 +1077,10 @@ class JobProcessor:
         illustration_row.ai_prompt = generation_prompt
         illustration_row.keywords = generation_keywords
         session.add(illustration_row)
-        # Keep section payload as source of truth for the active illustration pointer.
-        section_content = dict(section_row.content or {})
-        existing_illustration = section_content.get("illustration")
-        tracking_id: str | None = None
-        if isinstance(existing_illustration, dict):
-          raw_tracking_id = existing_illustration.get("id")
-          if isinstance(raw_tracking_id, str) and raw_tracking_id.strip():
-            tracking_id = raw_tracking_id.strip()
-        if tracking_id is None:
-          tracking_id = await _resolve_section_widget_public_id(section_id=section_id, widget_type="illustration")
-        section_content["illustration"] = {"caption": generation_caption, "ai_prompt": generation_prompt, "keywords": generation_keywords, "resource_id": illustration_row.public_id, "id": tracking_id}
-        shorthand_content = build_section_shorthand_content(section_content)
-        section_row.content = section_content
-        section_row.content_shorthand = shorthand_content
-        section_row.illustration_id = illustration_row_id
-        session.add(section_row)
         await session.commit()
       finalized_success = True
-      await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed", widget_id=str(illustration_row.public_id))
+      # Update subsection_widget status to "completed" - do NOT touch section content or shorthand
+      await _update_subsection_widget_status(section_id=section_id, widget_types=("illustration",), status="completed")
 
       total_cost = calculate_total_cost(usage_list, pricing_table, provider=provider)
       cost_summary = _summarize_cost(usage_list, total_cost)

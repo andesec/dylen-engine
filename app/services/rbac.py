@@ -130,3 +130,18 @@ async def list_permission_slugs_for_role(session: AsyncSession, *, role_id: uuid
   stmt = select(Permission.slug).join(RolePermission, Permission.id == RolePermission.permission_id).where(RolePermission.role_id == role_id).order_by(Permission.slug.asc())
   result = await session.execute(stmt)
   return [str(row[0]) for row in result.fetchall()]
+
+
+async def list_permissions_for_roles(session: AsyncSession, *, role_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[Permission]]:
+  """List full permission records for multiple roles keyed by role id."""
+  # Short-circuit when no role ids are provided.
+  if not role_ids:
+    return {}
+
+  # Pre-seed keys so roles without permissions still return an empty list.
+  permissions_by_role: dict[uuid.UUID, list[Permission]] = {role_id: [] for role_id in role_ids}
+  stmt = select(RolePermission.role_id, Permission).join(Permission, Permission.id == RolePermission.permission_id).where(RolePermission.role_id.in_(role_ids)).order_by(RolePermission.role_id.asc(), Permission.slug.asc())
+  result = await session.execute(stmt)
+  for role_id, permission in result.all():
+    permissions_by_role[role_id].append(permission)
+  return permissions_by_role

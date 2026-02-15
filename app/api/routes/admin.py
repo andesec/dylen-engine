@@ -25,7 +25,9 @@ from app.services.feature_flags import delete_user_feature_flag_overrides, get_f
 from app.services.jobs import resume_job_from_failure_admin, trigger_job_processing
 from app.services.llm_pricing import load_pricing_table
 from app.services.rbac import create_role as create_role_record
-from app.services.rbac import get_role_by_id, get_role_by_name, list_permission_slugs_for_role, set_role_permissions
+from app.services.rbac import get_role_by_id, get_role_by_name, list_permission_slugs_for_role, list_permissions_for_roles, set_role_permissions
+from app.services.rbac import list_permissions as list_permissions_records
+from app.services.rbac import list_roles as list_roles_records
 from app.services.section_shorthand_backfill import backfill_section_shorthand
 from app.services.users import (
   UserListFilters,
@@ -255,6 +257,14 @@ class PermissionRecord(BaseModel):
   slug: str
   display_name: str
   description: str | None
+
+
+class RoleWithPermissionsRecord(BaseModel):
+  id: str
+  name: str
+  level: RoleLevel
+  description: str | None
+  permissions: list[PermissionRecord]
 
 
 class RoleCreateRequest(BaseModel):
@@ -501,6 +511,30 @@ async def create_role(request: RoleCreateRequest, db_session: AsyncSession = Dep
   # Persist a new role for administrative configuration.
   role = await create_role_record(db_session, name=request.name, level=request.level, description=request.description)
   return RoleRecord(id=str(role.id), name=role.name, level=role.level, description=role.description)
+
+
+@router.get("/roles", response_model=PaginatedResponse[RoleWithPermissionsRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_permissions_update"))])
+async def list_roles(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200), db_session: AsyncSession = Depends(get_db)) -> PaginatedResponse[RoleWithPermissionsRecord]:  # noqa: B008
+  """List RBAC roles for admin role-management UIs."""
+  # Fetch paginated role rows for role-management pickers.
+  offset = (page - 1) * limit
+  roles, total = await list_roles_records(db_session, limit=limit, offset=offset)
+  role_ids = [role.id for role in roles]
+  role_permissions = await list_permissions_for_roles(db_session, role_ids=role_ids)
+  items: list[RoleWithPermissionsRecord] = []
+  for role in roles:
+    permissions = role_permissions.get(role.id, [])
+    permission_records = [PermissionRecord(id=str(permission.id), slug=permission.slug, display_name=permission.display_name, description=permission.description) for permission in permissions]
+    items.append(RoleWithPermissionsRecord(id=str(role.id), name=role.name, level=role.level, description=role.description, permissions=permission_records))
+  return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/permissions", response_model=list[PermissionRecord], dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_permissions_update"))])
+async def list_permissions(db_session: AsyncSession = Depends(get_db)) -> list[PermissionRecord]:  # noqa: B008
+  """List available RBAC permissions for role assignment workflows."""
+  # Return all permissions so admin UIs can build role grant matrices.
+  permissions = await list_permissions_records(db_session)
+  return [PermissionRecord(id=str(permission.id), slug=permission.slug, display_name=permission.display_name, description=permission.description) for permission in permissions]
 
 
 @router.put("/roles/{role_id}/permissions", response_model=RolePermissionsResponse, dependencies=[Depends(require_role_level(RoleLevel.GLOBAL)), Depends(require_permission("rbac:role_permissions_update"))])

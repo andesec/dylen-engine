@@ -400,9 +400,69 @@ class SectionBuilder(BaseAgent[PlanSection, StructuredSection]):
           markdown_payload = msgspec.to_builtins(section_struct.markdown)
           markdown_id = await repo.create_widget_payload(widget_type="markdown", creator_id=creator_id, payload_json=markdown_payload)
           await repo.update_section_links(created_section.section_id, markdown_id=int(markdown_id))
+
           subsection_records = _collect_subsection_records(section_struct=section_struct, section_id=created_section.section_id)
           created_subsections = await repo.create_subsections(subsection_records) if subsection_records else []
           subsection_id_by_index = {row.subsection_index: int(row.id) for row in created_subsections if row.id is not None}
+
+          # Create Illustration record and subsection_widget tracking record for section-level illustration if it exists.
+          # This follows the same pattern as other widgets: create all DB records, set IDs, THEN generate shorthand.
+          if section_struct.illustration is not None and created_subsections:
+            from app.schema.illustrations import Illustration
+
+            first_subsection_id = subsection_id_by_index.get(1)
+            if first_subsection_id is not None:
+              # Get settings from metadata for storage bucket configuration
+              settings = (ctx.metadata or {}).get("settings")
+              if settings is None:
+                raise RuntimeError("SectionBuilder missing settings metadata for illustration creation.")
+
+              # Create Illustration record with status="pending" (image will be generated later)
+              illustration_public_id = generate_nanoid()
+              illustration_tracking_id = generate_nanoid()
+
+              # Get illustration metadata from the payload
+              illustration_caption = section_struct.illustration.caption
+              illustration_prompt = section_struct.illustration.ai_prompt
+              illustration_keywords = section_struct.illustration.keywords
+
+              async with session_factory() as session:
+                illustration_row = Illustration(
+                  public_id=illustration_public_id,
+                  creator_id=creator_id,
+                  storage_bucket=settings.illustration_bucket,
+                  storage_object_name=f"pending-{illustration_public_id}.webp",
+                  mime_type="image/webp",
+                  caption=illustration_caption,
+                  ai_prompt=illustration_prompt,
+                  keywords=illustration_keywords,
+                  status="pending",
+                  is_archived=False,
+                  regenerate=False,
+                )
+                session.add(illustration_row)
+                await session.commit()
+                await session.refresh(illustration_row)
+                illustration_db_id = int(illustration_row.id)
+
+              # Create subsection_widget tracking record
+              subsection_widget_record = SubsectionWidgetRecord(
+                subsection_id=first_subsection_id,
+                public_id=illustration_tracking_id,
+                widget_id=illustration_public_id,  # Points to Illustration.public_id
+                widget_index=0,  # Use 0 to indicate section-level widget
+                widget_type="illustration",
+                status="pending",
+                is_archived=False,
+              )
+              await repo.create_subsection_widgets([subsection_widget_record])
+
+              # Update section row to link the illustration
+              await repo.update_section_links(created_section.section_id, illustration_id=illustration_db_id)
+
+              # Set both resource_id and tracking id on the illustration payload before generating shorthand
+              section_struct.illustration.resource_id = illustration_public_id
+              section_struct.illustration.id = illustration_tracking_id
           for subsection_index, subsection in enumerate(section_struct.subsections, start=1):
             subsection_id = subsection_id_by_index.get(subsection_index)
             if subsection_id is None:

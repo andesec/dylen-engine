@@ -2475,15 +2475,15 @@
       },
       "OutcomesAgentResponse": {
         "additionalProperties": false,
-        "description": "Structured response from the outcomes agent.\n\nHow/Why:\n  - We need a stable, machine-validated response that can be returned directly from an API endpoint.\n  - The response intentionally supports a deny-path when a topic is disallowed.",
+        "description": "Structured response from the outcomes agent.\n\nHow/Why:\n  - We need a stable, machine-validated response that can be returned directly from an API endpoint.\n  - The response intentionally supports a deny-path when a topic is disallowed.\n  - The agent now suggests the best-fit blueprint and teacher persona for the topic.",
         "properties": {
           "blocked_category": {
             "anyOf": [
               {
                 "enum": [
-                  "sexual",
-                  "political",
-                  "military",
+                  "explicit_sexual",
+                  "political_advocacy",
+                  "military_warfare",
                   "invalid_input"
                 ],
                 "type": "string"
@@ -2536,6 +2536,34 @@
             "minItems": 0,
             "title": "Outcomes",
             "type": "array"
+          },
+          "suggested_blueprint": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The recommended blueprint/framework for this topic (e.g., 'knowledge_understanding', 'languagepractice').",
+            "title": "Suggested Blueprint"
+          },
+          "teacher_persona": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ideal instructor archetype for this content (e.g., 'Socratic Professor', 'Workshop Facilitator').",
+            "title": "Teacher Persona"
           }
         },
         "required": [
@@ -2635,6 +2663,37 @@
           "offset"
         ],
         "title": "PaginatedResponse[LlmAuditCallWithCost]",
+        "type": "object"
+      },
+      "PaginatedResponse_RoleWithPermissionsRecord_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoleWithPermissionsRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedResponse[RoleWithPermissionsRecord]",
         "type": "object"
       },
       "PaginatedResponse_UserRecord_": {
@@ -3600,6 +3659,48 @@
         "title": "RoleRecord",
         "type": "object"
       },
+      "RoleWithPermissionsRecord": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RoleLevel"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/PermissionRecord"
+            },
+            "title": "Permissions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "level",
+          "description",
+          "permissions"
+        ],
+        "title": "RoleWithPermissionsRecord",
+        "type": "object"
+      },
       "RuntimeConfigDefinitionRecord": {
         "properties": {
           "allowed_scopes": {
@@ -4400,8 +4501,8 @@
             ],
             "title": "Intended Use Other"
           },
-          "is_discarded": {
-            "title": "Is Discarded",
+          "is_archived": {
+            "title": "Is Archived",
             "type": "boolean"
           },
           "occupation": {
@@ -4566,7 +4667,7 @@
           "org_id",
           "org_name",
           "status",
-          "is_discarded",
+          "is_archived",
           "auth_method",
           "profession",
           "city",
@@ -4739,8 +4840,8 @@
             "title": "Id",
             "type": "string"
           },
-          "is_discarded": {
-            "title": "Is Discarded",
+          "is_archived": {
+            "title": "Is Archived",
             "type": "boolean"
           },
           "org_id": {
@@ -4788,7 +4889,7 @@
           "id",
           "email",
           "status",
-          "is_discarded",
+          "is_archived",
           "role_id",
           "role_name",
           "org_id",
@@ -6737,7 +6838,98 @@
         ]
       }
     },
+    "/admin/permissions": {
+      "get": {
+        "description": "List available RBAC permissions for role assignment workflows.",
+        "operationId": "list_permissions_admin_permissions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PermissionRecord"
+                  },
+                  "title": "Response List Permissions Admin Permissions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Permissions",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/roles": {
+      "get": {
+        "description": "List RBAC roles for admin role-management UIs.",
+        "operationId": "list_roles_admin_roles_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_RoleWithPermissionsRecord_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Roles",
+        "tags": [
+          "admin"
+        ]
+      },
       "post": {
         "description": "Create a new role for RBAC management.",
         "operationId": "create_role_admin_roles_post",
@@ -7137,11 +7329,11 @@
           },
           {
             "in": "query",
-            "name": "include_discarded",
+            "name": "include_archived",
             "required": false,
             "schema": {
               "default": false,
-              "title": "Include Discarded",
+              "title": "Include Archived",
               "type": "boolean"
             }
           },
